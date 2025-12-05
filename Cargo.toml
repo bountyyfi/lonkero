@@ -233,7 +233,7 @@ harness = false
 napi-build = "2.3.1"
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports", "async_tokio"] }
+criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
 tokio-test = "0.4"
 mockito = "1.7"
 wiremock = "0.6"
