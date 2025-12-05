@@ -79,7 +79,7 @@ opentelemetry = { version = "0.31", features = ["metrics", "trace"] }
 opentelemetry-prometheus = "0.29"
 prometheus = "0.14"
 metrics = "0.24"
-metrics-exporter-prometheus = "0.17"
+metrics-exporter-prometheus = "0.18"
 
 # Error handling
 anyhow = "1.0"
