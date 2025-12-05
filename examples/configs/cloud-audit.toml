@@ -1,0 +1,50 @@
+# Lonkero Cloud Security Audit Configuration
+# AWS, Azure, GCP infrastructure assessment
+
+[scanner]
+mode = "normal"
+concurrency = 20
+timeout = 60
+rate_limit = 30
+ultra = true
+subdomains = true
+crawl = false
+
+[output]
+format = "sarif"
+
+[http]
+follow_redirects = true
+max_redirects = 5
+verify_tls = true
+http2 = true
+
+[scanners]
+# Cloud-focused scanners
+only = [
+    "cloud_storage",
+    "container",
+    "api_gateway",
+    "aws_ec2",
+    "aws_s3",
+    "aws_rds",
+    "aws_lambda",
+    "azure_storage",
+    "azure_vm",
+    "gcp_storage",
+    "gcp_compute",
+    "ssrf",
+    "info_disclosure",
+    "sensitive_data"
+]
+
+[cloud]
+# AWS configuration
+# aws_region = "us-east-1"
+# aws_profile = "default"
+
+# Azure configuration
+# azure_subscription_id = ""
+
+# GCP configuration
+# gcp_project_id = ""

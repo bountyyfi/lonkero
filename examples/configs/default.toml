@@ -1,0 +1,35 @@
+# Lonkero Default Configuration
+# Standard balanced scanning profile
+
+[scanner]
+mode = "normal"
+concurrency = 50
+timeout = 30
+rate_limit = 100
+ultra = false
+subdomains = false
+crawl = false
+max_depth = 3
+
+[output]
+format = "json"
+
+[http]
+follow_redirects = true
+max_redirects = 5
+verify_tls = true
+http2 = true
+
+[authentication]
+# cookie = "session=abc123"
+# token = "Bearer eyJhbGciOiJIUzI1NiIs..."
+# basic_auth = "admin:password"
+
+[headers]
+# X-Custom-Header = "value"
+
+[scanners]
+# All scanners enabled by default
+
+[proxy]
+# url = "http://127.0.0.1:8080"

@@ -1,0 +1,36 @@
+# Lonkero CI/CD Pipeline Configuration
+# Fast scanning optimized for build pipelines
+
+[scanner]
+mode = "fast"
+concurrency = 50
+timeout = 15
+rate_limit = 100
+ultra = false
+subdomains = false
+crawl = false
+max_depth = 2
+
+[output]
+format = "sarif"
+# Compatible with GitHub Security, GitLab SAST
+
+[http]
+follow_redirects = true
+max_redirects = 3
+verify_tls = true
+http2 = true
+
+[scanners]
+# Critical security checks only for fast CI feedback
+only = [
+    "xss",
+    "sqli",
+    "command_injection",
+    "ssrf",
+    "security_headers",
+    "cors",
+    "csrf",
+    "jwt",
+    "info_disclosure"
+]

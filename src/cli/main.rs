@@ -1,0 +1,1592 @@
+// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
+/**
+ * Lonkero - Enterprise Web Security Scanner
+ * Standalone CLI for vulnerability assessment
+ *
+ * Features:
+ * - 60+ vulnerability scanner modules
+ * - Multiple output formats (JSON, HTML, PDF, SARIF, Markdown)
+ * - Configurable scan profiles
+ * - Multi-target support
+ * - Subdomain enumeration
+ * - Technology detection
+ * - Cloud security scanning
+ *
+ * (c) 2025 Bountyy Oy
+ */
+
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
+use tracing::{error, info, warn, Level};
+use tracing_subscriber::{fmt, EnvFilter};
+
+use lonkero_scanner::config::ScannerConfig;
+use lonkero_scanner::http_client::HttpClient;
+use lonkero_scanner::scanners::ScanEngine;
+use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults, Vulnerability};
+
+/// Lonkero - Enterprise Web Security Scanner
+#[derive(Parser)]
+#[command(name = "lonkero")]
+#[command(author = "Bountyy Oy <security@bountyy.fi>")]
+#[command(version = "1.0.0")]
+#[command(about = "Enterprise-grade web vulnerability scanner with 60+ attack modules", long_about = None)]
+#[command(propagate_version = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
+    /// Enable debug output
+    #[arg(short, long, global = true)]
+    debug: bool,
+
+    /// Quiet mode - only show vulnerabilities
+    #[arg(short, long, global = true)]
+    quiet: bool,
+
+    /// Configuration file path
+    #[arg(short, long, global = true)]
+    config: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Scan a target for vulnerabilities
+    Scan {
+        /// Target URL(s) to scan
+        #[arg(required = true)]
+        targets: Vec<String>,
+
+        /// Scan mode: fast, normal, thorough, insane
+        #[arg(short, long, default_value = "normal")]
+        mode: ScanModeArg,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output format: json, html, pdf, sarif, markdown, csv, xlsx
+        #[arg(short, long, default_value = "json")]
+        format: OutputFormat,
+
+        /// Enable subdomain enumeration
+        #[arg(long)]
+        subdomains: bool,
+
+        /// Enable web crawler (enabled by default to discover real parameters)
+        #[arg(long, default_value = "true")]
+        crawl: bool,
+
+        /// Maximum crawl depth
+        #[arg(long, default_value = "3")]
+        max_depth: u32,
+
+        /// Maximum concurrent requests
+        #[arg(long, default_value = "50")]
+        concurrency: usize,
+
+        /// Request timeout in seconds
+        #[arg(long, default_value = "30")]
+        timeout: u64,
+
+        /// Custom User-Agent string
+        #[arg(long)]
+        user_agent: Option<String>,
+
+        /// Authentication cookie
+        #[arg(long)]
+        cookie: Option<String>,
+
+        /// Authentication bearer token
+        #[arg(long)]
+        token: Option<String>,
+
+        /// HTTP Basic auth (user:pass)
+        #[arg(long)]
+        basic_auth: Option<String>,
+
+        /// Custom headers (format: "Header: Value")
+        #[arg(short = 'H', long)]
+        header: Vec<String>,
+
+        /// Skip specific scanner modules
+        #[arg(long)]
+        skip: Vec<String>,
+
+        /// Only run specific scanner modules
+        #[arg(long)]
+        only: Vec<String>,
+
+        /// Proxy URL (http://host:port)
+        #[arg(long)]
+        proxy: Option<String>,
+
+        /// Disable TLS certificate verification
+        #[arg(long)]
+        insecure: bool,
+
+        /// Rate limit (requests per second)
+        #[arg(long, default_value = "100")]
+        rate_limit: u32,
+
+        /// Enable ultra mode (more thorough, slower)
+        #[arg(long)]
+        ultra: bool,
+    },
+
+    /// List available scanner modules
+    List {
+        /// Show detailed information
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+    },
+
+    /// Validate target URL(s)
+    Validate {
+        /// Target URL(s) to validate
+        targets: Vec<String>,
+    },
+
+    /// Generate sample configuration file
+    Init {
+        /// Output path for config file
+        #[arg(short, long, default_value = "lonkero.toml")]
+        output: PathBuf,
+    },
+
+    /// Show scanner version and build info
+    Version,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum ScanModeArg {
+    Fast,
+    Normal,
+    Thorough,
+    Insane,
+}
+
+impl From<ScanModeArg> for ScanMode {
+    fn from(mode: ScanModeArg) -> Self {
+        match mode {
+            ScanModeArg::Fast => ScanMode::Fast,
+            ScanModeArg::Normal => ScanMode::Normal,
+            ScanModeArg::Thorough => ScanMode::Thorough,
+            ScanModeArg::Insane => ScanMode::Insane,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum OutputFormat {
+    Json,
+    Html,
+    Pdf,
+    Sarif,
+    Markdown,
+    Csv,
+    Xlsx,
+    Junit,
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    // Initialize logging
+    let log_level = if cli.debug {
+        Level::DEBUG
+    } else if cli.verbose {
+        Level::INFO
+    } else if cli.quiet {
+        Level::ERROR
+    } else {
+        Level::INFO
+    };
+
+    tracing_subscriber::fmt()
+        .with_max_level(log_level)
+        .with_target(false)
+        .with_thread_ids(false)
+        .init();
+
+    // Create async runtime
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(num_cpus::get())
+        .thread_name("lonkero-scanner")
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async_main(cli))
+}
+
+async fn async_main(cli: Cli) -> Result<()> {
+    match cli.command {
+        Commands::Scan {
+            targets,
+            mode,
+            output,
+            format,
+            subdomains,
+            crawl,
+            max_depth,
+            concurrency,
+            timeout,
+            user_agent,
+            cookie,
+            token,
+            basic_auth,
+            header,
+            skip,
+            only,
+            proxy,
+            insecure,
+            rate_limit,
+            ultra,
+        } => {
+            run_scan(
+                targets,
+                mode.into(),
+                output,
+                format,
+                subdomains,
+                crawl,
+                max_depth,
+                concurrency,
+                timeout,
+                user_agent,
+                cookie,
+                token,
+                basic_auth,
+                header,
+                skip,
+                only,
+                proxy,
+                insecure,
+                rate_limit,
+                ultra,
+            )
+            .await
+        }
+        Commands::List { verbose, category } => list_scanners(verbose, category),
+        Commands::Validate { targets } => validate_targets(targets).await,
+        Commands::Init { output } => generate_config(output),
+        Commands::Version => show_version(),
+    }
+}
+
+async fn run_scan(
+    targets: Vec<String>,
+    mode: ScanMode,
+    output: Option<PathBuf>,
+    format: OutputFormat,
+    subdomains: bool,
+    crawl: bool,
+    max_depth: u32,
+    concurrency: usize,
+    timeout: u64,
+    user_agent: Option<String>,
+    cookie: Option<String>,
+    token: Option<String>,
+    basic_auth: Option<String>,
+    headers: Vec<String>,
+    _skip: Vec<String>,
+    _only: Vec<String>,
+    _proxy: Option<String>,
+    _insecure: bool,
+    rate_limit: u32,
+    ultra: bool,
+) -> Result<()> {
+    print_banner();
+
+    info!("Initializing Lonkero Scanner v1.0.0");
+    info!("Scan mode: {:?}", mode);
+    info!("Targets: {}", targets.len());
+
+    // Build scanner configuration
+    let scanner_config = ScannerConfig {
+        max_concurrency: concurrency,
+        request_timeout_secs: timeout,
+        max_retries: 2,
+        rate_limit_rps: rate_limit,
+        rate_limit_enabled: true,
+        rate_limit_adaptive: true,
+        http2_enabled: true,
+        http2_adaptive_window: true,
+        http2_max_concurrent_streams: 100,
+        pool_max_idle_per_host: 10,
+        cache_enabled: true,
+        cache_max_capacity: 10000,
+        cache_ttl_secs: 300,
+        dns_cache_enabled: true,
+        subdomain_enum_enabled: subdomains,
+        subdomain_enum_thorough: ultra,
+        cdn_detection_enabled: true,
+        early_termination_enabled: false,
+        adaptive_concurrency_enabled: true,
+        initial_concurrency: 10,
+        max_concurrency_per_target: concurrency,
+        request_batching_enabled: false,
+        batch_size: 50,
+        ..Default::default()
+    };
+
+    // Parse custom headers
+    let mut custom_headers = std::collections::HashMap::new();
+    for h in headers {
+        if let Some((key, value)) = h.split_once(':') {
+            custom_headers.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+
+    if let Some(ua) = &user_agent {
+        custom_headers.insert("User-Agent".to_string(), ua.clone());
+    }
+
+    // Create scan engine
+    let engine = Arc::new(ScanEngine::new(scanner_config.clone())?);
+    info!("[OK] Scan engine initialized with {} scanner modules", 60);
+
+    let start_time = Instant::now();
+    let mut all_results: Vec<ScanResults> = Vec::new();
+    let mut total_vulns = 0;
+    let mut total_tests = 0;
+
+    // Scan each target
+    for (idx, target) in targets.iter().enumerate() {
+        info!("");
+        info!("=== Scanning target {}/{}: {} ===", idx + 1, targets.len(), target);
+
+        // Validate target URL
+        if let Err(e) = url::Url::parse(target) {
+            error!("Invalid target URL '{}': {}", target, e);
+            continue;
+        }
+
+        // Build scan job
+        let scan_config = ScanConfig {
+            scan_mode: mode,
+            ultra,
+            enable_crawler: crawl,
+            max_depth,
+            max_pages: 100,
+            enum_subdomains: subdomains,
+            auth_cookie: cookie.clone(),
+            auth_token: token.clone(),
+            auth_basic: basic_auth.clone(),
+            custom_headers: if custom_headers.is_empty() {
+                None
+            } else {
+                Some(custom_headers.clone())
+            },
+        };
+
+        let job = Arc::new(ScanJob {
+            scan_id: format!("scan_{}", uuid::Uuid::new_v4()),
+            target: target.clone(),
+            config: scan_config,
+        });
+
+        // Execute scan (standalone mode - no Redis queue)
+        match execute_standalone_scan(Arc::clone(&engine), job, &scanner_config).await {
+            Ok(results) => {
+                let vuln_count = results.vulnerabilities.len();
+                total_vulns += vuln_count;
+                total_tests += results.tests_run;
+
+                // Print vulnerability summary
+                print_vulnerability_summary(&results);
+
+                all_results.push(results);
+            }
+            Err(e) => {
+                error!("Scan failed for {}: {}", target, e);
+            }
+        }
+    }
+
+    let elapsed = start_time.elapsed();
+
+    // Print final summary
+    println!();
+    println!("{}", "=".repeat(60));
+    println!("SCAN COMPLETE");
+    println!("{}", "=".repeat(60));
+    println!("Targets scanned:    {}", targets.len());
+    println!("Total tests run:    {}", total_tests);
+    println!("Vulnerabilities:    {}", total_vulns);
+    println!("Duration:           {:.2}s", elapsed.as_secs_f64());
+    println!("{}", "=".repeat(60));
+
+    // Output results
+    if let Some(output_path) = output {
+        write_results(&all_results, &output_path, format)?;
+        info!("Results written to: {}", output_path.display());
+    } else {
+        // Print to stdout if no output file specified
+        let json = serde_json::to_string_pretty(&all_results)?;
+        println!("{}", json);
+    }
+
+    // Exit with error code if vulnerabilities found
+    if total_vulns > 0 {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+async fn execute_standalone_scan(
+    engine: Arc<ScanEngine>,
+    job: Arc<ScanJob>,
+    config: &ScannerConfig,
+) -> Result<ScanResults> {
+    use lonkero_scanner::crawler::{CrawlResults, WebCrawler};
+    use lonkero_scanner::framework_detector::FrameworkDetector;
+    use lonkero_scanner::types::{Confidence, Severity, Vulnerability};
+    use std::collections::HashSet;
+
+    let start_time = Instant::now();
+    let started_at = chrono::Utc::now().to_rfc3339();
+
+    let target = &job.target;
+    let scan_config = &job.config;
+
+    info!("Starting scan for: {}", target);
+
+    // Create HTTP client for reconnaissance
+    let http_client = Arc::new(HttpClient::with_config(
+        config.request_timeout_secs,
+        config.max_retries,
+        config.http2_enabled,
+        config.http2_adaptive_window,
+        config.http2_max_concurrent_streams,
+        config.pool_max_idle_per_host,
+    )?);
+
+    let mut all_vulnerabilities: Vec<Vulnerability> = Vec::new();
+    let mut total_tests: u64 = 0;
+
+    // Phase 0: Reconnaissance
+    info!("Phase 0: Reconnaissance");
+
+    // Web crawling (if enabled) - STORE results for parameter discovery
+    let mut discovered_params: Vec<String> = Vec::new();
+    let mut discovered_forms: Vec<(String, Vec<String>)> = Vec::new(); // (action_url, field_names)
+
+    if scan_config.enable_crawler {
+        info!("  - Running web crawler (depth: {})", scan_config.max_depth);
+        let crawler = WebCrawler::new(Arc::clone(&http_client), scan_config.max_depth as usize, scan_config.max_pages as usize);
+        match crawler.crawl(target).await {
+            Ok(results) => {
+                info!("  - Discovered {} URLs, {} forms", results.crawled_urls.len(), results.forms.len());
+
+                // Extract parameters from discovered forms for XSS testing
+                for form in &results.forms {
+                    let form_params: Vec<String> = form.inputs.iter()
+                        .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
+                                       !input.input_type.eq_ignore_ascii_case("submit") &&
+                                       !input.name.is_empty())
+                        .map(|input| input.name.clone())
+                        .collect();
+
+                    if !form_params.is_empty() {
+                        let action_url = if form.action.is_empty() {
+                            target.to_string()
+                        } else {
+                            form.action.clone()
+                        };
+                        discovered_forms.push((action_url, form_params.clone()));
+                        discovered_params.extend(form_params);
+                    }
+                }
+
+                if !discovered_params.is_empty() {
+                    info!("  - Found {} input fields to test for XSS", discovered_params.len());
+                }
+            }
+            Err(e) => {
+                warn!("  - Crawler failed: {}", e);
+            }
+        }
+    }
+
+    // Technology detection - STORE RESULTS for smart filtering
+    info!("  - Detecting technologies");
+    let detector = FrameworkDetector::new(Arc::clone(&http_client));
+    let detected_technologies: std::collections::HashSet<String> = match detector.detect(target).await {
+        Ok(techs) => {
+            if !techs.is_empty() {
+                info!("[SUCCESS] Detected {} technologies", techs.len());
+                for tech in &techs {
+                    info!("    - {} ({:?})", tech.name, tech.category);
+                }
+            }
+            techs.iter().map(|t| t.name.to_lowercase()).collect()
+        }
+        Err(e) => {
+            warn!("  - Technology detection failed: {}", e);
+            std::collections::HashSet::new()
+        }
+    };
+
+    // Determine tech stack for smart scanner filtering
+    let is_nodejs_stack = detected_technologies.iter().any(|t|
+        t.contains("next") || t.contains("node") || t.contains("express") ||
+        t.contains("react") || t.contains("vue") || t.contains("angular") ||
+        t.contains("nuxt") || t.contains("gatsby")
+    );
+    let is_php_stack = detected_technologies.iter().any(|t|
+        t.contains("php") || t.contains("wordpress") || t.contains("laravel") ||
+        t.contains("drupal") || t.contains("magento")
+    );
+    let is_python_stack = detected_technologies.iter().any(|t|
+        t.contains("python") || t.contains("django") || t.contains("flask") ||
+        t.contains("jinja") || t.contains("fastapi")
+    );
+    let is_java_stack = detected_technologies.iter().any(|t|
+        t.contains("java") || t.contains("spring") || t.contains("tomcat") ||
+        t.contains("struts") || t.contains("jsp")
+    );
+    let is_static_site = detected_technologies.iter().any(|t|
+        t.contains("cloudflare pages") || t.contains("vercel") || t.contains("netlify") ||
+        t.contains("github pages")
+    );
+
+    // CVE-2025-55182 Check - CRITICAL for Next.js/React sites
+    // This is a CVSS 10.0 RCE vulnerability in React Server Components
+    if is_nodejs_stack || detected_technologies.iter().any(|t| t.contains("next") || t.contains("react")) {
+        info!("  - Checking CVE-2025-55182 (React Server Components RCE)");
+        let (vulns, tests) = engine.cve_2025_55182_scanner.scan(target, scan_config).await?;
+        if !vulns.is_empty() {
+            warn!("[CRITICAL] CVE-2025-55182 vulnerability detected!");
+        }
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Azure APIM Cross-Tenant Signup Bypass Check (GHSA-vcwf-73jp-r7mv)
+    // Check for any target - the scanner will detect if it's an APIM portal
+    {
+        info!("  - Checking Azure APIM Cross-Tenant Signup Bypass");
+        let (vulns, tests) = engine.azure_apim_scanner.scan(target, scan_config).await?;
+        if !vulns.is_empty() {
+            warn!("[ALERT] Azure APIM Cross-Tenant Signup Bypass detected!");
+        }
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Phase 1: Parameter-based scanning
+    info!("Phase 1: Parameter injection testing");
+
+    // Extract REAL parameters from URL
+    let parsed_url = url::Url::parse(target)?;
+    let mut test_params: Vec<(String, String)> = parsed_url
+        .query_pairs()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+    // Also add discovered form fields from crawling
+    for param in &discovered_params {
+        if !test_params.iter().any(|(name, _)| name == param) {
+            test_params.push((param.clone(), "test".to_string()));
+        }
+    }
+
+    // Only test parameters that actually exist
+    let has_real_params = !test_params.is_empty();
+
+    if !has_real_params {
+        info!("  [NOTE] No parameters found - skipping parameter injection tests");
+    } else {
+        info!("  [OK] Found {} parameters to test (URL + discovered forms)", test_params.len());
+    }
+
+    // Only run parameter injection tests if we have REAL parameters to test
+    if has_real_params {
+        // Run XSS scanner
+        info!("  - Testing XSS ({} parameters)", test_params.len());
+        for (param_name, _) in &test_params {
+            let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+
+        // Run SQLi scanner (skip for static sites)
+        if !is_static_site {
+            info!("  - Testing SQL Injection");
+            for (param_name, _) in &test_params {
+                let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+
+        // Run Command Injection scanner (skip for static sites)
+        if !is_static_site {
+            info!("  - Testing Command Injection");
+            for (param_name, _) in &test_params {
+                let (vulns, tests) = engine.cmdi_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+
+        // Run Path Traversal scanner (skip for static sites)
+        if !is_static_site {
+            info!("  - Testing Path Traversal");
+            for (param_name, _) in &test_params {
+                let (vulns, tests) = engine.path_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+
+        // Run SSRF scanner (skip for static sites - they can't make server requests)
+        if !is_static_site {
+            info!("  - Testing SSRF");
+            for (param_name, _) in &test_params {
+                let (vulns, tests) = engine.ssrf_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+    }
+
+    // Phase 2: Configuration & Header testing
+    info!("Phase 2: Security configuration testing");
+
+    // Security Headers
+    info!("  - Testing Security Headers");
+    let (vulns, tests) = engine.security_headers_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // CORS
+    info!("  - Testing CORS Configuration");
+    let (vulns, tests) = engine.cors_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // CSRF
+    info!("  - Testing CSRF Protection");
+    let (vulns, tests) = engine.csrf_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Clickjacking
+    info!("  - Testing Clickjacking Protection");
+    let (vulns, tests) = engine.clickjacking_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Phase 3: Authentication & Authorization
+    info!("Phase 3: Authentication testing");
+
+    // JWT vulnerabilities (only if auth token is provided)
+    info!("  - Testing JWT Security");
+    if let Some(ref token) = scan_config.auth_token {
+        let (vulns, tests) = engine.jwt_scanner.scan_jwt(target, token, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // OAuth
+    info!("  - Testing OAuth Security");
+    let (vulns, tests) = engine.oauth_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Session Management
+    info!("  - Testing Session Management");
+    let (vulns, tests) = engine.session_management_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Auth Bypass
+    info!("  - Testing Authentication Bypass");
+    let (vulns, tests) = engine.auth_bypass_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // IDOR
+    info!("  - Testing IDOR");
+    let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Phase 4: API Security
+    info!("Phase 4: API security testing");
+
+    // GraphQL
+    info!("  - Testing GraphQL Security");
+    let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // API Security
+    info!("  - Testing API Security");
+    let (vulns, tests) = engine.api_security_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // gRPC
+    info!("  - Testing gRPC Security");
+    let (vulns, tests) = engine.grpc_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Phase 5: Advanced injection testing (TECHNOLOGY-AWARE)
+    info!("Phase 5: Advanced injection testing");
+
+    // XXE - Only test if real params exist and not a static/JS-only site
+    if has_real_params && !is_static_site && !is_nodejs_stack {
+        info!("  - Testing XXE");
+        for (param_name, _) in &test_params {
+            let (vulns, tests) = engine.xxe_scanner.scan_parameter(target, param_name, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    } else {
+        info!("  - Skipping XXE (not applicable for detected stack)");
+    }
+
+    // SSTI - Only for Python (Jinja2, Django) or PHP (Twig) or Java (Freemarker)
+    // Skip for Next.js/React - they don't use server-side templates
+    if is_python_stack || is_php_stack || is_java_stack {
+        info!("  - Testing Template Injection (SSTI)");
+        let (vulns, tests) = engine.template_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - Skipping SSTI (not applicable for Next.js/React stack)");
+    }
+
+    // NoSQL Injection - Only test if real params exist and not static site
+    if has_real_params && !is_static_site {
+        info!("  - Testing NoSQL Injection");
+        for (param_name, _) in &test_params {
+            let (vulns, tests) = engine.nosql_scanner.scan_parameter(target, param_name, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    } else {
+        info!("  - Skipping NoSQL Injection (no parameters or static site)");
+    }
+
+    // LDAP Injection - Only for enterprise/Java/.NET stacks, not modern JS apps
+    if is_java_stack || (is_php_stack && !is_nodejs_stack) {
+        info!("  - Testing LDAP Injection");
+        let (vulns, tests) = engine.ldap_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - Skipping LDAP Injection (not applicable for detected stack)");
+    }
+
+    // Code Injection - Only for PHP, Python, Ruby (eval-type injections)
+    if is_php_stack || is_python_stack {
+        info!("  - Testing Code Injection");
+        let (vulns, tests) = engine.code_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - Skipping Code Injection (not applicable for detected stack)");
+    }
+
+    // Deserialization - ONLY for PHP/Java/.NET, NOT for Node.js/Next.js
+    if is_php_stack || is_java_stack {
+        info!("  - Testing Insecure Deserialization");
+        let (vulns, tests) = engine.deserialization_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - Skipping Deserialization (not applicable for Node.js/Next.js stack)");
+    }
+
+    // Phase 6: Protocol & Transport testing
+    info!("Phase 6: Protocol testing");
+
+    // HTTP Smuggling
+    info!("  - Testing HTTP Smuggling");
+    let (vulns, tests) = engine.http_smuggling_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // WebSocket
+    info!("  - Testing WebSocket Security");
+    let (vulns, tests) = engine.websocket_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // CRLF Injection
+    info!("  - Testing CRLF Injection");
+    let (vulns, tests) = engine.crlf_injection_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Host Header Injection
+    info!("  - Testing Host Header Injection");
+    let (vulns, tests) = engine.host_header_injection_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Phase 7: Business Logic & Misc
+    info!("Phase 7: Business logic testing");
+
+    // Race Conditions
+    info!("  - Testing Race Conditions");
+    let (vulns, tests) = engine.race_condition_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Mass Assignment
+    info!("  - Testing Mass Assignment");
+    let (vulns, tests) = engine.mass_assignment_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // File Upload
+    info!("  - Testing File Upload Security");
+    let (vulns, tests) = engine.file_upload_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Open Redirect
+    info!("  - Testing Open Redirect");
+    let (vulns, tests) = engine.open_redirect_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Information Disclosure
+    info!("  - Testing Information Disclosure");
+    let (vulns, tests) = engine.information_disclosure_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Sensitive Data
+    info!("  - Testing Sensitive Data Exposure");
+    let (vulns, tests) = engine.sensitive_data_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Cache Poisoning
+    info!("  - Testing Cache Poisoning");
+    let (vulns, tests) = engine.cache_poisoning_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Prototype Pollution - ESPECIALLY important for JavaScript/React apps
+    if is_nodejs_stack {
+        info!("  - Testing Prototype Pollution (JS-heavy site detected)");
+    } else {
+        info!("  - Testing Prototype Pollution");
+    }
+    let (vulns, tests) = engine.prototype_pollution_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // JavaScript Mining - CRITICAL for React/Next.js sites
+    // Looks for: API keys, secrets, endpoints, sensitive data in JS files
+    info!("  - Mining JavaScript files for sensitive data");
+    let (vulns, tests) = engine.js_miner_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Business Logic
+    info!("  - Testing Business Logic Flaws");
+    let (vulns, tests) = engine.business_logic_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Phase 8: Cloud & Container (if applicable)
+    if scan_config.ultra {
+        info!("Phase 8: Cloud & Container security (Ultra mode)");
+
+        // Cloud Storage
+        info!("  - Testing Cloud Storage Misconfigurations");
+        let (vulns, tests) = engine.cloud_storage_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Container Security
+        info!("  - Testing Container Security");
+        let (vulns, tests) = engine.container_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // API Gateway
+        info!("  - Testing API Gateway Security");
+        let (vulns, tests) = engine.api_gateway_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    let elapsed = start_time.elapsed();
+
+    info!("");
+    info!("Scan completed: {} vulnerabilities, {} tests, {:.2}s",
+        all_vulnerabilities.len(), total_tests, elapsed.as_secs_f64());
+
+    Ok(ScanResults {
+        scan_id: job.scan_id.clone(),
+        target: target.clone(),
+        tests_run: total_tests,
+        vulnerabilities: all_vulnerabilities,
+        started_at,
+        completed_at: chrono::Utc::now().to_rfc3339(),
+        duration_seconds: elapsed.as_secs_f64(),
+        early_terminated: false,
+        termination_reason: None,
+    })
+}
+
+fn print_banner() {
+    println!(r#"
+    __                __
+   / /   ____  ____  / /_____  _________
+  / /   / __ \/ __ \/ //_/ _ \/ ___/ __ \
+ / /___/ /_/ / / / / ,< /  __/ /  / /_/ /
+/_____/\____/_/ /_/_/|_|\___/_/   \____/
+
+        Enterprise Web Security Scanner
+            v1.0.0 - (c) 2025 Bountyy Oy
+"#);
+}
+
+fn print_vulnerability_summary(results: &ScanResults) {
+    use lonkero_scanner::types::Severity;
+
+    let critical = results.vulnerabilities.iter().filter(|v| v.severity == Severity::Critical).count();
+    let high = results.vulnerabilities.iter().filter(|v| v.severity == Severity::High).count();
+    let medium = results.vulnerabilities.iter().filter(|v| v.severity == Severity::Medium).count();
+    let low = results.vulnerabilities.iter().filter(|v| v.severity == Severity::Low).count();
+    let info = results.vulnerabilities.iter().filter(|v| v.severity == Severity::Info).count();
+
+    println!();
+    println!("{}", "-".repeat(60));
+    println!("VULNERABILITIES FOUND: {}", results.vulnerabilities.len());
+    println!("{}", "-".repeat(60));
+
+    if critical > 0 {
+        println!("  [CRITICAL] {}", critical);
+    }
+    if high > 0 {
+        println!("  [HIGH]     {}", high);
+    }
+    if medium > 0 {
+        println!("  [MEDIUM]   {}", medium);
+    }
+    if low > 0 {
+        println!("  [LOW]      {}", low);
+    }
+    if info > 0 {
+        println!("  [INFO]     {}", info);
+    }
+
+    // Print each vulnerability
+    for vuln in &results.vulnerabilities {
+        let severity_str = match vuln.severity {
+            Severity::Critical => "[CRITICAL]",
+            Severity::High => "[HIGH]    ",
+            Severity::Medium => "[MEDIUM]  ",
+            Severity::Low => "[LOW]     ",
+            Severity::Info => "[INFO]    ",
+        };
+
+        println!();
+        println!("{} {}", severity_str, vuln.vuln_type);
+        println!("  URL:       {}", vuln.url);
+        if let Some(param) = &vuln.parameter {
+            println!("  Parameter: {}", param);
+        }
+        println!("  CWE:       {}", vuln.cwe);
+        println!("  CVSS:      {:.1}", vuln.cvss);
+    }
+
+    println!("{}", "-".repeat(60));
+}
+
+fn write_results(results: &[ScanResults], path: &PathBuf, format: OutputFormat) -> Result<()> {
+    let content = match format {
+        OutputFormat::Json => serde_json::to_string_pretty(results)?,
+        OutputFormat::Html => generate_html_report(results)?,
+        OutputFormat::Markdown => generate_markdown_report(results)?,
+        OutputFormat::Sarif => generate_sarif_report(results)?,
+        OutputFormat::Csv => generate_csv_report(results)?,
+        _ => serde_json::to_string_pretty(results)?, // Fallback to JSON
+    };
+
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
+fn generate_html_report(results: &[ScanResults]) -> Result<String> {
+    let mut html = String::from(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lonkero Security Scan Report - Bountyy</title>
+    <style>
+        :root {
+            --terminal-green: #00ff00;
+            --bg-dark: #0a0a0a;
+            --bg-card: #111111;
+            --bg-card-hover: #1a1a1a;
+            --border-color: #222222;
+            --text-primary: #e0e0e0;
+            --text-secondary: #888888;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+            margin: 0;
+            padding: 40px;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 30px rgba(0, 255, 0, 0.05);
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .logo { height: 50px; }
+        h1 {
+            color: var(--terminal-green);
+            font-size: 1.8em;
+            margin: 0;
+            text-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+        }
+        h2 {
+            color: var(--terminal-green);
+            font-size: 1.3em;
+            margin-top: 30px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .summary {
+            display: flex;
+            gap: 15px;
+            margin: 25px 0;
+            flex-wrap: wrap;
+        }
+        .stat {
+            padding: 15px 25px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+            min-width: 100px;
+            border: 1px solid var(--border-color);
+        }
+        .critical { background: rgba(231, 76, 60, 0.2); color: #e74c3c; border-color: #e74c3c; }
+        .high { background: rgba(230, 126, 34, 0.2); color: #e67e22; border-color: #e67e22; }
+        .medium { background: rgba(243, 156, 18, 0.2); color: #f39c12; border-color: #f39c12; }
+        .low { background: rgba(52, 152, 219, 0.2); color: #3498db; border-color: #3498db; }
+        .info { background: rgba(149, 165, 166, 0.2); color: #95a5a6; border-color: #95a5a6; }
+        .meta {
+            color: var(--text-secondary);
+            font-size: 0.9em;
+            margin-bottom: 20px;
+        }
+        .meta span { color: var(--terminal-green); }
+        .vuln {
+            border: 1px solid var(--border-color);
+            margin: 15px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .vuln:hover { border-color: var(--terminal-green); box-shadow: 0 0 15px rgba(0, 255, 0, 0.1); }
+        .vuln-header {
+            padding: 15px 20px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .vuln-body {
+            padding: 20px;
+            background: var(--bg-dark);
+        }
+        .vuln-critical .vuln-header { background: rgba(231, 76, 60, 0.3); color: #ff6b6b; border-left: 4px solid #e74c3c; }
+        .vuln-high .vuln-header { background: rgba(230, 126, 34, 0.3); color: #ffa94d; border-left: 4px solid #e67e22; }
+        .vuln-medium .vuln-header { background: rgba(243, 156, 18, 0.3); color: #ffd43b; border-left: 4px solid #f39c12; }
+        .vuln-low .vuln-header { background: rgba(52, 152, 219, 0.3); color: #74c0fc; border-left: 4px solid #3498db; }
+        .vuln-info .vuln-header { background: rgba(149, 165, 166, 0.3); color: #adb5bd; border-left: 4px solid #95a5a6; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        th {
+            background: var(--bg-card);
+            color: var(--terminal-green);
+            width: 150px;
+            font-weight: normal;
+        }
+        td { color: var(--text-primary); }
+        code {
+            background: var(--bg-card);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: var(--terminal-green);
+            border: 1px solid var(--border-color);
+            word-break: break-all;
+        }
+        .badge {
+            font-size: 0.75em;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+        footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            text-align: center;
+            font-size: 0.85em;
+        }
+        footer a { color: var(--terminal-green); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        .no-vulns {
+            text-align: center;
+            padding: 40px;
+            color: var(--terminal-green);
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://bountyyfi.s3.eu-north-1.amazonaws.com/bountyy.fi-2.png" alt="Bountyy" class="logo">
+            <h1>Lonkero Security Scan Report</h1>
+        </div>
+"#);
+
+    for result in results {
+        let critical = result.vulnerabilities.iter().filter(|v| v.severity == lonkero_scanner::types::Severity::Critical).count();
+        let high = result.vulnerabilities.iter().filter(|v| v.severity == lonkero_scanner::types::Severity::High).count();
+        let medium = result.vulnerabilities.iter().filter(|v| v.severity == lonkero_scanner::types::Severity::Medium).count();
+        let low = result.vulnerabilities.iter().filter(|v| v.severity == lonkero_scanner::types::Severity::Low).count();
+        let info = result.vulnerabilities.iter().filter(|v| v.severity == lonkero_scanner::types::Severity::Info).count();
+
+        html.push_str(&format!(r#"
+        <h2>Target: <code>{}</code></h2>
+        <div class="summary">
+            <div class="stat critical">Critical<br><strong>{}</strong></div>
+            <div class="stat high">High<br><strong>{}</strong></div>
+            <div class="stat medium">Medium<br><strong>{}</strong></div>
+            <div class="stat low">Low<br><strong>{}</strong></div>
+            <div class="stat info">Info<br><strong>{}</strong></div>
+        </div>
+        <p class="meta">Tests run: <span>{}</span> | Duration: <span>{:.2}s</span> | Scan completed: <span>{}</span></p>
+"#, result.target, critical, high, medium, low, info, result.tests_run, result.duration_seconds, result.completed_at));
+
+        for vuln in &result.vulnerabilities {
+            let severity_class = match vuln.severity {
+                lonkero_scanner::types::Severity::Critical => "vuln-critical",
+                lonkero_scanner::types::Severity::High => "vuln-high",
+                lonkero_scanner::types::Severity::Medium => "vuln-medium",
+                lonkero_scanner::types::Severity::Low => "vuln-low",
+                lonkero_scanner::types::Severity::Info => "vuln-info",
+            };
+
+            html.push_str(&format!(r#"
+        <div class="vuln {}">
+            <div class="vuln-header">{:?} - {}</div>
+            <div class="vuln-body">
+                <table>
+                    <tr><th>URL</th><td><code>{}</code></td></tr>
+                    <tr><th>Parameter</th><td>{}</td></tr>
+                    <tr><th>CWE</th><td>{}</td></tr>
+                    <tr><th>CVSS</th><td>{:.1}</td></tr>
+                    <tr><th>Description</th><td>{}</td></tr>
+                    <tr><th>Remediation</th><td>{}</td></tr>
+                </table>
+            </div>
+        </div>
+"#, severity_class, vuln.severity, vuln.vuln_type, vuln.url, vuln.parameter.as_deref().unwrap_or("-"), vuln.cwe, vuln.cvss, vuln.description, vuln.remediation));
+        }
+    }
+
+    html.push_str(r#"
+        <footer>
+            <p>Generated by <strong>Lonkero v1.0.0</strong> - Enterprise Web Security Scanner</p>
+            <p>&copy; 2025 <a href="https://bountyy.fi" target="_blank">Bountyy Oy</a> | All rights reserved</p>
+        </footer>
+    </div>
+</body>
+</html>"#);
+
+    Ok(html)
+}
+
+fn generate_markdown_report(results: &[ScanResults]) -> Result<String> {
+    let mut md = String::from("# Lonkero Security Scan Report\n\n");
+
+    for result in results {
+        md.push_str(&format!("## Target: {}\n\n", result.target));
+        md.push_str(&format!("- **Tests Run:** {}\n", result.tests_run));
+        md.push_str(&format!("- **Duration:** {:.2}s\n", result.duration_seconds));
+        md.push_str(&format!("- **Vulnerabilities Found:** {}\n\n", result.vulnerabilities.len()));
+
+        if !result.vulnerabilities.is_empty() {
+            md.push_str("### Vulnerabilities\n\n");
+            md.push_str("| Severity | Type | URL | CWE | CVSS |\n");
+            md.push_str("|----------|------|-----|-----|------|\n");
+
+            for vuln in &result.vulnerabilities {
+                md.push_str(&format!("| {:?} | {} | {} | {} | {:.1} |\n",
+                    vuln.severity, vuln.vuln_type, vuln.url, vuln.cwe, vuln.cvss));
+            }
+
+            md.push_str("\n---\n\n");
+
+            for vuln in &result.vulnerabilities {
+                md.push_str(&format!("#### {} - {:?}\n\n", vuln.vuln_type, vuln.severity));
+                md.push_str(&format!("- **URL:** `{}`\n", vuln.url));
+                if let Some(param) = &vuln.parameter {
+                    md.push_str(&format!("- **Parameter:** `{}`\n", param));
+                }
+                md.push_str(&format!("- **CWE:** {}\n", vuln.cwe));
+                md.push_str(&format!("- **CVSS:** {:.1}\n\n", vuln.cvss));
+                md.push_str(&format!("**Description:** {}\n\n", vuln.description));
+                md.push_str(&format!("**Remediation:** {}\n\n", vuln.remediation));
+                md.push_str("---\n\n");
+            }
+        }
+    }
+
+    md.push_str("\n---\n*Generated by Lonkero v1.0.0 | (c) 2025 Bountyy Oy*\n");
+
+    Ok(md)
+}
+
+fn generate_sarif_report(results: &[ScanResults]) -> Result<String> {
+    let sarif = serde_json::json!({
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": results.iter().map(|r| {
+            serde_json::json!({
+                "tool": {
+                    "driver": {
+                        "name": "Lonkero",
+                        "version": "1.0.0",
+                        "informationUri": "https://github.com/bountyyfi/lonkero"
+                    }
+                },
+                "results": r.vulnerabilities.iter().map(|v| {
+                    serde_json::json!({
+                        "ruleId": v.cwe.clone(),
+                        "level": match v.severity {
+                            lonkero_scanner::types::Severity::Critical | lonkero_scanner::types::Severity::High => "error",
+                            lonkero_scanner::types::Severity::Medium => "warning",
+                            _ => "note"
+                        },
+                        "message": {
+                            "text": v.description.clone()
+                        },
+                        "locations": [{
+                            "physicalLocation": {
+                                "artifactLocation": {
+                                    "uri": v.url.clone()
+                                }
+                            }
+                        }]
+                    })
+                }).collect::<Vec<_>>()
+            })
+        }).collect::<Vec<_>>()
+    });
+
+    Ok(serde_json::to_string_pretty(&sarif)?)
+}
+
+fn generate_csv_report(results: &[ScanResults]) -> Result<String> {
+    let mut csv = String::from("Target,Vulnerability Type,Severity,URL,Parameter,CWE,CVSS,Description\n");
+
+    for result in results {
+        for vuln in &result.vulnerabilities {
+            csv.push_str(&format!("\"{}\",\"{}\",\"{:?}\",\"{}\",\"{}\",\"{}\",\"{:.1}\",\"{}\"\n",
+                result.target,
+                vuln.vuln_type,
+                vuln.severity,
+                vuln.url,
+                vuln.parameter.as_deref().unwrap_or(""),
+                vuln.cwe,
+                vuln.cvss,
+                vuln.description.replace("\"", "\"\"")
+            ));
+        }
+    }
+
+    Ok(csv)
+}
+
+fn list_scanners(verbose: bool, category: Option<String>) -> Result<()> {
+    let scanners = vec![
+        ("xss", "Injection", "Cross-Site Scripting (XSS) - Reflected, Stored, DOM-based"),
+        ("sqli", "Injection", "SQL Injection - Error-based, Blind, Time-based"),
+        ("command_injection", "Injection", "OS Command Injection"),
+        ("path_traversal", "Injection", "Path/Directory Traversal"),
+        ("ssrf", "Injection", "Server-Side Request Forgery"),
+        ("xxe", "Injection", "XML External Entity Injection"),
+        ("ssti", "Injection", "Server-Side Template Injection"),
+        ("nosql", "Injection", "NoSQL Injection (MongoDB, Redis)"),
+        ("ldap", "Injection", "LDAP Injection"),
+        ("code_injection", "Injection", "Code Injection (PHP, Python, Ruby)"),
+        ("crlf", "Injection", "CRLF Injection / HTTP Response Splitting"),
+        ("xpath", "Injection", "XPath Injection"),
+        ("xml", "Injection", "XML Injection"),
+        ("ssi", "Injection", "Server-Side Includes Injection"),
+        ("security_headers", "Configuration", "Missing/Misconfigured Security Headers"),
+        ("cors", "Configuration", "CORS Misconfiguration"),
+        ("csrf", "Configuration", "Cross-Site Request Forgery"),
+        ("clickjacking", "Configuration", "Clickjacking / UI Redressing"),
+        ("jwt", "Authentication", "JWT Security Issues"),
+        ("oauth", "Authentication", "OAuth 2.0 Vulnerabilities"),
+        ("saml", "Authentication", "SAML Security Issues"),
+        ("auth_bypass", "Authentication", "Authentication Bypass"),
+        ("session", "Authentication", "Session Management Issues"),
+        ("mfa", "Authentication", "MFA Bypass/Weaknesses"),
+        ("idor", "Authorization", "Insecure Direct Object References"),
+        ("mass_assignment", "Authorization", "Mass Assignment Vulnerabilities"),
+        ("graphql", "API", "GraphQL Security Issues"),
+        ("api_security", "API", "API Security (REST, SOAP)"),
+        ("grpc", "API", "gRPC Security"),
+        ("websocket", "Protocol", "WebSocket Security"),
+        ("http_smuggling", "Protocol", "HTTP Request Smuggling"),
+        ("host_header", "Protocol", "Host Header Injection"),
+        ("http3", "Protocol", "HTTP/3 and QUIC Security"),
+        ("race_condition", "Logic", "Race Condition Vulnerabilities"),
+        ("business_logic", "Logic", "Business Logic Flaws"),
+        ("open_redirect", "Logic", "Open Redirect"),
+        ("file_upload", "Files", "File Upload Vulnerabilities"),
+        ("deserialization", "Files", "Insecure Deserialization"),
+        ("info_disclosure", "Information", "Information Disclosure"),
+        ("sensitive_data", "Information", "Sensitive Data Exposure"),
+        ("js_miner", "Information", "JavaScript Secret Mining"),
+        ("cache_poisoning", "Cache", "Web Cache Poisoning"),
+        ("prototype_pollution", "JavaScript", "Prototype Pollution"),
+        ("cloud_storage", "Cloud", "Cloud Storage Misconfigurations (S3, GCS, Azure Blob)"),
+        ("container", "Cloud", "Container Security"),
+        ("api_gateway", "Cloud", "API Gateway Security"),
+        ("aws_ec2", "Cloud", "AWS EC2 Security"),
+        ("aws_s3", "Cloud", "AWS S3 Security"),
+        ("aws_rds", "Cloud", "AWS RDS Security"),
+        ("aws_lambda", "Cloud", "AWS Lambda Security"),
+        ("azure_storage", "Cloud", "Azure Storage Security"),
+        ("azure_vm", "Cloud", "Azure VM Security"),
+        ("gcp_storage", "Cloud", "GCP Storage Security"),
+        ("gcp_compute", "Cloud", "GCP Compute Security"),
+        ("framework", "Framework", "Framework-Specific Vulnerabilities"),
+        ("webauthn", "Authentication", "WebAuthn/FIDO2 Security"),
+    ];
+
+    println!("Available Scanner Modules ({} total)", scanners.len());
+    println!("{}", "=".repeat(70));
+
+    let filter_category = category.as_ref().map(|c| c.to_lowercase());
+
+    for (name, cat, desc) in &scanners {
+        if let Some(ref filter) = filter_category {
+            if !cat.to_lowercase().contains(filter) {
+                continue;
+            }
+        }
+
+        if verbose {
+            println!("\n[{}]", name);
+            println!("  Category:    {}", cat);
+            println!("  Description: {}", desc);
+        } else {
+            println!("{:20} {:15} {}", name, cat, desc);
+        }
+    }
+
+    println!("\n{}", "=".repeat(70));
+    println!("Use --only or --skip flags to control which scanners run");
+
+    Ok(())
+}
+
+async fn validate_targets(targets: Vec<String>) -> Result<()> {
+    println!("Validating {} target(s)...\n", targets.len());
+
+    for target in &targets {
+        print!("{}: ", target);
+
+        // Validate URL format
+        match url::Url::parse(target) {
+            Ok(parsed) => {
+                if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                    println!("INVALID (scheme must be http or https)");
+                    continue;
+                }
+
+                // Try to connect
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()?;
+
+                match client.get(target).send().await {
+                    Ok(response) => {
+                        println!("OK (status: {}, server: {})",
+                            response.status(),
+                            response.headers()
+                                .get("server")
+                                .map(|v| v.to_str().unwrap_or("unknown"))
+                                .unwrap_or("unknown")
+                        );
+                    }
+                    Err(e) => {
+                        println!("UNREACHABLE ({})", e);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("INVALID URL ({})", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn generate_config(output: PathBuf) -> Result<()> {
+    let config = r#"# Lonkero Scanner Configuration
+# See: https://github.com/bountyyfi/lonkero
+
+[scanner]
+# Scan mode: fast, normal, thorough, insane
+mode = "normal"
+
+# Maximum concurrent requests
+concurrency = 50
+
+# Request timeout in seconds
+timeout = 30
+
+# Rate limit (requests per second per target)
+rate_limit = 100
+
+# Enable ultra mode for more thorough scanning
+ultra = false
+
+# Enable subdomain enumeration
+subdomains = false
+
+# Enable web crawler
+crawl = false
+max_depth = 3
+
+[output]
+# Output format: json, html, pdf, sarif, markdown, csv
+format = "json"
+
+# Output file path (optional)
+# path = "scan-results.json"
+
+[http]
+# Custom User-Agent
+# user_agent = "Lonkero/1.0"
+
+# Follow redirects
+follow_redirects = true
+max_redirects = 5
+
+# TLS verification
+verify_tls = true
+
+[authentication]
+# Authentication cookie
+# cookie = "session=abc123"
+
+# Bearer token
+# token = "eyJhbGciOiJIUzI1NiIs..."
+
+# HTTP Basic Auth (user:pass)
+# basic_auth = "admin:password"
+
+[headers]
+# Custom headers
+# X-Custom-Header = "value"
+# Authorization = "Bearer token"
+
+[scanners]
+# Enable/disable specific scanners
+# skip = ["grpc", "websocket"]
+# only = ["xss", "sqli", "ssrf"]
+
+[proxy]
+# Proxy URL
+# url = "http://127.0.0.1:8080"
+
+[cloud]
+# AWS credentials (for cloud scanning)
+# aws_region = "us-east-1"
+# aws_profile = "default"
+
+# Azure credentials
+# azure_subscription_id = ""
+
+# GCP credentials
+# gcp_project_id = ""
+"#;
+
+    std::fs::write(&output, config)?;
+    println!("Configuration file generated: {}", output.display());
+    println!("\nEdit this file and run: lonkero scan --config {}", output.display());
+
+    Ok(())
+}
+
+fn show_version() -> Result<()> {
+    println!("Lonkero v1.0.0");
+    println!("Enterprise Web Security Scanner");
+    println!("");
+    println!("(c) 2025 Bountyy Oy");
+    println!("https://github.com/bountyyfi/lonkero");
+    println!("");
+    println!("Build info:");
+    println!("  Rust version: {}", env!("CARGO_PKG_RUST_VERSION").chars().take(10).collect::<String>());
+    println!("  Target:       {}", std::env::consts::ARCH);
+    println!("  OS:           {}", std::env::consts::OS);
+    println!("");
+    println!("Scanner modules: 60+");
+    println!("Supported outputs: JSON, HTML, PDF, SARIF, Markdown, CSV, XLSX, JUnit");
+
+    Ok(())
+}
+

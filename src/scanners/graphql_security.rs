@@ -1,0 +1,420 @@
+// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
+use crate::http_client::HttpClient;
+use crate::types::{ScanConfig, Severity, Vulnerability};
+use std::sync::Arc;
+use tracing::info;
+
+mod uuid {
+    pub use uuid::Uuid;
+}
+
+/// Scanner for GraphQL security vulnerabilities
+pub struct GraphqlSecurityScanner {
+    http_client: Arc<HttpClient>,
+    test_marker: String,
+}
+
+impl GraphqlSecurityScanner {
+    pub fn new(http_client: Arc<HttpClient>) -> Self {
+        let test_marker = format!("gql-{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        Self {
+            http_client,
+            test_marker,
+        }
+    }
+
+    /// Run GraphQL security scan
+    pub async fn scan(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        info!("Starting GraphQL security scan on {}", url);
+
+        let mut all_vulnerabilities = Vec::new();
+        let mut total_tests = 0;
+
+        // Test introspection enabled
+        let (vulns, tests) = self.test_introspection(url).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests;
+
+        // Test GraphQL injection
+        let (vulns, tests) = self.test_graphql_injection(url).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests;
+
+        // Test field suggestions
+        let (vulns, tests) = self.test_field_suggestions(url).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests;
+
+        // Test batch query attacks
+        let (vulns, tests) = self.test_batch_queries(url).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests;
+
+        info!(
+            "GraphQL security scan completed: {} tests run, {} vulnerabilities found",
+            total_tests,
+            all_vulnerabilities.len()
+        );
+
+        Ok((all_vulnerabilities, total_tests))
+    }
+
+    /// Test if GraphQL introspection is enabled
+    async fn test_introspection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 2;
+
+        info!("Testing GraphQL introspection");
+
+        // Try common GraphQL endpoints
+        let graphql_endpoints = vec![
+            format!("{}/graphql", url.trim_end_matches('/')),
+            format!("{}/api/graphql", url.trim_end_matches('/')),
+        ];
+
+        // Introspection query
+        let introspection_query = r#"{"query":"{\n  __schema {\n    types {\n      name\n    }\n  }\n}"}"#;
+
+        for endpoint in graphql_endpoints {
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+            match self.http_client.post_with_headers(&endpoint, introspection_query, headers).await {
+                Ok(response) => {
+                    if self.detect_introspection_enabled(&response.body) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Introspection Enabled",
+                            &endpoint,
+                            &format!("GraphQL introspection is enabled. Response contains schema information: {}",
+                                self.extract_evidence(&response.body, 200)),
+                            Severity::Medium,
+                            "CWE-200",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => {
+                    info!("Introspection test failed for {}: {}", endpoint, e);
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for GraphQL injection vulnerabilities
+    async fn test_graphql_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 3;
+
+        info!("Testing GraphQL injection");
+
+        let graphql_endpoints = vec![
+            format!("{}/graphql", url.trim_end_matches('/')),
+            format!("{}/api/graphql", url.trim_end_matches('/')),
+        ];
+
+        // Injection payloads
+        let injection_payloads = vec![
+            (r#"{"query":"{ user(id: \"1' OR '1'='1\") { name } }"}"#, "SQL injection in GraphQL"),
+            (r#"{"query":"{ user(id: \"1; DROP TABLE users--\") { name } }"}"#, "SQL injection with DROP"),
+            (r#"{"query":"{ user(id: \"$ne\") { name } }"}"#, "NoSQL injection"),
+        ];
+
+        for endpoint in &graphql_endpoints {
+            for (payload, description) in &injection_payloads {
+                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+                match self.http_client.post_with_headers(endpoint, payload, headers).await {
+                    Ok(response) => {
+                        if self.detect_injection_success(&response.body) {
+                            vulnerabilities.push(self.create_vulnerability(
+                                "GraphQL Injection",
+                                endpoint,
+                                &format!("{}: {}", description, payload),
+                                Severity::Critical,
+                                "CWE-89",
+                            ));
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        info!("GraphQL injection test failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for field suggestions (information disclosure)
+    async fn test_field_suggestions(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 1;
+
+        info!("Testing GraphQL field suggestions");
+
+        let graphql_endpoints = vec![
+            format!("{}/graphql", url.trim_end_matches('/')),
+        ];
+
+        // Query with typo to trigger field suggestions
+        let suggestion_query = r#"{"query":"{ usr { name } }"}"#;
+
+        for endpoint in graphql_endpoints {
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+            match self.http_client.post_with_headers(&endpoint, suggestion_query, headers).await {
+                Ok(response) => {
+                    if self.detect_field_suggestions(&response.body) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Field Suggestions Enabled",
+                            &endpoint,
+                            &format!("GraphQL exposes field suggestions which can leak schema information: {}",
+                                self.extract_evidence(&response.body, 150)),
+                            Severity::Low,
+                            "CWE-200",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => {
+                    info!("Field suggestions test failed: {}", e);
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for batch query attacks
+    async fn test_batch_queries(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 1;
+
+        info!("Testing GraphQL batch query attacks");
+
+        let graphql_endpoints = vec![
+            format!("{}/graphql", url.trim_end_matches('/')),
+        ];
+
+        // Batch query with multiple operations
+        let batch_query = r#"[
+            {"query":"{ __typename }"},
+            {"query":"{ __typename }"},
+            {"query":"{ __typename }"},
+            {"query":"{ __typename }"},
+            {"query":"{ __typename }"}
+        ]"#;
+
+        for endpoint in graphql_endpoints {
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+            match self.http_client.post_with_headers(&endpoint, batch_query, headers).await {
+                Ok(response) => {
+                    if self.detect_batch_query_accepted(&response.body) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Batch Queries Enabled",
+                            &endpoint,
+                            "GraphQL endpoint accepts batch queries without rate limiting, potentially enabling DoS attacks",
+                            Severity::Medium,
+                            "CWE-770",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => {
+                    info!("Batch query test failed: {}", e);
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Detect if introspection is enabled
+    fn detect_introspection_enabled(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check for schema information in response
+        (body_lower.contains("__schema") || body_lower.contains("__type")) &&
+        (body_lower.contains("types") || body_lower.contains("fields")) &&
+        !body_lower.contains("error") &&
+        !body_lower.contains("introspection is disabled")
+    }
+
+    /// Detect successful injection
+    fn detect_injection_success(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check for SQL/database errors or unexpected data
+        let sql_errors = vec![
+            "sql syntax",
+            "mysql",
+            "postgresql",
+            "sqlite",
+            "syntax error",
+            "unclosed quotation",
+            "ora-",
+        ];
+
+        for error in sql_errors {
+            if body_lower.contains(error) {
+                return true;
+            }
+        }
+
+        // Check for successful data extraction
+        body_lower.contains("\"data\"") &&
+        !body_lower.contains("\"errors\"") &&
+        (body_lower.contains("user") || body_lower.contains("admin"))
+    }
+
+    /// Detect field suggestions
+    fn detect_field_suggestions(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        body_lower.contains("did you mean") ||
+        body_lower.contains("suggestion") ||
+        (body_lower.contains("field") && body_lower.contains("not found") && body_lower.contains("available"))
+    }
+
+    /// Detect batch query acceptance
+    fn detect_batch_query_accepted(&self, body: &str) -> bool {
+        // Check if response contains array of results
+        body.starts_with('[') && body.ends_with(']') && body.contains("__typename")
+    }
+
+    /// Extract evidence from response
+    fn extract_evidence(&self, body: &str, max_len: usize) -> String {
+        if body.len() <= max_len {
+            body.to_string()
+        } else {
+            format!("{}...", &body[..max_len])
+        }
+    }
+
+    /// Create a vulnerability record
+    fn create_vulnerability(
+        &self,
+        vuln_type: &str,
+        url: &str,
+        evidence: &str,
+        severity: Severity,
+        cwe: &str,
+    ) -> Vulnerability {
+        let cvss = match severity {
+            Severity::Critical => 9.1,
+            Severity::High => 7.5,
+            Severity::Medium => 5.3,
+            Severity::Low => 3.7,
+            Severity::Info => 2.0,
+        };
+
+        Vulnerability {
+            id: format!("gql_{}", uuid::Uuid::new_v4().to_string()),
+            vuln_type: vuln_type.to_string(),
+            severity,
+            confidence: crate::types::Confidence::Medium,
+            category: "API Security".to_string(),
+            url: url.to_string(),
+            parameter: None,
+            payload: "".to_string(),
+            description: format!("{}: {}", vuln_type, evidence),
+            evidence: Some(evidence.to_string()),
+            cwe: cwe.to_string(),
+            cvss: cvss as f32,
+            verified: true,
+            false_positive: false,
+            remediation: self.get_remediation(vuln_type),
+            discovered_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    /// Get remediation advice based on vulnerability type
+    fn get_remediation(&self, vuln_type: &str) -> String {
+        match vuln_type {
+            "GraphQL Introspection Enabled" => {
+                "Disable GraphQL introspection in production environments. Configure your GraphQL server to reject introspection queries. Use schema validation and access control to protect sensitive schema information.".to_string()
+            }
+            "GraphQL Injection" => {
+                "Implement proper input validation and parameterized queries. Use GraphQL query complexity analysis. Validate and sanitize all user inputs. Implement proper error handling that doesn't leak sensitive information.".to_string()
+            }
+            "GraphQL Field Suggestions Enabled" => {
+                "Disable field suggestions in production. Return generic error messages that don't reveal schema information. Implement proper access control and authentication.".to_string()
+            }
+            "GraphQL Batch Queries Enabled" => {
+                "Implement query batching limits. Use query complexity analysis and depth limiting. Implement rate limiting at the API level. Set maximum batch size and reject oversized batches.".to_string()
+            }
+            _ => {
+                "Implement proper GraphQL security: disable introspection in production, use query complexity limits, implement proper authentication and authorization, validate all inputs, and monitor for abuse.".to_string()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::ScanConfig;
+
+    fn create_test_scanner() -> GraphqlSecurityScanner {
+        let client = Arc::new(HttpClient::new(10000, 3).unwrap());
+        GraphqlSecurityScanner::new(client)
+    }
+
+    #[test]
+    fn test_detect_introspection_enabled() {
+        let scanner = create_test_scanner();
+
+        assert!(scanner.detect_introspection_enabled(r#"{"data":{"__schema":{"types":[{"name":"User"}]}}}"#));
+        assert!(scanner.detect_introspection_enabled(r#"{"__type":{"fields":[{"name":"id"}]}}"#));
+
+        assert!(!scanner.detect_introspection_enabled(r#"{"error":"Introspection is disabled"}"#));
+        assert!(!scanner.detect_introspection_enabled(r#"{"data":{"user":{"name":"John"}}}"#));
+    }
+
+    #[test]
+    fn test_detect_injection_success() {
+        let scanner = create_test_scanner();
+
+        assert!(scanner.detect_injection_success(r#"SQL syntax error near 'OR'"#));
+        assert!(scanner.detect_injection_success(r#"MySQL error: unclosed quotation"#));
+
+        assert!(!scanner.detect_injection_success(r#"{"errors":[{"message":"Invalid query"}]}"#));
+    }
+
+    #[test]
+    fn test_detect_field_suggestions() {
+        let scanner = create_test_scanner();
+
+        assert!(scanner.detect_field_suggestions(r#"Field 'usr' not found. Did you mean 'user'?"#));
+        assert!(scanner.detect_field_suggestions(r#"No field found with suggestion 'user'"#));
+
+        assert!(!scanner.detect_field_suggestions(r#"Field not found"#));
+    }
+
+    #[test]
+    fn test_detect_batch_query_accepted() {
+        let scanner = create_test_scanner();
+
+        assert!(scanner.detect_batch_query_accepted(r#"[{"data":{"__typename":"Query"}},{"data":{"__typename":"Query"}}]"#));
+
+        assert!(!scanner.detect_batch_query_accepted(r#"{"data":{"__typename":"Query"}}"#));
+    }
+
+    #[test]
+    fn test_test_marker_uniqueness() {
+        let scanner1 = create_test_scanner();
+        let scanner2 = create_test_scanner();
+
+        assert_ne!(scanner1.test_marker, scanner2.test_marker);
+        assert!(scanner1.test_marker.starts_with("gql-"));
+    }
+}

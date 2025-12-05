@@ -1,0 +1,242 @@
+[package]
+name = "lonkero"
+version = "1.0.0"
+edition = "2021"
+authors = ["Bountyy Oy <security@bountyy.fi>"]
+description = "Enterprise-grade web security vulnerability scanner with 60+ attack modules"
+license = "Proprietary"
+repository = "https://github.com/bountyyfi/lonkero"
+keywords = ["security", "scanner", "vulnerability", "pentest", "web-security"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+
+[lib]
+name = "lonkero_scanner"
+crate-type = ["cdylib", "rlib"]
+
+# Main CLI binary - standalone security scanner
+[[bin]]
+name = "lonkero"
+path = "src/cli/main.rs"
+
+# Distributed worker for queue-based scanning
+[[bin]]
+name = "lonkero-worker"
+path = "src/bin/scanner-worker.rs"
+
+# Internal network agent
+[[bin]]
+name = "lonkero-agent"
+path = "src/bin/internal-agent.rs"
+
+# Cloud-specific scanners
+[[bin]]
+name = "lonkero-aws-ec2"
+path = "src/bin/aws-ec2-scanner.rs"
+
+[[bin]]
+name = "lonkero-aws-s3"
+path = "src/bin/aws-s3-scanner.rs"
+
+[[bin]]
+name = "lonkero-aws-rds"
+path = "src/bin/aws-rds-scanner.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.48", features = ["full", "tracing"] }
+futures = "0.3"
+
+# HTTP client with HTTP/2 support
+reqwest = { version = "0.12.24", features = ["json", "cookies", "stream", "rustls-tls-native-roots"] }
+hyper = { version = "1.8.1", features = ["http2", "server", "client"] }
+h2 = "0.4"
+
+# Redis for queue and caching (use version compatible with deadpool-redis)
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "aio"] }
+deadpool-redis = "0.18"
+
+# PostgreSQL database
+tokio-postgres = { version = "0.7.15", features = ["with-chrono-0_4", "with-serde_json-1"] }
+deadpool-postgres = "0.14.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# URL parsing
+url = "2.5"
+urlencoding = "2.1"
+
+# Regex
+regex = "1.10"
+
+# Logging & Tracing & Metrics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.32"
+opentelemetry = { version = "0.31", features = ["metrics", "trace"] }
+opentelemetry-prometheus = "0.29"
+prometheus = "0.14"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.17"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0.17"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Random
+rand = "0.9"
+
+# Base64
+base64 = "0.22.1"
+
+# Bytes for efficient memory handling
+bytes = "1.5"
+
+# String interning for memory optimization
+string-interner = "0.19"
+
+# Smart pointers and optimized collections
+ahash = "0.8"
+smallvec = "1.13"
+
+# Cryptography (for JWT testing)
+hmac = "0.12"
+sha2 = "0.10"
+
+# DNS resolution (hickory-dns is the modern fork of trust-dns with better async support)
+hickory-resolver = "0.25"
+
+# HTML parsing
+scraper = "0.24"
+
+# Rate limiting - Token Bucket
+governor = "0.10"
+nonzero_ext = "0.3"
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# Connection pooling
+bb8 = "0.9"
+
+# Machine Learning for payload selection
+smartcore = { version = "0.4", features = ["serde"] }
+
+# Graceful shutdown
+tokio-util = "0.7"
+signal-hook = "0.3"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
+
+# Health checks
+axum = "0.8.7"
+tower = "0.5.2"
+tower-http = { version = "0.6.2", features = ["trace"] }
+
+# Configuration
+config = "0.15"
+dotenv = "0.15"
+toml = "0.9"
+serde_yaml = "0.9"
+notify = "8.2"
+validator = { version = "0.20", features = ["derive"] }
+lazy_static = "1.5"
+once_cell = "1.20"
+parking_lot = "0.12"
+num_cpus = "1.16"
+
+# CLI
+clap = { version = "4.5.52", features = ["derive", "env"] }
+
+# UUID
+uuid = { version = "1.18.1", features = ["v4", "serde"] }
+
+# N-API bindings for Node.js
+napi = { version = "3.5.2", features = ["async", "tokio_rt", "serde-json"] }
+napi-derive = "3.3.3"
+
+# Compression
+flate2 = "1.0"
+
+# Priority queue
+priority-queue = "2.7"
+
+# PDF generation
+printpdf = "0.8"
+
+# CSV generation
+csv = "1.3"
+
+# HTML templating
+tera = "1.20"
+minify-html = "0.18"
+
+# Email sending
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
+
+# Excel/XLSX generation
+rust_xlsxwriter = "0.92.1"
+
+# AWS SDK for cloud security scanning
+aws-config = { version = "1.8.10", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1.112"
+aws-sdk-rds = "1.115"
+aws-sdk-lambda = "1.104"
+aws-sdk-iam = "1.97"
+aws-sdk-ec2 = "1.189"
+aws-sdk-apigateway = "1.92"
+aws-sdk-ecr = "1.99"
+aws-sdk-sts = "1.92"
+aws-sdk-cloudformation = "1.101"
+
+# Azure SDK for cloud security scanning
+# Updated azure_identity to latest stable 0.30.0 for security fixes
+# Note: azure_mgmt_* packages are at their latest (0.21.0) as of Nov 2025
+azure_identity = "0.30"
+azure_mgmt_compute = "0.21"
+azure_mgmt_network = "0.21"
+azure_mgmt_authorization = "0.21"
+azure_storage = "0.21"
+azure_storage_blobs = "0.21"
+
+# GCP (Optional - via REST API or google-cloud-rust)
+# Note: GCP support via REST API calls, no additional deps needed for now
+
+# Additional cloud and security dependencies
+sha1 = "0.10"
+hex = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.release-with-debug]
+inherits = "release"
+strip = false
+debug = true
+
+[[bench]]
+name = "scanner_benchmarks"
+harness = false
+
+[[bench]]
+name = "optimization_benchmarks"
+harness = false
+
+[build-dependencies]
+napi-build = "2.3.1"
+
+[dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports", "async_tokio"] }
+tokio-test = "0.4"
+mockito = "1.7"
+wiremock = "0.6"
+assert_matches = "1.5"
+serial_test = "3.2"
+tempfile = "3.15"
