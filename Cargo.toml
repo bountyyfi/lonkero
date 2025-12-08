@@ -112,7 +112,7 @@ sha2 = "0.10"
 hickory-resolver = "0.25"
 
 # HTML parsing
-scraper = "0.24"
+scraper = "0.25"
 
 # Rate limiting - Token Bucket
 governor = "0.10"
