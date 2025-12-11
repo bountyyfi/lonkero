@@ -57,6 +57,10 @@ impl JsMinerScanner {
         // Analyze JavaScript files (limit to 20 for performance)
         let files_to_analyze: Vec<String> = js_files.into_iter().take(20).collect();
 
+        for js_url in &files_to_analyze {
+            info!("[JS-Miner] Analyzing: {}", js_url);
+        }
+
         for js_url in files_to_analyze {
             let tests = self.analyze_js_file(&js_url, &mut analyzed_urls, &mut all_vulnerabilities).await;
             total_tests += tests;
@@ -87,40 +91,52 @@ impl JsMinerScanner {
         let script_regex = Regex::new(r#"<script[^>]+src=["']([^"']+)["']"#).unwrap();
         for cap in script_regex.captures_iter(html) {
             if let Some(src) = cap.get(1) {
-                let mut js_url = src.as_str().to_string();
-
-                // Handle relative URLs
-                if js_url.starts_with("//") {
-                    js_url = format!("{}{}", url_obj.scheme(), js_url);
-                } else if js_url.starts_with('/') {
-                    js_url = format!("{}{}", origin, js_url);
-                } else if !js_url.starts_with("http") {
-                    js_url = format!("{}/{}", origin, js_url);
-                }
-
+                let js_url = self.resolve_js_url(&origin, &url_obj, src.as_str());
                 if !js_files.contains(&js_url) {
                     js_files.push(js_url);
                 }
             }
         }
 
-        // Add common Next.js paths
-        let nextjs_paths = vec![
-            "/_next/static/chunks/main.js",
-            "/_next/static/chunks/webpack.js",
-            "/_next/static/chunks/framework.js",
-            "/_next/static/chunks/pages/_app.js",
-            "/_next/static/chunks/pages/index.js",
-        ];
+        // Also find JS URLs in link preload tags
+        let preload_regex = Regex::new(r#"<link[^>]+href=["']([^"']+\.js[^"']*)["']"#).unwrap();
+        for cap in preload_regex.captures_iter(html) {
+            if let Some(href) = cap.get(1) {
+                let js_url = self.resolve_js_url(&origin, &url_obj, href.as_str());
+                if !js_files.contains(&js_url) {
+                    js_files.push(js_url);
+                }
+            }
+        }
 
-        for path in nextjs_paths {
-            let full_url = format!("{}{}", origin, path);
-            if !js_files.contains(&full_url) {
-                js_files.push(full_url);
+        // Find JS URLs mentioned anywhere in the HTML (for dynamically loaded scripts)
+        let any_js_regex = Regex::new(r#"["']([^"']*(?:bundle|chunk|app|main|vendor|index)[^"']*\.js[^"']*)["']"#).unwrap();
+        for cap in any_js_regex.captures_iter(html) {
+            if let Some(path) = cap.get(1) {
+                let path_str = path.as_str();
+                if path_str.starts_with('/') || path_str.starts_with("http") {
+                    let js_url = self.resolve_js_url(&origin, &url_obj, path_str);
+                    if !js_files.contains(&js_url) {
+                        js_files.push(js_url);
+                    }
+                }
             }
         }
 
         js_files
+    }
+
+    /// Resolve a JS URL to absolute
+    fn resolve_js_url(&self, origin: &str, url_obj: &url::Url, path: &str) -> String {
+        if path.starts_with("//") {
+            format!("{}:{}", url_obj.scheme(), path)
+        } else if path.starts_with('/') {
+            format!("{}{}", origin, path)
+        } else if path.starts_with("http") {
+            path.to_string()
+        } else {
+            format!("{}/{}", origin, path)
+        }
     }
 
     /// Analyze inline scripts in HTML
@@ -161,7 +177,12 @@ impl JsMinerScanner {
                 if content_type.contains("javascript") || content_type.contains("application/json") || response.body.len() > 0 {
                     // Limit file size to 5MB
                     if response.body.len() <= 5 * 1024 * 1024 {
+                        let before_count = vulnerabilities.len();
                         self.analyze_js_content(&response.body, js_url, vulnerabilities);
+                        let found = vulnerabilities.len() - before_count;
+                        if found > 0 {
+                            info!("[JS-Miner] Found {} issues in {}", found, js_url);
+                        }
                         return 1;
                     }
                 }
@@ -474,6 +495,79 @@ impl JsMinerScanner {
                     "CWE-200",
                     "Internal/private network URL found in client-side code. This may leak infrastructure details.",
                 ));
+            }
+        }
+
+        // Login/Authentication endpoints in JS
+        if let Some(findings) = self.scan_pattern(content, r#"["'](/(?:api/)?(?:auth|login|signin|signup|register|logout|session|oauth|token)[^"']*?)["']"#, "Auth Endpoint") {
+            for evidence in findings.into_iter().take(5) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Authentication Endpoint Discovered",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "Authentication endpoint found. Test for authentication bypass, credential stuffing, and brute force protection.",
+                ));
+            }
+        }
+
+        // Password/credential field names in JS (forms rendered client-side)
+        if let Some(findings) = self.scan_pattern(content, r#"["'](password|passwd|pwd|secret|credential|token|apikey|api_key|auth_token|access_token|refresh_token)["']"#, "Credential Field") {
+            for evidence in findings.into_iter().take(5) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Credential Field Discovered",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "Credential-related field found. Indicates authentication form - test for weak password policies and credential handling.",
+                ));
+            }
+        }
+
+        // Email/username field patterns
+        if let Some(findings) = self.scan_pattern(content, r#"["'](email|e-mail|username|user_name|login|userid|user_id)["']\s*:"#, "User Field") {
+            for evidence in findings.into_iter().take(3) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "User Input Field Discovered",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "User input field found. Test associated forms for injection vulnerabilities.",
+                ));
+            }
+        }
+
+        // Form action URLs in JS
+        if let Some(findings) = self.scan_pattern(content, r#"(?:action|formAction|submitUrl|postUrl)\s*[=:]\s*["']([^"']+)["']"#, "Form Action") {
+            for evidence in findings.into_iter().take(5) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Form Action URL Discovered",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "Form action URL found in JavaScript. Test endpoint for CSRF and input validation.",
+                ));
+            }
+        }
+
+        // Hardcoded credentials (critical)
+        if let Some(findings) = self.scan_pattern(content, r#"(?:password|passwd|pwd|secret)\s*[=:]\s*["']([^"']{4,})["']"#, "Hardcoded Credential") {
+            for evidence in findings.into_iter().take(3) {
+                // Skip common false positives
+                if !evidence.contains("placeholder") && !evidence.contains("example") && !evidence.contains("****") {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "Potential Hardcoded Credential",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-798",
+                        "Possible hardcoded credential found. Verify and remove any hardcoded secrets.",
+                    ));
+                }
             }
         }
     }

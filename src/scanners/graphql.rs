@@ -95,18 +95,50 @@ impl GraphQlScanner {
 
     /// Detect if endpoint is GraphQL
     async fn detect_graphql_endpoint(&self, url: &str) -> bool {
-        // Try common GraphQL detection query
-        let query = r#"{"query":"query{__typename}"}"#;
+        // Try common GraphQL paths
+        let graphql_paths = vec![
+            "",              // base URL (might already be /graphql)
+            "/graphql",
+            "/graphql/",
+            "/api/graphql",
+            "/query",
+            "/gql",
+        ];
 
-        match self.http_client.get(&format!("{}?query={}", url, urlencoding::encode(query))).await {
-            Ok(response) => {
-                response.body.contains("__typename")
+        let base_url = url.trim_end_matches('/');
+
+        for path in graphql_paths {
+            let test_url = if path.is_empty() {
+                base_url.to_string()
+            } else {
+                format!("{}{}", base_url, path)
+            };
+
+            // Try POST request (most common for GraphQL)
+            let query = r#"{"query":"query{__typename}"}"#.to_string();
+            if let Ok(response) = self.http_client.post(&test_url, query.clone()).await {
+                if response.body.contains("__typename")
                     || response.body.contains("\"data\"")
-                    || response.body.contains("\"errors\"")
-                    || response.body.contains("graphql")
+                    || (response.body.contains("\"errors\"") && response.body.contains("query"))
+                {
+                    info!("[GraphQL] Found GraphQL endpoint at: {}", test_url);
+                    return true;
+                }
             }
-            Err(_) => false,
+
+            // Also try GET request with query param
+            if let Ok(response) = self.http_client.get(&format!("{}?query={}", test_url, urlencoding::encode(&query))).await {
+                if response.body.contains("__typename")
+                    || response.body.contains("\"data\"")
+                    || (response.body.contains("\"errors\"") && response.body.contains("query"))
+                {
+                    info!("[GraphQL] Found GraphQL endpoint at: {}", test_url);
+                    return true;
+                }
+            }
         }
+
+        false
     }
 
     /// Test introspection query
