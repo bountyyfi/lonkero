@@ -138,6 +138,10 @@ enum Commands {
         #[arg(long, default_value = "100")]
         rate_limit: u32,
 
+        /// Disable rate limiting entirely (use with caution!)
+        #[arg(long)]
+        no_rate_limit: bool,
+
         /// Enable ultra mode (more thorough, slower)
         #[arg(long)]
         ultra: bool,
@@ -254,6 +258,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             proxy,
             insecure,
             rate_limit,
+            no_rate_limit,
             ultra,
         } => {
             run_scan(
@@ -276,6 +281,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 proxy,
                 insecure,
                 rate_limit,
+                no_rate_limit,
                 ultra,
             )
             .await
@@ -307,6 +313,7 @@ async fn run_scan(
     _proxy: Option<String>,
     _insecure: bool,
     rate_limit: u32,
+    no_rate_limit: bool,
     ultra: bool,
 ) -> Result<()> {
     print_banner();
@@ -320,9 +327,9 @@ async fn run_scan(
         max_concurrency: concurrency,
         request_timeout_secs: timeout,
         max_retries: 2,
-        rate_limit_rps: rate_limit,
-        rate_limit_enabled: true,
-        rate_limit_adaptive: true,
+        rate_limit_rps: if no_rate_limit { 0 } else { rate_limit },
+        rate_limit_enabled: !no_rate_limit,
+        rate_limit_adaptive: !no_rate_limit,
         http2_enabled: true,
         http2_adaptive_window: true,
         http2_max_concurrent_streams: 100,
