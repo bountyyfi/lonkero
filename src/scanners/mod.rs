@@ -402,10 +402,46 @@ impl ScanEngine {
         // Phase 0: Crawl & Reconnaissance
         info!("[Phase 0] Starting reconnaissance crawl");
         let crawler = WebCrawler::new(Arc::clone(&self.http_client), 3, 50);
-        let crawl_results = crawler.crawl(&target).await.unwrap_or_else(|e| {
+        let mut crawl_results = crawler.crawl(&target).await.unwrap_or_else(|e| {
             warn!("Crawler failed: {}, using fallback discovery", e);
             CrawlResults::new()
         });
+
+        // JavaScript Mining for SPA attack surface discovery
+        info!("[Phase 0] Mining JavaScript for API endpoints and parameters");
+        let js_miner_results = self.js_miner_scanner.scan_full(&target, &config).await?;
+
+        // Merge JS miner findings into crawl_results
+        if !js_miner_results.api_endpoints.is_empty() || !js_miner_results.parameters.is_empty() {
+            info!("[JS-Miner] Discovered {} API endpoints, {} parameter sets from JavaScript",
+                  js_miner_results.api_endpoints.len(),
+                  js_miner_results.parameters.len());
+
+            // Add API endpoints
+            crawl_results.api_endpoints.extend(js_miner_results.api_endpoints.clone());
+
+            // Add form actions
+            for action in js_miner_results.form_actions {
+                crawl_results.api_endpoints.insert(action);
+            }
+
+            // Add parameters - merge into crawl_results.parameters
+            for (endpoint, params) in js_miner_results.parameters {
+                crawl_results.parameters
+                    .entry(endpoint)
+                    .or_insert_with(std::collections::HashSet::new)
+                    .extend(params);
+            }
+
+            // Add GraphQL endpoints for later testing
+            for gql_endpoint in &js_miner_results.graphql_endpoints {
+                crawl_results.api_endpoints.insert(gql_endpoint.clone());
+            }
+        }
+
+        // Store JS miner vulnerabilities (will be added later with other findings)
+        let js_miner_vulns = js_miner_results.vulnerabilities;
+        let js_miner_tests = js_miner_results.tests_run;
 
         // Framework & Technology Detection
         info!("[Tech] Detecting frameworks and technologies");
@@ -590,6 +626,78 @@ impl ScanEngine {
                     total_tests += xxe_tests as u64;
 
                     queue.increment_tests(scan_id.clone(), xxe_tests as u64).await?;
+                }
+            }
+        }
+
+        // Phase 1b: Test discovered API endpoints from JavaScript
+        let api_endpoints: Vec<String> = crawl_results.api_endpoints.iter().cloned().collect();
+        if !api_endpoints.is_empty() {
+            info!("[Phase 1b] Testing {} API endpoints discovered from JavaScript", api_endpoints.len());
+
+            // Get parameters to test on endpoints (from JS discovery)
+            let js_params: Vec<String> = crawl_results.parameters
+                .get("*")
+                .map(|p| p.iter().cloned().collect())
+                .unwrap_or_default();
+
+            // Test up to 10 API endpoints with discovered parameters
+            for endpoint in api_endpoints.iter().take(10) {
+                // Skip GraphQL endpoints (handled separately by GraphQL scanner)
+                if endpoint.to_lowercase().contains("graphql") {
+                    continue;
+                }
+
+                // Build full URL if endpoint is relative
+                let full_url = if endpoint.starts_with("http") {
+                    endpoint.clone()
+                } else if let Ok(base) = url::Url::parse(&target) {
+                    base.join(endpoint).map(|u| u.to_string()).unwrap_or_else(|_| {
+                        format!("{}{}", target.trim_end_matches('/'), endpoint)
+                    })
+                } else {
+                    format!("{}{}", target.trim_end_matches('/'), endpoint)
+                };
+
+                info!("[API-Test] Testing endpoint: {}", full_url);
+
+                // Test with JS-discovered parameters (limit to 10)
+                for param in js_params.iter().take(10) {
+                    if self.should_terminate_early(&all_vulnerabilities) {
+                        break;
+                    }
+
+                    // XSS on API endpoint
+                    let (xss_vulns, xss_tests) = self.xss_scanner
+                        .scan_parameter(&full_url, param, &config)
+                        .await?;
+                    all_vulnerabilities.extend(xss_vulns);
+                    total_tests += xss_tests as u64;
+                    queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+
+                    // SQLi on API endpoint
+                    if !self.should_skip_scanner("sqli", &cdn_info) {
+                        let (sqli_vulns, sqli_tests) = self.sqli_scanner
+                            .scan_parameter(&full_url, param, &config)
+                            .await?;
+                        all_vulnerabilities.extend(sqli_vulns);
+                        total_tests += sqli_tests as u64;
+                        queue.increment_tests(scan_id.clone(), sqli_tests as u64).await?;
+                    }
+                }
+
+                // Also test with common API parameters
+                for param in &["id", "user_id", "email", "query", "search", "filter", "sort"] {
+                    if self.should_terminate_early(&all_vulnerabilities) {
+                        break;
+                    }
+
+                    let (xss_vulns, xss_tests) = self.xss_scanner
+                        .scan_parameter(&full_url, param, &config)
+                        .await?;
+                    all_vulnerabilities.extend(xss_vulns);
+                    total_tests += xss_tests as u64;
+                    queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
                 }
             }
         }
@@ -981,14 +1089,11 @@ impl ScanEngine {
         total_tests += framework_tests as u64;
         queue.increment_tests(scan_id.clone(), framework_tests as u64).await?;
 
-        // JavaScript Mining Security Check (scans base URL)
-        info!("Mining JavaScript files for sensitive data");
-        let (js_vulns, js_tests) = self.js_miner_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(js_vulns);
-        total_tests += js_tests as u64;
-        queue.increment_tests(scan_id.clone(), js_tests as u64).await?;
+        // JavaScript Mining Security Check (results from Phase 0)
+        info!("[JS-Miner] Adding {} vulnerabilities found during reconnaissance", js_miner_vulns.len());
+        all_vulnerabilities.extend(js_miner_vulns);
+        total_tests += js_miner_tests as u64;
+        queue.increment_tests(scan_id.clone(), js_miner_tests as u64).await?;
 
         // Sensitive Data Exposure Check (scans base URL)
         info!("Checking for sensitive data exposure");
