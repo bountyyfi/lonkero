@@ -263,12 +263,25 @@ impl WebCrawler {
         }
 
         // Also look for standalone inputs (React/JS apps without <form> tags)
-        let all_inputs_selector = Selector::parse("input[type='text'], input[type='email'], input[type='password'], input[type='search'], input[type='tel'], input[type='number'], textarea").unwrap();
+        // Use broad selector, then filter by type
+        let all_inputs_selector = Selector::parse("input, textarea").unwrap();
         let mut standalone_inputs = Vec::new();
 
         for input_element in document.select(&all_inputs_selector) {
+            let input_type = input_element.value().attr("type")
+                .unwrap_or("text")
+                .to_lowercase();
+
+            // Skip non-data inputs
+            if matches!(input_type.as_str(), "hidden" | "submit" | "button" | "checkbox" | "radio" | "file" | "image" | "reset") {
+                continue;
+            }
+
+            // Get name from multiple sources: name, id, aria-label, placeholder
             let name = input_element.value().attr("name")
-                .or_else(|| input_element.value().attr("id"));
+                .or_else(|| input_element.value().attr("id"))
+                .or_else(|| input_element.value().attr("aria-label"))
+                .or_else(|| input_element.value().attr("placeholder"));
 
             if let Some(name) = name {
                 // Skip if already part of a form
@@ -276,16 +289,12 @@ impl WebCrawler {
                     continue;
                 }
 
-                let input_type = input_element.value().attr("type")
-                    .unwrap_or("text")
-                    .to_string();
-
                 let value = input_element.value().attr("value")
                     .map(|v| v.to_string());
 
                 standalone_inputs.push(FormInput {
                     name: name.to_string(),
-                    input_type,
+                    input_type: input_type.clone(),
                     value,
                 });
             }
