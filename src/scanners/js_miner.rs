@@ -381,6 +381,90 @@ impl JsMinerScanner {
                 ));
             }
         }
+
+        // GraphQL Queries/Mutations/Fragments
+        if let Some(findings) = self.scan_pattern(content, r"(?i)(query|mutation|fragment)\s+[A-Za-z_][A-Za-z0-9_]*\s*(\([^)]*\))?\s*\{", "GraphQL Operation") {
+            for evidence in findings.into_iter().take(5) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "GraphQL Operation Discovered",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "GraphQL operations expose API schema. Ensure proper authorization on all queries/mutations.",
+                ));
+            }
+        }
+
+        // GraphQL Endpoint URLs
+        if let Some(findings) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^"'\s]*graphql[^"'\s]*"#, "GraphQL Endpoint") {
+            for evidence in findings.into_iter().take(3) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "GraphQL Endpoint Discovered",
+                    location,
+                    &evidence,
+                    Severity::Low,
+                    "CWE-200",
+                    "GraphQL endpoint found. Ensure introspection is disabled in production and proper authentication is enforced.",
+                ));
+            }
+        }
+
+        // Sentry DSN (error tracking service credentials)
+        if let Some(findings) = self.scan_pattern(content, r"https://[a-f0-9]+@[a-z0-9]+\.ingest\.sentry\.io/[0-9]+", "Sentry DSN") {
+            for evidence in findings.into_iter().take(2) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Sentry DSN Exposed",
+                    location,
+                    &evidence,
+                    Severity::Low,
+                    "CWE-200",
+                    "Sentry DSN exposed. While public DSNs are common, attackers could send fake errors to pollute your error tracking.",
+                ));
+            }
+        }
+
+        // API Base URLs (full URLs to API servers - various patterns)
+        if let Some(findings) = self.scan_pattern(content, r#"["']https?://[a-zA-Z0-9.\-]+\.[a-z]{2,}(/[^"'\s]*)?(v[0-9]+|/api|graphql)[^"'\s]*["']"#, "API Base URL") {
+            for evidence in findings.into_iter().take(5) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "API Base URL Discovered",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "API base URL discovered. Ensure all endpoints implement proper authentication and rate limiting.",
+                ));
+            }
+        }
+
+        // Firebase/Supabase Configuration
+        if let Some(findings) = self.scan_pattern(content, r#"https://[a-zA-Z0-9\-]+\.(firebaseio\.com|supabase\.co)[^"'\s]*"#, "Firebase/Supabase URL") {
+            for evidence in findings.into_iter().take(3) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Backend-as-a-Service URL Discovered",
+                    location,
+                    &evidence,
+                    Severity::Low,
+                    "CWE-200",
+                    "Firebase/Supabase URL found. Ensure security rules are properly configured to prevent unauthorized access.",
+                ));
+            }
+        }
+
+        // Internal/Private Network URLs
+        if let Some(findings) = self.scan_pattern(content, r#"https?://(localhost|127\.0\.0\.1|192\.168\.[0-9.]+|10\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+)(:[0-9]+)?[^"'\s]*"#, "Internal URL") {
+            for evidence in findings.into_iter().take(3) {
+                vulnerabilities.push(self.create_vulnerability(
+                    "Internal Network URL Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-200",
+                    "Internal/private network URL found in client-side code. This may leak infrastructure details.",
+                ));
+            }
+        }
     }
 
     /// Scan content for regex pattern and return unique matches
@@ -515,5 +599,82 @@ mod tests {
         scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
 
         assert!(vulns.iter().any(|v| v.vuln_type.contains("Debug Mode")));
+    }
+
+    #[test]
+    fn test_detect_graphql_operations() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+
+        let content = r#"
+            const GET_USER = gql`
+                query GetUser($id: ID!) {
+                    user(id: $id) {
+                        name
+                        email
+                    }
+                }
+            `;
+            const CREATE_POST = gql`
+                mutation CreatePost($input: PostInput!) {
+                    createPost(input: $input) {
+                        id
+                    }
+                }
+            `;
+            const USER_FIELDS = gql`
+                fragment UserFields on User {
+                    id
+                    name
+                }
+            `;
+        "#;
+        scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns);
+
+        assert!(vulns.iter().any(|v| v.vuln_type.contains("GraphQL Operation")));
+    }
+
+    #[test]
+    fn test_detect_graphql_endpoint() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+
+        let content = r#"const API_URL = "https://api.example.com/graphql";"#;
+        scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
+
+        assert!(vulns.iter().any(|v| v.vuln_type.contains("GraphQL Endpoint")));
+    }
+
+    #[test]
+    fn test_detect_sentry_dsn() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+
+        let content = r#"Sentry.init({ dsn: "https://c016413d689e4e26a8a84f5b094e3b78@o559839.ingest.sentry.io/5984200" });"#;
+        scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns);
+
+        assert!(vulns.iter().any(|v| v.vuln_type.contains("Sentry DSN")));
+    }
+
+    #[test]
+    fn test_detect_api_base_url() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+
+        let content = r#"const baseUrl = "https://backend.example.com/api/users";"#;
+        scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
+
+        assert!(vulns.iter().any(|v| v.vuln_type.contains("API Base URL")));
+    }
+
+    #[test]
+    fn test_detect_internal_url() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+
+        let content = r#"const devApi = "http://192.168.1.100:3000/api";"#;
+        scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
+
+        assert!(vulns.iter().any(|v| v.vuln_type.contains("Internal Network URL")));
     }
 }

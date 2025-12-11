@@ -278,7 +278,22 @@ impl InformationDisclosureScanner {
             f if f.contains("package.json") || f.contains("composer.json") => {
                 body.contains("dependencies") || body.contains("require")
             }
-            _ => true
+            f if f.contains("phpinfo") => {
+                // Must contain actual phpinfo() output indicators
+                body.contains("PHP Version") || body.contains("phpinfo()") ||
+                body.contains("php.ini") || body.contains("Configuration File")
+            }
+            f if f.contains(".htaccess") => {
+                body.contains("RewriteRule") || body.contains("RewriteEngine") ||
+                body.contains("AuthType") || body.contains("Require")
+            }
+            // For unknown files, don't assume they're sensitive - require actual sensitive patterns
+            _ => {
+                let body_lower = body.to_lowercase();
+                body_lower.contains("password") || body_lower.contains("secret") ||
+                body_lower.contains("api_key") || body_lower.contains("private_key") ||
+                body_lower.contains("credentials") || body_lower.contains("token=")
+            }
         }
     }
 
