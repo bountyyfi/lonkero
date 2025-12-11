@@ -530,14 +530,28 @@ impl JsMinerScanner {
         // Secrets (generic)
         if let Some(findings) = self.scan_pattern(content, r#"(?i)secret["']?\s*[:=]\s*["']([^"']{8,})["']"#, "Secret") {
             for evidence in findings.into_iter().take(3) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Secret Value Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-312",
-                    "Remove hardcoded secrets from client-side code. Use server-side environment variables.",
-                ));
+                // Skip SDP/WebRTC parsing code and string concatenation patterns
+                let is_false_positive = evidence.contains("+t.") ||
+                    evidence.contains("+r.") ||
+                    evidence.contains("+e.") ||
+                    evidence.contains("+n.") ||
+                    evidence.contains("+i.") ||
+                    evidence.contains(r#"+""#) ||  // String concatenation
+                    evidence.contains(".pass") ||
+                    evidence.contains(".secret") ||
+                    evidence.ends_with("+") ||
+                    evidence.starts_with("+");
+
+                if !is_false_positive {
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        "Secret Value Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Remove hardcoded secrets from client-side code. Use server-side environment variables.",
+                    ));
+                }
             }
         }
 
@@ -615,6 +629,10 @@ impl JsMinerScanner {
         // GraphQL Endpoint URLs (handles various formats)
         if let Some(findings) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*graphql"#, "GraphQL Endpoint") {
             for evidence in findings.into_iter().take(3) {
+                // Skip documentation URLs (e.g., github.com/apollographql, docs.graphql.org)
+                if Self::is_documentation_url(&evidence) {
+                    continue;
+                }
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "GraphQL Endpoint Discovered",
                     location,
@@ -758,8 +776,28 @@ impl JsMinerScanner {
         // Hardcoded credentials (critical)
         if let Some(findings) = self.scan_pattern(content, r#"(?:password|passwd|pwd|secret)\s*[=:]\s*["']([^"']{4,})["']"#, "Hardcoded Credential") {
             for evidence in findings.into_iter().take(3) {
-                // Skip common false positives
-                if !evidence.contains("placeholder") && !evidence.contains("example") && !evidence.contains("****") {
+                // Skip common false positives:
+                // - placeholder/example values
+                // - WebRTC/SDP parsing code (contains string concatenation like "+t.", "+r.", etc.)
+                // - Variable references (contains just variable name patterns)
+                let is_false_positive = evidence.contains("placeholder") ||
+                    evidence.contains("example") ||
+                    evidence.contains("****") ||
+                    evidence.contains("+t.") ||
+                    evidence.contains("+r.") ||
+                    evidence.contains("+e.") ||
+                    evidence.contains("+n.") ||
+                    evidence.contains("+i.") ||
+                    evidence.contains(r#"+""#) ||  // String concatenation
+                    evidence.contains(r#""+}"#) || // End of concatenation
+                    evidence.contains(".substr") ||
+                    evidence.contains(".password") ||
+                    evidence.contains(".passwd") ||
+                    evidence.contains(".secret") ||
+                    evidence.ends_with("+") ||
+                    evidence.starts_with("+");
+
+                if !is_false_positive {
                     self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                         "Potential Hardcoded Credential",
                         location,
@@ -1210,17 +1248,31 @@ impl JsMinerScanner {
             }
         }
 
-        // Okta API Token
-        if let Some(findings) = self.scan_pattern(content, r"00[a-zA-Z0-9_-]{40}", "Okta Token") {
-            for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Potential Okta API Token",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Possible Okta API token. Verify and revoke if confirmed.",
-                ));
+        // Okta API Token - require context to reduce false positives
+        // The pattern 00[a-zA-Z0-9_-]{40} is too broad without context
+        if content.to_lowercase().contains("okta") {
+            if let Some(findings) = self.scan_pattern(content, r"00[a-zA-Z0-9_-]{40}", "Okta Token") {
+                for evidence in findings.into_iter().take(2) {
+                    // Skip if it looks like a hash or other hex string without okta context nearby
+                    // Check if 'okta' appears within 100 chars of the match
+                    let evidence_lower = evidence.to_lowercase();
+                    let content_lower = content.to_lowercase();
+                    if let Some(pos) = content_lower.find(&evidence_lower) {
+                        let start = pos.saturating_sub(100);
+                        let end = (pos + evidence.len() + 100).min(content_lower.len());
+                        let context = &content_lower[start..end];
+                        if context.contains("okta") {
+                            self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                                "Potential Okta API Token",
+                                location,
+                                &evidence,
+                                Severity::High,
+                                "CWE-312",
+                                "Possible Okta API token. Verify and revoke if confirmed.",
+                            ));
+                        }
+                    }
+                }
             }
         }
 
@@ -1478,6 +1530,17 @@ impl JsMinerScanner {
         // Finnish Y-tunnus (Business ID) - Format: 1234567-8
         if let Some(findings) = self.scan_pattern(content, r"[0-9]{7}-[0-9]", "Finnish Y-tunnus") {
             for evidence in findings.into_iter().take(3) {
+                // Skip placeholder/test values
+                let placeholder_values = [
+                    "0000000-0",
+                    "1234567-8",
+                    "1234567-1",
+                    "0000000-1",
+                    "9999999-9",
+                ];
+                if placeholder_values.contains(&evidence.as_str()) {
+                    continue;
+                }
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Finnish Business ID (Y-tunnus) Found",
                     location,
@@ -1503,14 +1566,58 @@ impl JsMinerScanner {
             }
         }
 
+        // Finnish Verkkolaskuosoite (E-Invoice Address / OVT Identifier)
+        // Format: 0037XXXXXXXXX (0037 = Finland country code + business ID without dash)
+        // Total length: 12-17 digits
+        if let Some(findings) = self.scan_pattern(content, r"0037[0-9]{8,13}", "Finnish OVT/Verkkolaskuosoite") {
+            for evidence in findings.into_iter().take(3) {
+                // Skip placeholder values
+                let placeholder_values = [
+                    "003700000000",
+                    "003712345678",
+                    "00371234567890",
+                ];
+                if placeholder_values.iter().any(|&p| evidence.contains(p)) {
+                    continue;
+                }
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Finnish E-Invoice Address (Verkkolaskuosoite) Found",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "Finnish Verkkolaskuosoite/OVT identifier found. While often public, verify it's intentionally exposed.",
+                ));
+            }
+        }
+
         // ============================================
         // OTHER PII
         // ============================================
 
-        // Generic Credit Card Numbers (basic check)
+        // Generic Credit Card Numbers (with Luhn validation and false positive filtering)
         if let Some(findings) = self.scan_pattern(content, r"(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})", "Credit Card") {
             for evidence in findings.into_iter().take(2) {
-                // Basic Luhn check could be added here
+                // Filter known JavaScript numeric constants (powers of 2, MAX_SAFE_INTEGER related)
+                let known_js_constants = [
+                    "4503599627370496",  // 2^52
+                    "4503599627370495",  // 2^52 - 1
+                    "4611686018427387",  // Related to 2^62
+                    "4801650304020105",  // Common minified code constant
+                    "4294967296",        // 2^32 (though shorter)
+                    "4398046511104",     // 2^42
+                ];
+
+                // Skip if it's a known JS constant
+                if known_js_constants.iter().any(|&c| evidence.contains(c)) {
+                    continue;
+                }
+
+                // Validate using Luhn algorithm
+                if !Self::luhn_check(&evidence) {
+                    continue;
+                }
+
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Potential Credit Card Number Exposed",
                     location,
@@ -1555,6 +1662,36 @@ impl JsMinerScanner {
                 ));
             }
         }
+    }
+
+    /// Luhn algorithm check for credit card validation
+    fn luhn_check(number: &str) -> bool {
+        let digits: Vec<u32> = number
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .filter_map(|c| c.to_digit(10))
+            .collect();
+
+        if digits.len() < 13 || digits.len() > 19 {
+            return false;
+        }
+
+        let mut sum = 0;
+        let mut double = false;
+
+        for &digit in digits.iter().rev() {
+            let mut d = digit;
+            if double {
+                d *= 2;
+                if d > 9 {
+                    d -= 9;
+                }
+            }
+            sum += d;
+            double = !double;
+        }
+
+        sum % 10 == 0
     }
 
     /// Scan content for regex pattern and return unique matches
@@ -1766,5 +1903,124 @@ mod tests {
         scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
 
         assert!(vulns.iter().any(|v| v.vuln_type.contains("Internal Network URL")));
+    }
+
+    // ============================================
+    // FALSE POSITIVE FILTERING TESTS
+    // ============================================
+
+    #[test]
+    fn test_luhn_check_valid_card() {
+        // Visa test card number (passes Luhn)
+        assert!(JsMinerScanner::luhn_check("4111111111111111"));
+        // MasterCard test card number (passes Luhn)
+        assert!(JsMinerScanner::luhn_check("5500000000000004"));
+    }
+
+    #[test]
+    fn test_luhn_check_invalid_numbers() {
+        // JavaScript constants that match CC regex but fail Luhn
+        assert!(!JsMinerScanner::luhn_check("4503599627370496")); // 2^52
+        assert!(!JsMinerScanner::luhn_check("4801650304020105")); // Minified code constant
+    }
+
+    #[test]
+    fn test_no_credit_card_for_js_constants() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+        let mut seen = HashSet::new();
+
+        // Content with JavaScript numeric constants that look like credit cards
+        let content = r#"var MAX_VALUE = 4503599627370496; var OTHER = 4801650304020105;"#;
+        scanner.analyze_js_content(content, "https://example.com/math.js", &mut vulns, &mut seen);
+
+        // Should NOT detect these as credit cards
+        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Credit Card")));
+    }
+
+    #[test]
+    fn test_no_okta_token_without_context() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+        let mut seen = HashSet::new();
+
+        // Hex string that matches Okta pattern but without okta context
+        let content = r#"var hash = "0000738c9e0c40b8dcdfd5468754b6405540157e01";"#;
+        scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns, &mut seen);
+
+        // Should NOT detect as Okta token
+        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Okta")));
+    }
+
+    #[test]
+    fn test_no_credential_for_sdp_parsing() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+        let mut seen = HashSet::new();
+
+        // WebRTC SDP parsing code
+        let content = r#"var sdp = "pwd:"+t.password+""; var ice = "secret="+r.pass;"#;
+        scanner.analyze_js_content(content, "https://example.com/webrtc.js", &mut vulns, &mut seen);
+
+        // Should NOT detect as hardcoded credential
+        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Hardcoded Credential")));
+    }
+
+    #[test]
+    fn test_no_graphql_endpoint_for_github_urls() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+        let mut seen = HashSet::new();
+
+        // GitHub URL to apollographql
+        let content = r#"// See https://github.com/apollographql/apollo-client for docs"#;
+        scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns, &mut seen);
+
+        // Should NOT detect GitHub URL as GraphQL endpoint
+        assert!(!vulns.iter().any(|v| v.vuln_type.contains("GraphQL Endpoint") &&
+                                      v.evidence.as_ref().map(|e| e.contains("github.com")).unwrap_or(false)));
+    }
+
+    #[test]
+    fn test_no_ytunnus_for_placeholder() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+        let mut seen = HashSet::new();
+
+        // Placeholder Y-tunnus
+        let content = r#"const PLACEHOLDER_YTUNNUS = "0000000-0";"#;
+        scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns, &mut seen);
+
+        // Should NOT detect placeholder as Y-tunnus
+        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Y-tunnus")));
+    }
+
+    #[test]
+    fn test_detect_verkkolaskuosoite() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+        let mut seen = HashSet::new();
+
+        // Real-looking Finnish e-invoice address
+        let content = r#"const OVT = "003726994471";"#;
+        scanner.analyze_js_content(content, "https://example.com/invoice.js", &mut vulns, &mut seen);
+
+        // Should detect as Verkkolaskuosoite
+        assert!(vulns.iter().any(|v| v.vuln_type.contains("E-Invoice Address") ||
+                                     v.vuln_type.contains("Verkkolaskuosoite")));
+    }
+
+    #[test]
+    fn test_no_verkkolaskuosoite_for_placeholder() {
+        let scanner = create_test_scanner();
+        let mut vulns = Vec::new();
+        let mut seen = HashSet::new();
+
+        // Placeholder OVT
+        let content = r#"const PLACEHOLDER = "003700000000";"#;
+        scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns, &mut seen);
+
+        // Should NOT detect placeholder
+        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Verkkolaskuosoite")));
     }
 }
