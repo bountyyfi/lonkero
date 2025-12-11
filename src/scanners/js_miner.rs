@@ -601,6 +601,29 @@ impl JsMinerScanner {
             "api", "http", "https", "ws", "wss", "tcp", "udp", "host", "port",
             "env", "dev", "prod", "test", "stage", "local", "remote", "debug", "release",
 
+            // HTML attributes (not input parameters)
+            "draggable", "droppable", "sortable", "resizable", "selectable", "editable",
+            "disabled", "enabled", "readonly", "required", "optional", "checked", "selected",
+            "hidden", "visible", "collapsed", "expanded", "focused", "blurred",
+            "placeholder", "autofocus", "autocomplete", "spellcheck", "contenteditable",
+            "tabindex", "accesskey", "translate", "dir", "lang", "title", "alt",
+            "href", "src", "srcset", "sizes", "media", "rel", "target", "download",
+            "width", "height", "min", "max", "step", "pattern", "maxlength", "minlength",
+            "cols", "rows", "wrap", "multiple", "accept", "capture", "form", "formaction",
+            "enctype", "method", "novalidate", "formnovalidate", "formtarget",
+            "async", "defer", "crossorigin", "integrity", "referrerpolicy", "loading",
+            "decoding", "fetchpriority", "blocking", "elementtiming",
+
+            // CSS properties commonly found in JS
+            "display", "position", "overflow", "visibility", "opacity", "zIndex",
+            "margin", "padding", "border", "outline", "background", "color",
+            "font", "fontSize", "fontWeight", "fontFamily", "fontStyle",
+            "textAlign", "textDecoration", "textTransform", "lineHeight", "letterSpacing",
+            "flex", "flexDirection", "flexWrap", "justifyContent", "alignItems", "alignContent",
+            "gridTemplate", "gridColumn", "gridRow", "gap", "order", "flexGrow", "flexShrink",
+            "transform", "transition", "animation", "cursor", "pointerEvents", "userSelect",
+            "boxShadow", "borderRadius", "boxSizing", "whiteSpace", "wordBreak", "wordWrap",
+
             // UI Framework components (Quasar, Vuetify, Element, Material, etc.)
             // Quasar (Q prefix)
             "QBadge", "QBtn", "QCard", "QCardSection", "QCardActions", "QCheckbox",
@@ -708,19 +731,39 @@ impl JsMinerScanner {
                 return true;
             }
 
-            // Single uppercase but matches common component patterns
-            // [A-Z][a-z]+[A-Z] like "InputPassword" or starts with known prefixes
-            let prefixes = ["Input", "Button", "Form", "Modal", "Dialog", "Table", "List",
-                           "Card", "Menu", "Icon", "Text", "Label", "Select", "Check",
-                           "Radio", "Switch", "Slider", "Date", "Time", "Color", "File",
-                           "Upload", "Download", "Nav", "Tab", "Panel", "Drawer", "Popup",
-                           "Tooltip", "Toast", "Alert", "Badge", "Avatar", "Progress",
-                           "Spinner", "Loading", "Skeleton", "Empty", "Error", "Success",
-                           "Warning", "Info", "Header", "Footer", "Sidebar", "Content",
-                           "Layout", "Container", "Row", "Col", "Grid", "Flex", "Box",
-                           "Stack", "Wrap", "Space", "Divider", "Separator"];
-            for prefix in prefixes {
-                if s.contains(prefix) {
+            // Common component/class name patterns (contains these = likely not a param)
+            let class_patterns = [
+                // UI Components
+                "Input", "Button", "Form", "Modal", "Dialog", "Table", "List",
+                "Card", "Menu", "Icon", "Text", "Label", "Select", "Check",
+                "Radio", "Switch", "Slider", "Date", "Time", "Color", "File",
+                "Upload", "Download", "Nav", "Tab", "Panel", "Drawer", "Popup",
+                "Tooltip", "Toast", "Alert", "Badge", "Avatar", "Progress",
+                "Spinner", "Loading", "Skeleton", "Empty", "Error", "Success",
+                "Warning", "Info", "Header", "Footer", "Sidebar", "Content",
+                "Layout", "Container", "Row", "Col", "Grid", "Flex", "Box",
+                "Stack", "Wrap", "Space", "Divider", "Separator",
+                // Common class suffixes (Util, Helper, Service, etc.)
+                "Util", "Utils", "Helper", "Helpers", "Service", "Services",
+                "Handler", "Handlers", "Manager", "Managers", "Controller",
+                "Factory", "Provider", "Adapter", "Wrapper", "Builder",
+                "Parser", "Formatter", "Validator", "Converter", "Mapper",
+                "Reducer", "Selector", "Middleware", "Interceptor", "Guard",
+                "Resolver", "Directive", "Pipe", "Module", "Component",
+                "Plugin", "Extension", "Mixin", "Decorator", "Annotation",
+                // Apollo/GraphQL specific
+                "Apollo", "Query", "Mutation", "Subscription", "Fragment",
+                "Client", "Cache", "Link", "Schema", "Resolver",
+                // State management
+                "Store", "State", "Action", "Reducer", "Effect", "Saga",
+                "Slice", "Thunk", "Observable", "Subject",
+                // Common prefixes
+                "use", "get", "set", "is", "has", "can", "should", "will",
+                "on", "handle", "fetch", "load", "save", "update", "delete",
+                "create", "init", "setup", "config", "register", "unregister",
+            ];
+            for pattern in class_patterns {
+                if s.contains(pattern) {
                     return true;
                 }
             }
