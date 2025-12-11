@@ -133,6 +133,65 @@ curl https://license.bountyy.fi/api/v1/admin/list \
   -H "Authorization: Bearer YOUR_ADMIN_KEY"
 ```
 
+## License Management (For Paying Customers)
+
+### Create a commercial license when customer pays
+
+```bash
+# Professional license (50 targets, 1 year)
+curl -X POST https://license.bountyy.fi/api/v1/admin/license/create \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "license_type": "professional",
+    "licensee": "John Smith",
+    "email": "john@company.com",
+    "organization": "Company Inc",
+    "expires_days": 365
+  }'
+
+# Response:
+# {
+#   "success": true,
+#   "license_key": "LONKERO-ABCD-EFGH-IJKL-MNOP",  <-- Send this to customer!
+#   "license_type": "professional",
+#   "licensee": "John Smith",
+#   "max_targets": 50,
+#   "expires_at": "2026-12-11T..."
+# }
+```
+
+### License types and defaults
+
+| Type | Max Targets | Features |
+|------|-------------|----------|
+| `professional` | 50 | All scanners, priority support |
+| `team` | 200 | + cloud scanning, team sharing |
+| `enterprise` | 10000 | + custom integrations, SLA, on-premise |
+
+### List all licenses
+
+```bash
+curl https://license.bountyy.fi/api/v1/admin/license/list \
+  -H "Authorization: Bearer $ADMIN_KEY"
+```
+
+### Revoke a license (customer stopped paying)
+
+```bash
+# By license key
+curl -X POST https://license.bountyy.fi/api/v1/admin/license/revoke \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{"license_key": "LONKERO-ABCD-EFGH-IJKL-MNOP"}'
+
+# By email
+curl -X POST https://license.bountyy.fi/api/v1/admin/license/revoke \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -d '{"email": "john@company.com", "reason": "Payment failed"}'
+```
+
+---
+
 ## Usage Examples
 
 ### Ban someone using Lonkero for hacking

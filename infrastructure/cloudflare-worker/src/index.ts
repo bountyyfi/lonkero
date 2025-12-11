@@ -7,6 +7,9 @@
  * - POST /api/v1/admin/ban      - Ban a user/hardware (admin only)
  * - POST /api/v1/admin/unban    - Unban a user/hardware (admin only)
  * - GET  /api/v1/admin/list     - List banned users (admin only)
+ * - POST /api/v1/admin/license/create - Create commercial license (admin only)
+ * - POST /api/v1/admin/license/revoke - Revoke commercial license (admin only)
+ * - GET  /api/v1/admin/license/list   - List all licenses (admin only)
  *
  * (c) 2025 Bountyy Oy
  */
@@ -28,13 +31,16 @@ interface KillswitchEntry {
 }
 
 interface LicenseEntry {
+  license_key: string;
   license_type: 'personal' | 'professional' | 'team' | 'enterprise';
-  licensee?: string;
+  licensee: string;
+  email: string;
   organization?: string;
   max_targets: number;
   features: string[];
   created_at: string;
   expires_at?: string;
+  notes?: string;
 }
 
 interface ValidateRequest {
@@ -48,6 +54,16 @@ interface BanRequest {
   type: 'hardware_id' | 'license_key' | 'ip';
   value: string;
   reason: string;
+}
+
+interface CreateLicenseRequest {
+  license_type: 'professional' | 'team' | 'enterprise';
+  licensee: string;
+  email: string;
+  organization?: string;
+  max_targets?: number;
+  expires_days?: number;  // Days until expiration (null = never)
+  notes?: string;
 }
 
 // CORS headers
@@ -87,6 +103,19 @@ export default {
 
       if (path === '/api/v1/admin/list' && request.method === 'GET') {
         return await handleAdminList(request, env);
+      }
+
+      // License management endpoints
+      if (path === '/api/v1/admin/license/create' && request.method === 'POST') {
+        return await handleCreateLicense(request, env);
+      }
+
+      if (path === '/api/v1/admin/license/revoke' && request.method === 'POST') {
+        return await handleRevokeLicense(request, env);
+      }
+
+      if (path === '/api/v1/admin/license/list' && request.method === 'GET') {
+        return await handleListLicenses(request, env);
       }
 
       // Health check
@@ -397,5 +426,203 @@ function jsonResponse(data: object, status = 200): Response {
       'Content-Type': 'application/json',
       ...corsHeaders,
     },
+  });
+}
+
+/**
+ * Generate a license key
+ * Format: LONKERO-XXXX-XXXX-XXXX-XXXX
+ */
+function generateLicenseKey(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No I, O, 0, 1 to avoid confusion
+  const segments = [];
+  for (let s = 0; s < 4; s++) {
+    let segment = '';
+    for (let i = 0; i < 4; i++) {
+      segment += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    segments.push(segment);
+  }
+  return `LONKERO-${segments.join('-')}`;
+}
+
+/**
+ * Admin: Create a commercial license for a paying customer
+ */
+async function handleCreateLicense(request: Request, env: Env): Promise<Response> {
+  if (!verifyAdmin(request, env)) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  const body = await request.json() as CreateLicenseRequest;
+
+  if (!body.license_type || !body.licensee || !body.email) {
+    return jsonResponse({
+      error: 'Missing required fields: license_type, licensee, email',
+    }, 400);
+  }
+
+  // Generate unique license key
+  const licenseKey = generateLicenseKey();
+
+  // Set defaults based on license type
+  let maxTargets = body.max_targets;
+  let features: string[] = [];
+
+  switch (body.license_type) {
+    case 'professional':
+      maxTargets = maxTargets || 50;
+      features = ['all_scanners', 'all_outputs', 'subdomain_enum', 'crawler', 'priority_support'];
+      break;
+    case 'team':
+      maxTargets = maxTargets || 200;
+      features = ['all_scanners', 'all_outputs', 'subdomain_enum', 'crawler', 'cloud_scanning', 'api_fuzzing', 'priority_support', 'team_sharing'];
+      break;
+    case 'enterprise':
+      maxTargets = maxTargets || 10000;
+      features = ['all_scanners', 'all_outputs', 'subdomain_enum', 'crawler', 'cloud_scanning', 'api_fuzzing', 'priority_support', 'team_sharing', 'custom_integrations', 'sla_support', 'on_premise'];
+      break;
+  }
+
+  // Calculate expiration
+  let expiresAt: string | undefined;
+  if (body.expires_days) {
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + body.expires_days);
+    expiresAt = expDate.toISOString();
+  }
+
+  const license: LicenseEntry = {
+    license_key: licenseKey,
+    license_type: body.license_type,
+    licensee: body.licensee,
+    email: body.email,
+    organization: body.organization,
+    max_targets: maxTargets!,
+    features,
+    created_at: new Date().toISOString(),
+    expires_at: expiresAt,
+    notes: body.notes,
+  };
+
+  // Store in KV (key is hash of license key for lookup)
+  const keyHash = hashKey(licenseKey);
+  await env.LICENSES.put(`license:${keyHash}`, JSON.stringify(license));
+
+  // Also store by email for easy lookup
+  await env.LICENSES.put(`email:${body.email}`, JSON.stringify({ license_key: licenseKey, key_hash: keyHash }));
+
+  console.log(`LICENSE CREATED: ${body.license_type} for ${body.licensee} (${body.email})`);
+
+  return jsonResponse({
+    success: true,
+    license_key: licenseKey,
+    license_type: body.license_type,
+    licensee: body.licensee,
+    organization: body.organization,
+    max_targets: maxTargets,
+    features,
+    expires_at: expiresAt,
+    message: `License created! Send this key to the customer: ${licenseKey}`,
+  });
+}
+
+/**
+ * Admin: Revoke a commercial license
+ */
+async function handleRevokeLicense(request: Request, env: Env): Promise<Response> {
+  if (!verifyAdmin(request, env)) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  const body = await request.json() as { license_key?: string; email?: string; reason?: string };
+
+  if (!body.license_key && !body.email) {
+    return jsonResponse({ error: 'Provide either license_key or email' }, 400);
+  }
+
+  let keyHash: string;
+
+  if (body.license_key) {
+    keyHash = hashKey(body.license_key);
+  } else {
+    // Look up by email
+    const emailEntry = await env.LICENSES.get(`email:${body.email}`, 'json') as { key_hash: string } | null;
+    if (!emailEntry) {
+      return jsonResponse({ error: 'No license found for this email' }, 404);
+    }
+    keyHash = emailEntry.key_hash;
+  }
+
+  // Get license details before deleting
+  const license = await env.LICENSES.get(`license:${keyHash}`, 'json') as LicenseEntry | null;
+
+  if (!license) {
+    return jsonResponse({ error: 'License not found' }, 404);
+  }
+
+  // Delete the license
+  await env.LICENSES.delete(`license:${keyHash}`);
+  await env.LICENSES.delete(`email:${license.email}`);
+
+  // Optionally add to killswitch to block the key
+  if (body.reason) {
+    const killEntry: KillswitchEntry = {
+      active: true,
+      reason: body.reason,
+      banned_at: new Date().toISOString(),
+      banned_by: 'admin',
+      type: 'license_key',
+    };
+    await env.KILLSWITCH.put(`key:${keyHash}`, JSON.stringify(killEntry));
+  }
+
+  console.log(`LICENSE REVOKED: ${license.licensee} (${license.email})`);
+
+  return jsonResponse({
+    success: true,
+    message: `License revoked for ${license.licensee}`,
+    revoked_license: {
+      licensee: license.licensee,
+      email: license.email,
+      license_type: license.license_type,
+    },
+  });
+}
+
+/**
+ * Admin: List all commercial licenses
+ */
+async function handleListLicenses(request: Request, env: Env): Promise<Response> {
+  if (!verifyAdmin(request, env)) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  const list = await env.LICENSES.list({ prefix: 'license:' });
+  const licenses: LicenseEntry[] = [];
+
+  for (const key of list.keys) {
+    const license = await env.LICENSES.get(key.name, 'json') as LicenseEntry;
+    if (license) {
+      licenses.push(license);
+    }
+  }
+
+  // Sort by created date descending
+  licenses.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  return jsonResponse({
+    count: licenses.length,
+    licenses: licenses.map(l => ({
+      license_key: l.license_key,
+      license_type: l.license_type,
+      licensee: l.licensee,
+      email: l.email,
+      organization: l.organization,
+      max_targets: l.max_targets,
+      created_at: l.created_at,
+      expires_at: l.expires_at,
+      is_expired: l.expires_at ? new Date(l.expires_at) < new Date() : false,
+    })),
   });
 }
