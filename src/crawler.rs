@@ -204,6 +204,12 @@ impl WebCrawler {
             results.links.len()
         );
 
+        // Warn if likely client-side rendered app (has scripts but no forms/links)
+        if results.forms.is_empty() && results.links.is_empty() && !results.scripts.is_empty() {
+            info!("[WARNING] Site appears to be a client-side rendered app (React/Vue/Angular)");
+            info!("[WARNING] Forms and links are rendered by JavaScript - consider using headless browser mode");
+        }
+
         Ok(results)
     }
 

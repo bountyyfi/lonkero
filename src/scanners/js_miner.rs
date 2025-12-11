@@ -57,6 +57,10 @@ impl JsMinerScanner {
         // Analyze JavaScript files (limit to 20 for performance)
         let files_to_analyze: Vec<String> = js_files.into_iter().take(20).collect();
 
+        for js_url in &files_to_analyze {
+            info!("[JS-Miner] Analyzing: {}", js_url);
+        }
+
         for js_url in files_to_analyze {
             let tests = self.analyze_js_file(&js_url, &mut analyzed_urls, &mut all_vulnerabilities).await;
             total_tests += tests;
@@ -161,7 +165,12 @@ impl JsMinerScanner {
                 if content_type.contains("javascript") || content_type.contains("application/json") || response.body.len() > 0 {
                     // Limit file size to 5MB
                     if response.body.len() <= 5 * 1024 * 1024 {
+                        let before_count = vulnerabilities.len();
                         self.analyze_js_content(&response.body, js_url, vulnerabilities);
+                        let found = vulnerabilities.len() - before_count;
+                        if found > 0 {
+                            info!("[JS-Miner] Found {} issues in {}", found, js_url);
+                        }
                         return 1;
                     }
                 }
