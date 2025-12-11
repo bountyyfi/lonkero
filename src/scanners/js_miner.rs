@@ -708,19 +708,39 @@ impl JsMinerScanner {
                 return true;
             }
 
-            // Single uppercase but matches common component patterns
-            // [A-Z][a-z]+[A-Z] like "InputPassword" or starts with known prefixes
-            let prefixes = ["Input", "Button", "Form", "Modal", "Dialog", "Table", "List",
-                           "Card", "Menu", "Icon", "Text", "Label", "Select", "Check",
-                           "Radio", "Switch", "Slider", "Date", "Time", "Color", "File",
-                           "Upload", "Download", "Nav", "Tab", "Panel", "Drawer", "Popup",
-                           "Tooltip", "Toast", "Alert", "Badge", "Avatar", "Progress",
-                           "Spinner", "Loading", "Skeleton", "Empty", "Error", "Success",
-                           "Warning", "Info", "Header", "Footer", "Sidebar", "Content",
-                           "Layout", "Container", "Row", "Col", "Grid", "Flex", "Box",
-                           "Stack", "Wrap", "Space", "Divider", "Separator"];
-            for prefix in prefixes {
-                if s.contains(prefix) {
+            // Common component/class name patterns (contains these = likely not a param)
+            let class_patterns = [
+                // UI Components
+                "Input", "Button", "Form", "Modal", "Dialog", "Table", "List",
+                "Card", "Menu", "Icon", "Text", "Label", "Select", "Check",
+                "Radio", "Switch", "Slider", "Date", "Time", "Color", "File",
+                "Upload", "Download", "Nav", "Tab", "Panel", "Drawer", "Popup",
+                "Tooltip", "Toast", "Alert", "Badge", "Avatar", "Progress",
+                "Spinner", "Loading", "Skeleton", "Empty", "Error", "Success",
+                "Warning", "Info", "Header", "Footer", "Sidebar", "Content",
+                "Layout", "Container", "Row", "Col", "Grid", "Flex", "Box",
+                "Stack", "Wrap", "Space", "Divider", "Separator",
+                // Common class suffixes (Util, Helper, Service, etc.)
+                "Util", "Utils", "Helper", "Helpers", "Service", "Services",
+                "Handler", "Handlers", "Manager", "Managers", "Controller",
+                "Factory", "Provider", "Adapter", "Wrapper", "Builder",
+                "Parser", "Formatter", "Validator", "Converter", "Mapper",
+                "Reducer", "Selector", "Middleware", "Interceptor", "Guard",
+                "Resolver", "Directive", "Pipe", "Module", "Component",
+                "Plugin", "Extension", "Mixin", "Decorator", "Annotation",
+                // Apollo/GraphQL specific
+                "Apollo", "Query", "Mutation", "Subscription", "Fragment",
+                "Client", "Cache", "Link", "Schema", "Resolver",
+                // State management
+                "Store", "State", "Action", "Reducer", "Effect", "Saga",
+                "Slice", "Thunk", "Observable", "Subject",
+                // Common prefixes
+                "use", "get", "set", "is", "has", "can", "should", "will",
+                "on", "handle", "fetch", "load", "save", "update", "delete",
+                "create", "init", "setup", "config", "register", "unregister",
+            ];
+            for pattern in class_patterns {
+                if s.contains(pattern) {
                     return true;
                 }
             }
