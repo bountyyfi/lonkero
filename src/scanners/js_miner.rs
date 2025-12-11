@@ -424,8 +424,8 @@ impl JsMinerScanner {
             }
         }
 
-        // API Base URLs (full URLs to API servers)
-        if let Some(findings) = self.scan_pattern(content, r#"["']https?://api\.[a-zA-Z0-9.\-]+\.[a-z]{2,}[^"'\s]*["']"#, "API Base URL") {
+        // API Base URLs (full URLs to API servers - various patterns)
+        if let Some(findings) = self.scan_pattern(content, r#"["']https?://[a-zA-Z0-9.\-]+\.[a-z]{2,}(/[^"'\s]*)?(v[0-9]+|/api|graphql)[^"'\s]*["']"#, "API Base URL") {
             for evidence in findings.into_iter().take(5) {
                 vulnerabilities.push(self.create_vulnerability(
                     "API Base URL Discovered",
@@ -661,7 +661,7 @@ mod tests {
         let scanner = create_test_scanner();
         let mut vulns = Vec::new();
 
-        let content = r#"const baseUrl = "https://api.example.com/v1";"#;
+        let content = r#"const baseUrl = "https://backend.example.com/api/users";"#;
         scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
 
         assert!(vulns.iter().any(|v| v.vuln_type.contains("API Base URL")));
