@@ -833,7 +833,7 @@ impl JsMinerScanner {
         }
 
         // Heroku API Key
-        if let Some(findings) = self.scan_pattern(content, r"(?i)heroku[_-]?api[_-]?key\s*[=:]\s*['\"]?[a-f0-9-]{36}", "Heroku API Key") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)heroku[_-]?api[_-]?key\s*[=:]\s*['\"]?[a-f0-9-]{36}"#, "Heroku API Key") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Heroku API Key Exposed",
@@ -864,7 +864,7 @@ impl JsMinerScanner {
             }
         }
 
-        if let Some(findings) = self.scan_pattern(content, r"(?i)twilio[_-]?auth[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{32}", "Twilio Auth Token") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)twilio[_-]?auth[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{32}"#, "Twilio Auth Token") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Twilio Auth Token Exposed",
@@ -906,7 +906,7 @@ impl JsMinerScanner {
         }
 
         // Pusher Keys
-        if let Some(findings) = self.scan_pattern(content, r"(?i)pusher[_-]?(app[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{20}", "Pusher Key") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)pusher[_-]?(app[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{20}"#, "Pusher Key") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Pusher Credentials Exposed",
@@ -980,7 +980,7 @@ impl JsMinerScanner {
         }
 
         // Cloudflare API Token
-        if let Some(findings) = self.scan_pattern(content, r"(?i)cloudflare[_-]?api[_-]?(key|token)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{37,}", "Cloudflare Token") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)cloudflare[_-]?api[_-]?(key|token)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{37,}"#, "Cloudflare Token") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Cloudflare API Token Exposed",
@@ -998,7 +998,7 @@ impl JsMinerScanner {
         // ============================================
 
         // Algolia API Key
-        if let Some(findings) = self.scan_pattern(content, r"(?i)algolia[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{32}", "Algolia Key") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)algolia[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{32}"#, "Algolia Key") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Algolia API Key Exposed",
@@ -1082,7 +1082,7 @@ impl JsMinerScanner {
         }
 
         // Vercel Token
-        if let Some(findings) = self.scan_pattern(content, r"(?i)vercel[_-]?token\s*[=:]\s*['\"]?[a-zA-Z0-9]{24}", "Vercel Token") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)vercel[_-]?token\s*[=:]\s*['\"]?[a-zA-Z0-9]{24}"#, "Vercel Token") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Vercel Token Exposed",
@@ -1096,7 +1096,7 @@ impl JsMinerScanner {
         }
 
         // Netlify Token
-        if let Some(findings) = self.scan_pattern(content, r"(?i)netlify[_-]?(auth[_-]?)?token\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{40,}", "Netlify Token") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)netlify[_-]?(auth[_-]?)?token\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{40,}"#, "Netlify Token") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Netlify Token Exposed",
@@ -1110,7 +1110,7 @@ impl JsMinerScanner {
         }
 
         // Datadog API Key
-        if let Some(findings) = self.scan_pattern(content, r"(?i)datadog[_-]?(api[_-]?)?key\s*[=:]\s*['\"]?[a-f0-9]{32}", "Datadog Key") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)datadog[_-]?(api[_-]?)?key\s*[=:]\s*['\"]?[a-f0-9]{32}"#, "Datadog Key") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Datadog API Key Exposed",
@@ -1138,7 +1138,7 @@ impl JsMinerScanner {
         }
 
         // CircleCI Token
-        if let Some(findings) = self.scan_pattern(content, r"(?i)circle[_-]?ci[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{40}", "CircleCI Token") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)circle[_-]?ci[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{40}"#, "CircleCI Token") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "CircleCI Token Exposed",
@@ -1197,7 +1197,7 @@ impl JsMinerScanner {
         }
 
         // Auth0 Credentials
-        if let Some(findings) = self.scan_pattern(content, r"(?i)auth0[_-]?(client[_-]?)?(secret|key)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{32,}", "Auth0 Secret") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)auth0[_-]?(client[_-]?)?(secret|key)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{32,}"#, "Auth0 Secret") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Auth0 Credentials Exposed",
@@ -1270,7 +1270,7 @@ impl JsMinerScanner {
         }
 
         // Vonage/Nexmo Key
-        if let Some(findings) = self.scan_pattern(content, r"(?i)(vonage|nexmo)[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-zA-Z0-9]{8,}", "Vonage Key") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)(vonage|nexmo)[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-zA-Z0-9]{8,}"#, "Vonage Key") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Vonage/Nexmo Credentials Exposed",
@@ -1284,7 +1284,7 @@ impl JsMinerScanner {
         }
 
         // Plivo Credentials
-        if let Some(findings) = self.scan_pattern(content, r"(?i)plivo[_-]?(auth[_-]?)?(id|token)\s*[=:]\s*['\"]?[a-zA-Z0-9]{20,}", "Plivo Credential") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)plivo[_-]?(auth[_-]?)?(id|token)\s*[=:]\s*['\"]?[a-zA-Z0-9]{20,}"#, "Plivo Credential") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Plivo Credentials Exposed",
@@ -1382,7 +1382,7 @@ impl JsMinerScanner {
         }
 
         // PayPal Client ID/Secret
-        if let Some(findings) = self.scan_pattern(content, r"(?i)paypal[_-]?(client[_-]?)?(id|secret)\s*[=:]\s*['\"]?[A-Za-z0-9_-]{20,}", "PayPal Credential") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)paypal[_-]?(client[_-]?)?(id|secret)\s*[=:]\s*['\"]?[A-Za-z0-9_-]{20,}"#, "PayPal Credential") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "PayPal Credentials Exposed",
@@ -1442,7 +1442,7 @@ impl JsMinerScanner {
         }
 
         // Rails secret_key_base
-        if let Some(findings) = self.scan_pattern(content, r"(?i)secret_key_base\s*[=:]\s*['\"]?[a-f0-9]{128}", "Rails Secret") {
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)secret_key_base\s*[=:]\s*['\"]?[a-f0-9]{128}"#, "Rails Secret") {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Rails secret_key_base Exposed",
