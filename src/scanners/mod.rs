@@ -140,7 +140,7 @@ pub use file_upload_vulnerabilities::FileUploadVulnerabilitiesScanner;
 pub use cors_misconfiguration::CorsMisconfigurationScanner;
 pub use cloud_storage::CloudStorageScanner;
 pub use framework_vulnerabilities::FrameworkVulnerabilitiesScanner;
-pub use js_miner::JsMinerScanner;
+pub use js_miner::{JsMinerScanner, JsMinerResults};
 pub use sensitive_data::SensitiveDataScanner;
 pub use api_fuzzer::ApiFuzzerScanner;
 pub use api_gateway_scanner::ApiGatewayScanner;
