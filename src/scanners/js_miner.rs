@@ -382,8 +382,8 @@ impl JsMinerScanner {
             }
         }
 
-        // GraphQL Queries/Mutations/Fragments
-        if let Some(findings) = self.scan_pattern(content, r"(?i)(query|mutation|fragment)\s+[A-Za-z_][A-Za-z0-9_]*\s*(\([^)]*\))?\s*\{", "GraphQL Operation") {
+        // GraphQL Queries/Mutations/Fragments (flexible for minified code)
+        if let Some(findings) = self.scan_pattern(content, r"(?i)(query|mutation|fragment)\s*[A-Za-z_][A-Za-z0-9_]*", "GraphQL Operation") {
             for evidence in findings.into_iter().take(5) {
                 vulnerabilities.push(self.create_vulnerability(
                     "GraphQL Operation Discovered",
@@ -396,8 +396,8 @@ impl JsMinerScanner {
             }
         }
 
-        // GraphQL Endpoint URLs
-        if let Some(findings) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^"'\s]*graphql[^"'\s]*"#, "GraphQL Endpoint") {
+        // GraphQL Endpoint URLs (handles various formats)
+        if let Some(findings) = self.scan_pattern(content, r"https?://[a-zA-Z0-9.\-]+[:/][^\s\"'<>]*graphql", "GraphQL Endpoint") {
             for evidence in findings.into_iter().take(3) {
                 vulnerabilities.push(self.create_vulnerability(
                     "GraphQL Endpoint Discovered",
@@ -410,8 +410,8 @@ impl JsMinerScanner {
             }
         }
 
-        // Sentry DSN (error tracking service credentials)
-        if let Some(findings) = self.scan_pattern(content, r"https://[a-f0-9]+@[a-z0-9]+\.ingest\.sentry\.io/[0-9]+", "Sentry DSN") {
+        // Sentry DSN (error tracking service credentials - case insensitive)
+        if let Some(findings) = self.scan_pattern(content, r"https://[a-fA-F0-9]+@[a-zA-Z0-9]+\.ingest\.sentry\.io/[0-9]+", "Sentry DSN") {
             for evidence in findings.into_iter().take(2) {
                 vulnerabilities.push(self.create_vulnerability(
                     "Sentry DSN Exposed",
@@ -424,9 +424,20 @@ impl JsMinerScanner {
             }
         }
 
-        // API Base URLs (full URLs to API servers - various patterns)
-        if let Some(findings) = self.scan_pattern(content, r#"["']https?://[a-zA-Z0-9.\-]+\.[a-z]{2,}(/[^"'\s]*)?(v[0-9]+|/api|graphql)[^"'\s]*["']"#, "API Base URL") {
-            for evidence in findings.into_iter().take(5) {
+        // External API URLs (any https URL to api.* or */api/ or */v[0-9]/)
+        if let Some(findings) = self.scan_pattern(content, r"https://[a-zA-Z0-9.\-]+\.[a-z]{2,}/[^\s\"'<>]*", "External URL") {
+            // Filter to only API-like URLs
+            let api_findings: Vec<String> = findings.into_iter()
+                .filter(|url| {
+                    url.contains("/api") ||
+                    url.contains("/v1") || url.contains("/v2") || url.contains("/v3") ||
+                    url.contains("graphql") ||
+                    url.starts_with("https://api.")
+                })
+                .take(5)
+                .collect();
+
+            for evidence in api_findings {
                 vulnerabilities.push(self.create_vulnerability(
                     "API Base URL Discovered",
                     location,
@@ -661,7 +672,7 @@ mod tests {
         let scanner = create_test_scanner();
         let mut vulns = Vec::new();
 
-        let content = r#"const baseUrl = "https://backend.example.com/api/users";"#;
+        let content = r#"fetch("https://backend.example.com/api/users")"#;
         scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
 
         assert!(vulns.iter().any(|v| v.vuln_type.contains("API Base URL")));
