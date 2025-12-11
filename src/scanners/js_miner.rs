@@ -600,6 +600,19 @@ impl JsMinerScanner {
             "util", "utils", "helper", "helpers", "common", "shared", "core", "base",
             "api", "http", "https", "ws", "wss", "tcp", "udp", "host", "port",
             "env", "dev", "prod", "test", "stage", "local", "remote", "debug", "release",
+            // Config/state words
+            "stable", "unstable", "beta", "alpha", "latest", "legacy", "deprecated",
+            "active", "inactive", "valid", "invalid", "dirty", "pristine", "clean",
+            "pending", "complete", "finished", "done", "ready", "busy", "idle",
+            "locked", "unlocked", "frozen", "mutable", "immutable",
+            "sync", "lazy", "eager", "strict", "loose", "safe", "unsafe",
+            "internal", "external", "scoped", "isolated", "sandboxed",
+            "dynamic", "fixed", "absolute", "relative", "sticky", "fluid",
+            "primary", "secondary", "tertiary", "custom", "manual",
+            "horizontal", "vertical", "inline", "block", "none", "both",
+            "unique", "duplicate", "cloned", "cached", "persisted", "transient",
+            "ascending", "descending", "asc", "desc", "forward", "backward", "reverse",
+            "native", "polyfill", "fallback", "shim", "mock", "stub", "fake", "real",
 
             // HTML attributes (not input parameters)
             "draggable", "droppable", "sortable", "resizable", "selectable", "editable",
