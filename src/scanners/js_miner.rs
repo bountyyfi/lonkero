@@ -397,7 +397,7 @@ impl JsMinerScanner {
         }
 
         // GraphQL Endpoint URLs (handles various formats)
-        if let Some(findings) = self.scan_pattern(content, r"https?://[a-zA-Z0-9.\-]+[:/][^\s\"'<>]*graphql", "GraphQL Endpoint") {
+        if let Some(findings) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*graphql"#, "GraphQL Endpoint") {
             for evidence in findings.into_iter().take(3) {
                 vulnerabilities.push(self.create_vulnerability(
                     "GraphQL Endpoint Discovered",
@@ -425,7 +425,7 @@ impl JsMinerScanner {
         }
 
         // External API URLs (any https URL to api.* or */api/ or */v[0-9]/)
-        if let Some(findings) = self.scan_pattern(content, r"https://[a-zA-Z0-9.\-]+\.[a-z]{2,}/[^\s\"'<>]*", "External URL") {
+        if let Some(findings) = self.scan_pattern(content, r#"https://[a-zA-Z0-9.\-]+\.[a-z]{2,}/[^\s"'<>]*"#, "External URL") {
             // Filter to only API-like URLs
             let api_findings: Vec<String> = findings.into_iter()
                 .filter(|url| {
