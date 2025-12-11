@@ -695,22 +695,33 @@ impl JsMinerScanner {
             "VirtualScroller",
         ].iter().cloned().collect();
 
-        // Additional check: filter out PascalCase names that look like components
+        // Additional check: filter out PascalCase names that look like components/classes
         let is_likely_component = |s: &str| -> bool {
-            if s.len() < 2 { return false; }
+            if s.len() < 3 { return false; }
             let chars: Vec<char> = s.chars().collect();
-            // Starts with uppercase
+            // Must start with uppercase
             if !chars[0].is_uppercase() { return false; }
-            // Common component prefixes
-            let prefixes = ["Q", "V", "El", "Mui", "Mat", "Ng", "Ant", "Chakra", "Prime", "B"];
+
+            // Count uppercase letters - components typically have 2+ (PascalCase)
+            let uppercase_count = chars.iter().filter(|c| c.is_uppercase()).count();
+            if uppercase_count >= 2 {
+                return true;
+            }
+
+            // Single uppercase but matches common component patterns
+            // [A-Z][a-z]+[A-Z] like "InputPassword" or starts with known prefixes
+            let prefixes = ["Input", "Button", "Form", "Modal", "Dialog", "Table", "List",
+                           "Card", "Menu", "Icon", "Text", "Label", "Select", "Check",
+                           "Radio", "Switch", "Slider", "Date", "Time", "Color", "File",
+                           "Upload", "Download", "Nav", "Tab", "Panel", "Drawer", "Popup",
+                           "Tooltip", "Toast", "Alert", "Badge", "Avatar", "Progress",
+                           "Spinner", "Loading", "Skeleton", "Empty", "Error", "Success",
+                           "Warning", "Info", "Header", "Footer", "Sidebar", "Content",
+                           "Layout", "Container", "Row", "Col", "Grid", "Flex", "Box",
+                           "Stack", "Wrap", "Space", "Divider", "Separator"];
             for prefix in prefixes {
-                if s.starts_with(prefix) && s.len() > prefix.len() {
-                    let next_char = s.chars().nth(prefix.len());
-                    if let Some(c) = next_char {
-                        if c.is_uppercase() {
-                            return true;
-                        }
-                    }
+                if s.contains(prefix) {
+                    return true;
                 }
             }
             false
