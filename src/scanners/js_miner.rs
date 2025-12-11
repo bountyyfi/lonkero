@@ -12,6 +12,88 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
+/// Common third-party domains to skip (CDNs, analytics, widgets)
+const THIRD_PARTY_DOMAINS: &[&str] = &[
+    // Analytics & Tracking
+    "google-analytics.com",
+    "googletagmanager.com",
+    "googleadservices.com",
+    "googlesyndication.com",
+    "doubleclick.net",
+    "analytics.google.com",
+    "cloudflareinsights.com",
+    "hotjar.com",
+    "segment.com",
+    "mixpanel.com",
+    "amplitude.com",
+    "heap.io",
+    "heapanalytics.com",
+    "plausible.io",
+    "fathom.com",
+    "matomo.org",
+    // Consent & Privacy
+    "cookiebot.com",
+    "onetrust.com",
+    "cookielaw.org",
+    "trustarc.com",
+    "quantcast.com",
+    "consentmanager.net",
+    // CDNs & Libraries
+    "cdnjs.cloudflare.com",
+    "cdn.jsdelivr.net",
+    "unpkg.com",
+    "polyfill.io",
+    "code.jquery.com",
+    "ajax.googleapis.com",
+    "stackpath.bootstrapcdn.com",
+    "maxcdn.bootstrapcdn.com",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+    // Chat & Support Widgets
+    "intercom.io",
+    "intercomcdn.com",
+    "crisp.chat",
+    "zendesk.com",
+    "zdassets.com",
+    "livechatinc.com",
+    "tawk.to",
+    "freshdesk.com",
+    "drift.com",
+    // Social & Sharing
+    "facebook.net",
+    "fbcdn.net",
+    "twitter.com",
+    "platform.twitter.com",
+    "linkedin.com",
+    "ads-twitter.com",
+    "connect.facebook.net",
+    // Ads & Marketing
+    "adsrvr.org",
+    "adform.net",
+    "criteo.com",
+    "taboola.com",
+    "outbrain.com",
+    "amazon-adsystem.com",
+    "bing.com",
+    "bat.bing.com",
+    // Payment (public SDKs)
+    "js.stripe.com",
+    "checkout.stripe.com",
+    "js.braintreegateway.com",
+    // Maps & Utilities
+    "maps.googleapis.com",
+    "maps.google.com",
+    // Monitoring (public)
+    "browser.sentry-cdn.com",
+    "js.sentry-cdn.com",
+    "cdn.ravenjs.com",
+    // Other common third-party
+    "recaptcha.net",
+    "hcaptcha.com",
+    "gstatic.com",
+    "cloudflare.com",
+];
+
 /// Scanner for JavaScript source code analysis (sensitive data mining)
 pub struct JsMinerScanner {
     http_client: Arc<HttpClient>,
@@ -22,6 +104,49 @@ impl JsMinerScanner {
         Self {
             http_client,
         }
+    }
+
+    /// Check if URL is from a third-party domain that should be skipped
+    fn is_third_party_url(&self, js_url: &str, target_host: &str) -> bool {
+        let js_host = match url::Url::parse(js_url) {
+            Ok(u) => u.host_str().unwrap_or("").to_lowercase(),
+            Err(_) => return false,
+        };
+
+        // Same host - not third-party
+        if js_host == target_host || js_host.ends_with(&format!(".{}", target_host)) {
+            return false;
+        }
+
+        // Check against known third-party domains
+        for domain in THIRD_PARTY_DOMAINS {
+            if js_host == *domain || js_host.ends_with(&format!(".{}", domain)) {
+                return true;
+            }
+        }
+
+        // If it's a completely different domain, consider it third-party
+        // unless it shares a common base domain
+        let target_parts: Vec<&str> = target_host.split('.').collect();
+        let js_parts: Vec<&str> = js_host.split('.').collect();
+
+        // Extract base domain (last 2 parts for most TLDs)
+        if target_parts.len() >= 2 && js_parts.len() >= 2 {
+            let target_base = format!("{}.{}",
+                target_parts[target_parts.len() - 2],
+                target_parts[target_parts.len() - 1]);
+            let js_base = format!("{}.{}",
+                js_parts[js_parts.len() - 2],
+                js_parts[js_parts.len() - 1]);
+
+            // Same base domain - not third-party
+            if target_base == js_base {
+                return false;
+            }
+        }
+
+        // Different domain - third-party
+        true
     }
 
     /// Run JavaScript mining scan
@@ -36,6 +161,12 @@ impl JsMinerScanner {
         let mut total_tests = 0;
         let mut analyzed_urls: HashSet<String> = HashSet::new();
 
+        // Parse target URL to get host
+        let target_host = match url::Url::parse(url) {
+            Ok(u) => u.host_str().unwrap_or("").to_lowercase(),
+            Err(_) => return Ok((all_vulnerabilities, 0)),
+        };
+
         // Get initial HTML response
         let initial_response = match self.http_client.get(url).await {
             Ok(resp) => resp,
@@ -49,13 +180,25 @@ impl JsMinerScanner {
 
         // Discover JavaScript files from HTML
         let js_files = self.discover_js_files(url, html);
-        info!("Discovered {} JavaScript files", js_files.len());
+        let total_js_count = js_files.len();
+        info!("Discovered {} JavaScript files total", total_js_count);
+
+        // Filter out third-party scripts
+        let first_party_files: Vec<String> = js_files
+            .into_iter()
+            .filter(|js_url| !self.is_third_party_url(js_url, &target_host))
+            .collect();
+
+        let skipped_count = total_js_count - first_party_files.len();
+        info!("Analyzing {} first-party JavaScript files (filtered {} third-party)",
+              first_party_files.len(),
+              skipped_count);
 
         // Analyze inline scripts
         total_tests += self.analyze_inline_scripts(html, url, &mut all_vulnerabilities);
 
         // Analyze JavaScript files (limit to 20 for performance)
-        let files_to_analyze: Vec<String> = js_files.into_iter().take(20).collect();
+        let files_to_analyze: Vec<String> = first_party_files.into_iter().take(20).collect();
 
         for js_url in &files_to_analyze {
             info!("[JS-Miner] Analyzing: {}", js_url);
@@ -407,8 +550,10 @@ impl JsMinerScanner {
             }
         }
 
-        // GraphQL Queries/Mutations/Fragments (flexible for minified code)
-        if let Some(findings) = self.scan_pattern(content, r"(?i)(query|mutation|fragment)\s*[A-Za-z_][A-Za-z0-9_]*", "GraphQL Operation") {
+        // GraphQL Queries/Mutations/Fragments - require actual GraphQL syntax
+        // Must have either gql`/graphql` template, or query/mutation with { or ( following
+        // Pattern 1: gql` or graphql` template literals
+        if let Some(findings) = self.scan_pattern(content, r#"(?:gql|graphql)\s*`[^`]*(?:query|mutation|subscription|fragment)\s+[A-Za-z_][A-Za-z0-9_]*"#, "GraphQL Operation") {
             for evidence in findings.into_iter().take(5) {
                 vulnerabilities.push(self.create_vulnerability(
                     "GraphQL Operation Discovered",
@@ -418,6 +563,23 @@ impl JsMinerScanner {
                     "CWE-200",
                     "GraphQL operations expose API schema. Ensure proper authorization on all queries/mutations.",
                 ));
+            }
+        }
+
+        // Pattern 2: Standalone GraphQL operations with typical syntax (query Name { or mutation Name(
+        if let Some(findings) = self.scan_pattern(content, r#"(?:query|mutation|subscription)\s+[A-Za-z_][A-Za-z0-9_]*\s*[\(\{]"#, "GraphQL Operation") {
+            for evidence in findings.into_iter().take(5) {
+                // Skip common false positives
+                if !evidence.contains("querySelector") && !evidence.contains("querystring") {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "GraphQL Operation Discovered",
+                        location,
+                        &evidence,
+                        Severity::Info,
+                        "CWE-200",
+                        "GraphQL operations expose API schema. Ensure proper authorization on all queries/mutations.",
+                    ));
+                }
             }
         }
 
@@ -517,8 +679,9 @@ impl JsMinerScanner {
         }
 
         // Password/credential field names in JS (forms rendered client-side)
-        if let Some(findings) = self.scan_pattern(content, r#"["'](password|passwd|pwd|secret|credential|token|apikey|api_key|auth_token|access_token|refresh_token)["']"#, "Credential Field") {
-            for evidence in findings.into_iter().take(5) {
+        // Require context like field definition (name:, type:, field:) or input element
+        if let Some(findings) = self.scan_pattern(content, r#"(?:name|type|field|id)\s*[=:]\s*["'](password|passwd|pwd|secret|credential)["']"#, "Credential Field") {
+            for evidence in findings.into_iter().take(3) {
                 vulnerabilities.push(self.create_vulnerability(
                     "Credential Field Discovered",
                     location,
@@ -544,17 +707,21 @@ impl JsMinerScanner {
             }
         }
 
-        // Form action URLs in JS
-        if let Some(findings) = self.scan_pattern(content, r#"(?:action|formAction|submitUrl|postUrl)\s*[=:]\s*["']([^"']+)["']"#, "Form Action") {
+        // Form action URLs in JS - must be actual URL paths
+        if let Some(findings) = self.scan_pattern(content, r#"(?:action|formAction|submitUrl|postUrl)\s*[=:]\s*["'](/[^"']+|https?://[^"']+)["']"#, "Form Action") {
             for evidence in findings.into_iter().take(5) {
-                vulnerabilities.push(self.create_vulnerability(
-                    "Form Action URL Discovered",
-                    location,
-                    &evidence,
-                    Severity::Info,
-                    "CWE-200",
-                    "Form action URL found in JavaScript. Test endpoint for CSRF and input validation.",
-                ));
+                // Skip common false positives from consent/tracking scripts
+                if !evidence.contains("consent") && !evidence.contains("cookie") &&
+                   !evidence.contains("tracking") && !evidence.contains("analytics") {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "Form Action URL Discovered",
+                        location,
+                        &evidence,
+                        Severity::Info,
+                        "CWE-200",
+                        "Form action URL found in JavaScript. Test endpoint for CSRF and input validation.",
+                    ));
+                }
             }
         }
 
