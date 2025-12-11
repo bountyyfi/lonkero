@@ -771,6 +771,790 @@ impl JsMinerScanner {
                 }
             }
         }
+
+        // ============================================
+        // CLOUD PROVIDER CREDENTIALS
+        // ============================================
+
+        // Azure Storage Account Key
+        if let Some(findings) = self.scan_pattern(content, r"(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}", "Azure Storage Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Azure Storage Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Rotate Azure Storage key immediately. Use Azure Key Vault or managed identities.",
+                ));
+            }
+        }
+
+        // Azure Connection String
+        if let Some(findings) = self.scan_pattern(content, r"(?i)Server=tcp:[^;]+;.*Password=[^;]+", "Azure SQL Connection") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Azure SQL Connection String Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Remove Azure SQL connection string from client code. Use managed identities or Key Vault.",
+                ));
+            }
+        }
+
+        // GCP Service Account JSON (partial match)
+        if let Some(findings) = self.scan_pattern(content, r#""type"\s*:\s*"service_account"[^}]*"private_key"#, "GCP Service Account") {
+            for evidence in findings.into_iter().take(1) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GCP Service Account Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Remove GCP service account key immediately. Use workload identity or secret manager.",
+                ));
+            }
+        }
+
+        // DigitalOcean API Token
+        if let Some(findings) = self.scan_pattern(content, r"dop_v1_[a-f0-9]{64}", "DigitalOcean Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "DigitalOcean API Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke DigitalOcean API token immediately and rotate.",
+                ));
+            }
+        }
+
+        // Heroku API Key
+        if let Some(findings) = self.scan_pattern(content, r"(?i)heroku[_-]?api[_-]?key\s*[=:]\s*['\"]?[a-f0-9-]{36}", "Heroku API Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Heroku API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Heroku API key immediately.",
+                ));
+            }
+        }
+
+        // ============================================
+        // COMMUNICATION SERVICES
+        // ============================================
+
+        // Twilio Account SID and Auth Token
+        if let Some(findings) = self.scan_pattern(content, r"AC[a-f0-9]{32}", "Twilio Account SID") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Twilio Account SID Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-200",
+                    "Twilio Account SID found. Check if Auth Token is also exposed.",
+                ));
+            }
+        }
+
+        if let Some(findings) = self.scan_pattern(content, r"(?i)twilio[_-]?auth[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{32}", "Twilio Auth Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Twilio Auth Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Rotate Twilio Auth Token immediately. Never expose in client-side code.",
+                ));
+            }
+        }
+
+        // SendGrid API Key
+        if let Some(findings) = self.scan_pattern(content, r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}", "SendGrid API Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "SendGrid API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate SendGrid API key. Attackers could send emails on your behalf.",
+                ));
+            }
+        }
+
+        // Mailgun API Key
+        if let Some(findings) = self.scan_pattern(content, r"key-[a-f0-9]{32}", "Mailgun API Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Mailgun API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Mailgun API key immediately.",
+                ));
+            }
+        }
+
+        // Pusher Keys
+        if let Some(findings) = self.scan_pattern(content, r"(?i)pusher[_-]?(app[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{20}", "Pusher Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Pusher Credentials Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-312",
+                    "Pusher credentials found. Rotate if secret is exposed.",
+                ));
+            }
+        }
+
+        // ============================================
+        // DEVELOPER TOOLS & PLATFORMS
+        // ============================================
+
+        // GitHub Personal Access Token
+        if let Some(findings) = self.scan_pattern(content, r"ghp_[a-zA-Z0-9]{36}", "GitHub PAT") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GitHub Personal Access Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke GitHub PAT immediately. Attackers could access your repositories.",
+                ));
+            }
+        }
+
+        // GitHub OAuth Token
+        if let Some(findings) = self.scan_pattern(content, r"gho_[a-zA-Z0-9]{36}", "GitHub OAuth") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GitHub OAuth Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "GitHub OAuth token exposed. Revoke and rotate.",
+                ));
+            }
+        }
+
+        // GitLab Personal Access Token
+        if let Some(findings) = self.scan_pattern(content, r"glpat-[a-zA-Z0-9_-]{20}", "GitLab PAT") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "GitLab Personal Access Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke GitLab PAT immediately.",
+                ));
+            }
+        }
+
+        // npm Token
+        if let Some(findings) = self.scan_pattern(content, r"npm_[a-zA-Z0-9]{36}", "npm Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "npm Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke npm token immediately. Attackers could publish malicious packages.",
+                ));
+            }
+        }
+
+        // Cloudflare API Token
+        if let Some(findings) = self.scan_pattern(content, r"(?i)cloudflare[_-]?api[_-]?(key|token)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{37,}", "Cloudflare Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Cloudflare API Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Cloudflare API token. Attackers could modify DNS/firewall rules.",
+                ));
+            }
+        }
+
+        // ============================================
+        // OTHER SERVICES
+        // ============================================
+
+        // Algolia API Key
+        if let Some(findings) = self.scan_pattern(content, r"(?i)algolia[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{32}", "Algolia Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Algolia API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-312",
+                    "Algolia key found. Admin API key should never be in client code.",
+                ));
+            }
+        }
+
+        // MapBox Public Token
+        if let Some(findings) = self.scan_pattern(content, r"pk\.[a-zA-Z0-9]{60,}", "MapBox Public Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "MapBox Public Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Low,
+                    "CWE-200",
+                    "MapBox public token found. Ensure URL restrictions are configured.",
+                ));
+            }
+        }
+
+        // MapBox Secret Token
+        if let Some(findings) = self.scan_pattern(content, r"sk\.[a-zA-Z0-9]{60,}", "MapBox Secret Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "MapBox Secret Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "MapBox secret token exposed. Rotate immediately - never use in client code.",
+                ));
+            }
+        }
+
+        // OpenAI API Key
+        if let Some(findings) = self.scan_pattern(content, r"sk-[a-zA-Z0-9]{48}", "OpenAI Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "OpenAI API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Rotate OpenAI API key immediately. Attackers could use your API credits.",
+                ));
+            }
+        }
+
+        // Anthropic API Key
+        if let Some(findings) = self.scan_pattern(content, r"sk-ant-[a-zA-Z0-9_-]{40,}", "Anthropic Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Anthropic API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Rotate Anthropic API key immediately.",
+                ));
+            }
+        }
+
+        // Hugging Face Token
+        if let Some(findings) = self.scan_pattern(content, r"hf_[a-zA-Z0-9]{34}", "HuggingFace Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Hugging Face Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke Hugging Face token. Attackers could access your models/datasets.",
+                ));
+            }
+        }
+
+        // Vercel Token
+        if let Some(findings) = self.scan_pattern(content, r"(?i)vercel[_-]?token\s*[=:]\s*['\"]?[a-zA-Z0-9]{24}", "Vercel Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Vercel Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Vercel token. Attackers could deploy to your projects.",
+                ));
+            }
+        }
+
+        // Netlify Token
+        if let Some(findings) = self.scan_pattern(content, r"(?i)netlify[_-]?(auth[_-]?)?token\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{40,}", "Netlify Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Netlify Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Netlify token. Attackers could deploy to your sites.",
+                ));
+            }
+        }
+
+        // Datadog API Key
+        if let Some(findings) = self.scan_pattern(content, r"(?i)datadog[_-]?(api[_-]?)?key\s*[=:]\s*['\"]?[a-f0-9]{32}", "Datadog Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Datadog API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-312",
+                    "Datadog API key found. Rotate if it's the application key.",
+                ));
+            }
+        }
+
+        // New Relic Key
+        if let Some(findings) = self.scan_pattern(content, r"NRAK-[A-Z0-9]{27}", "New Relic Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "New Relic API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-312",
+                    "Rotate New Relic API key.",
+                ));
+            }
+        }
+
+        // CircleCI Token
+        if let Some(findings) = self.scan_pattern(content, r"(?i)circle[_-]?ci[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{40}", "CircleCI Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "CircleCI Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke CircleCI token. Attackers could access your CI/CD pipelines.",
+                ));
+            }
+        }
+
+        // Linear API Key
+        if let Some(findings) = self.scan_pattern(content, r"lin_api_[a-zA-Z0-9]{40}", "Linear API Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Linear API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-312",
+                    "Revoke Linear API key.",
+                ));
+            }
+        }
+
+        // Notion API Key
+        if let Some(findings) = self.scan_pattern(content, r"secret_[a-zA-Z0-9]{43}", "Notion Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Notion API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-312",
+                    "Revoke Notion API key. Attackers could access your workspace.",
+                ));
+            }
+        }
+
+        // Airtable API Key
+        if let Some(findings) = self.scan_pattern(content, r"key[a-zA-Z0-9]{14}", "Airtable Key") {
+            for evidence in findings.into_iter().take(2) {
+                // Additional check - must be in context
+                if evidence.len() == 17 {
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        "Potential Airtable API Key",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Possible Airtable API key. Verify and rotate if confirmed.",
+                    ));
+                }
+            }
+        }
+
+        // Auth0 Credentials
+        if let Some(findings) = self.scan_pattern(content, r"(?i)auth0[_-]?(client[_-]?)?(secret|key)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{32,}", "Auth0 Secret") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Auth0 Credentials Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Auth0 credentials exposed. Rotate client secret immediately.",
+                ));
+            }
+        }
+
+        // Okta API Token
+        if let Some(findings) = self.scan_pattern(content, r"00[a-zA-Z0-9_-]{40}", "Okta Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Potential Okta API Token",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Possible Okta API token. Verify and revoke if confirmed.",
+                ));
+            }
+        }
+
+        // PyPI Token
+        if let Some(findings) = self.scan_pattern(content, r"pypi-[a-zA-Z0-9_-]{100,}", "PyPI Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "PyPI Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke PyPI token immediately. Attackers could publish malicious packages.",
+                ));
+            }
+        }
+
+        // Docker Hub Token
+        if let Some(findings) = self.scan_pattern(content, r"dckr_pat_[a-zA-Z0-9_-]{56}", "Docker Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Docker Hub Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke Docker Hub token. Attackers could push malicious images.",
+                ));
+            }
+        }
+
+        // Postmark Token
+        if let Some(findings) = self.scan_pattern(content, r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", "Postmark/UUID Token") {
+            // This is UUID format - only flag if in postmark/email context
+            for evidence in findings.into_iter().take(2) {
+                if content.to_lowercase().contains("postmark") {
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                        "Postmark API Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Postmark API token. Attackers could send emails.",
+                    ));
+                }
+            }
+        }
+
+        // Vonage/Nexmo Key
+        if let Some(findings) = self.scan_pattern(content, r"(?i)(vonage|nexmo)[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-zA-Z0-9]{8,}", "Vonage Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Vonage/Nexmo Credentials Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Vonage/Nexmo credentials. Attackers could send SMS/calls.",
+                ));
+            }
+        }
+
+        // Plivo Credentials
+        if let Some(findings) = self.scan_pattern(content, r"(?i)plivo[_-]?(auth[_-]?)?(id|token)\s*[=:]\s*['\"]?[a-zA-Z0-9]{20,}", "Plivo Credential") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Plivo Credentials Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Plivo credentials. Attackers could make calls/send SMS.",
+                ));
+            }
+        }
+
+        // Telegram Bot Token
+        if let Some(findings) = self.scan_pattern(content, r"[0-9]{8,10}:[a-zA-Z0-9_-]{35}", "Telegram Bot Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Telegram Bot Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Revoke Telegram bot token via @BotFather immediately.",
+                ));
+            }
+        }
+
+        // Discord Webhook
+        if let Some(findings) = self.scan_pattern(content, r"https://discord(?:app)?\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+", "Discord Webhook") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Discord Webhook URL Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-200",
+                    "Delete and recreate Discord webhook. Attackers could send messages to your channel.",
+                ));
+            }
+        }
+
+        // Discord Bot Token
+        if let Some(findings) = self.scan_pattern(content, r"[MN][a-zA-Z0-9]{23,}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27}", "Discord Bot Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Discord Bot Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Regenerate Discord bot token immediately via Developer Portal.",
+                ));
+            }
+        }
+
+        // Shopify API Key
+        if let Some(findings) = self.scan_pattern(content, r"shpat_[a-fA-F0-9]{32}", "Shopify Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Shopify Access Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke Shopify access token. Attackers could access store data.",
+                ));
+            }
+        }
+
+        // Shopify Shared Secret
+        if let Some(findings) = self.scan_pattern(content, r"shpss_[a-fA-F0-9]{32}", "Shopify Secret") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Shopify Shared Secret Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Rotate Shopify shared secret immediately.",
+                ));
+            }
+        }
+
+        // Mailchimp API Key
+        if let Some(findings) = self.scan_pattern(content, r"[a-f0-9]{32}-us[0-9]{1,2}", "Mailchimp Key") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Mailchimp API Key Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "Rotate Mailchimp API key. Attackers could access mailing lists.",
+                ));
+            }
+        }
+
+        // PayPal Client ID/Secret
+        if let Some(findings) = self.scan_pattern(content, r"(?i)paypal[_-]?(client[_-]?)?(id|secret)\s*[=:]\s*['\"]?[A-Za-z0-9_-]{20,}", "PayPal Credential") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "PayPal Credentials Exposed",
+                    location,
+                    &evidence,
+                    Severity::High,
+                    "CWE-312",
+                    "PayPal credentials found. Secret should never be in client code.",
+                ));
+            }
+        }
+
+        // Square Access Token
+        if let Some(findings) = self.scan_pattern(content, r"sq0atp-[a-zA-Z0-9_-]{22}", "Square Token") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Square Access Token Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Revoke Square access token immediately.",
+                ));
+            }
+        }
+
+        // ============================================
+        // FRAMEWORK SECRETS
+        // ============================================
+
+        // Laravel APP_KEY
+        if let Some(findings) = self.scan_pattern(content, r"base64:[a-zA-Z0-9+/]{43}=", "Laravel APP_KEY") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Laravel APP_KEY Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Laravel APP_KEY exposed. Regenerate with 'php artisan key:generate'. All encrypted data is compromised.",
+                ));
+            }
+        }
+
+        // Django SECRET_KEY
+        if let Some(findings) = self.scan_pattern(content, r#"(?i)django[_-]?secret[_-]?key\s*[=:]\s*["'][a-zA-Z0-9!@#$%^&*()_+-=]{50,}["']"#, "Django SECRET_KEY") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Django SECRET_KEY Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Django SECRET_KEY exposed. Sessions and signed data are compromised. Regenerate immediately.",
+                ));
+            }
+        }
+
+        // Rails secret_key_base
+        if let Some(findings) = self.scan_pattern(content, r"(?i)secret_key_base\s*[=:]\s*['\"]?[a-f0-9]{128}", "Rails Secret") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Rails secret_key_base Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-312",
+                    "Rails secret_key_base exposed. Regenerate with 'rails secret'.",
+                ));
+            }
+        }
+
+        // ============================================
+        // FINNISH PII (Personal Identifiable Information)
+        // ============================================
+
+        // Finnish HETU (Personal Identity Code) - Format: DDMMYY[-+A]XXXX
+        // Day: 01-31, Month: 01-12, Year: 00-99, Century: - (+1900), + (+1800), A (+2000)
+        // Last 4: 3 digits + check character
+        if let Some(findings) = self.scan_pattern(content, r"(?:0[1-9]|[12][0-9]|3[01])(?:0[1-9]|1[0-2])[0-9]{2}[-+A][0-9]{3}[0-9A-Y]", "Finnish HETU") {
+            for evidence in findings.into_iter().take(3) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Finnish Personal Identity Code (HETU) Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-359",
+                    "Finnish HETU exposed - GDPR violation. Remove immediately and report data breach.",
+                ));
+            }
+        }
+
+        // Finnish Y-tunnus (Business ID) - Format: 1234567-8
+        if let Some(findings) = self.scan_pattern(content, r"[0-9]{7}-[0-9]", "Finnish Y-tunnus") {
+            for evidence in findings.into_iter().take(3) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Finnish Business ID (Y-tunnus) Found",
+                    location,
+                    &evidence,
+                    Severity::Info,
+                    "CWE-200",
+                    "Finnish Y-tunnus found. While public, verify it's intentionally exposed.",
+                ));
+            }
+        }
+
+        // Finnish IBAN
+        if let Some(findings) = self.scan_pattern(content, r"FI[0-9]{2}\s?[0-9]{4}\s?[0-9]{4}\s?[0-9]{4}\s?[0-9]{2}", "Finnish IBAN") {
+            for evidence in findings.into_iter().take(3) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Finnish Bank Account (IBAN) Exposed",
+                    location,
+                    &evidence,
+                    Severity::Medium,
+                    "CWE-359",
+                    "Finnish IBAN exposed. Review if this should be in client-side code.",
+                ));
+            }
+        }
+
+        // ============================================
+        // OTHER PII
+        // ============================================
+
+        // Generic Credit Card Numbers (basic check)
+        if let Some(findings) = self.scan_pattern(content, r"(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})", "Credit Card") {
+            for evidence in findings.into_iter().take(2) {
+                // Basic Luhn check could be added here
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Potential Credit Card Number Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-311",
+                    "Possible credit card number in code. PCI-DSS violation if confirmed.",
+                ));
+            }
+        }
+
+        // Social Security Number (US)
+        if let Some(findings) = self.scan_pattern(content, r"[0-9]{3}-[0-9]{2}-[0-9]{4}", "US SSN") {
+            for evidence in findings.into_iter().take(2) {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Potential US Social Security Number Exposed",
+                    location,
+                    &evidence,
+                    Severity::Critical,
+                    "CWE-359",
+                    "Possible SSN in code. Remove immediately if confirmed.",
+                ));
+            }
+        }
+
+        // Email addresses in config (might indicate test/debug accounts)
+        if let Some(findings) = self.scan_pattern(content, r#"["'][a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}["']"#, "Email") {
+            // Only report if it looks like a config value
+            let config_emails: Vec<String> = findings.into_iter()
+                .filter(|e| e.contains("admin") || e.contains("test") || e.contains("debug") || e.contains("dev@"))
+                .take(3)
+                .collect();
+
+            for evidence in config_emails {
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                    "Debug/Admin Email Address Found",
+                    location,
+                    &evidence,
+                    Severity::Low,
+                    "CWE-200",
+                    "Debug or admin email found. May indicate test configuration in production.",
+                ));
+            }
+        }
     }
 
     /// Scan content for regex pattern and return unique matches
