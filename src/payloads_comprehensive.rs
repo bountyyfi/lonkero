@@ -1450,13 +1450,15 @@ pub fn generate_modern_xss_2024_2025() -> Vec<String> {
     payloads
 }
 
-/// Filter payloads by scan mode (fast, normal, comprehensive)
+/// Filter payloads by scan mode (fast, normal, thorough, insane, comprehensive)
 pub fn filter_by_mode(payloads: &[String], mode: &str) -> Vec<String> {
     let sample_rate = match mode {
-        "fast" => 0.01,        // 1% - ~1,000 payloads for fast scans
-        "normal" => 0.10,      // 10% - ~10,000 payloads for normal scans
-        "comprehensive" => 1.0, // 100% - all payloads
-        _ => 0.10,
+        "fast" => 0.005,       // 0.5% - ~50 payloads for fast scans
+        "normal" => 0.01,      // 1% - ~100 payloads for normal scans
+        "thorough" => 0.02,    // 2% - ~200 payloads for thorough scans
+        "insane" => 0.05,      // 5% - ~500 payloads for insane scans
+        "comprehensive" => 1.0, // 100% - all payloads (use with caution)
+        _ => 0.01,             // Default to normal
     };
 
     let sample_size = (payloads.len() as f64 * sample_rate) as usize;
