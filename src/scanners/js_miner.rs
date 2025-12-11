@@ -437,32 +437,169 @@ impl JsMinerScanner {
         // Use "global" as key for parameters not tied to a specific endpoint
         let global_params = results.parameters.entry("global".to_string()).or_insert_with(HashSet::new);
 
-        // Common JS keywords/methods to filter out
+        // Comprehensive JS/framework noise filter
         let js_noise: HashSet<&str> = [
-            // Keywords
+            // JavaScript keywords
             "function", "return", "const", "let", "var", "this", "true", "false",
             "null", "undefined", "async", "await", "import", "export", "default",
             "class", "extends", "constructor", "prototype", "new", "delete", "typeof",
             "instanceof", "in", "of", "if", "else", "for", "while", "do", "switch",
             "case", "break", "continue", "try", "catch", "finally", "throw", "yield",
-            // Common methods/properties
+            "static", "get", "set", "super", "with", "debugger", "void",
+
+            // Common JS methods/properties
             "toString", "valueOf", "length", "push", "pop", "shift", "unshift",
             "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
             "slice", "splice", "concat", "join", "split", "indexOf", "includes",
             "then", "catch", "finally", "resolve", "reject", "all", "race",
-            "keys", "values", "entries", "assign", "freeze", "seal",
-            "parse", "stringify", "apply", "call", "bind",
-            // Framework/library noise
+            "keys", "values", "entries", "assign", "freeze", "seal", "create",
+            "parse", "stringify", "apply", "call", "bind", "hasOwnProperty",
+            "isArray", "isObject", "isString", "isNumber", "isFunction", "isBoolean",
+            "from", "of", "fill", "flat", "flatMap", "sort", "reverse", "copyWithin",
+
+            // React hooks and internals
             "props", "state", "setState", "useState", "useEffect", "useCallback",
-            "useMemo", "useRef", "useContext", "useReducer", "dispatch",
-            "component", "render", "mount", "unmount", "update", "create",
-            "computed", "watch", "methods", "data", "template", "style",
-            "module", "exports", "require", "define", "factory",
-            // Common variable names that aren't parameters
-            "i", "j", "k", "n", "x", "y", "z", "e", "t", "r", "o", "a", "s",
-            "el", "ev", "fn", "cb", "err", "res", "req", "ctx", "obj", "arr",
-            "item", "index", "result", "response", "request", "error", "success",
-            "options", "config", "settings", "context", "store", "router",
+            "useMemo", "useRef", "useContext", "useReducer", "useLayoutEffect",
+            "useImperativeHandle", "useDebugValue", "useDeferredValue", "useTransition",
+            "useId", "useSyncExternalStore", "useInsertionEffect", "forwardRef",
+            "createContext", "createRef", "createRoot", "createElement", "cloneElement",
+            "isValidElement", "Children", "Fragment", "StrictMode", "Suspense", "lazy",
+            "memo", "startTransition", "flushSync", "hydrate", "render", "unmountComponentAtNode",
+            "Component", "PureComponent", "shouldComponentUpdate", "componentDidMount",
+            "componentDidUpdate", "componentWillUnmount", "getDerivedStateFromProps",
+            "getSnapshotBeforeUpdate", "componentDidCatch", "getDerivedStateFromError",
+
+            // Vue.js
+            "computed", "watch", "watchEffect", "methods", "data", "template", "style",
+            "setup", "onMounted", "onUnmounted", "onUpdated", "onBeforeMount",
+            "onBeforeUnmount", "onBeforeUpdate", "onActivated", "onDeactivated",
+            "onErrorCaptured", "onRenderTracked", "onRenderTriggered", "onServerPrefetch",
+            "ref", "reactive", "readonly", "toRef", "toRefs", "isRef", "unref", "shallowRef",
+            "triggerRef", "customRef", "shallowReactive", "shallowReadonly", "toRaw",
+            "markRaw", "effectScope", "getCurrentScope", "onScopeDispose", "provide", "inject",
+            "defineComponent", "defineAsyncComponent", "defineProps", "defineEmits",
+            "defineExpose", "withDefaults", "useSlots", "useAttrs", "nextTick",
+            "vModel", "vShow", "vIf", "vFor", "vBind", "vOn", "vSlot",
+
+            // Angular
+            "ngOnInit", "ngOnDestroy", "ngOnChanges", "ngDoCheck", "ngAfterContentInit",
+            "ngAfterContentChecked", "ngAfterViewInit", "ngAfterViewChecked",
+            "Injectable", "Component", "Directive", "Pipe", "NgModule", "Input", "Output",
+            "ViewChild", "ViewChildren", "ContentChild", "ContentChildren", "HostBinding",
+            "HostListener", "EventEmitter", "ChangeDetectorRef", "ElementRef", "TemplateRef",
+            "ViewContainerRef", "Renderer2", "Injector", "NgZone", "ApplicationRef",
+            "FormControl", "FormGroup", "FormArray", "Validators", "AbstractControl",
+            "HttpClient", "HttpHeaders", "HttpParams", "HttpInterceptor",
+            "ActivatedRoute", "Router", "RouterModule", "Routes", "CanActivate",
+            "Observable", "Subject", "BehaviorSubject", "ReplaySubject", "AsyncSubject",
+            "pipe", "subscribe", "unsubscribe", "switchMap", "mergeMap", "concatMap",
+            "exhaustMap", "tap", "map", "filter", "take", "takeUntil", "debounceTime",
+            "distinctUntilChanged", "catchError", "retry", "finalize", "shareReplay",
+
+            // Next.js / Nuxt.js
+            "getServerSideProps", "getStaticProps", "getStaticPaths", "getInitialProps",
+            "useRouter", "useSearchParams", "usePathname", "useParams", "useSelectedLayoutSegment",
+            "notFound", "redirect", "permanentRedirect", "revalidatePath", "revalidateTag",
+            "generateStaticParams", "generateMetadata", "generateViewport",
+            "NextRequest", "NextResponse", "NextPage", "NextApiRequest", "NextApiResponse",
+            "asyncData", "fetch", "head", "layout", "middleware", "plugins", "nuxtApp",
+            "useAsyncData", "useFetch", "useLazyFetch", "useHead", "useState", "useNuxtApp",
+            "defineNuxtConfig", "defineNuxtPlugin", "defineNuxtRouteMiddleware",
+            "isServer", "isClient", "isBrowser", "isNode", "isDev", "isProd",
+
+            // Node.js / Express
+            "module", "exports", "require", "define", "factory", "__dirname", "__filename",
+            "process", "global", "Buffer", "console", "setTimeout", "setInterval",
+            "clearTimeout", "clearInterval", "setImmediate", "clearImmediate",
+            "express", "app", "router", "middleware", "bodyParser", "cookieParser",
+            "cors", "helmet", "morgan", "passport", "session", "multer",
+
+            // TypeScript
+            "interface", "type", "enum", "namespace", "declare", "readonly", "abstract",
+            "implements", "private", "protected", "public", "override", "as", "is",
+            "keyof", "infer", "never", "unknown", "any", "object", "string", "number",
+            "boolean", "symbol", "bigint", "Record", "Partial", "Required", "Pick",
+            "Omit", "Exclude", "Extract", "NonNullable", "ReturnType", "Parameters",
+
+            // Webpack / Build tools
+            "webpack", "chunk", "chunks", "bundle", "loader", "plugin", "entry", "output",
+            "resolve", "alias", "extensions", "devServer", "optimization", "splitChunks",
+            "miniCssExtractPlugin", "htmlWebpackPlugin", "definePlugin", "hotModuleReplacement",
+            "__webpack_require__", "__webpack_exports__", "__webpack_modules__",
+            "webpackChunkName", "webpackPrefetch", "webpackPreload",
+
+            // DOM / Browser APIs
+            "document", "window", "navigator", "location", "history", "localStorage",
+            "sessionStorage", "indexedDB", "fetch", "XMLHttpRequest", "WebSocket",
+            "addEventListener", "removeEventListener", "dispatchEvent", "preventDefault",
+            "stopPropagation", "target", "currentTarget", "srcElement", "relatedTarget",
+            "querySelector", "querySelectorAll", "getElementById", "getElementsByClassName",
+            "getElementsByTagName", "createElement", "createTextNode", "appendChild",
+            "removeChild", "insertBefore", "replaceChild", "cloneNode", "getAttribute",
+            "setAttribute", "removeAttribute", "classList", "className", "innerHTML",
+            "innerText", "textContent", "parentNode", "parentElement", "childNodes",
+            "children", "firstChild", "lastChild", "nextSibling", "previousSibling",
+            "offsetWidth", "offsetHeight", "offsetTop", "offsetLeft", "clientWidth",
+            "clientHeight", "scrollWidth", "scrollHeight", "scrollTop", "scrollLeft",
+            "getBoundingClientRect", "getComputedStyle", "requestAnimationFrame",
+            "cancelAnimationFrame", "MutationObserver", "IntersectionObserver",
+            "ResizeObserver", "PerformanceObserver", "CustomEvent", "Event",
+
+            // Common libraries (lodash, axios, moment, etc.)
+            "lodash", "underscore", "axios", "moment", "dayjs", "luxon", "date",
+            "jquery", "d3", "chart", "echarts", "highcharts", "three", "pixi",
+            "socket", "io", "emit", "on", "off", "once", "broadcast",
+            "debounce", "throttle", "memoize", "curry", "compose", "pipe",
+            "get", "set", "has", "merge", "cloneDeep", "isEqual", "isEmpty",
+            "pick", "omit", "groupBy", "sortBy", "orderBy", "uniq", "uniqBy",
+
+            // State management (Redux, MobX, Zustand, Pinia)
+            "dispatch", "getState", "subscribe", "replaceReducer", "combineReducers",
+            "createStore", "applyMiddleware", "compose", "bindActionCreators",
+            "useSelector", "useDispatch", "useStore", "connect", "mapStateToProps",
+            "mapDispatchToProps", "action", "reducer", "selector", "slice", "thunk",
+            "saga", "observable", "autorun", "reaction", "when", "makeAutoObservable",
+            "makeObservable", "runInAction", "flow", "defineStore", "storeToRefs",
+
+            // Testing
+            "describe", "it", "test", "expect", "beforeEach", "afterEach", "beforeAll",
+            "afterAll", "jest", "mock", "spy", "fn", "spyOn", "mockImplementation",
+            "mockReturnValue", "mockResolvedValue", "mockRejectedValue", "toEqual",
+            "toBe", "toHaveBeenCalled", "toHaveBeenCalledWith", "toThrow", "toMatch",
+
+            // Common single/double letter variable names (minified code)
+            "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+            "a", "b", "c", "d", "e", "f", "g", "h",
+            "el", "ev", "fn", "cb", "rx", "tx", "id", "pk", "fk", "db", "ui", "vm", "vn",
+            "aa", "ab", "ac", "ad", "ae", "af", "ag", "ah", "ai", "aj", "ak", "al", "am",
+            "ba", "bb", "bc", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bk", "bl", "bm",
+            "ca", "cb", "cc", "cd", "ce", "cf", "cg", "ch", "ci", "cj", "ck", "cl", "cm",
+
+            // Common variable/property names that aren't input parameters
+            "err", "res", "req", "ctx", "obj", "arr", "val", "key", "idx", "len", "str",
+            "num", "bool", "func", "args", "self", "that", "base", "root", "node", "tree",
+            "item", "items", "index", "result", "results", "response", "request",
+            "error", "errors", "success", "failure", "pending", "loading", "loaded",
+            "options", "config", "settings", "params", "attrs", "slots", "refs",
+            "context", "store", "router", "route", "routes", "path", "paths",
+            "parent", "child", "children", "sibling", "ancestor", "descendant",
+            "prev", "next", "first", "last", "current", "selected", "active", "disabled",
+            "visible", "hidden", "open", "closed", "expanded", "collapsed",
+            "width", "height", "top", "left", "right", "bottom", "margin", "padding",
+            "color", "background", "border", "font", "size", "weight", "opacity",
+            "transform", "transition", "animation", "duration", "delay", "easing",
+            "min", "max", "step", "count", "total", "sum", "avg", "mean", "median",
+            "start", "end", "begin", "finish", "init", "destroy", "reset", "clear",
+            "add", "remove", "insert", "delete", "update", "edit", "save", "load",
+            "show", "hide", "toggle", "enable", "disable", "lock", "unlock",
+            "on", "off", "yes", "no", "ok", "cancel", "confirm", "submit", "abort",
+            "handler", "handlers", "listener", "listeners", "callback", "callbacks",
+            "event", "events", "trigger", "emit", "fire", "notify", "broadcast",
+            "model", "models", "view", "views", "controller", "controllers",
+            "service", "services", "factory", "factories", "provider", "providers",
+            "util", "utils", "helper", "helpers", "common", "shared", "core", "base",
+            "api", "http", "https", "ws", "wss", "tcp", "udp", "host", "port",
+            "env", "dev", "prod", "test", "stage", "local", "remote", "debug", "release",
         ].iter().cloned().collect();
 
         // Extract from URL patterns only (most reliable)
