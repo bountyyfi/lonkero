@@ -601,6 +601,29 @@ impl JsMinerScanner {
             "api", "http", "https", "ws", "wss", "tcp", "udp", "host", "port",
             "env", "dev", "prod", "test", "stage", "local", "remote", "debug", "release",
 
+            // HTML attributes (not input parameters)
+            "draggable", "droppable", "sortable", "resizable", "selectable", "editable",
+            "disabled", "enabled", "readonly", "required", "optional", "checked", "selected",
+            "hidden", "visible", "collapsed", "expanded", "focused", "blurred",
+            "placeholder", "autofocus", "autocomplete", "spellcheck", "contenteditable",
+            "tabindex", "accesskey", "translate", "dir", "lang", "title", "alt",
+            "href", "src", "srcset", "sizes", "media", "rel", "target", "download",
+            "width", "height", "min", "max", "step", "pattern", "maxlength", "minlength",
+            "cols", "rows", "wrap", "multiple", "accept", "capture", "form", "formaction",
+            "enctype", "method", "novalidate", "formnovalidate", "formtarget",
+            "async", "defer", "crossorigin", "integrity", "referrerpolicy", "loading",
+            "decoding", "fetchpriority", "blocking", "elementtiming",
+
+            // CSS properties commonly found in JS
+            "display", "position", "overflow", "visibility", "opacity", "zIndex",
+            "margin", "padding", "border", "outline", "background", "color",
+            "font", "fontSize", "fontWeight", "fontFamily", "fontStyle",
+            "textAlign", "textDecoration", "textTransform", "lineHeight", "letterSpacing",
+            "flex", "flexDirection", "flexWrap", "justifyContent", "alignItems", "alignContent",
+            "gridTemplate", "gridColumn", "gridRow", "gap", "order", "flexGrow", "flexShrink",
+            "transform", "transition", "animation", "cursor", "pointerEvents", "userSelect",
+            "boxShadow", "borderRadius", "boxSizing", "whiteSpace", "wordBreak", "wordWrap",
+
             // UI Framework components (Quasar, Vuetify, Element, Material, etc.)
             // Quasar (Q prefix)
             "QBadge", "QBtn", "QCard", "QCardSection", "QCardActions", "QCheckbox",
