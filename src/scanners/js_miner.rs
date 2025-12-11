@@ -94,6 +94,14 @@ const THIRD_PARTY_DOMAINS: &[&str] = &[
     "cloudflare.com",
 ];
 
+/// Documentation domains to skip for API URL detection
+const DOC_DOMAINS: &[&str] = &[
+    "nextjs.org", "reactjs.org", "vuejs.org", "angular.io", "nodejs.org",
+    "developer.mozilla.org", "docs.github.com", "stackoverflow.com",
+    "medium.com", "dev.to", "w3.org", "json-schema.org", "schema.org",
+    "npmjs.com", "github.com", "gitlab.com", "bitbucket.org",
+];
+
 /// Scanner for JavaScript source code analysis (sensitive data mining)
 pub struct JsMinerScanner {
     http_client: Arc<HttpClient>,
@@ -149,6 +157,18 @@ impl JsMinerScanner {
         true
     }
 
+    /// Check if URL is documentation (should skip for API detection)
+    fn is_documentation_url(url: &str) -> bool {
+        let url_lower = url.to_lowercase();
+        for domain in DOC_DOMAINS {
+            if url_lower.contains(domain) {
+                return true;
+            }
+        }
+        url_lower.contains("/docs/") || url_lower.contains("/documentation/") ||
+        url_lower.contains("/reference/") || url_lower.contains("/api-reference/")
+    }
+
     /// Run JavaScript mining scan
     pub async fn scan(
         &self,
@@ -160,6 +180,7 @@ impl JsMinerScanner {
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
         let mut analyzed_urls: HashSet<String> = HashSet::new();
+        let mut seen_evidence: HashSet<String> = HashSet::new(); // Deduplication
 
         // Parse target URL to get host
         let target_host = match url::Url::parse(url) {
@@ -195,7 +216,7 @@ impl JsMinerScanner {
               skipped_count);
 
         // Analyze inline scripts
-        total_tests += self.analyze_inline_scripts(html, url, &mut all_vulnerabilities);
+        total_tests += self.analyze_inline_scripts(html, url, &mut all_vulnerabilities, &mut seen_evidence);
 
         // Analyze JavaScript files (limit to 20 for performance)
         let files_to_analyze: Vec<String> = first_party_files.into_iter().take(20).collect();
@@ -205,7 +226,7 @@ impl JsMinerScanner {
         }
 
         for js_url in files_to_analyze {
-            let tests = self.analyze_js_file(&js_url, &mut analyzed_urls, &mut all_vulnerabilities).await;
+            let tests = self.analyze_js_file(&js_url, &mut analyzed_urls, &mut all_vulnerabilities, &mut seen_evidence).await;
             total_tests += tests;
         }
 
@@ -287,7 +308,7 @@ impl JsMinerScanner {
     }
 
     /// Analyze inline scripts in HTML
-    fn analyze_inline_scripts(&self, html: &str, location: &str, vulnerabilities: &mut Vec<Vulnerability>) -> usize {
+    fn analyze_inline_scripts(&self, html: &str, location: &str, vulnerabilities: &mut Vec<Vulnerability>, seen_evidence: &mut HashSet<String>) -> usize {
         let mut tests_run = 0;
 
         let inline_script_regex = Regex::new(r#"<script[^>]*>([\s\S]*?)</script>"#).unwrap();
@@ -298,7 +319,7 @@ impl JsMinerScanner {
                 if content.trim().len() > 50 {
                     let inline_location = format!("{}#inline-{}", location, index);
                     tests_run += 1;
-                    self.analyze_js_content(content, &inline_location, vulnerabilities);
+                    self.analyze_js_content(content, &inline_location, vulnerabilities, seen_evidence);
                 }
             }
         }
@@ -307,7 +328,7 @@ impl JsMinerScanner {
     }
 
     /// Analyze a JavaScript file
-    async fn analyze_js_file(&self, js_url: &str, analyzed_urls: &mut HashSet<String>, vulnerabilities: &mut Vec<Vulnerability>) -> usize {
+    async fn analyze_js_file(&self, js_url: &str, analyzed_urls: &mut HashSet<String>, vulnerabilities: &mut Vec<Vulnerability>, seen_evidence: &mut HashSet<String>) -> usize {
         if analyzed_urls.contains(js_url) {
             return 0;
         }
@@ -322,10 +343,10 @@ impl JsMinerScanner {
                     .unwrap_or_default();
 
                 if content_type.contains("javascript") || content_type.contains("application/json") || response.body.len() > 0 {
-                    // Limit file size to 5MB
-                    if response.body.len() <= 5 * 1024 * 1024 {
+                    // Limit file size to 30MB
+                    if response.body.len() <= 30 * 1024 * 1024 {
                         let before_count = vulnerabilities.len();
-                        self.analyze_js_content(&response.body, js_url, vulnerabilities);
+                        self.analyze_js_content(&response.body, js_url, vulnerabilities, seen_evidence);
                         let found = vulnerabilities.len() - before_count;
                         if found > 0 {
                             info!("[JS-Miner] Found {} issues in {}", found, js_url);
@@ -342,12 +363,20 @@ impl JsMinerScanner {
         0
     }
 
+    /// Add vulnerability only if evidence hasn't been seen before
+    fn add_unique_vuln(&self, vulnerabilities: &mut Vec<Vulnerability>, seen: &mut HashSet<String>, vuln: Vulnerability) {
+        let key = format!("{}:{}", vuln.vuln_type, vuln.evidence.as_ref().unwrap_or(&"".to_string()));
+        if seen.insert(key) {
+            vulnerabilities.push(vuln);
+        }
+    }
+
     /// Analyze JavaScript content for sensitive data
-    fn analyze_js_content(&self, content: &str, location: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn analyze_js_content(&self, content: &str, location: &str, vulnerabilities: &mut Vec<Vulnerability>, seen_evidence: &mut HashSet<String>) {
         // AWS Keys
         if let Some(findings) = self.scan_pattern(content, r"AKIA[0-9A-Z]{16}", "AWS Access Key") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "AWS Access Key Exposed",
                     location,
                     &evidence,
@@ -361,7 +390,7 @@ impl JsMinerScanner {
         // Google API Keys
         if let Some(findings) = self.scan_pattern(content, r"AIza[0-9A-Za-z\-_]{35}", "Google API Key") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Google API Key Exposed",
                     location,
                     &evidence,
@@ -375,7 +404,7 @@ impl JsMinerScanner {
         // Slack Tokens
         if let Some(findings) = self.scan_pattern(content, r"xox[baprs]-([0-9a-zA-Z]{10,48})", "Slack Token") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Slack Token Exposed",
                     location,
                     &evidence,
@@ -389,7 +418,7 @@ impl JsMinerScanner {
         // Stripe Secret Keys
         if let Some(findings) = self.scan_pattern(content, r"sk_live_[0-9a-zA-Z]{24}", "Stripe Key") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Stripe Secret Key Exposed",
                     location,
                     &evidence,
@@ -403,7 +432,7 @@ impl JsMinerScanner {
         // JWT Tokens
         if let Some(findings) = self.scan_pattern(content, r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]*", "JWT Token") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "JWT Token Exposed",
                     location,
                     &evidence,
@@ -417,7 +446,7 @@ impl JsMinerScanner {
         // Private Keys
         if let Some(findings) = self.scan_pattern(content, r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----", "Private Key") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Private Key Exposed",
                     location,
                     &evidence,
@@ -431,7 +460,7 @@ impl JsMinerScanner {
         // Database Connection Strings
         if let Some(findings) = self.scan_pattern(content, r#"(mongodb|mysql|postgres|redis)://[^\s"']+""#, "Database Connection") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Database Connection String Exposed",
                     location,
                     &evidence,
@@ -445,7 +474,7 @@ impl JsMinerScanner {
         // API Endpoints (informational)
         if let Some(findings) = self.scan_pattern(content, r#"['"`](/api/[^'"`\s]+)['"`]"#, "API Endpoint") {
             for evidence in findings.into_iter().take(5) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "API Endpoint Discovered",
                     location,
                     &evidence,
@@ -459,7 +488,7 @@ impl JsMinerScanner {
         // S3 Buckets
         if let Some(findings) = self.scan_pattern(content, r"https?://[a-zA-Z0-9.\-]+\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com", "S3 Bucket") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "S3 Bucket URL Exposed",
                     location,
                     &evidence,
@@ -473,7 +502,7 @@ impl JsMinerScanner {
         // Bearer Tokens
         if let Some(findings) = self.scan_pattern(content, r"(?i)bearer\s+[a-zA-Z0-9\-._~+/]+=*", "Bearer Token") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Bearer Token Exposed",
                     location,
                     &evidence,
@@ -487,7 +516,7 @@ impl JsMinerScanner {
         // API Keys (generic)
         if let Some(findings) = self.scan_pattern(content, r#"(?i)api[_-]?key["']?\s*[:=]\s*["']([^"']{16,})["']"#, "API Key") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "API Key Exposed",
                     location,
                     &evidence,
@@ -501,7 +530,7 @@ impl JsMinerScanner {
         // Secrets (generic)
         if let Some(findings) = self.scan_pattern(content, r#"(?i)secret["']?\s*[:=]\s*["']([^"']{8,})["']"#, "Secret") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Secret Value Exposed",
                     location,
                     &evidence,
@@ -514,7 +543,7 @@ impl JsMinerScanner {
 
         // Source Maps
         if content.contains("sourceMappingURL") {
-            vulnerabilities.push(self.create_vulnerability(
+            self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                 "Source Map Exposed",
                 location,
                 "Source map reference found in production code",
@@ -526,7 +555,7 @@ impl JsMinerScanner {
 
         // Debug Mode
         if Regex::new(r"(?i)debug\s*[:=]\s*true").unwrap().is_match(content) {
-            vulnerabilities.push(self.create_vulnerability(
+            self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                 "Debug Mode Enabled",
                 location,
                 "debug: true found in JavaScript",
@@ -539,7 +568,7 @@ impl JsMinerScanner {
         // Environment Variables
         if let Some(findings) = self.scan_pattern(content, r"process\.env\.[A-Z_]+", "Environment Variable") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Environment Variable Reference",
                     location,
                     &evidence,
@@ -555,7 +584,7 @@ impl JsMinerScanner {
         // Pattern 1: gql` or graphql` template literals
         if let Some(findings) = self.scan_pattern(content, r#"(?:gql|graphql)\s*`[^`]*(?:query|mutation|subscription|fragment)\s+[A-Za-z_][A-Za-z0-9_]*"#, "GraphQL Operation") {
             for evidence in findings.into_iter().take(5) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "GraphQL Operation Discovered",
                     location,
                     &evidence,
@@ -571,7 +600,7 @@ impl JsMinerScanner {
             for evidence in findings.into_iter().take(5) {
                 // Skip common false positives
                 if !evidence.contains("querySelector") && !evidence.contains("querystring") {
-                    vulnerabilities.push(self.create_vulnerability(
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                         "GraphQL Operation Discovered",
                         location,
                         &evidence,
@@ -586,7 +615,7 @@ impl JsMinerScanner {
         // GraphQL Endpoint URLs (handles various formats)
         if let Some(findings) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*graphql"#, "GraphQL Endpoint") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "GraphQL Endpoint Discovered",
                     location,
                     &evidence,
@@ -600,7 +629,7 @@ impl JsMinerScanner {
         // Sentry DSN (error tracking service credentials - case insensitive)
         if let Some(findings) = self.scan_pattern(content, r"https://[a-fA-F0-9]+@[a-zA-Z0-9]+\.ingest\.sentry\.io/[0-9]+", "Sentry DSN") {
             for evidence in findings.into_iter().take(2) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Sentry DSN Exposed",
                     location,
                     &evidence,
@@ -613,19 +642,20 @@ impl JsMinerScanner {
 
         // External API URLs (any https URL to api.* or */api/ or */v[0-9]/)
         if let Some(findings) = self.scan_pattern(content, r#"https://[a-zA-Z0-9.\-]+\.[a-z]{2,}/[^\s"'<>]*"#, "External URL") {
-            // Filter to only API-like URLs
+            // Filter to only API-like URLs, skip documentation
             let api_findings: Vec<String> = findings.into_iter()
                 .filter(|url| {
-                    url.contains("/api") ||
-                    url.contains("/v1") || url.contains("/v2") || url.contains("/v3") ||
-                    url.contains("graphql") ||
-                    url.starts_with("https://api.")
+                    // Must look like an API URL
+                    (url.contains("/api") || url.contains("/v1") || url.contains("/v2") ||
+                     url.contains("/v3") || url.contains("graphql") || url.starts_with("https://api.")) &&
+                    // Skip documentation URLs
+                    !Self::is_documentation_url(url)
                 })
                 .take(5)
                 .collect();
 
             for evidence in api_findings {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "API Base URL Discovered",
                     location,
                     &evidence,
@@ -639,7 +669,7 @@ impl JsMinerScanner {
         // Firebase/Supabase Configuration
         if let Some(findings) = self.scan_pattern(content, r#"https://[a-zA-Z0-9\-]+\.(firebaseio\.com|supabase\.co)[^"'\s]*"#, "Firebase/Supabase URL") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Backend-as-a-Service URL Discovered",
                     location,
                     &evidence,
@@ -653,7 +683,7 @@ impl JsMinerScanner {
         // Internal/Private Network URLs
         if let Some(findings) = self.scan_pattern(content, r#"https?://(localhost|127\.0\.0\.1|192\.168\.[0-9.]+|10\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+)(:[0-9]+)?[^"'\s]*"#, "Internal URL") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Internal Network URL Exposed",
                     location,
                     &evidence,
@@ -667,7 +697,7 @@ impl JsMinerScanner {
         // Login/Authentication endpoints in JS
         if let Some(findings) = self.scan_pattern(content, r#"["'](/(?:api/)?(?:auth|login|signin|signup|register|logout|session|oauth|token)[^"']*?)["']"#, "Auth Endpoint") {
             for evidence in findings.into_iter().take(5) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Authentication Endpoint Discovered",
                     location,
                     &evidence,
@@ -682,7 +712,7 @@ impl JsMinerScanner {
         // Require context like field definition (name:, type:, field:) or input element
         if let Some(findings) = self.scan_pattern(content, r#"(?:name|type|field|id)\s*[=:]\s*["'](password|passwd|pwd|secret|credential)["']"#, "Credential Field") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Credential Field Discovered",
                     location,
                     &evidence,
@@ -696,7 +726,7 @@ impl JsMinerScanner {
         // Email/username field patterns
         if let Some(findings) = self.scan_pattern(content, r#"["'](email|e-mail|username|user_name|login|userid|user_id)["']\s*:"#, "User Field") {
             for evidence in findings.into_iter().take(3) {
-                vulnerabilities.push(self.create_vulnerability(
+                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "User Input Field Discovered",
                     location,
                     &evidence,
@@ -713,7 +743,7 @@ impl JsMinerScanner {
                 // Skip common false positives from consent/tracking scripts
                 if !evidence.contains("consent") && !evidence.contains("cookie") &&
                    !evidence.contains("tracking") && !evidence.contains("analytics") {
-                    vulnerabilities.push(self.create_vulnerability(
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                         "Form Action URL Discovered",
                         location,
                         &evidence,
@@ -730,7 +760,7 @@ impl JsMinerScanner {
             for evidence in findings.into_iter().take(3) {
                 // Skip common false positives
                 if !evidence.contains("placeholder") && !evidence.contains("example") && !evidence.contains("****") {
-                    vulnerabilities.push(self.create_vulnerability(
+                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                         "Potential Hardcoded Credential",
                         location,
                         &evidence,
