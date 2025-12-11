@@ -437,33 +437,295 @@ impl JsMinerScanner {
         // Use "global" as key for parameters not tied to a specific endpoint
         let global_params = results.parameters.entry("global".to_string()).or_insert_with(HashSet::new);
 
-        // Common JS keywords/methods to filter out
+        // Comprehensive JS/framework noise filter
         let js_noise: HashSet<&str> = [
-            // Keywords
+            // JavaScript keywords
             "function", "return", "const", "let", "var", "this", "true", "false",
             "null", "undefined", "async", "await", "import", "export", "default",
             "class", "extends", "constructor", "prototype", "new", "delete", "typeof",
             "instanceof", "in", "of", "if", "else", "for", "while", "do", "switch",
             "case", "break", "continue", "try", "catch", "finally", "throw", "yield",
-            // Common methods/properties
+            "static", "get", "set", "super", "with", "debugger", "void",
+
+            // Common JS methods/properties
             "toString", "valueOf", "length", "push", "pop", "shift", "unshift",
             "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
             "slice", "splice", "concat", "join", "split", "indexOf", "includes",
             "then", "catch", "finally", "resolve", "reject", "all", "race",
-            "keys", "values", "entries", "assign", "freeze", "seal",
-            "parse", "stringify", "apply", "call", "bind",
-            // Framework/library noise
+            "keys", "values", "entries", "assign", "freeze", "seal", "create",
+            "parse", "stringify", "apply", "call", "bind", "hasOwnProperty",
+            "isArray", "isObject", "isString", "isNumber", "isFunction", "isBoolean",
+            "from", "of", "fill", "flat", "flatMap", "sort", "reverse", "copyWithin",
+
+            // React hooks and internals
             "props", "state", "setState", "useState", "useEffect", "useCallback",
-            "useMemo", "useRef", "useContext", "useReducer", "dispatch",
-            "component", "render", "mount", "unmount", "update", "create",
-            "computed", "watch", "methods", "data", "template", "style",
-            "module", "exports", "require", "define", "factory",
-            // Common variable names that aren't parameters
-            "i", "j", "k", "n", "x", "y", "z", "e", "t", "r", "o", "a", "s",
-            "el", "ev", "fn", "cb", "err", "res", "req", "ctx", "obj", "arr",
-            "item", "index", "result", "response", "request", "error", "success",
-            "options", "config", "settings", "context", "store", "router",
+            "useMemo", "useRef", "useContext", "useReducer", "useLayoutEffect",
+            "useImperativeHandle", "useDebugValue", "useDeferredValue", "useTransition",
+            "useId", "useSyncExternalStore", "useInsertionEffect", "forwardRef",
+            "createContext", "createRef", "createRoot", "createElement", "cloneElement",
+            "isValidElement", "Children", "Fragment", "StrictMode", "Suspense", "lazy",
+            "memo", "startTransition", "flushSync", "hydrate", "render", "unmountComponentAtNode",
+            "Component", "PureComponent", "shouldComponentUpdate", "componentDidMount",
+            "componentDidUpdate", "componentWillUnmount", "getDerivedStateFromProps",
+            "getSnapshotBeforeUpdate", "componentDidCatch", "getDerivedStateFromError",
+
+            // Vue.js
+            "computed", "watch", "watchEffect", "methods", "data", "template", "style",
+            "setup", "onMounted", "onUnmounted", "onUpdated", "onBeforeMount",
+            "onBeforeUnmount", "onBeforeUpdate", "onActivated", "onDeactivated",
+            "onErrorCaptured", "onRenderTracked", "onRenderTriggered", "onServerPrefetch",
+            "ref", "reactive", "readonly", "toRef", "toRefs", "isRef", "unref", "shallowRef",
+            "triggerRef", "customRef", "shallowReactive", "shallowReadonly", "toRaw",
+            "markRaw", "effectScope", "getCurrentScope", "onScopeDispose", "provide", "inject",
+            "defineComponent", "defineAsyncComponent", "defineProps", "defineEmits",
+            "defineExpose", "withDefaults", "useSlots", "useAttrs", "nextTick",
+            "vModel", "vShow", "vIf", "vFor", "vBind", "vOn", "vSlot",
+
+            // Angular
+            "ngOnInit", "ngOnDestroy", "ngOnChanges", "ngDoCheck", "ngAfterContentInit",
+            "ngAfterContentChecked", "ngAfterViewInit", "ngAfterViewChecked",
+            "Injectable", "Component", "Directive", "Pipe", "NgModule", "Input", "Output",
+            "ViewChild", "ViewChildren", "ContentChild", "ContentChildren", "HostBinding",
+            "HostListener", "EventEmitter", "ChangeDetectorRef", "ElementRef", "TemplateRef",
+            "ViewContainerRef", "Renderer2", "Injector", "NgZone", "ApplicationRef",
+            "FormControl", "FormGroup", "FormArray", "Validators", "AbstractControl",
+            "HttpClient", "HttpHeaders", "HttpParams", "HttpInterceptor",
+            "ActivatedRoute", "Router", "RouterModule", "Routes", "CanActivate",
+            "Observable", "Subject", "BehaviorSubject", "ReplaySubject", "AsyncSubject",
+            "pipe", "subscribe", "unsubscribe", "switchMap", "mergeMap", "concatMap",
+            "exhaustMap", "tap", "map", "filter", "take", "takeUntil", "debounceTime",
+            "distinctUntilChanged", "catchError", "retry", "finalize", "shareReplay",
+
+            // Next.js / Nuxt.js
+            "getServerSideProps", "getStaticProps", "getStaticPaths", "getInitialProps",
+            "useRouter", "useSearchParams", "usePathname", "useParams", "useSelectedLayoutSegment",
+            "notFound", "redirect", "permanentRedirect", "revalidatePath", "revalidateTag",
+            "generateStaticParams", "generateMetadata", "generateViewport",
+            "NextRequest", "NextResponse", "NextPage", "NextApiRequest", "NextApiResponse",
+            "asyncData", "fetch", "head", "layout", "middleware", "plugins", "nuxtApp",
+            "useAsyncData", "useFetch", "useLazyFetch", "useHead", "useState", "useNuxtApp",
+            "defineNuxtConfig", "defineNuxtPlugin", "defineNuxtRouteMiddleware",
+            "isServer", "isClient", "isBrowser", "isNode", "isDev", "isProd",
+
+            // Node.js / Express
+            "module", "exports", "require", "define", "factory", "__dirname", "__filename",
+            "process", "global", "Buffer", "console", "setTimeout", "setInterval",
+            "clearTimeout", "clearInterval", "setImmediate", "clearImmediate",
+            "express", "app", "router", "middleware", "bodyParser", "cookieParser",
+            "cors", "helmet", "morgan", "passport", "session", "multer",
+
+            // TypeScript
+            "interface", "type", "enum", "namespace", "declare", "readonly", "abstract",
+            "implements", "private", "protected", "public", "override", "as", "is",
+            "keyof", "infer", "never", "unknown", "any", "object", "string", "number",
+            "boolean", "symbol", "bigint", "Record", "Partial", "Required", "Pick",
+            "Omit", "Exclude", "Extract", "NonNullable", "ReturnType", "Parameters",
+
+            // Webpack / Build tools
+            "webpack", "chunk", "chunks", "bundle", "loader", "plugin", "entry", "output",
+            "resolve", "alias", "extensions", "devServer", "optimization", "splitChunks",
+            "miniCssExtractPlugin", "htmlWebpackPlugin", "definePlugin", "hotModuleReplacement",
+            "__webpack_require__", "__webpack_exports__", "__webpack_modules__",
+            "webpackChunkName", "webpackPrefetch", "webpackPreload",
+
+            // DOM / Browser APIs
+            "document", "window", "navigator", "location", "history", "localStorage",
+            "sessionStorage", "indexedDB", "fetch", "XMLHttpRequest", "WebSocket",
+            "addEventListener", "removeEventListener", "dispatchEvent", "preventDefault",
+            "stopPropagation", "target", "currentTarget", "srcElement", "relatedTarget",
+            "querySelector", "querySelectorAll", "getElementById", "getElementsByClassName",
+            "getElementsByTagName", "createElement", "createTextNode", "appendChild",
+            "removeChild", "insertBefore", "replaceChild", "cloneNode", "getAttribute",
+            "setAttribute", "removeAttribute", "classList", "className", "innerHTML",
+            "innerText", "textContent", "parentNode", "parentElement", "childNodes",
+            "children", "firstChild", "lastChild", "nextSibling", "previousSibling",
+            "offsetWidth", "offsetHeight", "offsetTop", "offsetLeft", "clientWidth",
+            "clientHeight", "scrollWidth", "scrollHeight", "scrollTop", "scrollLeft",
+            "getBoundingClientRect", "getComputedStyle", "requestAnimationFrame",
+            "cancelAnimationFrame", "MutationObserver", "IntersectionObserver",
+            "ResizeObserver", "PerformanceObserver", "CustomEvent", "Event",
+
+            // Common libraries (lodash, axios, moment, etc.)
+            "lodash", "underscore", "axios", "moment", "dayjs", "luxon", "date",
+            "jquery", "d3", "chart", "echarts", "highcharts", "three", "pixi",
+            "socket", "io", "emit", "on", "off", "once", "broadcast",
+            "debounce", "throttle", "memoize", "curry", "compose", "pipe",
+            "get", "set", "has", "merge", "cloneDeep", "isEqual", "isEmpty",
+            "pick", "omit", "groupBy", "sortBy", "orderBy", "uniq", "uniqBy",
+
+            // State management (Redux, MobX, Zustand, Pinia)
+            "dispatch", "getState", "subscribe", "replaceReducer", "combineReducers",
+            "createStore", "applyMiddleware", "compose", "bindActionCreators",
+            "useSelector", "useDispatch", "useStore", "connect", "mapStateToProps",
+            "mapDispatchToProps", "action", "reducer", "selector", "slice", "thunk",
+            "saga", "observable", "autorun", "reaction", "when", "makeAutoObservable",
+            "makeObservable", "runInAction", "flow", "defineStore", "storeToRefs",
+
+            // Testing
+            "describe", "it", "test", "expect", "beforeEach", "afterEach", "beforeAll",
+            "afterAll", "jest", "mock", "spy", "fn", "spyOn", "mockImplementation",
+            "mockReturnValue", "mockResolvedValue", "mockRejectedValue", "toEqual",
+            "toBe", "toHaveBeenCalled", "toHaveBeenCalledWith", "toThrow", "toMatch",
+
+            // Common single/double letter variable names (minified code)
+            "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+            "a", "b", "c", "d", "e", "f", "g", "h",
+            "el", "ev", "fn", "cb", "rx", "tx", "id", "pk", "fk", "db", "ui", "vm", "vn",
+            "aa", "ab", "ac", "ad", "ae", "af", "ag", "ah", "ai", "aj", "ak", "al", "am",
+            "ba", "bb", "bc", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bk", "bl", "bm",
+            "ca", "cb", "cc", "cd", "ce", "cf", "cg", "ch", "ci", "cj", "ck", "cl", "cm",
+
+            // Common variable/property names that aren't input parameters
+            "err", "res", "req", "ctx", "obj", "arr", "val", "key", "idx", "len", "str",
+            "num", "bool", "func", "args", "self", "that", "base", "root", "node", "tree",
+            "item", "items", "index", "result", "results", "response", "request",
+            "error", "errors", "success", "failure", "pending", "loading", "loaded",
+            "options", "config", "settings", "params", "attrs", "slots", "refs",
+            "context", "store", "router", "route", "routes", "path", "paths",
+            "parent", "child", "children", "sibling", "ancestor", "descendant",
+            "prev", "next", "first", "last", "current", "selected", "active", "disabled",
+            "visible", "hidden", "open", "closed", "expanded", "collapsed",
+            "width", "height", "top", "left", "right", "bottom", "margin", "padding",
+            "color", "background", "border", "font", "size", "weight", "opacity",
+            "transform", "transition", "animation", "duration", "delay", "easing",
+            "min", "max", "step", "count", "total", "sum", "avg", "mean", "median",
+            "start", "end", "begin", "finish", "init", "destroy", "reset", "clear",
+            "add", "remove", "insert", "delete", "update", "edit", "save", "load",
+            "show", "hide", "toggle", "enable", "disable", "lock", "unlock",
+            "on", "off", "yes", "no", "ok", "cancel", "confirm", "submit", "abort",
+            "handler", "handlers", "listener", "listeners", "callback", "callbacks",
+            "event", "events", "trigger", "emit", "fire", "notify", "broadcast",
+            "model", "models", "view", "views", "controller", "controllers",
+            "service", "services", "factory", "factories", "provider", "providers",
+            "util", "utils", "helper", "helpers", "common", "shared", "core", "base",
+            "api", "http", "https", "ws", "wss", "tcp", "udp", "host", "port",
+            "env", "dev", "prod", "test", "stage", "local", "remote", "debug", "release",
+
+            // UI Framework components (Quasar, Vuetify, Element, Material, etc.)
+            // Quasar (Q prefix)
+            "QBadge", "QBtn", "QCard", "QCardSection", "QCardActions", "QCheckbox",
+            "QChip", "QDialog", "QDrawer", "QExpansionItem", "QField", "QForm",
+            "QHeader", "QIcon", "QImg", "QInput", "QItem", "QItemSection", "QItemLabel",
+            "QLayout", "QList", "QMenu", "QPage", "QPageContainer", "QPageSticky",
+            "QPopupProxy", "QRadio", "QRouteTab", "QScrollArea", "QSelect", "QSeparator",
+            "QSlider", "QSpace", "QSpinner", "QSplitter", "QStep", "QStepper",
+            "QTab", "QTable", "QTabs", "QTabPanel", "QTabPanels", "QTimeline",
+            "QToggle", "QToolbar", "QToolbarTitle", "QTooltip", "QTree", "QUploader",
+            "QVideo", "QVirtualScroll",
+            // Vuetify (V prefix)
+            "VApp", "VAppBar", "VAlert", "VAutocomplete", "VAvatar", "VBadge",
+            "VBottomNavigation", "VBreadcrumbs", "VBtn", "VBtnToggle", "VCalendar",
+            "VCard", "VCardActions", "VCardText", "VCardTitle", "VCarousel",
+            "VCheckbox", "VChip", "VCol", "VCombobox", "VContainer", "VDataTable",
+            "VDialog", "VDivider", "VExpansionPanel", "VExpansionPanels", "VFileInput",
+            "VFooter", "VForm", "VIcon", "VImg", "VInput", "VItem", "VItemGroup",
+            "VList", "VListItem", "VListItemAction", "VListItemContent", "VListItemTitle",
+            "VMain", "VMenu", "VNavigationDrawer", "VOverlay", "VPagination",
+            "VProgressCircular", "VProgressLinear", "VRadio", "VRadioGroup", "VRating",
+            "VRow", "VSelect", "VSheet", "VSlideGroup", "VSlider", "VSnackbar",
+            "VSpacer", "VSpeedDial", "VStepper", "VSwitch", "VSystemBar", "VTab",
+            "VTable", "VTabs", "VTextarea", "VTextField", "VTimeline", "VToolbar",
+            "VTooltip", "VTreeview", "VWindow",
+            // Element UI (El prefix)
+            "ElAlert", "ElAside", "ElAutocomplete", "ElAvatar", "ElBacktop", "ElBadge",
+            "ElBreadcrumb", "ElButton", "ElButtonGroup", "ElCalendar", "ElCard",
+            "ElCarousel", "ElCascader", "ElCheckbox", "ElCheckboxGroup", "ElCol",
+            "ElCollapse", "ElColorPicker", "ElContainer", "ElDatePicker", "ElDialog",
+            "ElDivider", "ElDrawer", "ElDropdown", "ElEmpty", "ElFooter", "ElForm",
+            "ElFormItem", "ElHeader", "ElIcon", "ElImage", "ElInput", "ElInputNumber",
+            "ElLink", "ElMain", "ElMenu", "ElMenuItem", "ElOption", "ElPageHeader",
+            "ElPagination", "ElPopconfirm", "ElPopover", "ElProgress", "ElRadio",
+            "ElRadioGroup", "ElRate", "ElResult", "ElRow", "ElScrollbar", "ElSelect",
+            "ElSkeleton", "ElSlider", "ElSpace", "ElStep", "ElSteps", "ElSubmenu",
+            "ElSwitch", "ElTable", "ElTableColumn", "ElTabPane", "ElTabs", "ElTag",
+            "ElTimePicker", "ElTimeline", "ElTimeSelect", "ElTooltip", "ElTransfer",
+            "ElTree", "ElUpload",
+            // Ant Design
+            "Alert", "Anchor", "AutoComplete", "Avatar", "BackTop", "Badge", "Breadcrumb",
+            "Button", "Calendar", "Card", "Carousel", "Cascader", "Checkbox", "Col",
+            "Collapse", "Comment", "ConfigProvider", "DatePicker", "Descriptions",
+            "Divider", "Drawer", "Dropdown", "Empty", "Form", "Grid", "Image", "Input",
+            "InputNumber", "Layout", "List", "Mentions", "Menu", "Message", "Modal",
+            "Notification", "PageHeader", "Pagination", "Popconfirm", "Popover",
+            "Progress", "Radio", "Rate", "Result", "Row", "Segmented", "Select",
+            "Skeleton", "Slider", "Space", "Spin", "Statistic", "Steps", "Switch",
+            "Table", "Tabs", "Tag", "TimePicker", "Timeline", "Tooltip", "Transfer",
+            "Tree", "TreeSelect", "Typography", "Upload",
+            // Material UI (Mui prefix and common)
+            "MuiAlert", "MuiAppBar", "MuiAutocomplete", "MuiAvatar", "MuiBackdrop",
+            "MuiBadge", "MuiBottomNavigation", "MuiBox", "MuiBreadcrumbs", "MuiButton",
+            "MuiButtonGroup", "MuiCard", "MuiCardActions", "MuiCardContent", "MuiCardHeader",
+            "MuiCardMedia", "MuiCheckbox", "MuiChip", "MuiCircularProgress", "MuiCollapse",
+            "MuiContainer", "MuiDialog", "MuiDivider", "MuiDrawer", "MuiFab", "MuiFormControl",
+            "MuiFormControlLabel", "MuiGrid", "MuiIcon", "MuiIconButton", "MuiInput",
+            "MuiInputAdornment", "MuiInputBase", "MuiInputLabel", "MuiLinearProgress",
+            "MuiLink", "MuiList", "MuiListItem", "MuiListItemButton", "MuiListItemIcon",
+            "MuiListItemText", "MuiMenu", "MuiMenuItem", "MuiModal", "MuiOutlinedInput",
+            "MuiPagination", "MuiPaper", "MuiPopover", "MuiPopper", "MuiRadio",
+            "MuiRadioGroup", "MuiRating", "MuiSelect", "MuiSkeleton", "MuiSlider",
+            "MuiSnackbar", "MuiSpeedDial", "MuiStack", "MuiStep", "MuiStepper", "MuiSwitch",
+            "MuiTab", "MuiTable", "MuiTableBody", "MuiTableCell", "MuiTableHead",
+            "MuiTableRow", "MuiTabs", "MuiTextField", "MuiToggleButton", "MuiToolbar",
+            "MuiTooltip", "MuiTypography",
+            // Chakra UI
+            "ChakraProvider", "Box", "Flex", "Grid", "SimpleGrid", "Stack", "HStack",
+            "VStack", "Center", "Container", "Spacer", "Wrap", "WrapItem",
+            // Bootstrap Vue
+            "BAlert", "BBadge", "BBreadcrumb", "BButton", "BButtonGroup", "BCard",
+            "BCardBody", "BCardHeader", "BCardText", "BCarousel", "BCol", "BCollapse",
+            "BContainer", "BDropdown", "BForm", "BFormGroup", "BFormInput", "BFormSelect",
+            "BIcon", "BImg", "BInputGroup", "BLink", "BListGroup", "BModal", "BNav",
+            "BNavbar", "BPagination", "BProgress", "BRow", "BSpinner", "BTab", "BTable",
+            "BTabs", "BToast", "BTooltip",
+            // PrimeVue/PrimeReact
+            "Accordion", "AccordionTab", "AutoComplete", "BlockUI", "Breadcrumb",
+            "ButtonGroup", "Calendar", "Carousel", "Chart", "Checkbox", "Chip", "Chips",
+            "ColorPicker", "Column", "ColumnGroup", "ConfirmDialog", "ConfirmPopup",
+            "ContextMenu", "DataTable", "DataView", "DeferredContent", "Dialog",
+            "Divider", "Dock", "Dropdown", "DynamicDialog", "Editor", "Fieldset",
+            "FileUpload", "Galleria", "Image", "InlineMessage", "Inplace", "InputMask",
+            "InputNumber", "InputSwitch", "InputText", "Knob", "Listbox", "MegaMenu",
+            "Menubar", "Message", "MultiSelect", "OrderList", "OrganizationChart",
+            "OverlayPanel", "Paginator", "Panel", "PanelMenu", "Password", "PickList",
+            "ProgressBar", "ProgressSpinner", "RadioButton", "Rating", "Ripple",
+            "ScrollPanel", "ScrollTop", "SelectButton", "Sidebar", "Skeleton", "Slider",
+            "SpeedDial", "SplitButton", "Splitter", "Steps", "TabMenu", "TabPanel",
+            "TabView", "Tag", "Terminal", "Textarea", "TieredMenu", "Toast", "ToggleButton",
+            "Toolbar", "Tooltip", "Tree", "TreeSelect", "TreeTable", "TriStateCheckbox",
+            "VirtualScroller",
         ].iter().cloned().collect();
+
+        // Additional check: filter out PascalCase names that look like components/classes
+        let is_likely_component = |s: &str| -> bool {
+            if s.len() < 3 { return false; }
+            let chars: Vec<char> = s.chars().collect();
+            // Must start with uppercase
+            if !chars[0].is_uppercase() { return false; }
+
+            // Count uppercase letters - components typically have 2+ (PascalCase)
+            let uppercase_count = chars.iter().filter(|c| c.is_uppercase()).count();
+            if uppercase_count >= 2 {
+                return true;
+            }
+
+            // Single uppercase but matches common component patterns
+            // [A-Z][a-z]+[A-Z] like "InputPassword" or starts with known prefixes
+            let prefixes = ["Input", "Button", "Form", "Modal", "Dialog", "Table", "List",
+                           "Card", "Menu", "Icon", "Text", "Label", "Select", "Check",
+                           "Radio", "Switch", "Slider", "Date", "Time", "Color", "File",
+                           "Upload", "Download", "Nav", "Tab", "Panel", "Drawer", "Popup",
+                           "Tooltip", "Toast", "Alert", "Badge", "Avatar", "Progress",
+                           "Spinner", "Loading", "Skeleton", "Empty", "Error", "Success",
+                           "Warning", "Info", "Header", "Footer", "Sidebar", "Content",
+                           "Layout", "Container", "Row", "Col", "Grid", "Flex", "Box",
+                           "Stack", "Wrap", "Space", "Divider", "Separator"];
+            for prefix in prefixes {
+                if s.contains(prefix) {
+                    return true;
+                }
+            }
+            false
+        };
 
         // Extract from URL patterns only (most reliable)
         for pattern in &param_patterns {
@@ -471,8 +733,10 @@ impl JsMinerScanner {
                 for cap in regex.captures_iter(content) {
                     if let Some(param) = cap.get(1) {
                         let param_str = param.as_str();
-                        // Filter out JS noise and only keep meaningful params
-                        if !js_noise.contains(param_str) && param_str.len() >= 2 {
+                        // Filter out JS noise, component names, and only keep meaningful params
+                        if !js_noise.contains(param_str)
+                            && param_str.len() >= 2
+                            && !is_likely_component(param_str) {
                             global_params.insert(param_str.to_string());
                         }
                     }
