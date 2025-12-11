@@ -135,6 +135,23 @@ pub struct JsMinerScanner {
     http_client: Arc<HttpClient>,
 }
 
+/// Results from JS mining including discovered endpoints and parameters for testing
+#[derive(Debug, Clone, Default)]
+pub struct JsMinerResults {
+    /// Vulnerabilities found
+    pub vulnerabilities: Vec<Vulnerability>,
+    /// Number of tests run
+    pub tests_run: usize,
+    /// Discovered API endpoints (for API fuzzing)
+    pub api_endpoints: Vec<String>,
+    /// Discovered GraphQL endpoints
+    pub graphql_endpoints: Vec<String>,
+    /// Discovered parameters from JS analysis (for injection testing)
+    pub discovered_params: Vec<String>,
+    /// Discovered form field names
+    pub form_fields: Vec<String>,
+}
+
 impl JsMinerScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
         Self {
@@ -276,6 +293,190 @@ impl JsMinerScanner {
         );
 
         Ok(results)
+    }
+
+    /// Extended scan that also extracts API endpoints and parameters for injection testing
+    pub async fn scan_with_extraction(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> anyhow::Result<JsMinerResults> {
+        info!("Starting JavaScript mining scan with endpoint extraction on {}", url);
+
+        let mut results = JsMinerResults::default();
+        let mut analyzed_urls: HashSet<String> = HashSet::new();
+        let mut seen_evidence: HashSet<String> = HashSet::new();
+
+        // Parse target URL to get host
+        let target_host = match url::Url::parse(url) {
+            Ok(u) => u.host_str().unwrap_or("").to_lowercase(),
+            Err(_) => return Ok(results),
+        };
+
+        // Get initial HTML response
+        let initial_response = match self.http_client.get(url).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                info!("Failed to fetch initial page: {}", e);
+                return Ok(results);
+            }
+        };
+
+        let html = &initial_response.body;
+
+        // Discover JavaScript files from HTML
+        let js_files = self.discover_js_files(url, html);
+        let total_js_count = js_files.len();
+        info!("Discovered {} JavaScript files total", total_js_count);
+
+        // Filter out third-party scripts
+        let first_party_files: Vec<String> = js_files
+            .into_iter()
+            .filter(|js_url| !self.is_third_party_url(js_url, &target_host))
+            .collect();
+
+        // Analyze inline scripts
+        results.tests_run += self.analyze_inline_scripts(html, url, &mut results.vulnerabilities, &mut seen_evidence);
+
+        // Also extract from inline scripts
+        self.extract_endpoints_and_params(html, &mut results);
+
+        // Analyze JavaScript files (limit to 20 for performance)
+        let files_to_analyze: Vec<String> = first_party_files.into_iter().take(20).collect();
+
+        for js_url in files_to_analyze {
+            let tests = self.analyze_js_file(&js_url, &mut analyzed_urls, &mut results.vulnerabilities, &mut seen_evidence).await;
+            results.tests_run += tests;
+
+            // Also extract endpoints and params from JS content
+            if let Ok(response) = self.http_client.get(&js_url).await {
+                self.extract_endpoints_and_params(&response.body, &mut results);
+            }
+        }
+
+        // Deduplicate results
+        results.api_endpoints.sort();
+        results.api_endpoints.dedup();
+        results.graphql_endpoints.sort();
+        results.graphql_endpoints.dedup();
+        results.discovered_params.sort();
+        results.discovered_params.dedup();
+        results.form_fields.sort();
+        results.form_fields.dedup();
+
+        info!(
+            "JavaScript mining completed: {} vulns, {} API endpoints, {} GraphQL endpoints, {} params",
+            results.vulnerabilities.len(),
+            results.api_endpoints.len(),
+            results.graphql_endpoints.len(),
+            results.discovered_params.len()
+        );
+
+        Ok(results)
+    }
+
+    /// Extract API endpoints and parameters from JavaScript content
+    fn extract_endpoints_and_params(&self, content: &str, results: &mut JsMinerResults) {
+        // Extract API URLs (fetch, axios, XMLHttpRequest patterns)
+        let api_patterns = [
+            r#"fetch\s*\(\s*["'`]([^"'`]+/api[^"'`]*)"#,
+            r#"axios\.[a-z]+\s*\(\s*["'`]([^"'`]+)"#,
+            r#"\.(?:get|post|put|delete|patch)\s*\(\s*["'`]([^"'`]+)"#,
+            r#"baseURL\s*[=:]\s*["'`]([^"'`]+)"#,
+            r#"apiUrl\s*[=:]\s*["'`]([^"'`]+)"#,
+            r#"API_URL\s*[=:]\s*["'`]([^"'`]+)"#,
+            r#"endpoint\s*[=:]\s*["'`]([^"'`]+)"#,
+        ];
+
+        for pattern in &api_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(url) = cap.get(1) {
+                        let url_str = url.as_str().to_string();
+                        if !Self::is_documentation_url(&url_str) && url_str.len() > 5 {
+                            results.api_endpoints.push(url_str);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract GraphQL endpoints
+        if let Ok(regex) = Regex::new(r#"["'`](https?://[^"'`]+/graphql[^"'`]*)"#) {
+            for cap in regex.captures_iter(content) {
+                if let Some(url) = cap.get(1) {
+                    let url_str = url.as_str().to_string();
+                    if !Self::is_documentation_url(&url_str) {
+                        results.graphql_endpoints.push(url_str);
+                    }
+                }
+            }
+        }
+
+        // Extract parameters from various patterns
+        let param_patterns = [
+            // URL query parameters: ?param= or &param=
+            r#"[?&]([a-zA-Z_][a-zA-Z0-9_]{1,30})="#,
+            // JSON keys: "param": or 'param':
+            r#"["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']\s*:"#,
+            // Form field names: name="param" or name='param'
+            r#"name\s*[=:]\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#,
+            // Input definitions: {name: "param"}
+            r#"\{\s*name\s*:\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#,
+            // GraphQL variables: $paramName
+            r#"\$([a-zA-Z_][a-zA-Z0-9_]{1,30})"#,
+        ];
+
+        // Common parameter names to look for
+        let common_params = [
+            "id", "user_id", "userId", "email", "username", "password",
+            "name", "query", "search", "q", "page", "limit", "offset",
+            "sort", "order", "filter", "token", "key", "api_key", "apiKey",
+            "callback", "redirect", "url", "next", "return", "file", "path",
+            "data", "input", "value", "content", "message", "comment",
+            "title", "description", "body", "text", "code", "status",
+        ];
+
+        for pattern in &param_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(param) = cap.get(1) {
+                        let param_str = param.as_str().to_string();
+                        // Filter out common JS keywords and methods
+                        if !["function", "return", "const", "let", "var", "this", "true", "false", "null", "undefined", "async", "await", "import", "export", "default", "class", "extends", "constructor", "prototype", "toString", "valueOf", "length", "push", "pop", "shift", "map", "filter", "reduce", "forEach", "then", "catch", "finally"].contains(&param_str.as_str()) {
+                            results.discovered_params.push(param_str);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add common params if they appear in the content
+        for param in common_params {
+            if content.contains(param) && !results.discovered_params.contains(&param.to_string()) {
+                results.discovered_params.push(param.to_string());
+            }
+        }
+
+        // Extract form field definitions (React/Vue style)
+        let form_field_patterns = [
+            r#"<input[^>]*name\s*=\s*["']([^"']+)["']"#,
+            r#"<textarea[^>]*name\s*=\s*["']([^"']+)["']"#,
+            r#"<select[^>]*name\s*=\s*["']([^"']+)["']"#,
+            r#"formControlName\s*=\s*["']([^"']+)["']"#,  // Angular
+            r#"v-model\s*=\s*["']([^"']+)["']"#,          // Vue
+            r#"register\s*\(\s*["']([^"']+)["']"#,        // React Hook Form
+        ];
+
+        for pattern in form_field_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(field) = cap.get(1) {
+                        results.form_fields.push(field.as_str().to_string());
+                    }
+                }
+            }
+        }
     }
 
     /// Discover JavaScript files from HTML

@@ -589,6 +589,21 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
     }
 
+    // Phase 0.5: JavaScript Mining for API endpoints and parameters
+    // Run this BEFORE injection tests to discover testable endpoints in SPAs
+    info!("  - Pre-scanning JavaScript for API endpoints and parameters");
+    let js_miner_results = engine.js_miner_scanner.scan_with_extraction(target, scan_config).await?;
+    all_vulnerabilities.extend(js_miner_results.vulnerabilities);
+    total_tests += js_miner_results.tests_run as u64;
+
+    // Log discovered endpoints
+    if !js_miner_results.api_endpoints.is_empty() || !js_miner_results.graphql_endpoints.is_empty() {
+        info!("[SUCCESS] JS Mining found {} API endpoints, {} GraphQL endpoints, {} parameters",
+              js_miner_results.api_endpoints.len(),
+              js_miner_results.graphql_endpoints.len(),
+              js_miner_results.discovered_params.len());
+    }
+
     // Phase 1: Parameter-based scanning
     info!("Phase 1: Parameter injection testing");
 
@@ -603,6 +618,18 @@ async fn execute_standalone_scan(
     for param in &discovered_params {
         if !test_params.iter().any(|(name, _)| name == param) {
             test_params.push((param.clone(), "test".to_string()));
+        }
+    }
+
+    // Add parameters discovered from JavaScript analysis (critical for SPAs!)
+    for param in &js_miner_results.discovered_params {
+        if !test_params.iter().any(|(name, _)| name == param) {
+            test_params.push((param.clone(), "test".to_string()));
+        }
+    }
+    for field in &js_miner_results.form_fields {
+        if !test_params.iter().any(|(name, _)| name == field) {
+            test_params.push((field.clone(), "test".to_string()));
         }
     }
 
@@ -748,6 +775,27 @@ async fn execute_standalone_scan(
     let (vulns, tests) = engine.grpc_scanner.scan(target, scan_config).await?;
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
+
+    // Advanced API Fuzzing on discovered endpoints
+    if !js_miner_results.api_endpoints.is_empty() || !js_miner_results.graphql_endpoints.is_empty() {
+        info!("  - Running Advanced API Fuzzing on {} discovered endpoints",
+              js_miner_results.api_endpoints.len() + js_miner_results.graphql_endpoints.len());
+
+        // Fuzz discovered API endpoints
+        for api_url in &js_miner_results.api_endpoints {
+            let (vulns, tests) = engine.api_fuzzer_scanner.scan(api_url, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+
+        // Fuzz discovered GraphQL endpoints with injection testing
+        for gql_url in &js_miner_results.graphql_endpoints {
+            info!("  - Testing GraphQL injection on: {}", gql_url);
+            let (vulns, tests) = engine.api_fuzzer_scanner.scan(gql_url, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
 
     // Phase 5: Advanced injection testing (TECHNOLOGY-AWARE)
     info!("Phase 5: Advanced injection testing");
@@ -899,12 +947,8 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
-    // JavaScript Mining - CRITICAL for React/Next.js sites
-    // Looks for: API keys, secrets, endpoints, sensitive data in JS files
-    info!("  - Mining JavaScript files for sensitive data");
-    let (vulns, tests) = engine.js_miner_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    // JavaScript Mining already done in Phase 0.5 with endpoint extraction
+    // Results are in js_miner_results variable
 
     // Business Logic
     info!("  - Testing Business Logic Flaws");
