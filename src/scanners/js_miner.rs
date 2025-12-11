@@ -770,10 +770,12 @@ impl JsMinerScanner {
                 // State management
                 "Store", "State", "Action", "Reducer", "Effect", "Saga",
                 "Slice", "Thunk", "Observable", "Subject",
-                // Common prefixes
+                // Common prefixes/suffixes
                 "use", "get", "set", "is", "has", "can", "should", "will",
                 "on", "handle", "fetch", "load", "save", "update", "delete",
                 "create", "init", "setup", "config", "register", "unregister",
+                "Params", "Options", "Config", "Settings", "Props", "Args",
+                "Data", "Info", "Meta", "Context", "Ref", "Refs",
             ];
             for pattern in class_patterns {
                 if s.contains(pattern) {
@@ -783,16 +785,28 @@ impl JsMinerScanner {
             false
         };
 
+        // Check if string looks like a minified variable (e.g., p192, t45, e0, n123)
+        let is_minified_var = |s: &str| -> bool {
+            let chars: Vec<char> = s.chars().collect();
+            if chars.len() < 2 || chars.len() > 6 { return false; }
+            // Pattern: 1-2 lowercase letters followed by digits
+            let letter_count = chars.iter().take_while(|c| c.is_ascii_lowercase()).count();
+            if letter_count == 0 || letter_count > 2 { return false; }
+            let rest = &chars[letter_count..];
+            !rest.is_empty() && rest.iter().all(|c| c.is_ascii_digit())
+        };
+
         // Extract from URL patterns only (most reliable)
         for pattern in &param_patterns {
             if let Ok(regex) = Regex::new(pattern) {
                 for cap in regex.captures_iter(content) {
                     if let Some(param) = cap.get(1) {
                         let param_str = param.as_str();
-                        // Filter out JS noise, component names, and only keep meaningful params
+                        // Filter out JS noise, component names, minified vars
                         if !js_noise.contains(param_str)
                             && param_str.len() >= 2
-                            && !is_likely_component(param_str) {
+                            && !is_likely_component(param_str)
+                            && !is_minified_var(param_str) {
                             global_params.insert(param_str.to_string());
                         }
                     }
