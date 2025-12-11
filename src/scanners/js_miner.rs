@@ -661,7 +661,7 @@ mod tests {
         let scanner = create_test_scanner();
         let mut vulns = Vec::new();
 
-        let content = r#"const baseUrl = "https://api.netlux.fi/v1";"#;
+        let content = r#"const baseUrl = "https://api.example.com/v1";"#;
         scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
 
         assert!(vulns.iter().any(|v| v.vuln_type.contains("API Base URL")));
