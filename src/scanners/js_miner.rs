@@ -87,34 +87,38 @@ impl JsMinerScanner {
 
         let origin = format!("{}://{}", url_obj.scheme(), url_obj.host_str().unwrap_or(""));
 
-        // Extract script tags with src attribute
-        let script_regex = Regex::new(r#"<script[^>]+src=["']([^"']+)["']"#).unwrap();
+        // Extract script tags with src attribute (flexible regex)
+        // Matches: <script src="..."> <script type="module" src="..."> etc
+        let script_regex = Regex::new(r#"<script[^>]*\ssrc\s*=\s*["']?([^"'\s>]+)"#).unwrap();
         for cap in script_regex.captures_iter(html) {
             if let Some(src) = cap.get(1) {
                 let js_url = self.resolve_js_url(&origin, &url_obj, src.as_str());
                 if !js_files.contains(&js_url) {
+                    info!("[JS-Miner] Found script: {}", js_url);
                     js_files.push(js_url);
                 }
             }
         }
 
         // Also find JS URLs in link preload tags
-        let preload_regex = Regex::new(r#"<link[^>]+href=["']([^"']+\.js[^"']*)["']"#).unwrap();
+        let preload_regex = Regex::new(r#"<link[^>]*\shref\s*=\s*["']?([^"'\s>]+\.js[^"'\s>]*)"#).unwrap();
         for cap in preload_regex.captures_iter(html) {
             if let Some(href) = cap.get(1) {
                 let js_url = self.resolve_js_url(&origin, &url_obj, href.as_str());
                 if !js_files.contains(&js_url) {
+                    info!("[JS-Miner] Found preload script: {}", js_url);
                     js_files.push(js_url);
                 }
             }
         }
 
-        // Find JS URLs mentioned anywhere in the HTML (for dynamically loaded scripts)
-        let any_js_regex = Regex::new(r#"["']([^"']*(?:bundle|chunk|app|main|vendor|index)[^"']*\.js[^"']*)["']"#).unwrap();
+        // Find any .js URLs in the HTML (catch dynamic imports, webpack chunks, etc.)
+        let any_js_regex = Regex::new(r#"["']([^"'\s]*\.js)(?:\?[^"'\s]*)?"#).unwrap();
         for cap in any_js_regex.captures_iter(html) {
             if let Some(path) = cap.get(1) {
                 let path_str = path.as_str();
-                if path_str.starts_with('/') || path_str.starts_with("http") {
+                // Skip very short paths and data URIs
+                if path_str.len() > 3 && !path_str.starts_with("data:") {
                     let js_url = self.resolve_js_url(&origin, &url_obj, path_str);
                     if !js_files.contains(&js_url) {
                         js_files.push(js_url);
