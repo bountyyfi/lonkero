@@ -263,41 +263,54 @@ impl WebCrawler {
         }
 
         // Also look for standalone inputs (React/JS apps without <form> tags)
-        // Use broad selector, then filter by type
-        let all_inputs_selector = Selector::parse("input, textarea").unwrap();
+        // Broad selector: input, textarea, select, and contenteditable elements
+        let all_inputs_selector = Selector::parse("input, textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox']").unwrap();
         let mut standalone_inputs = Vec::new();
+        let mut input_counter = 0;
 
         for input_element in document.select(&all_inputs_selector) {
+            let tag_name = input_element.value().name();
             let input_type = input_element.value().attr("type")
-                .unwrap_or("text")
+                .unwrap_or(if tag_name == "textarea" { "textarea" } else if tag_name == "select" { "select" } else { "text" })
                 .to_lowercase();
 
-            // Skip non-data inputs
-            if matches!(input_type.as_str(), "hidden" | "submit" | "button" | "checkbox" | "radio" | "file" | "image" | "reset") {
+            // Skip non-data inputs (but keep select, textarea, contenteditable)
+            if tag_name == "input" && matches!(input_type.as_str(), "hidden" | "submit" | "button" | "checkbox" | "radio" | "file" | "image" | "reset") {
                 continue;
             }
 
-            // Get name from multiple sources: name, id, aria-label, placeholder
+            // Get name from multiple sources (expanded)
             let name = input_element.value().attr("name")
                 .or_else(|| input_element.value().attr("id"))
                 .or_else(|| input_element.value().attr("aria-label"))
-                .or_else(|| input_element.value().attr("placeholder"));
+                .or_else(|| input_element.value().attr("placeholder"))
+                .or_else(|| input_element.value().attr("data-testid"))
+                .or_else(|| input_element.value().attr("data-name"))
+                .or_else(|| input_element.value().attr("data-field"))
+                .or_else(|| input_element.value().attr("autocomplete"));
 
-            if let Some(name) = name {
-                // Skip if already part of a form
-                if form_input_ids.contains(name) {
-                    continue;
+            // Generate name if none found - still track it as an input
+            let final_name = match name {
+                Some(n) => n.to_string(),
+                None => {
+                    input_counter += 1;
+                    format!("input_{}", input_counter)
                 }
+            };
 
-                let value = input_element.value().attr("value")
-                    .map(|v| v.to_string());
-
-                standalone_inputs.push(FormInput {
-                    name: name.to_string(),
-                    input_type: input_type.clone(),
-                    value,
-                });
+            // Skip if already part of a form
+            if form_input_ids.contains(&final_name) {
+                continue;
             }
+
+            let value = input_element.value().attr("value")
+                .map(|v| v.to_string());
+
+            standalone_inputs.push(FormInput {
+                name: final_name,
+                input_type: input_type.clone(),
+                value,
+            });
         }
 
         // Create a virtual form for standalone inputs (JS-based form submission)
