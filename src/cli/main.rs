@@ -631,6 +631,14 @@ async fn execute_standalone_scan(
         }
     }
 
+    // Limit parameters to prevent excessive testing (max 100 params for performance)
+    const MAX_PARAMS_TO_TEST: usize = 100;
+    let original_count = test_params.len();
+    if test_params.len() > MAX_PARAMS_TO_TEST {
+        info!("  [NOTE] Limiting parameter tests from {} to {} (max limit)", original_count, MAX_PARAMS_TO_TEST);
+        test_params.truncate(MAX_PARAMS_TO_TEST);
+    }
+
     // Only test parameters that actually exist
     let has_real_params = !test_params.is_empty();
 

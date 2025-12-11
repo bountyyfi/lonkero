@@ -389,51 +389,112 @@ impl JsMinerScanner {
             }
         }
 
-        // Extract parameters from various patterns
+        // Extract parameters from various patterns - be SELECTIVE to avoid noise
         let param_patterns = [
-            // URL query parameters: ?param= or &param=
+            // URL query parameters: ?param= or &param= (high confidence)
             r#"[?&]([a-zA-Z_][a-zA-Z0-9_]{1,30})="#,
-            // JSON keys: "param": or 'param':
-            r#"["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']\s*:"#,
-            // Form field names: name="param" or name='param'
-            r#"name\s*[=:]\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#,
-            // Input definitions: {name: "param"}
-            r#"\{\s*name\s*:\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#,
-            // GraphQL variables: $paramName
+            // Form field names: name="param" (high confidence)
+            r#"name\s*=\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#,
+            // GraphQL variables: $paramName (high confidence)
             r#"\$([a-zA-Z_][a-zA-Z0-9_]{1,30})"#,
+            // Explicit input definitions: {name: "param"} (medium confidence)
+            r#"\{\s*name\s*:\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#,
         ];
 
-        // Common parameter names to look for
-        let common_params = [
-            "id", "user_id", "userId", "email", "username", "password",
-            "name", "query", "search", "q", "page", "limit", "offset",
-            "sort", "order", "filter", "token", "key", "api_key", "apiKey",
-            "callback", "redirect", "url", "next", "return", "file", "path",
-            "data", "input", "value", "content", "message", "comment",
-            "title", "description", "body", "text", "code", "status",
+        // Security-relevant parameter names to specifically look for
+        let security_params = [
+            // Authentication/Authorization
+            "id", "user_id", "userId", "uid", "account_id", "accountId",
+            "email", "username", "password", "passwd", "pass", "pwd",
+            "token", "access_token", "accessToken", "refresh_token", "refreshToken",
+            "session", "sessionId", "session_id", "auth", "authorization",
+            "api_key", "apiKey", "api_token", "apiToken", "secret", "key",
+            // User input fields
+            "name", "first_name", "firstName", "last_name", "lastName",
+            "phone", "address", "comment", "message", "text", "content", "body",
+            "title", "description", "subject", "note", "feedback",
+            // Search/Filter
+            "query", "search", "q", "s", "keyword", "term", "filter",
+            // Pagination
+            "page", "limit", "offset", "size", "per_page", "perPage",
+            "sort", "order", "orderBy", "sortBy",
+            // Navigation/Redirect (SSRF/Open Redirect)
+            "url", "uri", "link", "href", "src", "dest", "destination",
+            "redirect", "redirect_uri", "redirectUri", "return", "returnUrl",
+            "return_to", "returnTo", "next", "goto", "target", "continue",
+            "callback", "callbackUrl", "callback_url",
+            // File operations (Path Traversal/LFI)
+            "file", "filename", "path", "filepath", "dir", "directory",
+            "template", "include", "page", "view", "load",
+            // Data manipulation
+            "data", "input", "value", "param", "args", "payload",
+            "json", "xml", "action", "cmd", "command", "exec",
+            // IDs and references
+            "ref", "reference", "code", "status", "type", "category",
+            "product_id", "productId", "item_id", "itemId", "order_id", "orderId",
         ];
 
         // Use "global" as key for parameters not tied to a specific endpoint
         let global_params = results.parameters.entry("global".to_string()).or_insert_with(HashSet::new);
 
+        // Common JS keywords/methods to filter out
+        let js_noise: HashSet<&str> = [
+            // Keywords
+            "function", "return", "const", "let", "var", "this", "true", "false",
+            "null", "undefined", "async", "await", "import", "export", "default",
+            "class", "extends", "constructor", "prototype", "new", "delete", "typeof",
+            "instanceof", "in", "of", "if", "else", "for", "while", "do", "switch",
+            "case", "break", "continue", "try", "catch", "finally", "throw", "yield",
+            // Common methods/properties
+            "toString", "valueOf", "length", "push", "pop", "shift", "unshift",
+            "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
+            "slice", "splice", "concat", "join", "split", "indexOf", "includes",
+            "then", "catch", "finally", "resolve", "reject", "all", "race",
+            "keys", "values", "entries", "assign", "freeze", "seal",
+            "parse", "stringify", "apply", "call", "bind",
+            // Framework/library noise
+            "props", "state", "setState", "useState", "useEffect", "useCallback",
+            "useMemo", "useRef", "useContext", "useReducer", "dispatch",
+            "component", "render", "mount", "unmount", "update", "create",
+            "computed", "watch", "methods", "data", "template", "style",
+            "module", "exports", "require", "define", "factory",
+            // Common variable names that aren't parameters
+            "i", "j", "k", "n", "x", "y", "z", "e", "t", "r", "o", "a", "s",
+            "el", "ev", "fn", "cb", "err", "res", "req", "ctx", "obj", "arr",
+            "item", "index", "result", "response", "request", "error", "success",
+            "options", "config", "settings", "context", "store", "router",
+        ].iter().cloned().collect();
+
+        // Extract from URL patterns only (most reliable)
         for pattern in &param_patterns {
             if let Ok(regex) = Regex::new(pattern) {
                 for cap in regex.captures_iter(content) {
                     if let Some(param) = cap.get(1) {
-                        let param_str = param.as_str().to_string();
-                        // Filter out common JS keywords and methods
-                        if !["function", "return", "const", "let", "var", "this", "true", "false", "null", "undefined", "async", "await", "import", "export", "default", "class", "extends", "constructor", "prototype", "toString", "valueOf", "length", "push", "pop", "shift", "map", "filter", "reduce", "forEach", "then", "catch", "finally"].contains(&param_str.as_str()) {
-                            global_params.insert(param_str);
+                        let param_str = param.as_str();
+                        // Filter out JS noise and only keep meaningful params
+                        if !js_noise.contains(param_str) && param_str.len() >= 2 {
+                            global_params.insert(param_str.to_string());
                         }
                     }
                 }
             }
         }
 
-        // Add common params if they appear in the content
-        for param in common_params {
-            if content.contains(param) {
-                global_params.insert(param.to_string());
+        // Only add security-relevant params if they appear in likely input contexts
+        for param in security_params {
+            // Look for params in likely input contexts, not just any occurrence
+            let input_patterns = [
+                format!(r#"name\s*[=:]\s*["']{}["']"#, param),
+                format!(r#"[?&]{}="#, param),
+                format!(r#"\${}[^a-zA-Z0-9_]"#, param),
+            ];
+            for pat in &input_patterns {
+                if let Ok(re) = Regex::new(&pat) {
+                    if re.is_match(content) {
+                        global_params.insert(param.to_string());
+                        break;
+                    }
+                }
             }
         }
 
