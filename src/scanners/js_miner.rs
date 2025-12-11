@@ -600,7 +600,121 @@ impl JsMinerScanner {
             "util", "utils", "helper", "helpers", "common", "shared", "core", "base",
             "api", "http", "https", "ws", "wss", "tcp", "udp", "host", "port",
             "env", "dev", "prod", "test", "stage", "local", "remote", "debug", "release",
+
+            // UI Framework components (Quasar, Vuetify, Element, Material, etc.)
+            // Quasar (Q prefix)
+            "QBadge", "QBtn", "QCard", "QCardSection", "QCardActions", "QCheckbox",
+            "QChip", "QDialog", "QDrawer", "QExpansionItem", "QField", "QForm",
+            "QHeader", "QIcon", "QImg", "QInput", "QItem", "QItemSection", "QItemLabel",
+            "QLayout", "QList", "QMenu", "QPage", "QPageContainer", "QPageSticky",
+            "QPopupProxy", "QRadio", "QRouteTab", "QScrollArea", "QSelect", "QSeparator",
+            "QSlider", "QSpace", "QSpinner", "QSplitter", "QStep", "QStepper",
+            "QTab", "QTable", "QTabs", "QTabPanel", "QTabPanels", "QTimeline",
+            "QToggle", "QToolbar", "QToolbarTitle", "QTooltip", "QTree", "QUploader",
+            "QVideo", "QVirtualScroll",
+            // Vuetify (V prefix)
+            "VApp", "VAppBar", "VAlert", "VAutocomplete", "VAvatar", "VBadge",
+            "VBottomNavigation", "VBreadcrumbs", "VBtn", "VBtnToggle", "VCalendar",
+            "VCard", "VCardActions", "VCardText", "VCardTitle", "VCarousel",
+            "VCheckbox", "VChip", "VCol", "VCombobox", "VContainer", "VDataTable",
+            "VDialog", "VDivider", "VExpansionPanel", "VExpansionPanels", "VFileInput",
+            "VFooter", "VForm", "VIcon", "VImg", "VInput", "VItem", "VItemGroup",
+            "VList", "VListItem", "VListItemAction", "VListItemContent", "VListItemTitle",
+            "VMain", "VMenu", "VNavigationDrawer", "VOverlay", "VPagination",
+            "VProgressCircular", "VProgressLinear", "VRadio", "VRadioGroup", "VRating",
+            "VRow", "VSelect", "VSheet", "VSlideGroup", "VSlider", "VSnackbar",
+            "VSpacer", "VSpeedDial", "VStepper", "VSwitch", "VSystemBar", "VTab",
+            "VTable", "VTabs", "VTextarea", "VTextField", "VTimeline", "VToolbar",
+            "VTooltip", "VTreeview", "VWindow",
+            // Element UI (El prefix)
+            "ElAlert", "ElAside", "ElAutocomplete", "ElAvatar", "ElBacktop", "ElBadge",
+            "ElBreadcrumb", "ElButton", "ElButtonGroup", "ElCalendar", "ElCard",
+            "ElCarousel", "ElCascader", "ElCheckbox", "ElCheckboxGroup", "ElCol",
+            "ElCollapse", "ElColorPicker", "ElContainer", "ElDatePicker", "ElDialog",
+            "ElDivider", "ElDrawer", "ElDropdown", "ElEmpty", "ElFooter", "ElForm",
+            "ElFormItem", "ElHeader", "ElIcon", "ElImage", "ElInput", "ElInputNumber",
+            "ElLink", "ElMain", "ElMenu", "ElMenuItem", "ElOption", "ElPageHeader",
+            "ElPagination", "ElPopconfirm", "ElPopover", "ElProgress", "ElRadio",
+            "ElRadioGroup", "ElRate", "ElResult", "ElRow", "ElScrollbar", "ElSelect",
+            "ElSkeleton", "ElSlider", "ElSpace", "ElStep", "ElSteps", "ElSubmenu",
+            "ElSwitch", "ElTable", "ElTableColumn", "ElTabPane", "ElTabs", "ElTag",
+            "ElTimePicker", "ElTimeline", "ElTimeSelect", "ElTooltip", "ElTransfer",
+            "ElTree", "ElUpload",
+            // Ant Design
+            "Alert", "Anchor", "AutoComplete", "Avatar", "BackTop", "Badge", "Breadcrumb",
+            "Button", "Calendar", "Card", "Carousel", "Cascader", "Checkbox", "Col",
+            "Collapse", "Comment", "ConfigProvider", "DatePicker", "Descriptions",
+            "Divider", "Drawer", "Dropdown", "Empty", "Form", "Grid", "Image", "Input",
+            "InputNumber", "Layout", "List", "Mentions", "Menu", "Message", "Modal",
+            "Notification", "PageHeader", "Pagination", "Popconfirm", "Popover",
+            "Progress", "Radio", "Rate", "Result", "Row", "Segmented", "Select",
+            "Skeleton", "Slider", "Space", "Spin", "Statistic", "Steps", "Switch",
+            "Table", "Tabs", "Tag", "TimePicker", "Timeline", "Tooltip", "Transfer",
+            "Tree", "TreeSelect", "Typography", "Upload",
+            // Material UI (Mui prefix and common)
+            "MuiAlert", "MuiAppBar", "MuiAutocomplete", "MuiAvatar", "MuiBackdrop",
+            "MuiBadge", "MuiBottomNavigation", "MuiBox", "MuiBreadcrumbs", "MuiButton",
+            "MuiButtonGroup", "MuiCard", "MuiCardActions", "MuiCardContent", "MuiCardHeader",
+            "MuiCardMedia", "MuiCheckbox", "MuiChip", "MuiCircularProgress", "MuiCollapse",
+            "MuiContainer", "MuiDialog", "MuiDivider", "MuiDrawer", "MuiFab", "MuiFormControl",
+            "MuiFormControlLabel", "MuiGrid", "MuiIcon", "MuiIconButton", "MuiInput",
+            "MuiInputAdornment", "MuiInputBase", "MuiInputLabel", "MuiLinearProgress",
+            "MuiLink", "MuiList", "MuiListItem", "MuiListItemButton", "MuiListItemIcon",
+            "MuiListItemText", "MuiMenu", "MuiMenuItem", "MuiModal", "MuiOutlinedInput",
+            "MuiPagination", "MuiPaper", "MuiPopover", "MuiPopper", "MuiRadio",
+            "MuiRadioGroup", "MuiRating", "MuiSelect", "MuiSkeleton", "MuiSlider",
+            "MuiSnackbar", "MuiSpeedDial", "MuiStack", "MuiStep", "MuiStepper", "MuiSwitch",
+            "MuiTab", "MuiTable", "MuiTableBody", "MuiTableCell", "MuiTableHead",
+            "MuiTableRow", "MuiTabs", "MuiTextField", "MuiToggleButton", "MuiToolbar",
+            "MuiTooltip", "MuiTypography",
+            // Chakra UI
+            "ChakraProvider", "Box", "Flex", "Grid", "SimpleGrid", "Stack", "HStack",
+            "VStack", "Center", "Container", "Spacer", "Wrap", "WrapItem",
+            // Bootstrap Vue
+            "BAlert", "BBadge", "BBreadcrumb", "BButton", "BButtonGroup", "BCard",
+            "BCardBody", "BCardHeader", "BCardText", "BCarousel", "BCol", "BCollapse",
+            "BContainer", "BDropdown", "BForm", "BFormGroup", "BFormInput", "BFormSelect",
+            "BIcon", "BImg", "BInputGroup", "BLink", "BListGroup", "BModal", "BNav",
+            "BNavbar", "BPagination", "BProgress", "BRow", "BSpinner", "BTab", "BTable",
+            "BTabs", "BToast", "BTooltip",
+            // PrimeVue/PrimeReact
+            "Accordion", "AccordionTab", "AutoComplete", "BlockUI", "Breadcrumb",
+            "ButtonGroup", "Calendar", "Carousel", "Chart", "Checkbox", "Chip", "Chips",
+            "ColorPicker", "Column", "ColumnGroup", "ConfirmDialog", "ConfirmPopup",
+            "ContextMenu", "DataTable", "DataView", "DeferredContent", "Dialog",
+            "Divider", "Dock", "Dropdown", "DynamicDialog", "Editor", "Fieldset",
+            "FileUpload", "Galleria", "Image", "InlineMessage", "Inplace", "InputMask",
+            "InputNumber", "InputSwitch", "InputText", "Knob", "Listbox", "MegaMenu",
+            "Menubar", "Message", "MultiSelect", "OrderList", "OrganizationChart",
+            "OverlayPanel", "Paginator", "Panel", "PanelMenu", "Password", "PickList",
+            "ProgressBar", "ProgressSpinner", "RadioButton", "Rating", "Ripple",
+            "ScrollPanel", "ScrollTop", "SelectButton", "Sidebar", "Skeleton", "Slider",
+            "SpeedDial", "SplitButton", "Splitter", "Steps", "TabMenu", "TabPanel",
+            "TabView", "Tag", "Terminal", "Textarea", "TieredMenu", "Toast", "ToggleButton",
+            "Toolbar", "Tooltip", "Tree", "TreeSelect", "TreeTable", "TriStateCheckbox",
+            "VirtualScroller",
         ].iter().cloned().collect();
+
+        // Additional check: filter out PascalCase names that look like components
+        let is_likely_component = |s: &str| -> bool {
+            if s.len() < 2 { return false; }
+            let chars: Vec<char> = s.chars().collect();
+            // Starts with uppercase
+            if !chars[0].is_uppercase() { return false; }
+            // Common component prefixes
+            let prefixes = ["Q", "V", "El", "Mui", "Mat", "Ng", "Ant", "Chakra", "Prime", "B"];
+            for prefix in prefixes {
+                if s.starts_with(prefix) && s.len() > prefix.len() {
+                    let next_char = s.chars().nth(prefix.len());
+                    if let Some(c) = next_char {
+                        if c.is_uppercase() {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        };
 
         // Extract from URL patterns only (most reliable)
         for pattern in &param_patterns {
@@ -608,8 +722,10 @@ impl JsMinerScanner {
                 for cap in regex.captures_iter(content) {
                     if let Some(param) = cap.get(1) {
                         let param_str = param.as_str();
-                        // Filter out JS noise and only keep meaningful params
-                        if !js_noise.contains(param_str) && param_str.len() >= 2 {
+                        // Filter out JS noise, component names, and only keep meaningful params
+                        if !js_noise.contains(param_str)
+                            && param_str.len() >= 2
+                            && !is_likely_component(param_str) {
                             global_params.insert(param_str.to_string());
                         }
                     }
