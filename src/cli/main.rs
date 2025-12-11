@@ -597,11 +597,12 @@ async fn execute_standalone_scan(
     total_tests += js_miner_results.tests_run as u64;
 
     // Log discovered endpoints
+    let js_param_count: usize = js_miner_results.parameters.values().map(|s| s.len()).sum();
     if !js_miner_results.api_endpoints.is_empty() || !js_miner_results.graphql_endpoints.is_empty() {
         info!("[SUCCESS] JS Mining found {} API endpoints, {} GraphQL endpoints, {} parameters",
               js_miner_results.api_endpoints.len(),
               js_miner_results.graphql_endpoints.len(),
-              js_miner_results.discovered_params.len());
+              js_param_count);
     }
 
     // Phase 1: Parameter-based scanning
@@ -622,14 +623,11 @@ async fn execute_standalone_scan(
     }
 
     // Add parameters discovered from JavaScript analysis (critical for SPAs!)
-    for param in &js_miner_results.discovered_params {
-        if !test_params.iter().any(|(name, _)| name == param) {
-            test_params.push((param.clone(), "test".to_string()));
-        }
-    }
-    for field in &js_miner_results.form_fields {
-        if !test_params.iter().any(|(name, _)| name == field) {
-            test_params.push((field.clone(), "test".to_string()));
+    for param_set in js_miner_results.parameters.values() {
+        for param in param_set {
+            if !test_params.iter().any(|(name, _)| name == param) {
+                test_params.push((param.clone(), "test".to_string()));
+            }
         }
     }
 
