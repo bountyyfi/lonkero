@@ -4,12 +4,40 @@
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::sync::Arc;
 use tracing::info;
 
 mod uuid {
     pub use uuid::Uuid;
+}
+
+/// Results from JS mining including vulnerabilities AND discovered attack surfaces
+#[derive(Debug, Clone)]
+pub struct JsMinerResults {
+    pub vulnerabilities: Vec<Vulnerability>,
+    pub tests_run: usize,
+    /// Discovered API endpoints (full URLs)
+    pub api_endpoints: HashSet<String>,
+    /// Discovered parameters by endpoint
+    pub parameters: HashMap<String, HashSet<String>>,
+    /// Discovered form action URLs
+    pub form_actions: HashSet<String>,
+    /// GraphQL endpoints
+    pub graphql_endpoints: HashSet<String>,
+}
+
+impl JsMinerResults {
+    pub fn new() -> Self {
+        Self {
+            vulnerabilities: Vec::new(),
+            tests_run: 0,
+            api_endpoints: HashSet::new(),
+            parameters: HashMap::new(),
+            form_actions: HashSet::new(),
+            graphql_endpoints: HashSet::new(),
+        }
+    }
 }
 
 /// Common third-party domains to skip (CDNs, analytics, widgets)
@@ -169,23 +197,32 @@ impl JsMinerScanner {
         url_lower.contains("/reference/") || url_lower.contains("/api-reference/")
     }
 
-    /// Run JavaScript mining scan
+    /// Run JavaScript mining scan (legacy method for backward compatibility)
     pub async fn scan(
         &self,
         url: &str,
-        _config: &ScanConfig,
+        config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let results = self.scan_full(url, config).await?;
+        Ok((results.vulnerabilities, results.tests_run))
+    }
+
+    /// Run JavaScript mining scan with full results including discovered attack surfaces
+    pub async fn scan_full(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> anyhow::Result<JsMinerResults> {
         info!("Starting JavaScript mining scan on {}", url);
 
-        let mut all_vulnerabilities = Vec::new();
-        let mut total_tests = 0;
+        let mut results = JsMinerResults::new();
         let mut analyzed_urls: HashSet<String> = HashSet::new();
         let mut seen_evidence: HashSet<String> = HashSet::new(); // Deduplication
 
         // Parse target URL to get host
         let target_host = match url::Url::parse(url) {
             Ok(u) => u.host_str().unwrap_or("").to_lowercase(),
-            Err(_) => return Ok((all_vulnerabilities, 0)),
+            Err(_) => return Ok(results),
         };
 
         // Get initial HTML response
@@ -193,7 +230,7 @@ impl JsMinerScanner {
             Ok(resp) => resp,
             Err(e) => {
                 info!("Failed to fetch initial page: {}", e);
-                return Ok((all_vulnerabilities, 0));
+                return Ok(results);
             }
         };
 
@@ -216,7 +253,7 @@ impl JsMinerScanner {
               skipped_count);
 
         // Analyze inline scripts
-        total_tests += self.analyze_inline_scripts(html, url, &mut all_vulnerabilities, &mut seen_evidence);
+        results.tests_run += self.analyze_inline_scripts_full(html, url, &mut results, &mut seen_evidence);
 
         // Analyze JavaScript files (limit to 20 for performance)
         let files_to_analyze: Vec<String> = first_party_files.into_iter().take(20).collect();
@@ -226,17 +263,19 @@ impl JsMinerScanner {
         }
 
         for js_url in files_to_analyze {
-            let tests = self.analyze_js_file(&js_url, &mut analyzed_urls, &mut all_vulnerabilities, &mut seen_evidence).await;
-            total_tests += tests;
+            let tests = self.analyze_js_file_full(&js_url, &mut analyzed_urls, &mut results, &mut seen_evidence).await;
+            results.tests_run += tests;
         }
 
         info!(
-            "JavaScript mining scan completed: {} tests run, {} vulnerabilities found",
-            total_tests,
-            all_vulnerabilities.len()
+            "JavaScript mining scan completed: {} tests run, {} vulnerabilities found, {} API endpoints, {} parameters",
+            results.tests_run,
+            results.vulnerabilities.len(),
+            results.api_endpoints.len(),
+            results.parameters.values().map(|p| p.len()).sum::<usize>()
         );
 
-        Ok((all_vulnerabilities, total_tests))
+        Ok(results)
     }
 
     /// Discover JavaScript files from HTML
@@ -325,6 +364,207 @@ impl JsMinerScanner {
         }
 
         tests_run
+    }
+
+    /// Analyze inline scripts with full results
+    fn analyze_inline_scripts_full(&self, html: &str, location: &str, results: &mut JsMinerResults, seen_evidence: &mut HashSet<String>) -> usize {
+        let mut tests_run = 0;
+
+        let inline_script_regex = Regex::new(r#"<script[^>]*>([\s\S]*?)</script>"#).unwrap();
+
+        for (index, cap) in inline_script_regex.captures_iter(html).enumerate() {
+            if let Some(script_content) = cap.get(1) {
+                let content = script_content.as_str();
+                if content.trim().len() > 50 {
+                    let inline_location = format!("{}#inline-{}", location, index);
+                    tests_run += 1;
+                    self.analyze_js_content_full(content, &inline_location, results, seen_evidence);
+                }
+            }
+        }
+
+        tests_run
+    }
+
+    /// Analyze a JavaScript file with full results
+    async fn analyze_js_file_full(&self, js_url: &str, analyzed_urls: &mut HashSet<String>, results: &mut JsMinerResults, seen_evidence: &mut HashSet<String>) -> usize {
+        if analyzed_urls.contains(js_url) {
+            return 0;
+        }
+
+        analyzed_urls.insert(js_url.to_string());
+
+        match self.http_client.get(js_url).await {
+            Ok(response) => {
+                let content_type = response.headers.get("content-type")
+                    .map(|s| s.to_lowercase())
+                    .unwrap_or_default();
+
+                if content_type.contains("javascript") || content_type.contains("application/json") || response.body.len() > 0 {
+                    if response.body.len() <= 30 * 1024 * 1024 {
+                        let before_count = results.vulnerabilities.len();
+                        self.analyze_js_content_full(&response.body, js_url, results, seen_evidence);
+                        let found = results.vulnerabilities.len() - before_count;
+                        if found > 0 {
+                            info!("[JS-Miner] Found {} issues in {}", found, js_url);
+                        }
+                        return 1;
+                    }
+                }
+            }
+            Err(e) => {
+                info!("Failed to fetch JS file {}: {}", js_url, e);
+            }
+        }
+
+        0
+    }
+
+    /// Analyze JavaScript content with full results (vulns + attack surfaces)
+    fn analyze_js_content_full(&self, content: &str, location: &str, results: &mut JsMinerResults, seen_evidence: &mut HashSet<String>) {
+        // First extract attack surfaces (endpoints, parameters)
+        self.extract_attack_surfaces(content, location, results);
+
+        // Then run vulnerability detection
+        self.analyze_js_content(content, location, &mut results.vulnerabilities, seen_evidence);
+    }
+
+    /// Extract API endpoints, parameters, and form actions from JS content
+    fn extract_attack_surfaces(&self, content: &str, _location: &str, results: &mut JsMinerResults) {
+        // Extract API endpoints with path parameters
+        // Pattern: /api/something or /v1/something or /graphql
+        if let Some(endpoints) = self.scan_pattern(content, r#"['"`](/(?:api|v[0-9]+|graphql)[^'"`\s<>]{0,100})['"`]"#, "API Endpoint") {
+            for endpoint in endpoints.into_iter().take(50) {
+                let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`');
+                if clean.len() > 3 && !clean.contains("..") {
+                    results.api_endpoints.insert(clean.to_string());
+
+                    // Extract path parameters like :id or {id}
+                    self.extract_path_params(clean, results);
+                }
+            }
+        }
+
+        // Extract full API URLs
+        if let Some(urls) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*(?:api|v[0-9]+|graphql)[^\s"'<>]*"#, "API URL") {
+            for url in urls.into_iter().take(20) {
+                if !Self::is_documentation_url(&url) {
+                    results.api_endpoints.insert(url.clone());
+
+                    // Check for GraphQL
+                    if url.to_lowercase().contains("graphql") {
+                        results.graphql_endpoints.insert(url);
+                    }
+                }
+            }
+        }
+
+        // Extract GraphQL endpoints specifically
+        if let Some(gql_endpoints) = self.scan_pattern(content, r#"['"`]((?:https?://)?[^'"`\s]*graphql[^'"`\s]*)['"`]"#, "GraphQL") {
+            for endpoint in gql_endpoints.into_iter().take(10) {
+                let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`');
+                results.graphql_endpoints.insert(clean.to_string());
+            }
+        }
+
+        // Extract form action URLs
+        if let Some(actions) = self.scan_pattern(content, r#"(?:action|formAction|submitUrl|postUrl|endpoint)\s*[=:]\s*['"`](/[^'"`]+|https?://[^'"`]+)['"`]"#, "Form Action") {
+            for action in actions.into_iter().take(20) {
+                let clean = action.split(&['=', ':'][..]).last().unwrap_or(&action)
+                    .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
+                if !clean.contains("consent") && !clean.contains("cookie") {
+                    results.form_actions.insert(clean.to_string());
+                }
+            }
+        }
+
+        // Extract query/body parameters from fetch/axios calls
+        // Pattern: { param1: value, param2: value } or ?param1=&param2=
+        self.extract_request_params(content, results);
+
+        // Extract form field names
+        if let Some(fields) = self.scan_pattern(content, r#"(?:name|field|param)\s*[=:]\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#, "Field Name") {
+            for field in fields.into_iter().take(50) {
+                let clean = field.split(&['=', ':'][..]).last().unwrap_or(&field)
+                    .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
+                if clean.len() > 1 && clean.len() < 30 {
+                    // Add to a generic endpoint
+                    results.parameters.entry("*".to_string())
+                        .or_insert_with(HashSet::new)
+                        .insert(clean.to_string());
+                }
+            }
+        }
+
+        // Extract React/Vue form input names
+        if let Some(inputs) = self.scan_pattern(content, r#"(?:v-model|formik|register|Controller.*name)\s*[=:({]\s*['"`]?([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]?"#, "Form Input") {
+            for input in inputs.into_iter().take(30) {
+                let clean = input.split(&['=', ':', '(', '{'][..]).last().unwrap_or(&input)
+                    .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')' || c == '}');
+                if clean.len() > 1 && clean.len() < 30 && !clean.contains("Controller") {
+                    results.parameters.entry("*".to_string())
+                        .or_insert_with(HashSet::new)
+                        .insert(clean.to_string());
+                }
+            }
+        }
+    }
+
+    /// Extract path parameters from URL patterns
+    fn extract_path_params(&self, path: &str, results: &mut JsMinerResults) {
+        // Match :param or {param} patterns
+        let param_regex = Regex::new(r"[:/]\{?:?([a-zA-Z_][a-zA-Z0-9_]*)\}?").unwrap();
+        for cap in param_regex.captures_iter(path) {
+            if let Some(param) = cap.get(1) {
+                let param_name = param.as_str();
+                if param_name != "api" && param_name != "v1" && param_name != "v2" && param_name.len() > 1 {
+                    results.parameters.entry(path.to_string())
+                        .or_insert_with(HashSet::new)
+                        .insert(param_name.to_string());
+                }
+            }
+        }
+    }
+
+    /// Extract request parameters from fetch/axios/$.ajax calls
+    fn extract_request_params(&self, content: &str, results: &mut JsMinerResults) {
+        // Pattern for object properties: { key: value } in request bodies
+        let obj_regex = Regex::new(r#"(?:body|data|params|query)\s*[=:]\s*\{([^}]{5,500})\}"#).unwrap();
+        let key_regex = Regex::new(r#"['"]?([a-zA-Z_][a-zA-Z0-9_]{1,30})['"]?\s*:"#).unwrap();
+
+        for cap in obj_regex.captures_iter(content) {
+            if let Some(obj_content) = cap.get(1) {
+                for key_cap in key_regex.captures_iter(obj_content.as_str()) {
+                    if let Some(key) = key_cap.get(1) {
+                        let param = key.as_str();
+                        if param.len() > 1 && param.len() < 30 {
+                            results.parameters.entry("*".to_string())
+                                .or_insert_with(HashSet::new)
+                                .insert(param.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pattern for URL query strings: ?param1=value&param2=value
+        let qs_regex = Regex::new(r#"\?([a-zA-Z_][a-zA-Z0-9_]*=[^&\s'"]*(?:&[a-zA-Z_][a-zA-Z0-9_]*=[^&\s'"]*)*)"#).unwrap();
+        let param_regex = Regex::new(r"([a-zA-Z_][a-zA-Z0-9_]*)=").unwrap();
+
+        for cap in qs_regex.captures_iter(content) {
+            if let Some(qs) = cap.get(1) {
+                for param_cap in param_regex.captures_iter(qs.as_str()) {
+                    if let Some(param) = param_cap.get(1) {
+                        let param_name = param.as_str();
+                        if param_name.len() > 1 && param_name.len() < 30 {
+                            results.parameters.entry("*".to_string())
+                                .or_insert_with(HashSet::new)
+                                .insert(param_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Analyze a JavaScript file
