@@ -212,7 +212,7 @@ impl WebCrawler {
         let mut forms = Vec::new();
 
         let form_selector = Selector::parse("form").unwrap();
-        let input_selector = Selector::parse("input, textarea, select").unwrap();
+        let input_selector = Selector::parse("input, textarea, select, button").unwrap();
 
         for form_element in document.select(&form_selector) {
             let action = form_element.value().attr("action")
@@ -226,7 +226,11 @@ impl WebCrawler {
             let mut inputs_list = Vec::new();
 
             for input_element in form_element.select(&input_selector) {
-                if let Some(name) = input_element.value().attr("name") {
+                // Get name from 'name' attribute, or fall back to 'id' attribute
+                let name = input_element.value().attr("name")
+                    .or_else(|| input_element.value().attr("id"));
+
+                if let Some(name) = name {
                     let input_type = input_element.value().attr("type")
                         .unwrap_or("text")
                         .to_string();
@@ -242,18 +246,17 @@ impl WebCrawler {
                 }
             }
 
-            if !inputs_list.is_empty() {
-                let absolute_action = self.resolve_url(page_url, &action);
+            // Include form even if no named inputs - it's still an attack surface
+            let absolute_action = self.resolve_url(page_url, &action);
 
-                forms.push(DiscoveredForm {
-                    action: absolute_action.clone(),
-                    method: method.clone(),
-                    inputs: inputs_list.clone(),
-                    discovered_at: page_url.to_string(),
-                });
+            forms.push(DiscoveredForm {
+                action: absolute_action.clone(),
+                method: method.clone(),
+                inputs: inputs_list.clone(),
+                discovered_at: page_url.to_string(),
+            });
 
-                debug!("Found form: {} with {} inputs", action, inputs_list.len());
-            }
+            debug!("Found form: {} with {} inputs", action, inputs_list.len());
         }
 
         forms
