@@ -135,23 +135,6 @@ pub struct JsMinerScanner {
     http_client: Arc<HttpClient>,
 }
 
-/// Results from JS mining including discovered endpoints and parameters for testing
-#[derive(Debug, Clone, Default)]
-pub struct JsMinerResults {
-    /// Vulnerabilities found
-    pub vulnerabilities: Vec<Vulnerability>,
-    /// Number of tests run
-    pub tests_run: usize,
-    /// Discovered API endpoints (for API fuzzing)
-    pub api_endpoints: Vec<String>,
-    /// Discovered GraphQL endpoints
-    pub graphql_endpoints: Vec<String>,
-    /// Discovered parameters from JS analysis (for injection testing)
-    pub discovered_params: Vec<String>,
-    /// Discovered form field names
-    pub form_fields: Vec<String>,
-}
-
 impl JsMinerScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
         Self {
@@ -303,7 +286,7 @@ impl JsMinerScanner {
     ) -> anyhow::Result<JsMinerResults> {
         info!("Starting JavaScript mining scan with endpoint extraction on {}", url);
 
-        let mut results = JsMinerResults::default();
+        let mut results = JsMinerResults::new();
         let mut analyzed_urls: HashSet<String> = HashSet::new();
         let mut seen_evidence: HashSet<String> = HashSet::new();
 
@@ -354,22 +337,15 @@ impl JsMinerScanner {
             }
         }
 
-        // Deduplicate results
-        results.api_endpoints.sort();
-        results.api_endpoints.dedup();
-        results.graphql_endpoints.sort();
-        results.graphql_endpoints.dedup();
-        results.discovered_params.sort();
-        results.discovered_params.dedup();
-        results.form_fields.sort();
-        results.form_fields.dedup();
+        // Count total parameters across all endpoints
+        let total_params: usize = results.parameters.values().map(|s| s.len()).sum();
 
         info!(
             "JavaScript mining completed: {} vulns, {} API endpoints, {} GraphQL endpoints, {} params",
             results.vulnerabilities.len(),
             results.api_endpoints.len(),
             results.graphql_endpoints.len(),
-            results.discovered_params.len()
+            total_params
         );
 
         Ok(results)
@@ -394,7 +370,7 @@ impl JsMinerScanner {
                     if let Some(url) = cap.get(1) {
                         let url_str = url.as_str().to_string();
                         if !Self::is_documentation_url(&url_str) && url_str.len() > 5 {
-                            results.api_endpoints.push(url_str);
+                            results.api_endpoints.insert(url_str);
                         }
                     }
                 }
@@ -407,7 +383,7 @@ impl JsMinerScanner {
                 if let Some(url) = cap.get(1) {
                     let url_str = url.as_str().to_string();
                     if !Self::is_documentation_url(&url_str) {
-                        results.graphql_endpoints.push(url_str);
+                        results.graphql_endpoints.insert(url_str);
                     }
                 }
             }
@@ -437,6 +413,9 @@ impl JsMinerScanner {
             "title", "description", "body", "text", "code", "status",
         ];
 
+        // Use "global" as key for parameters not tied to a specific endpoint
+        let global_params = results.parameters.entry("global".to_string()).or_insert_with(HashSet::new);
+
         for pattern in &param_patterns {
             if let Ok(regex) = Regex::new(pattern) {
                 for cap in regex.captures_iter(content) {
@@ -444,7 +423,7 @@ impl JsMinerScanner {
                         let param_str = param.as_str().to_string();
                         // Filter out common JS keywords and methods
                         if !["function", "return", "const", "let", "var", "this", "true", "false", "null", "undefined", "async", "await", "import", "export", "default", "class", "extends", "constructor", "prototype", "toString", "valueOf", "length", "push", "pop", "shift", "map", "filter", "reduce", "forEach", "then", "catch", "finally"].contains(&param_str.as_str()) {
-                            results.discovered_params.push(param_str);
+                            global_params.insert(param_str);
                         }
                     }
                 }
@@ -453,12 +432,12 @@ impl JsMinerScanner {
 
         // Add common params if they appear in the content
         for param in common_params {
-            if content.contains(param) && !results.discovered_params.contains(&param.to_string()) {
-                results.discovered_params.push(param.to_string());
+            if content.contains(param) {
+                global_params.insert(param.to_string());
             }
         }
 
-        // Extract form field definitions (React/Vue style)
+        // Extract form field definitions (React/Vue style) - add to global params
         let form_field_patterns = [
             r#"<input[^>]*name\s*=\s*["']([^"']+)["']"#,
             r#"<textarea[^>]*name\s*=\s*["']([^"']+)["']"#,
@@ -472,7 +451,26 @@ impl JsMinerScanner {
             if let Ok(regex) = Regex::new(pattern) {
                 for cap in regex.captures_iter(content) {
                     if let Some(field) = cap.get(1) {
-                        results.form_fields.push(field.as_str().to_string());
+                        global_params.insert(field.as_str().to_string());
+                    }
+                }
+            }
+        }
+
+        // Extract form action URLs
+        let form_action_patterns = [
+            r#"<form[^>]*action\s*=\s*["']([^"']+)["']"#,
+            r#"action\s*[=:]\s*["']([^"']+)["']"#,
+        ];
+
+        for pattern in form_action_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(action) = cap.get(1) {
+                        let action_str = action.as_str().to_string();
+                        if !action_str.is_empty() && action_str != "#" {
+                            results.form_actions.insert(action_str);
+                        }
                     }
                 }
             }
