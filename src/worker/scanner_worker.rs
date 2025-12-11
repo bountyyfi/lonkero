@@ -10,8 +10,8 @@
  */
 
 use anyhow::{Context, Result};
-use deadpool_redis::redis::aio::ConnectionManager;
-use deadpool_redis::redis::{AsyncCommands, Client as RedisClient};
+use redis::aio::ConnectionManager;
+use redis::{AsyncCommands, Client as RedisClient};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -258,14 +258,13 @@ impl ScannerWorker {
             }
 
             // Pull job from queue (BRPOPLPUSH for reliability)
-            let result: Option<String> = self
+            let result: redis::RedisResult<String> = self
                 .redis
                 .clone()
                 .brpoplpush(queue_name, processing_queue, 5.0)
-                .await
-                .ok();
+                .await;
 
-            if let Some(job_data) = result {
+            if let Ok(job_data) = result {
                 // Parse job
                 match serde_json::from_str::<ScanJob>(&job_data) {
                     Ok(job) => {

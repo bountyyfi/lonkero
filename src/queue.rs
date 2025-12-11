@@ -2,7 +2,7 @@
 // This software is proprietary and confidential.
 
 use anyhow::{Context, Result};
-use deadpool_redis::{redis::AsyncCommands, Config, Pool, Runtime};
+use deadpool_redis::{Config, Pool, Runtime};
 use tracing::{debug, info};
 
 use crate::types::{ScanJob, ScanProgress, ScanResults};
