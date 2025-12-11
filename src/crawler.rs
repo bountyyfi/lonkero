@@ -210,10 +210,12 @@ impl WebCrawler {
     /// Extract forms from HTML
     fn extract_forms(&self, document: &Html, page_url: &str) -> Vec<DiscoveredForm> {
         let mut forms = Vec::new();
+        let mut form_input_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         let form_selector = Selector::parse("form").unwrap();
         let input_selector = Selector::parse("input, textarea, select, button").unwrap();
 
+        // First, extract traditional forms
         for form_element in document.select(&form_selector) {
             let action = form_element.value().attr("action")
                 .unwrap_or("")
@@ -231,6 +233,7 @@ impl WebCrawler {
                     .or_else(|| input_element.value().attr("id"));
 
                 if let Some(name) = name {
+                    form_input_ids.insert(name.to_string());
                     let input_type = input_element.value().attr("type")
                         .unwrap_or("text")
                         .to_string();
@@ -257,6 +260,46 @@ impl WebCrawler {
             });
 
             debug!("Found form: {} with {} inputs", action, inputs_list.len());
+        }
+
+        // Also look for standalone inputs (React/JS apps without <form> tags)
+        let all_inputs_selector = Selector::parse("input[type='text'], input[type='email'], input[type='password'], input[type='search'], input[type='tel'], input[type='number'], textarea").unwrap();
+        let mut standalone_inputs = Vec::new();
+
+        for input_element in document.select(&all_inputs_selector) {
+            let name = input_element.value().attr("name")
+                .or_else(|| input_element.value().attr("id"));
+
+            if let Some(name) = name {
+                // Skip if already part of a form
+                if form_input_ids.contains(name) {
+                    continue;
+                }
+
+                let input_type = input_element.value().attr("type")
+                    .unwrap_or("text")
+                    .to_string();
+
+                let value = input_element.value().attr("value")
+                    .map(|v| v.to_string());
+
+                standalone_inputs.push(FormInput {
+                    name: name.to_string(),
+                    input_type,
+                    value,
+                });
+            }
+        }
+
+        // Create a virtual form for standalone inputs (JS-based form submission)
+        if !standalone_inputs.is_empty() {
+            forms.push(DiscoveredForm {
+                action: page_url.to_string(),
+                method: "POST".to_string(),
+                inputs: standalone_inputs.clone(),
+                discovered_at: page_url.to_string(),
+            });
+            debug!("Found {} standalone inputs (React/JS form)", standalone_inputs.len());
         }
 
         forms
