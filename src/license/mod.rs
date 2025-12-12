@@ -3,7 +3,6 @@
 // License verification and killswitch module.
 
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -32,9 +31,13 @@ pub fn is_killswitch_active() -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LicenseType {
+    #[serde(alias = "Personal")]
     Personal,
+    #[serde(alias = "Professional")]
     Professional,
+    #[serde(alias = "Team")]
     Team,
+    #[serde(alias = "Enterprise")]
     Enterprise,
 }
 
@@ -52,13 +55,16 @@ impl std::fmt::Display for LicenseType {
 /// License status returned from server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LicenseStatus {
+    #[serde(default)]
     pub valid: bool,
     pub license_type: Option<LicenseType>,
     pub licensee: Option<String>,
     pub organization: Option<String>,
     pub expires_at: Option<String>,
+    #[serde(default)]
     pub features: Vec<String>,
     pub max_targets: Option<u32>,
+    #[serde(default)]
     pub killswitch_active: bool,
     pub killswitch_reason: Option<String>,
     pub message: Option<String>,
@@ -193,6 +199,8 @@ impl LicenseManager {
 
     /// Validate license - checks server for killswitch, defaults to full access
     pub async fn validate(&self) -> Result<LicenseStatus> {
+        debug!("Starting license validation...");
+
         // Try to check with server
         match self.check_server().await {
             Ok(status) => {
@@ -209,7 +217,7 @@ impl LicenseManager {
             Err(e) => {
                 // Server unreachable - FAIL OPEN (allow full access)
                 // This is intentional: we don't want to block users if our server is down
-                debug!("License server unreachable: {}. Allowing full access.", e);
+                warn!("License server error: {}. Falling back to free license.", e);
                 KILLSWITCH_CHECKED.store(true, Ordering::SeqCst);
                 KILLSWITCH_ACTIVE.store(false, Ordering::SeqCst);
 
@@ -221,6 +229,9 @@ impl LicenseManager {
     /// Check with license server
     async fn check_server(&self) -> Result<LicenseStatus> {
         let url = format!("{}/validate", LICENSE_SERVER);
+
+        debug!("Validating license with server: {}", url);
+        debug!("License key present: {}", self.license_key.is_some());
 
         let mut request = self.http_client
             .post(&url)
@@ -239,13 +250,31 @@ impl LicenseManager {
         });
 
         let response = request.json(&body).send().await?;
+        let status_code = response.status();
+        debug!("License server response status: {}", status_code);
 
-        if response.status().is_success() {
-            let status: LicenseStatus = response.json().await?;
-            Ok(status)
-        } else if response.status().as_u16() == 403 {
+        if status_code.is_success() {
+            // Get raw text first for debugging
+            let text = response.text().await?;
+            debug!("License server response: {}", text);
+
+            // Parse the response
+            match serde_json::from_str::<LicenseStatus>(&text) {
+                Ok(status) => {
+                    info!("License validated: type={:?}, licensee={:?}",
+                          status.license_type, status.licensee);
+                    Ok(status)
+                }
+                Err(e) => {
+                    warn!("Failed to parse license response: {}. Response was: {}", e, text);
+                    Err(anyhow!("Failed to parse license response: {}", e))
+                }
+            }
+        } else if status_code.as_u16() == 403 {
             // Explicitly blocked
-            let status: LicenseStatus = response.json().await.unwrap_or_else(|_| LicenseStatus {
+            let text = response.text().await.unwrap_or_default();
+            warn!("License blocked (403): {}", text);
+            let status: LicenseStatus = serde_json::from_str(&text).unwrap_or_else(|_| LicenseStatus {
                 valid: false,
                 killswitch_active: true,
                 killswitch_reason: Some("Access denied".to_string()),
@@ -253,7 +282,9 @@ impl LicenseManager {
             });
             Ok(status)
         } else {
-            Err(anyhow!("Server returned: {}", response.status()))
+            let text = response.text().await.unwrap_or_default();
+            warn!("License server error {}: {}", status_code, text);
+            Err(anyhow!("Server returned: {} - {}", status_code, text))
         }
     }
 
