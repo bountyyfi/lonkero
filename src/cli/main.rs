@@ -894,9 +894,22 @@ async fn execute_standalone_scan(
         if !is_static_site {
             info!("  - Testing SQL Injection");
             for (param_name, _) in &test_params {
+                // Standard error-based SQLi
                 let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
+
+                // Boolean-based Blind SQLi
+                info!("    Testing Boolean-based Blind SQLi on '{}'", param_name);
+                let (bool_vulns, bool_tests) = engine.sqli_boolean_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(bool_vulns);
+                total_tests += bool_tests as u64;
+
+                // UNION-based SQLi
+                info!("    Testing UNION-based SQLi on '{}'", param_name);
+                let (union_vulns, union_tests) = engine.sqli_union_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(union_vulns);
+                total_tests += union_tests as u64;
             }
         }
 
@@ -924,9 +937,16 @@ async fn execute_standalone_scan(
         if !is_static_site {
             info!("  - Testing SSRF");
             for (param_name, _) in &test_params {
+                // Standard SSRF
                 let (vulns, tests) = engine.ssrf_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
+
+                // Blind SSRF with OOB callback
+                info!("    Testing Blind SSRF on '{}'", param_name);
+                let (blind_vulns, blind_tests) = engine.ssrf_blind_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(blind_vulns);
+                total_tests += blind_tests as u64;
             }
         }
     }
@@ -990,6 +1010,12 @@ async fn execute_standalone_scan(
     // IDOR
     info!("  - Testing IDOR");
     let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // BOLA (Broken Object Level Authorization)
+    info!("  - Testing BOLA");
+    let (vulns, tests) = engine.bola_scanner.scan(target, scan_config).await?;
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
@@ -1101,6 +1127,24 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
     } else {
         info!("  - Skipping Deserialization (not applicable for Node.js/Next.js stack)");
+    }
+
+    // ReDoS - Test parameters for regex denial of service (applies to all stacks)
+    if has_real_params && !is_static_site {
+        info!("  - Testing ReDoS (Regular Expression Denial of Service)");
+        for (param_name, _) in &test_params {
+            let (vulns, tests) = engine.redos_scanner.scan_parameter(target, param_name, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
+    // Email Header Injection - Test for email-related parameters
+    if has_real_params && !is_static_site {
+        info!("  - Testing Email Header Injection");
+        let (vulns, tests) = engine.email_header_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     }
 
     // Phase 6: Protocol & Transport testing

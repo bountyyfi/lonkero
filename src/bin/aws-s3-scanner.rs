@@ -5,6 +5,10 @@
  * AWS S3 Security Scanner - Standalone Binary
  * Scans S3 buckets for security vulnerabilities and misconfigurations
  *
+ * Supports two modes:
+ * 1. Authenticated scan (--regions): Uses AWS credentials to scan your own buckets
+ * 2. Public bucket scan (--url): Scans public S3 buckets by URL without credentials
+ *
  * © 2025 Bountyy Oy
  */
 
@@ -14,15 +18,20 @@ use std::collections::HashMap;
 
 #[derive(Parser, Debug)]
 #[command(name = "aws-s3-scanner")]
-#[command(about = "AWS S3 Security Scanner", long_about = None)]
+#[command(about = "AWS S3 Security Scanner - scan public S3 buckets or your own AWS buckets", long_about = None)]
 struct Args {
     /// Scan ID for tracking
     #[arg(long)]
     scan_id: Option<String>,
 
-    /// AWS regions to scan (comma-separated)
-    #[arg(long, default_value = "us-east-1")]
-    regions: String,
+    /// Public S3 bucket URL(s) to scan (comma-separated)
+    /// Examples: https://bucket.s3.region.amazonaws.com/ or s3://bucket-name
+    #[arg(long, short)]
+    url: Option<String>,
+
+    /// AWS regions to scan YOUR OWN buckets (requires AWS credentials)
+    #[arg(long)]
+    regions: Option<String>,
 
     /// Maximum concurrent requests
     #[arg(long, default_value = "10")]
@@ -51,13 +60,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     tracing_subscriber::fmt::init();
 
-    let regions: Vec<String> = args.regions.split(',').map(|s| s.trim().to_string()).collect();
     let scan_id = args.scan_id.unwrap_or_else(|| format!("s3_scan_{}", chrono::Utc::now().timestamp()));
 
-    eprintln!("[aws-s3-scanner] Starting scan {} across regions: {:?}", scan_id, regions);
-
-    // Execute the scan
-    let results = scan_s3_security(&scan_id, &regions, args.max_concurrency, args.check_objects).await?;
+    // Determine scan mode
+    let results = if let Some(ref url) = args.url {
+        // Public bucket scan mode
+        let urls: Vec<String> = url.split(',').map(|s| s.trim().to_string()).collect();
+        eprintln!("[aws-s3-scanner] Starting PUBLIC bucket scan {} for {} URLs", scan_id, urls.len());
+        scan_public_s3_buckets(&scan_id, &urls, args.check_objects).await?
+    } else if let Some(ref regions) = args.regions {
+        // Authenticated AWS scan mode
+        let region_list: Vec<String> = regions.split(',').map(|s| s.trim().to_string()).collect();
+        eprintln!("[aws-s3-scanner] Starting AUTHENTICATED scan {} across regions: {:?}", scan_id, region_list);
+        scan_s3_security(&scan_id, &region_list, args.max_concurrency, args.check_objects).await?
+    } else {
+        eprintln!("Error: Please specify either --url for public bucket scanning or --regions for authenticated AWS scanning");
+        eprintln!("");
+        eprintln!("Examples:");
+        eprintln!("  Public bucket:  lonkero-aws-s3 --url https://bucket.s3.eu-north-1.amazonaws.com/");
+        eprintln!("  Your buckets:   lonkero-aws-s3 --regions us-east-1,eu-west-1");
+        std::process::exit(1);
+    };
 
     // Output results
     if args.output == "json" {
@@ -71,6 +94,252 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Parse S3 URL to extract bucket name and region
+fn parse_s3_url(url: &str) -> Option<(String, String)> {
+    // Handle various S3 URL formats:
+    // 1. https://bucket-name.s3.region.amazonaws.com/
+    // 2. https://bucket-name.s3-region.amazonaws.com/
+    // 3. https://s3.region.amazonaws.com/bucket-name/
+    // 4. s3://bucket-name/
+
+    let url = url.trim();
+
+    // s3:// format
+    if url.starts_with("s3://") {
+        let bucket = url.strip_prefix("s3://")?.split('/').next()?;
+        return Some((bucket.to_string(), "us-east-1".to_string())); // Default region
+    }
+
+    // Virtual-hosted style: bucket.s3.region.amazonaws.com
+    if let Some(captures) = regex::Regex::new(r"https?://([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com")
+        .ok()?.captures(url)
+    {
+        let bucket = captures.get(1)?.as_str().to_string();
+        let region = captures.get(2)?.as_str().to_string();
+        return Some((bucket, region));
+    }
+
+    // Path-style: s3.region.amazonaws.com/bucket
+    if let Some(captures) = regex::Regex::new(r"https?://s3[.-]([^.]+)\.amazonaws\.com/([^/]+)")
+        .ok()?.captures(url)
+    {
+        let region = captures.get(1)?.as_str().to_string();
+        let bucket = captures.get(2)?.as_str().to_string();
+        return Some((bucket, region));
+    }
+
+    None
+}
+
+/// Scan public S3 buckets (no credentials needed)
+async fn scan_public_s3_buckets(
+    scan_id: &str,
+    urls: &[String],
+    check_objects: bool,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let mut all_vulnerabilities = Vec::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+
+    for url in urls {
+        eprintln!("[aws-s3-scanner] Scanning public bucket: {}", url);
+
+        if let Some((bucket_name, region)) = parse_s3_url(url) {
+            let vulns = scan_public_bucket(&client, &bucket_name, &region, url, check_objects).await;
+            all_vulnerabilities.extend(vulns);
+        } else {
+            eprintln!("[aws-s3-scanner] Could not parse S3 URL: {}", url);
+        }
+    }
+
+    // Build findings summary
+    let mut findings_summary: HashMap<String, usize> = HashMap::new();
+    for vuln in &all_vulnerabilities {
+        let severity = vuln["severity"].as_str().unwrap_or("Unknown");
+        *findings_summary.entry(severity.to_string()).or_insert(0) += 1;
+    }
+
+    Ok(json!({
+        "scanId": scan_id,
+        "scanType": "aws-s3-public",
+        "urlsScanned": urls.len(),
+        "vulnerabilities": all_vulnerabilities,
+        "findingsSummary": findings_summary,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+/// Scan a public S3 bucket for security issues
+async fn scan_public_bucket(
+    client: &reqwest::Client,
+    bucket_name: &str,
+    region: &str,
+    original_url: &str,
+    check_objects: bool,
+) -> Vec<serde_json::Value> {
+    let mut vulnerabilities = Vec::new();
+
+    // Build the bucket URL
+    let bucket_url = format!("https://{}.s3.{}.amazonaws.com", bucket_name, region);
+
+    // Test 1: Check if bucket allows listing (directory listing enabled)
+    eprintln!("[aws-s3-scanner] Checking directory listing...");
+    match client.get(&bucket_url).send().await {
+        Ok(response) => {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+
+            if status.is_success() && body.contains("<ListBucketResult") {
+                // Directory listing is enabled!
+                let object_count = body.matches("<Key>").count();
+
+                vulnerabilities.push(json!({
+                    "id": format!("s3-public-listing-{}", bucket_name),
+                    "vuln_type": "Public S3 Directory Listing",
+                    "severity": "High",
+                    "confidence": "High",
+                    "title": format!("S3 bucket {} allows public directory listing", bucket_name),
+                    "description": format!("The bucket allows anonymous users to list its contents. Found approximately {} objects exposed.", object_count),
+                    "url": original_url,
+                    "remediation": "Disable public access. Enable S3 Block Public Access settings. Review bucket policy.",
+                    "evidence": {
+                        "bucket_name": bucket_name,
+                        "region": region,
+                        "object_count": object_count,
+                        "response_status": status.as_u16()
+                    },
+                    "cwe": "CWE-548",
+                    "cvss": 7.5,
+                    "compliance_frameworks": ["CIS AWS 2.1.5", "NIST 800-53 AC-6"],
+                }));
+
+                // If check_objects is enabled, look for sensitive files
+                if check_objects {
+                    let sensitive_patterns = vec![
+                        ".env", ".git", "config", "credentials", "secret", "password",
+                        "private", ".pem", ".key", "backup", ".sql", ".db", "dump",
+                        ".htpasswd", ".htaccess", "wp-config", "id_rsa"
+                    ];
+
+                    for pattern in sensitive_patterns {
+                        if body.to_lowercase().contains(pattern) {
+                            vulnerabilities.push(json!({
+                                "id": format!("s3-sensitive-file-{}-{}", bucket_name, pattern),
+                                "vuln_type": "Sensitive File in Public S3 Bucket",
+                                "severity": "Critical",
+                                "confidence": "High",
+                                "title": format!("Potentially sensitive file pattern '{}' found in bucket {}", pattern, bucket_name),
+                                "description": format!("The publicly accessible bucket contains files matching sensitive pattern '{}'", pattern),
+                                "url": original_url,
+                                "remediation": "Remove sensitive files from public buckets. Rotate any exposed credentials.",
+                                "evidence": {
+                                    "bucket_name": bucket_name,
+                                    "pattern_found": pattern,
+                                },
+                                "cwe": "CWE-538",
+                                "cvss": 9.0,
+                            }));
+                        }
+                    }
+                }
+            } else if status == reqwest::StatusCode::FORBIDDEN {
+                eprintln!("[aws-s3-scanner] Bucket listing is properly restricted (403)");
+            } else if status == reqwest::StatusCode::NOT_FOUND {
+                eprintln!("[aws-s3-scanner] Bucket not found (404)");
+            }
+        }
+        Err(e) => {
+            eprintln!("[aws-s3-scanner] Error checking bucket listing: {}", e);
+        }
+    }
+
+    // Test 2: Check for common sensitive paths
+    let sensitive_paths = vec![
+        ".git/config",
+        ".env",
+        "backup.sql",
+        "database.sql",
+        "config.php",
+        "wp-config.php",
+        ".aws/credentials",
+        "id_rsa",
+        "id_rsa.pub",
+        ".htpasswd",
+        "secrets.json",
+        "credentials.json",
+    ];
+
+    eprintln!("[aws-s3-scanner] Checking for sensitive files...");
+    for path in sensitive_paths {
+        let test_url = format!("{}/{}", bucket_url, path);
+
+        if let Ok(response) = client.head(&test_url).send().await {
+            if response.status().is_success() {
+                vulnerabilities.push(json!({
+                    "id": format!("s3-exposed-file-{}-{}", bucket_name, path.replace("/", "-")),
+                    "vuln_type": "Exposed Sensitive File in S3",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": format!("Sensitive file '{}' is publicly accessible", path),
+                    "description": format!("The file '{}' is publicly accessible in bucket '{}'", path, bucket_name),
+                    "url": test_url,
+                    "remediation": "Remove or restrict access to this file immediately. Rotate any exposed credentials.",
+                    "evidence": {
+                        "bucket_name": bucket_name,
+                        "file_path": path,
+                        "response_status": response.status().as_u16()
+                    },
+                    "cwe": "CWE-538",
+                    "cvss": 9.5,
+                }));
+            }
+        }
+    }
+
+    // Test 3: Check if bucket allows public uploads (PUT)
+    eprintln!("[aws-s3-scanner] Checking for public write access...");
+    let test_key = format!("lonkero-security-test-{}.txt", chrono::Utc::now().timestamp_millis());
+    let put_url = format!("{}/{}", bucket_url, test_key);
+
+    if let Ok(response) = client
+        .put(&put_url)
+        .body("lonkero security test - please delete")
+        .send()
+        .await
+    {
+        if response.status().is_success() {
+            vulnerabilities.push(json!({
+                "id": format!("s3-public-write-{}", bucket_name),
+                "vuln_type": "Public S3 Write Access",
+                "severity": "Critical",
+                "confidence": "High",
+                "title": format!("S3 bucket {} allows public write access!", bucket_name),
+                "description": "The bucket allows anonymous users to upload files. This is a critical security vulnerability.",
+                "url": original_url,
+                "remediation": "Immediately disable public write access. Enable S3 Block Public Access settings.",
+                "evidence": {
+                    "bucket_name": bucket_name,
+                    "test_file": test_key,
+                },
+                "cwe": "CWE-284",
+                "cvss": 10.0,
+            }));
+
+            // Try to delete the test file
+            let _ = client.delete(&put_url).send().await;
+        }
+    }
+
+    if vulnerabilities.is_empty() {
+        eprintln!("[aws-s3-scanner] No vulnerabilities found for bucket {}", bucket_name);
+    } else {
+        eprintln!("[aws-s3-scanner] Found {} vulnerabilities for bucket {}", vulnerabilities.len(), bucket_name);
+    }
+
+    vulnerabilities
+}
+
 async fn scan_s3_security(
     scan_id: &str,
     regions: &[String],
@@ -80,7 +349,7 @@ async fn scan_s3_security(
     use aws_config::BehaviorVersion;
 
     let mut all_vulnerabilities = Vec::new();
-    let mut total_buckets = 0;
+    let total_buckets;
 
     // S3 is global, but we'll use the first region for the client
     let default_region = "us-east-1".to_string();
