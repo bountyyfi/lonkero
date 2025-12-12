@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use tracing::{debug, error, info, warn};
 
 /// Bountyy license server endpoint
-const LICENSE_SERVER: &str = "https://license.bountyy.fi/api/v1";
+const LICENSE_SERVER: &str = "https://lonkero.bountyy.fi/api/v1";
 
 /// Global killswitch state
 static KILLSWITCH_ACTIVE: AtomicBool = AtomicBool::new(false);
