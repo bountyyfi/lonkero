@@ -780,6 +780,26 @@ async fn execute_standalone_scan(
         }
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
+
+        // CVE-2025-55183 Check - Source Code Exposure (Medium, CVSS 5.3)
+        // Only affects Next.js 15.x+ - can leak Server Action source code
+        info!("  - Checking CVE-2025-55183 (RSC Source Code Exposure)");
+        let (vulns, tests) = engine.cve_2025_55183_scanner.scan(target, scan_config).await?;
+        if !vulns.is_empty() {
+            warn!("[ALERT] CVE-2025-55183 vulnerability detected!");
+        }
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // CVE-2025-55184 Check - Denial of Service (High, CVSS 7.5)
+        // Cyclic Promise references cause server hang
+        info!("  - Checking CVE-2025-55184 (RSC Denial of Service)");
+        let (vulns, tests) = engine.cve_2025_55184_scanner.scan(target, scan_config).await?;
+        if !vulns.is_empty() {
+            warn!("[ALERT] CVE-2025-55184 vulnerability detected!");
+        }
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     }
 
     // Azure APIM Cross-Tenant Signup Bypass Check (GHSA-vcwf-73jp-r7mv)
