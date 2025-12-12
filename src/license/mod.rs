@@ -311,7 +311,10 @@ pub fn get_global_license() -> Option<&'static LicenseStatus> {
 /// Print license info
 pub fn print_license_info(status: &LicenseStatus) {
     if let Some(lt) = status.license_type {
-        info!("License: {} Edition", lt);
+        match lt {
+            LicenseType::Personal => info!("License: Free Non-Commercial Edition"),
+            _ => info!("License: {} Edition", lt),
+        }
     }
 
     if let Some(ref licensee) = status.licensee {

@@ -1104,6 +1104,72 @@ impl JsMinerScanner {
         }
     }
 
+    /// Check if a parameter name looks like minified/webpack garbage or framework internal
+    /// Returns true if we should SKIP this parameter
+    fn is_minified_param(name: &str) -> bool {
+        // Too short - likely minified
+        if name.len() < 3 {
+            return true;
+        }
+
+        // Skip common framework/meta params that aren't user input
+        let skip_exact = [
+            "viewport", "charset", "content", "equiv", "property",
+            "xmlns", "lang", "dir", "class", "style", "type",
+            "rel", "href", "src", "alt", "title", "width", "height",
+            "async", "defer", "crossorigin", "integrity", "nonce",
+            "fetchpriority", "loading", "decoding", "sizes", "srcset",
+            // Next.js / React specific
+            "children", "dangerouslySetInnerHTML", "key", "ref",
+            "className", "htmlFor", "onChange", "onClick", "onSubmit",
+            "defaultValue", "defaultChecked", "suppressHydrationWarning",
+            // Build/chunk identifiers
+            "buildId", "assetPrefix", "runtimeConfig", "nextExport",
+        ];
+        let name_lower = name.to_lowercase();
+        for skip in skip_exact {
+            if name_lower == skip.to_lowercase() {
+                return true;
+            }
+        }
+
+        // Skip common webpack/framework internal params
+        let skip_patterns = [
+            "webpack", "chunk", "module", "__", "$$", "_$", "$_",
+            "WEBPACK", "CHUNK", "MODULE", "next", "react", "redux",
+        ];
+        for pattern in skip_patterns {
+            if name.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check for random-looking short names (mix of upper/lower with no vowels)
+        if name.len() <= 4 {
+            let has_vowel = name.chars().any(|c| "aeiouAEIOU".contains(c));
+            let has_mixed_case = name.chars().any(|c| c.is_uppercase())
+                && name.chars().any(|c| c.is_lowercase());
+
+            // Short names with mixed case and no vowels are likely minified (e.g., "uG", "lj", "xY")
+            if !has_vowel && has_mixed_case {
+                return true;
+            }
+
+            // All lowercase 2-3 char names without vowels are suspicious
+            if name.len() <= 3 && !has_vowel {
+                return true;
+            }
+        }
+
+        // Check for random character patterns (like "a1b2c3")
+        let digit_count = name.chars().filter(|c| c.is_numeric()).count();
+        if digit_count > name.len() / 2 && name.len() > 3 {
+            return true;
+        }
+
+        false
+    }
+
     /// Extract path parameters from URL patterns
     fn extract_path_params(&self, path: &str, results: &mut JsMinerResults) {
         // Match :param or {param} patterns
@@ -1111,7 +1177,10 @@ impl JsMinerScanner {
         for cap in param_regex.captures_iter(path) {
             if let Some(param) = cap.get(1) {
                 let param_name = param.as_str();
-                if param_name != "api" && param_name != "v1" && param_name != "v2" && param_name.len() > 1 {
+                if param_name != "api" && param_name != "v1" && param_name != "v2"
+                    && param_name.len() > 1
+                    && !Self::is_minified_param(param_name)
+                {
                     results.parameters.entry(path.to_string())
                         .or_insert_with(HashSet::new)
                         .insert(param_name.to_string());
@@ -1131,7 +1200,7 @@ impl JsMinerScanner {
                 for key_cap in key_regex.captures_iter(obj_content.as_str()) {
                     if let Some(key) = key_cap.get(1) {
                         let param = key.as_str();
-                        if param.len() > 1 && param.len() < 30 {
+                        if param.len() > 2 && param.len() < 30 && !Self::is_minified_param(param) {
                             results.parameters.entry("*".to_string())
                                 .or_insert_with(HashSet::new)
                                 .insert(param.to_string());
@@ -1150,7 +1219,7 @@ impl JsMinerScanner {
                 for param_cap in param_regex.captures_iter(qs.as_str()) {
                     if let Some(param) = param_cap.get(1) {
                         let param_name = param.as_str();
-                        if param_name.len() > 1 && param_name.len() < 30 {
+                        if param_name.len() > 2 && param_name.len() < 30 && !Self::is_minified_param(param_name) {
                             results.parameters.entry("*".to_string())
                                 .or_insert_with(HashSet::new)
                                 .insert(param_name.to_string());
