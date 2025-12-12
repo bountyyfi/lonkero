@@ -137,6 +137,12 @@ pub struct ScanResults {
     pub early_terminated: bool,
     #[serde(default)]
     pub termination_reason: Option<String>,
+    /// Scanner version and build info
+    #[serde(default)]
+    pub scanner_version: Option<String>,
+    /// License signature watermark (for audit trail)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

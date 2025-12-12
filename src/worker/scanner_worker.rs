@@ -362,6 +362,8 @@ impl ScannerWorker {
                     duration_seconds: 0.0,
                     early_terminated: false,
                     termination_reason: None,
+                    scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    license_signature: Some(crate::license::get_license_signature()),
                 })
             }
             "sqli" => {
@@ -377,6 +379,8 @@ impl ScannerWorker {
                     duration_seconds: 0.0,
                     early_terminated: false,
                     termination_reason: None,
+                    scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    license_signature: Some(crate::license::get_license_signature()),
                 })
             }
             _ => {

@@ -26,6 +26,12 @@ impl CloudStorageScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Premium feature check - cloud_scanning requires paid license
+        if !crate::license::is_feature_available("cloud_scanning") {
+            info!("[SKIP] Cloud storage scanning requires Professional or higher license");
+            return Ok((Vec::new(), 0));
+        }
+
         info!("Starting cloud storage misconfiguration scan on {}", url);
 
         let mut all_vulnerabilities = Vec::new();

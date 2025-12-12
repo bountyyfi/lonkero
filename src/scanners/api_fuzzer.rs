@@ -50,6 +50,12 @@ impl ApiFuzzerScanner {
         url: &str,
         config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Premium feature check
+        if !crate::license::is_feature_available("api_fuzzing") {
+            info!("[SKIP] Advanced API fuzzing requires Professional or higher license");
+            return Ok((Vec::new(), 0));
+        }
+
         info!("Starting advanced API fuzzing scan on {}", url);
 
         let mut all_vulnerabilities = Vec::new();
