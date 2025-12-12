@@ -785,15 +785,50 @@ impl JsMinerScanner {
             false
         };
 
-        // Check if string looks like a minified variable (e.g., p192, t45, e0, n123)
+        // Check if string looks like a minified variable or framework internal
         let is_minified_var = |s: &str| -> bool {
             let chars: Vec<char> = s.chars().collect();
-            if chars.len() < 2 || chars.len() > 6 { return false; }
-            // Pattern: 1-2 lowercase letters followed by digits
-            let letter_count = chars.iter().take_while(|c| c.is_ascii_lowercase()).count();
-            if letter_count == 0 || letter_count > 2 { return false; }
-            let rest = &chars[letter_count..];
-            !rest.is_empty() && rest.iter().all(|c| c.is_ascii_digit())
+            let len = chars.len();
+
+            // Very short names are likely minified
+            if len < 3 {
+                return true;
+            }
+
+            // Common framework/meta params that aren't user input
+            let skip_exact = [
+                "robots", "viewport", "charset", "content", "equiv",
+                "pid", "cid", "uid", "gid", "tid", "sid", "rid", "mid", "fid",
+                "idx", "len", "ptr", "buf", "ctx", "env", "obj", "arr", "str",
+                "val", "tmp", "ret", "res", "err", "evt", "req", "rsp",
+            ];
+            let s_lower = s.to_lowercase();
+            if skip_exact.iter().any(|&skip| s_lower == skip) {
+                return true;
+            }
+
+            // Pattern: 1-2 letters followed by digits (p192, t45, e0, L2, etc.)
+            if len <= 6 {
+                let letter_count = chars.iter().take_while(|c| c.is_ascii_alphabetic()).count();
+                if letter_count >= 1 && letter_count <= 2 {
+                    let rest = &chars[letter_count..];
+                    if !rest.is_empty() && rest.iter().all(|c| c.is_ascii_digit()) {
+                        return true;
+                    }
+                }
+            }
+
+            // Short mixed-case names without vowels (rT, xY, uG)
+            if len <= 4 {
+                let has_vowel = chars.iter().any(|c| "aeiouAEIOU".contains(*c));
+                let has_upper = chars.iter().any(|c| c.is_uppercase());
+                let has_lower = chars.iter().any(|c| c.is_lowercase());
+                if !has_vowel && has_upper && has_lower {
+                    return true;
+                }
+            }
+
+            false
         };
 
         // Extract from URL patterns only (most reliable)
@@ -1125,11 +1160,31 @@ impl JsMinerScanner {
             "defaultValue", "defaultChecked", "suppressHydrationWarning",
             // Build/chunk identifiers
             "buildId", "assetPrefix", "runtimeConfig", "nextExport",
+            // Webpack/bundler internal params
+            "pid", "cid", "uid", "gid", "tid", "sid", "rid", "mid", "fid",
+            "idx", "len", "ptr", "buf", "ctx", "env", "obj", "arr", "str",
+            "val", "tmp", "ret", "res", "err", "evt", "req", "rsp",
+            // Common minified layer/level names
+            "L1", "L2", "L3", "L4", "L5", "M1", "M2", "M3", "N1", "N2",
+            "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "i1", "j1",
+            "fn", "cb", "el", "ns", "id", "op", "ix", "jx", "kx",
         ];
         let name_lower = name.to_lowercase();
         for skip in skip_exact {
             if name_lower == skip.to_lowercase() {
                 return true;
+            }
+        }
+
+        // Pattern: single/double letter + number (L2, M1, a1, etc.)
+        if name.len() <= 3 {
+            let chars: Vec<char> = name.chars().collect();
+            if chars.len() >= 2 {
+                let has_digit = chars.iter().any(|c| c.is_numeric());
+                let letter_count = chars.iter().filter(|c| c.is_alphabetic()).count();
+                if has_digit && letter_count <= 2 {
+                    return true;
+                }
             }
         }
 
