@@ -83,6 +83,10 @@ pub mod http3_scanner;
 pub mod ssti_advanced_scanner;
 pub mod cve_2025_55182;
 pub mod azure_apim;
+pub mod web_cache_deception;
+pub mod email_injection;
+pub mod redos;
+pub mod rate_limit_bypass;
 
 // Cloud security scanners
 pub mod cloud;
@@ -151,6 +155,10 @@ pub use http3_scanner::Http3Scanner;
 pub use ssti_advanced_scanner::SstiAdvancedScanner;
 pub use cve_2025_55182::Cve202555182Scanner;
 pub use azure_apim::AzureApimScanner;
+pub use web_cache_deception::WebCacheDeceptionScanner;
+pub use email_injection::EmailInjectionScanner;
+pub use redos::RedosScanner;
+pub use rate_limit_bypass::RateLimitBypassScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -218,6 +226,10 @@ pub struct ScanEngine {
     pub ssti_advanced_scanner: SstiAdvancedScanner,
     pub cve_2025_55182_scanner: Cve202555182Scanner,
     pub azure_apim_scanner: AzureApimScanner,
+    pub web_cache_deception_scanner: WebCacheDeceptionScanner,
+    pub email_injection_scanner: EmailInjectionScanner,
+    pub redos_scanner: RedosScanner,
+    pub rate_limit_bypass_scanner: RateLimitBypassScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -374,6 +386,10 @@ impl ScanEngine {
             ssti_advanced_scanner: SstiAdvancedScanner::new(Arc::clone(&http_client)),
             cve_2025_55182_scanner: Cve202555182Scanner::new(Arc::clone(&http_client)),
             azure_apim_scanner: AzureApimScanner::new(Arc::clone(&http_client)),
+            web_cache_deception_scanner: WebCacheDeceptionScanner::new(Arc::clone(&http_client)),
+            email_injection_scanner: EmailInjectionScanner::new(Arc::clone(&http_client)),
+            redos_scanner: RedosScanner::new(Arc::clone(&http_client)),
+            rate_limit_bypass_scanner: RateLimitBypassScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -574,13 +590,33 @@ impl ScanEngine {
 
                 // SQLi Testing (skip if CDN protected)
                 if !self.should_skip_scanner("sqli", &cdn_info) {
+                    // Error-based SQLi
                     let (sqli_vulns, sqli_tests) = self.sqli_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
                     all_vulnerabilities.extend(sqli_vulns);
                     total_tests += sqli_tests as u64;
-
                     queue.increment_tests(scan_id.clone(), sqli_tests as u64).await?;
+
+                    // UNION-based SQLi (if no error-based found)
+                    if sqli_vulns.is_empty() {
+                        let (union_vulns, union_tests) = self.sqli_scanner
+                            .scan_union_based(&target, param_name, &config)
+                            .await?;
+                        all_vulnerabilities.extend(union_vulns);
+                        total_tests += union_tests as u64;
+                        queue.increment_tests(scan_id.clone(), union_tests as u64).await?;
+                    }
+
+                    // Boolean-based blind SQLi (if no other found)
+                    if sqli_vulns.is_empty() {
+                        let (bool_vulns, bool_tests) = self.sqli_scanner
+                            .scan_boolean_based(&target, param_name, &config)
+                            .await?;
+                        all_vulnerabilities.extend(bool_vulns);
+                        total_tests += bool_tests as u64;
+                        queue.increment_tests(scan_id.clone(), bool_tests as u64).await?;
+                    }
                 }
 
                 // Command Injection Testing (skip if CDN protected)
@@ -635,6 +671,14 @@ impl ScanEngine {
 
                     queue.increment_tests(scan_id.clone(), xxe_tests as u64).await?;
                 }
+
+                // ReDoS Testing (Regular Expression Denial of Service)
+                let (redos_vulns, redos_tests) = self.redos_scanner
+                    .scan(&target, param_name, &config)
+                    .await?;
+                all_vulnerabilities.extend(redos_vulns);
+                total_tests += redos_tests as u64;
+                queue.increment_tests(scan_id.clone(), redos_tests as u64).await?;
             }
         }
 
@@ -1177,6 +1221,33 @@ impl ScanEngine {
         all_vulnerabilities.extend(ssti_adv_vulns);
         total_tests += ssti_adv_tests as u64;
         queue.increment_tests(scan_id.clone(), ssti_adv_tests as u64).await?;
+
+        // Web Cache Deception Check
+        info!("Checking for web cache deception vulnerabilities");
+        let (wcd_vulns, wcd_tests) = self.web_cache_deception_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(wcd_vulns);
+        total_tests += wcd_tests as u64;
+        queue.increment_tests(scan_id.clone(), wcd_tests as u64).await?;
+
+        // Email Header Injection Check
+        info!("Checking for email header injection vulnerabilities");
+        let (email_vulns, email_tests) = self.email_injection_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(email_vulns);
+        total_tests += email_tests as u64;
+        queue.increment_tests(scan_id.clone(), email_tests as u64).await?;
+
+        // Rate Limiting Bypass Check
+        info!("Checking for rate limiting bypass vulnerabilities");
+        let (rlb_vulns, rlb_tests) = self.rate_limit_bypass_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(rlb_vulns);
+        total_tests += rlb_tests as u64;
+        queue.increment_tests(scan_id.clone(), rlb_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
