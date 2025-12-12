@@ -32,45 +32,89 @@ impl MfaScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // Test 1: Check for MFA enforcement
+        // First, check if this site has any MFA-related functionality
+        // by looking at the main page content
         tests_run += 1;
-        let response = self.http_client.get(url).await?;
-        self.check_mfa_enforcement(&response, url, &mut vulnerabilities);
+        let response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), tests_run)),
+        };
 
-        // Test 2: Test for MFA bypass via parameter manipulation
-        tests_run += 1;
-        if let Ok(bypass_response) = self.test_mfa_bypass(url).await {
-            self.check_mfa_bypass(&bypass_response, url, &mut vulnerabilities);
+        let body_lower = response.body.to_lowercase();
+
+        // Check for evidence of authentication/MFA functionality
+        let has_mfa_indicators = body_lower.contains("two-factor")
+            || body_lower.contains("2fa")
+            || body_lower.contains("mfa")
+            || body_lower.contains("multi-factor")
+            || body_lower.contains("authenticator")
+            || body_lower.contains("verification code")
+            || body_lower.contains("totp");
+
+        let has_auth_functionality = body_lower.contains("login")
+            || body_lower.contains("sign in")
+            || body_lower.contains("log in")
+            || body_lower.contains("password");
+
+        // If no authentication or MFA indicators, skip all MFA tests
+        // This prevents false positives on static sites
+        if !has_auth_functionality && !has_mfa_indicators {
+            return Ok((Vec::new(), tests_run));
         }
 
-        // Test 3: Test for weak TOTP implementation
-        tests_run += 1;
-        if let Ok(totp_response) = self.test_totp_weakness(url).await {
-            self.check_totp_weakness(&totp_response, url, &mut vulnerabilities);
+        // Test 1: Check for MFA enforcement (only if auth indicators exist)
+        if has_auth_functionality {
+            self.check_mfa_enforcement(&response, url, &mut vulnerabilities);
         }
 
-        // Test 4: Test for backup code security
-        tests_run += 1;
-        if let Ok(backup_response) = self.test_backup_codes(url).await {
-            self.check_backup_code_security(&backup_response, url, &mut vulnerabilities);
+        // Test 2: Test for MFA bypass via parameter manipulation (only if MFA is mentioned)
+        if has_mfa_indicators {
+            tests_run += 1;
+            if let Ok(bypass_response) = self.test_mfa_bypass(url).await {
+                self.check_mfa_bypass(&bypass_response, url, &mut vulnerabilities);
+            }
         }
 
-        // Test 5: Test for MFA enrollment security
-        tests_run += 1;
-        if let Ok(enrollment_response) = self.test_mfa_enrollment(url).await {
-            self.check_enrollment_security(&enrollment_response, url, &mut vulnerabilities);
+        // Test 3-7: Only run endpoint-specific tests if endpoints actually exist
+        // Check if common MFA verification endpoints exist before testing them
+        let mfa_endpoints = vec![
+            (format!("{}/mfa/verify", url.trim_end_matches('/')), "mfa_verify"),
+            (format!("{}/2fa/verify", url.trim_end_matches('/')), "2fa_verify"),
+            (format!("{}/auth/mfa", url.trim_end_matches('/')), "auth_mfa"),
+            (format!("{}/mfa/enroll", url.trim_end_matches('/')), "mfa_enroll"),
+        ];
+
+        for (endpoint_url, _endpoint_type) in &mfa_endpoints {
+            tests_run += 1;
+            if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
+                // Only proceed if endpoint exists (not 404, 403 is ok as it means protected)
+                if endpoint_response.status_code == 404 {
+                    continue;
+                }
+
+                let endpoint_body_lower = endpoint_response.body.to_lowercase();
+
+                // Only test rate limiting if this is actually an MFA verification page
+                let is_mfa_page = endpoint_body_lower.contains("code")
+                    || endpoint_body_lower.contains("verify")
+                    || endpoint_body_lower.contains("totp")
+                    || endpoint_body_lower.contains("authenticator")
+                    || endpoint_body_lower.contains("enter")
+                    || endpoint_response.status_code == 401
+                    || endpoint_response.status_code == 403;
+
+                if is_mfa_page {
+                    self.check_rate_limiting(&endpoint_response, endpoint_url, &mut vulnerabilities);
+                }
+            }
         }
 
-        // Test 6: Test for rate limiting on MFA attempts
-        tests_run += 1;
-        if let Ok(rate_limit_response) = self.test_mfa_rate_limiting(url).await {
-            self.check_rate_limiting(&rate_limit_response, url, &mut vulnerabilities);
-        }
-
-        // Test 7: Test for SMS/Email MFA vulnerabilities
-        tests_run += 1;
-        if let Ok(sms_response) = self.test_sms_mfa(url).await {
-            self.check_sms_mfa_security(&sms_response, url, &mut vulnerabilities);
+        // Only test SMS MFA if there's evidence of phone-based auth
+        if has_mfa_indicators && (body_lower.contains("sms") || body_lower.contains("phone")) {
+            tests_run += 1;
+            if let Ok(sms_response) = self.test_sms_mfa(url).await {
+                self.check_sms_mfa_security(&sms_response, url, &mut vulnerabilities);
+            }
         }
 
         Ok((vulnerabilities, tests_run))
