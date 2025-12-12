@@ -87,6 +87,8 @@ pub mod webauthn_scanner;
 pub mod http3_scanner;
 pub mod ssti_advanced_scanner;
 pub mod cve_2025_55182;
+pub mod cve_2025_55183;
+pub mod cve_2025_55184;
 pub mod azure_apim;
 pub mod redos;
 
@@ -161,6 +163,8 @@ pub use webauthn_scanner::WebAuthnScanner;
 pub use http3_scanner::Http3Scanner;
 pub use ssti_advanced_scanner::SstiAdvancedScanner;
 pub use cve_2025_55182::Cve202555182Scanner;
+pub use cve_2025_55183::Cve202555183Scanner;
+pub use cve_2025_55184::Cve202555184Scanner;
 pub use azure_apim::AzureApimScanner;
 pub use redos::RedosScanner;
 
@@ -234,6 +238,8 @@ pub struct ScanEngine {
     pub http3_scanner: Http3Scanner,
     pub ssti_advanced_scanner: SstiAdvancedScanner,
     pub cve_2025_55182_scanner: Cve202555182Scanner,
+    pub cve_2025_55183_scanner: Cve202555183Scanner,
+    pub cve_2025_55184_scanner: Cve202555184Scanner,
     pub azure_apim_scanner: AzureApimScanner,
     pub redos_scanner: RedosScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
@@ -396,6 +402,8 @@ impl ScanEngine {
             http3_scanner: Http3Scanner::new(Arc::clone(&http_client)),
             ssti_advanced_scanner: SstiAdvancedScanner::new(Arc::clone(&http_client)),
             cve_2025_55182_scanner: Cve202555182Scanner::new(Arc::clone(&http_client)),
+            cve_2025_55183_scanner: Cve202555183Scanner::new(Arc::clone(&http_client)),
+            cve_2025_55184_scanner: Cve202555184Scanner::new(Arc::clone(&http_client)),
             azure_apim_scanner: AzureApimScanner::new(Arc::clone(&http_client)),
             redos_scanner: RedosScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
@@ -1252,6 +1260,33 @@ impl ScanEngine {
         all_vulnerabilities.extend(ssti_adv_vulns);
         total_tests += ssti_adv_tests as u64;
         queue.increment_tests(scan_id.clone(), ssti_adv_tests as u64).await?;
+
+        // CVE-2025-55182: React Server Components RCE (React2Shell)
+        info!("Checking for CVE-2025-55182 (React2Shell RCE)");
+        let (cve_55182_vulns, cve_55182_tests) = self.cve_2025_55182_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(cve_55182_vulns);
+        total_tests += cve_55182_tests as u64;
+        queue.increment_tests(scan_id.clone(), cve_55182_tests as u64).await?;
+
+        // CVE-2025-55183: React Server Components Source Code Exposure
+        info!("Checking for CVE-2025-55183 (RSC Source Code Exposure)");
+        let (cve_55183_vulns, cve_55183_tests) = self.cve_2025_55183_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(cve_55183_vulns);
+        total_tests += cve_55183_tests as u64;
+        queue.increment_tests(scan_id.clone(), cve_55183_tests as u64).await?;
+
+        // CVE-2025-55184: React Server Components Denial of Service
+        info!("Checking for CVE-2025-55184 (RSC DoS)");
+        let (cve_55184_vulns, cve_55184_tests) = self.cve_2025_55184_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(cve_55184_vulns);
+        total_tests += cve_55184_tests as u64;
+        queue.increment_tests(scan_id.clone(), cve_55184_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
