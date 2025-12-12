@@ -156,20 +156,58 @@ impl EmailHeaderInjectionScanner {
     }
 
     /// Scan endpoint for email header injection (general scan)
+    ///
+    /// IMPORTANT: This scan ONLY runs when there's evidence of email functionality.
+    /// It will NOT blindly test invented parameters on arbitrary sites.
     pub async fn scan(
         &self,
         url: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
             return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
         }
 
-        let mut all_vulnerabilities = Vec::new();
-        let mut total_tests = 0;
+        // First, check if this site has email functionality by fetching the page
+        // and looking for contact forms or email-related endpoints
+        let has_email_functionality = match self.http_client.get(url).await {
+            Ok(response) => {
+                let body_lower = response.body.to_lowercase();
 
-        // Test common email-related parameter names
+                // Check for evidence of email functionality
+                let has_contact_form = body_lower.contains("contact") &&
+                    (body_lower.contains("<form") || body_lower.contains("action="));
+                let has_email_form = body_lower.contains("email") &&
+                    body_lower.contains("<form") &&
+                    (body_lower.contains("type=\"email\"") || body_lower.contains("type='email'"));
+                let has_mail_endpoint = body_lower.contains("/mail") ||
+                    body_lower.contains("/contact") ||
+                    body_lower.contains("/send") ||
+                    body_lower.contains("/subscribe") ||
+                    body_lower.contains("mailto:");
+                let has_smtp_hints = body_lower.contains("smtp") ||
+                    body_lower.contains("sendmail") ||
+                    body_lower.contains("phpmailer");
+
+                has_contact_form || has_email_form || has_mail_endpoint || has_smtp_hints
+            }
+            Err(_) => false,
+        };
+
+        // If no email functionality detected, skip this scanner entirely
+        // This prevents false positives on static sites, SPAs without email features, etc.
+        if !has_email_functionality {
+            debug!("No email functionality detected on {}, skipping email header injection scan", url);
+            return Ok((Vec::new(), 1)); // 1 test = the initial check
+        }
+
+        info!("Email functionality detected, proceeding with email header injection scan");
+
+        let mut all_vulnerabilities = Vec::new();
+        let mut total_tests = 1; // Count the initial check
+
+        // Only test email-related parameter names if we confirmed email functionality exists
         let email_params = vec![
             "email".to_string(),
             "to".to_string(),
@@ -183,12 +221,10 @@ impl EmailHeaderInjectionScanner {
             "mail".to_string(),
             "recipient".to_string(),
             "sender".to_string(),
-            "body".to_string(),
-            "content".to_string(),
         ];
 
         for param in email_params {
-            let (vulns, tests) = self.scan_parameter(url, &param, config).await?;
+            let (vulns, tests) = self.scan_parameter(url, &param, _config).await?;
             all_vulnerabilities.extend(vulns);
             total_tests += tests;
 
