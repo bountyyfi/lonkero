@@ -409,9 +409,8 @@ async fn handle_license_command(action: LicenseAction, _current_key: Option<&str
                 if let Some(ref org) = status.organization {
                     println!("Organization:    {}", org);
                 }
-                if let Some(expires) = status.expires_at {
-                    let days_left = (expires - chrono::Utc::now()).num_days();
-                    println!("Expires:         {} ({} days remaining)", expires.format("%Y-%m-%d"), days_left);
+                if let Some(ref expires) = status.expires_at {
+                    println!("Expires:         {}", expires);
                 }
                 if let Some(max) = status.max_targets {
                     println!("Max targets:     {}", max);
