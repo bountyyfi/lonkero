@@ -36,6 +36,15 @@ impl SsrfScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Get baseline response first - critical for avoiding false positives
+        let baseline = match self.http_client.get(base_url).await {
+            Ok(response) => response,
+            Err(e) => {
+                debug!("Failed to get baseline for SSRF testing: {}", e);
+                return Ok((Vec::new(), 0));
+            }
+        };
+
         let payloads = self.generate_ssrf_payloads();
 
         for payload in &payloads {
@@ -51,7 +60,7 @@ impl SsrfScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if let Some(vuln) = self.analyze_ssrf_response(&response, payload, parameter, &test_url) {
+                    if let Some(vuln) = self.analyze_ssrf_response(&response, payload, parameter, &test_url, &baseline) {
                         info!("[ALERT] SSRF vulnerability detected in parameter '{}'", parameter);
                         vulnerabilities.push(vuln);
                         break; // Found vulnerability, no need to continue
@@ -164,10 +173,19 @@ impl SsrfScanner {
         payload: &str,
         parameter: &str,
         test_url: &str,
+        baseline: &HttpResponse,
     ) -> Option<Vulnerability> {
         let body_lower = response.body.to_lowercase();
+        let baseline_lower = baseline.body.to_lowercase();
 
-        // AWS Metadata indicators
+        // Critical: Check if response is significantly different from baseline
+        // If response is identical, the application ignores the parameter (not SSRF)
+        let response_changed = response.body != baseline.body;
+        let size_diff = (response.body.len() as i64 - baseline.body.len() as i64).abs();
+        let significant_change = size_diff > 50 || response.status_code != baseline.status_code;
+
+        // AWS Metadata indicators - must be specific to avoid false positives
+        // Note: "token" alone is too generic (React/Next.js uses tokens everywhere)
         let aws_indicators = [
             "ami-id",
             "instance-id",
@@ -175,23 +193,37 @@ impl SsrfScanner {
             "iam/security-credentials",
             "accesskeyid",
             "secretaccesskey",
-            "token",
+            "iam-info",
+            "public-ipv4",
+            "local-ipv4",
+            "public-hostname",
+            "instance-type",
+            "security-groups",
+            "meta-data",           // AWS specific path
+            "dynamic/instance-identity",
         ];
 
-        // GCP Metadata indicators
+        // GCP Metadata indicators - more specific
         let gcp_indicators = [
-            "computemetadata",
-            "google",
-            "service-accounts",
-            "access_token",
+            "computemetadata/v1",
+            "service-accounts/default",
+            "project-id",
+            "instance/zone",
+            "instance/machine-type",
+            "instance/network-interfaces",
+            "attributes/",
         ];
 
-        // Azure Metadata indicators
+        // Azure Metadata indicators - more specific
         let azure_indicators = [
-            "compute",
             "subscriptionid",
             "resourcegroupname",
             "vmid",
+            "vmsize",
+            "vmscalesetname",
+            "platformfaultdomain",
+            "azureenvironment",
+            "location",   // combined with Azure-specific context
         ];
 
         // Internal service indicators
@@ -206,74 +238,85 @@ impl SsrfScanner {
             "environment",          // Linux env vars
         ];
 
-        // Check for AWS metadata
+        // Check for AWS metadata - must be NEW indicator (not in baseline) AND response changed
         for indicator in &aws_indicators {
-            if body_lower.contains(indicator) {
-                return Some(self.create_vulnerability(
-                    parameter,
-                    payload,
-                    test_url,
-                    "AWS EC2 Metadata Service accessible - credentials may be exposed",
-                    Confidence::High,
-                    format!("Response contains AWS metadata indicator: {}", indicator),
-                ));
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
+                // Extra validation: only report if response actually changed
+                if response_changed || significant_change {
+                    return Some(self.create_vulnerability(
+                        parameter,
+                        payload,
+                        test_url,
+                        "AWS EC2 Metadata Service accessible - credentials may be exposed",
+                        Confidence::High,
+                        format!("Response contains NEW AWS metadata indicator: {} (not in baseline)", indicator),
+                    ));
+                }
             }
         }
 
-        // Check for GCP metadata
+        // Check for GCP metadata - must be NEW indicator AND response changed
         for indicator in &gcp_indicators {
-            if body_lower.contains(indicator) {
-                return Some(self.create_vulnerability(
-                    parameter,
-                    payload,
-                    test_url,
-                    "GCP Metadata Service accessible - credentials may be exposed",
-                    Confidence::High,
-                    format!("Response contains GCP metadata indicator: {}", indicator),
-                ));
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
+                if response_changed || significant_change {
+                    return Some(self.create_vulnerability(
+                        parameter,
+                        payload,
+                        test_url,
+                        "GCP Metadata Service accessible - credentials may be exposed",
+                        Confidence::High,
+                        format!("Response contains NEW GCP metadata indicator: {} (not in baseline)", indicator),
+                    ));
+                }
             }
         }
 
-        // Check for Azure metadata
+        // Check for Azure metadata - must be NEW indicator AND response changed
         for indicator in &azure_indicators {
-            if body_lower.contains(indicator) {
-                return Some(self.create_vulnerability(
-                    parameter,
-                    payload,
-                    test_url,
-                    "Azure Metadata Service accessible - instance information exposed",
-                    Confidence::High,
-                    format!("Response contains Azure metadata indicator: {}", indicator),
-                ));
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
+                if response_changed || significant_change {
+                    return Some(self.create_vulnerability(
+                        parameter,
+                        payload,
+                        test_url,
+                        "Azure Metadata Service accessible - instance information exposed",
+                        Confidence::High,
+                        format!("Response contains NEW Azure metadata indicator: {} (not in baseline)", indicator),
+                    ));
+                }
             }
         }
 
-        // Check for internal service responses
+        // Check for internal service responses - must be NEW indicator AND response changed
         for indicator in &internal_indicators {
-            if body_lower.contains(indicator) {
-                return Some(self.create_vulnerability(
-                    parameter,
-                    payload,
-                    test_url,
-                    "Internal service accessible - network segmentation bypass",
-                    Confidence::High,
-                    format!("Response contains internal service indicator: {}", indicator),
-                ));
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
+                if response_changed || significant_change {
+                    return Some(self.create_vulnerability(
+                        parameter,
+                        payload,
+                        test_url,
+                        "Internal service accessible - network segmentation bypass",
+                        Confidence::High,
+                        format!("Response contains NEW internal service indicator: {} (not in baseline)", indicator),
+                    ));
+                }
             }
         }
 
         // Check response size ONLY for metadata endpoints - very small responses might indicate SSRF
+        // But ONLY if response is significantly different from baseline
         if (payload.contains("169.254.169.254") || payload.contains("metadata")) &&
-           response.body.len() < 50 && response.body.len() > 0 {
-            // Small response might be metadata
-            if response.status_code == 200 {
+           response.body.len() < 50 && response.body.len() > 0 &&
+           significant_change {
+            // Small response might be metadata - but only report if it changed
+            if response.status_code == 200 && response.body != baseline.body {
                 return Some(self.create_vulnerability(
                     parameter,
                     payload,
                     test_url,
                     "Suspicious small response from metadata endpoint",
                     Confidence::Medium,
-                    format!("Response size: {} bytes (may indicate metadata)", response.body.len()),
+                    format!("Response size: {} bytes (significantly different from baseline)", response.body.len()),
                 ));
             }
         }
@@ -281,6 +324,7 @@ impl SsrfScanner {
         // DON'T report based solely on status code - this causes false positives
         // A normal web app will return 200 for ANY URL parameter
         // We need ACTUAL metadata content or internal service indicators
+        // AND the response must differ from baseline
 
         None
     }
@@ -379,6 +423,15 @@ mod tests {
             HttpClient::new(5, 2).unwrap()
         ));
 
+        // Normal baseline response (no AWS metadata)
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "<html><body>Normal web page</body></html>".to_string(),
+            headers: std::collections::HashMap::new(),
+            duration_ms: 100,
+        };
+
+        // Response with AWS metadata (different from baseline)
         let response = HttpResponse {
             status_code: 200,
             body: r#"{"ami-id": "ami-12345", "instance-id": "i-abcdef"}"#.to_string(),
@@ -390,7 +443,8 @@ mod tests {
             &response,
             "http://169.254.169.254/latest/meta-data/",
             "url",
-            "http://example.com?url=http://169.254.169.254/latest/meta-data/"
+            "http://example.com?url=http://169.254.169.254/latest/meta-data/",
+            &baseline
         );
 
         assert!(result.is_some(), "Should detect AWS metadata");
@@ -405,9 +459,16 @@ mod tests {
             HttpClient::new(5, 2).unwrap()
         ));
 
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "<html><body>Normal web page</body></html>".to_string(),
+            headers: std::collections::HashMap::new(),
+            duration_ms: 100,
+        };
+
         let response = HttpResponse {
             status_code: 200,
-            body: r#"{"access_token": "ya29.abc123", "expires_in": 3600}"#.to_string(),
+            body: r#"{"project-id": "my-project", "instance/zone": "us-central1-a"}"#.to_string(),
             headers: std::collections::HashMap::new(),
             duration_ms: 100,
         };
@@ -416,7 +477,8 @@ mod tests {
             &response,
             "http://metadata.google.internal/computeMetadata/v1/",
             "url",
-            "http://example.com?url=http://metadata.google.internal/"
+            "http://example.com?url=http://metadata.google.internal/",
+            &baseline
         );
 
         assert!(result.is_some(), "Should detect GCP metadata");
@@ -427,6 +489,13 @@ mod tests {
         let scanner = SsrfScanner::new(Arc::new(
             HttpClient::new(5, 2).unwrap()
         ));
+
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "<html><body>Normal web page</body></html>".to_string(),
+            headers: std::collections::HashMap::new(),
+            duration_ms: 100,
+        };
 
         let response = HttpResponse {
             status_code: 200,
@@ -439,7 +508,8 @@ mod tests {
             &response,
             "file:///etc/passwd",
             "url",
-            "http://example.com?url=file:///etc/passwd"
+            "http://example.com?url=file:///etc/passwd",
+            &baseline
         );
 
         assert!(result.is_some(), "Should detect /etc/passwd access");
@@ -450,6 +520,14 @@ mod tests {
         let scanner = SsrfScanner::new(Arc::new(
             HttpClient::new(5, 2).unwrap()
         ));
+
+        // Baseline and response are identical - app ignores the parameter
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "<html><body>Normal web page content</body></html>".to_string(),
+            headers: std::collections::HashMap::new(),
+            duration_ms: 100,
+        };
 
         let response = HttpResponse {
             status_code: 200,
@@ -462,9 +540,43 @@ mod tests {
             &response,
             "http://example.com",
             "url",
-            "http://test.com?url=http://example.com"
+            "http://test.com?url=http://example.com",
+            &baseline
         );
 
-        assert!(result.is_none(), "Should not report false positive on normal response");
+        assert!(result.is_none(), "Should not report false positive when response equals baseline");
+    }
+
+    #[test]
+    fn test_no_false_positive_on_react_tokens() {
+        let scanner = SsrfScanner::new(Arc::new(
+            HttpClient::new(5, 2).unwrap()
+        ));
+
+        // Both baseline and response contain "token" (React/Next.js app)
+        // Should NOT be reported as SSRF
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: r#"<html><script>window.__NEXT_DATA__={"props":{"token":"abc123"}}</script></html>"#.to_string(),
+            headers: std::collections::HashMap::new(),
+            duration_ms: 100,
+        };
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: r#"<html><script>window.__NEXT_DATA__={"props":{"token":"abc123"}}</script></html>"#.to_string(),
+            headers: std::collections::HashMap::new(),
+            duration_ms: 100,
+        };
+
+        let result = scanner.analyze_ssrf_response(
+            &response,
+            "http://169.254.169.254/latest/meta-data/",
+            "url",
+            "http://test.com?url=http://169.254.169.254/",
+            &baseline
+        );
+
+        assert!(result.is_none(), "Should not report false positive on React apps with token in baseline");
     }
 }
