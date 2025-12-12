@@ -966,6 +966,12 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
+    // CORS Misconfiguration (advanced CORS testing)
+    info!("  - Testing CORS Misconfiguration");
+    let (vulns, tests) = engine.cors_misconfiguration_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
     // CSRF
     info!("  - Testing CSRF Protection");
     let (vulns, tests) = engine.csrf_scanner.scan(target, scan_config).await?;
@@ -988,6 +994,12 @@ async fn execute_standalone_scan(
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
     }
+
+    // JWT Vulnerabilities Scanner (general JWT analysis)
+    info!("  - Testing JWT Vulnerabilities");
+    let (vulns, tests) = engine.jwt_vulnerabilities_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
 
     // OAuth
     info!("  - Testing OAuth Security");
@@ -1019,12 +1031,48 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
+    // Advanced Auth (comprehensive authentication testing)
+    info!("  - Testing Advanced Authentication");
+    let (vulns, tests) = engine.advanced_auth_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Auth Manager (authentication management flaws)
+    info!("  - Testing Authentication Management");
+    let (vulns, tests) = engine.auth_manager_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // MFA (Multi-Factor Authentication bypass)
+    info!("  - Testing MFA Security");
+    let (vulns, tests) = engine.mfa_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // SAML Security
+    info!("  - Testing SAML Security");
+    let (vulns, tests) = engine.saml_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // WebAuthn/FIDO2 Security
+    info!("  - Testing WebAuthn/FIDO2 Security");
+    let (vulns, tests) = engine.webauthn_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
     // Phase 4: API Security
     info!("Phase 4: API security testing");
 
     // GraphQL
     info!("  - Testing GraphQL Security");
     let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // GraphQL Security (advanced GraphQL testing)
+    info!("  - Testing Advanced GraphQL Security");
+    let (vulns, tests) = engine.graphql_security_scanner.scan(target, scan_config).await?;
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
@@ -1083,6 +1131,12 @@ async fn execute_standalone_scan(
         let (vulns, tests) = engine.template_injection_scanner.scan(target, scan_config).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
+
+        // Advanced SSTI Scanner (deeper template analysis)
+        info!("  - Testing Advanced SSTI");
+        let (vulns, tests) = engine.ssti_advanced_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     } else {
         info!("  - Skipping SSTI (not applicable for Next.js/React stack)");
     }
@@ -1095,6 +1149,12 @@ async fn execute_standalone_scan(
             all_vulnerabilities.extend(vulns);
             total_tests += tests as u64;
         }
+
+        // Advanced NoSQL Injection Scanner
+        info!("  - Testing Advanced NoSQL Injection");
+        let (vulns, tests) = engine.nosql_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     } else {
         info!("  - Skipping NoSQL Injection (no parameters or static site)");
     }
@@ -1115,8 +1175,28 @@ async fn execute_standalone_scan(
         let (vulns, tests) = engine.code_injection_scanner.scan(target, scan_config).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
+
+        // SSI Injection (Server Side Includes)
+        info!("  - Testing SSI Injection");
+        let (vulns, tests) = engine.ssi_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     } else {
         info!("  - Skipping Code Injection (not applicable for detected stack)");
+    }
+
+    // XML Injection - Test for XML-based attacks
+    if has_real_params && !is_static_site && !is_nodejs_stack {
+        info!("  - Testing XML Injection");
+        let (vulns, tests) = engine.xml_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // XPath Injection
+        info!("  - Testing XPath Injection");
+        let (vulns, tests) = engine.xpath_injection_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     }
 
     // Deserialization - ONLY for PHP/Java/.NET, NOT for Node.js/Next.js
@@ -1195,6 +1275,12 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
+    // File Upload Vulnerabilities (advanced file upload testing)
+    info!("  - Testing File Upload Vulnerabilities");
+    let (vulns, tests) = engine.file_upload_vulnerabilities_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
     // Open Redirect
     info!("  - Testing Open Redirect");
     let (vulns, tests) = engine.open_redirect_scanner.scan(target, scan_config).await?;
@@ -1238,6 +1324,12 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
+    // Framework Vulnerabilities (framework-specific security issues)
+    info!("  - Testing Framework Vulnerabilities");
+    let (vulns, tests) = engine.framework_vulnerabilities_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
     // Phase 8: Cloud & Container (if applicable)
     if scan_config.ultra {
         info!("Phase 8: Cloud & Container security (Ultra mode)");
@@ -1257,6 +1349,12 @@ async fn execute_standalone_scan(
         // API Gateway
         info!("  - Testing API Gateway Security");
         let (vulns, tests) = engine.api_gateway_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Cloud Security (general cloud security testing)
+        info!("  - Testing Cloud Security");
+        let (vulns, tests) = engine.cloud_security_scanner.scan(target, scan_config).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
     }
