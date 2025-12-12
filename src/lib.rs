@@ -73,3 +73,6 @@ pub mod discovery;
 
 // N-API exports for Node.js integration
 pub mod napi_bridge;
+
+// License verification and killswitch module
+pub mod license;

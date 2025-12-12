@@ -27,6 +27,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use lonkero_scanner::config::ScannerConfig;
 use lonkero_scanner::http_client::HttpClient;
+use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
 use lonkero_scanner::scanners::ScanEngine;
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults, Vulnerability};
 
@@ -56,6 +57,10 @@ struct Cli {
     /// Configuration file path
     #[arg(short, long, global = true)]
     config: Option<PathBuf>,
+
+    /// License key (or set LONKERO_LICENSE_KEY environment variable)
+    #[arg(short = 'L', long, global = true, env = "LONKERO_LICENSE_KEY")]
+    license_key: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -173,6 +178,25 @@ enum Commands {
 
     /// Show scanner version and build info
     Version,
+
+    /// Manage license
+    License {
+        #[command(subcommand)]
+        action: LicenseAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum LicenseAction {
+    /// Activate a license key
+    Activate {
+        /// License key to activate
+        key: String,
+    },
+    /// Show current license status
+    Status,
+    /// Deactivate the current license
+    Deactivate,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -261,6 +285,12 @@ async fn async_main(cli: Cli) -> Result<()> {
             no_rate_limit,
             ultra,
         } => {
+            // Verify license before scanning
+            let license_status = verify_license_before_scan(
+                cli.license_key.as_deref(),
+                targets.len(),
+            ).await?;
+
             run_scan(
                 targets,
                 mode.into(),
@@ -283,6 +313,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 rate_limit,
                 no_rate_limit,
                 ultra,
+                license_status,
             )
             .await
         }
@@ -290,7 +321,136 @@ async fn async_main(cli: Cli) -> Result<()> {
         Commands::Validate { targets } => validate_targets(targets).await,
         Commands::Init { output } => generate_config(output),
         Commands::Version => show_version(),
+        Commands::License { action } => handle_license_command(action, cli.license_key.as_deref()).await,
     }
+}
+
+/// Verify license before starting a scan
+async fn verify_license_before_scan(
+    license_key: Option<&str>,
+    target_count: usize,
+) -> Result<LicenseStatus> {
+    // Check if this appears to be commercial use (heuristic)
+    let is_commercial = std::env::var("CI").is_ok()
+        || std::env::var("GITHUB_ACTIONS").is_ok()
+        || std::env::var("GITLAB_CI").is_ok()
+        || std::env::var("JENKINS_URL").is_ok();
+
+    match license::verify_license_for_scan(license_key, target_count, is_commercial).await {
+        Ok(status) => {
+            // Print license info
+            license::print_license_info(&status);
+            Ok(status)
+        }
+        Err(e) => {
+            error!("========================================================");
+            error!("LICENSE VERIFICATION FAILED");
+            error!("========================================================");
+            error!("");
+            error!("{}", e);
+            error!("");
+            error!("To obtain a license, visit: https://bountyy.fi/license");
+            error!("For support, contact: support@bountyy.fi");
+            error!("");
+            error!("========================================================");
+            Err(e)
+        }
+    }
+}
+
+/// Handle license management commands
+async fn handle_license_command(action: LicenseAction, _current_key: Option<&str>) -> Result<()> {
+    let mut manager = license::LicenseManager::new()?;
+
+    match action {
+        LicenseAction::Activate { key } => {
+            println!("Activating license key...");
+
+            // Set and validate the key
+            manager.set_license_key(key.clone());
+            let status = manager.validate().await?;
+
+            if status.valid {
+                // Save the license
+                manager.save_license(&key)?;
+
+                println!();
+                println!("License activated successfully!");
+                println!();
+                license::print_license_info(&status);
+                println!();
+                println!("License saved. You can now run scans without specifying the key.");
+            } else {
+                error!("License validation failed");
+                if let Some(msg) = status.message {
+                    error!("{}", msg);
+                }
+                std::process::exit(1);
+            }
+        }
+        LicenseAction::Status => {
+            // Load and display current license
+            manager.load_license()?;
+            let status = manager.validate().await?;
+
+            println!();
+            println!("========================================================");
+            println!("LONKERO LICENSE STATUS");
+            println!("========================================================");
+            println!();
+
+            if status.valid {
+                if let Some(lt) = status.license_type {
+                    println!("License Type:    {}", lt);
+                }
+                if let Some(ref licensee) = status.licensee {
+                    println!("Licensed to:     {}", licensee);
+                }
+                if let Some(ref org) = status.organization {
+                    println!("Organization:    {}", org);
+                }
+                if let Some(expires) = status.expires_at {
+                    let days_left = (expires - chrono::Utc::now()).num_days();
+                    println!("Expires:         {} ({} days remaining)", expires.format("%Y-%m-%d"), days_left);
+                }
+                if let Some(max) = status.max_targets {
+                    println!("Max targets:     {}", max);
+                }
+                if !status.features.is_empty() {
+                    println!("Features:        {}", status.features.join(", "));
+                }
+            } else {
+                println!("Status:          No valid license");
+                println!();
+                println!("Running in Personal/Non-Commercial mode.");
+                println!("For commercial use, obtain a license at:");
+                println!("  https://bountyy.fi/license");
+            }
+
+            println!();
+            println!("========================================================");
+        }
+        LicenseAction::Deactivate => {
+            let config_dir = dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("lonkero");
+            let license_file = config_dir.join("license.key");
+            let cache_file = config_dir.join(".license_cache");
+
+            if license_file.exists() {
+                std::fs::remove_file(&license_file)?;
+                println!("License key removed.");
+            }
+            if cache_file.exists() {
+                std::fs::remove_file(&cache_file)?;
+            }
+
+            println!("License deactivated successfully.");
+            println!("You can activate a new license with: lonkero license activate <KEY>");
+        }
+    }
+
+    Ok(())
 }
 
 async fn run_scan(
@@ -315,7 +475,43 @@ async fn run_scan(
     rate_limit: u32,
     no_rate_limit: bool,
     ultra: bool,
+    license_status: LicenseStatus,
 ) -> Result<()> {
+    // Check if killswitch is active
+    if license_status.killswitch_active {
+        error!("========================================================");
+        error!("SCANNER DISABLED");
+        error!("========================================================");
+        error!("");
+        error!("This scanner has been remotely disabled.");
+        if let Some(reason) = &license_status.killswitch_reason {
+            error!("Reason: {}", reason);
+        }
+        error!("");
+        error!("If you believe this is an error, please contact:");
+        error!("  support@bountyy.fi");
+        error!("");
+        error!("========================================================");
+        std::process::exit(1);
+    }
+
+    // Check target count against license
+    if let Some(max_targets) = license_status.max_targets {
+        if targets.len() as u32 > max_targets {
+            error!("========================================================");
+            error!("LICENSE LIMIT EXCEEDED");
+            error!("========================================================");
+            error!("");
+            error!("Your license allows {} target(s), but you specified {}.", max_targets, targets.len());
+            error!("");
+            error!("To scan more targets, upgrade your license at:");
+            error!("  https://bountyy.fi/license");
+            error!("");
+            error!("========================================================");
+            std::process::exit(1);
+        }
+    }
+
     print_banner();
 
     info!("Initializing Lonkero Scanner v1.0.0");

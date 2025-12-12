@@ -210,6 +210,9 @@ azure_storage_blobs = "0.21"
 sha1 = "0.10"
 hex = "0.4"
 
+# License and configuration directories
+dirs = "5.0"
+
 [profile.release]
 opt-level = 3
 lto = true
