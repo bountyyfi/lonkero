@@ -1125,11 +1125,31 @@ impl JsMinerScanner {
             "defaultValue", "defaultChecked", "suppressHydrationWarning",
             // Build/chunk identifiers
             "buildId", "assetPrefix", "runtimeConfig", "nextExport",
+            // Webpack/bundler internal params
+            "pid", "cid", "uid", "gid", "tid", "sid", "rid", "mid", "fid",
+            "idx", "len", "ptr", "buf", "ctx", "env", "obj", "arr", "str",
+            "val", "tmp", "ret", "res", "err", "evt", "req", "rsp",
+            // Common minified layer/level names
+            "L1", "L2", "L3", "L4", "L5", "M1", "M2", "M3", "N1", "N2",
+            "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "i1", "j1",
+            "fn", "cb", "el", "ns", "id", "op", "ix", "jx", "kx",
         ];
         let name_lower = name.to_lowercase();
         for skip in skip_exact {
             if name_lower == skip.to_lowercase() {
                 return true;
+            }
+        }
+
+        // Pattern: single/double letter + number (L2, M1, a1, etc.)
+        if name.len() <= 3 {
+            let chars: Vec<char> = name.chars().collect();
+            if chars.len() >= 2 {
+                let has_digit = chars.iter().any(|c| c.is_numeric());
+                let letter_count = chars.iter().filter(|c| c.is_alphabetic()).count();
+                if has_digit && letter_count <= 2 {
+                    return true;
+                }
             }
         }
 
