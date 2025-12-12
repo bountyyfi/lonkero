@@ -14,7 +14,7 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct SsrfBlindScanner {
     http_client: Arc<HttpClient>,
@@ -30,7 +30,7 @@ impl SsrfBlindScanner {
         &self,
         base_url: &str,
         parameter: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Runtime verification (integrity check)
         if !crate::license::verify_scan_authorized() {

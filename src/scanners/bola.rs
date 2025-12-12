@@ -471,7 +471,7 @@ impl BolaScanner {
         let similar_size = {
             let baseline_size = baseline.body.len();
             let test_size = test_response.body.len();
-            let diff_ratio = (baseline_size.max(test_size) as f64 / baseline_size.min(test_size).max(1) as f64);
+            let diff_ratio = baseline_size.max(test_size) as f64 / baseline_size.min(test_size).max(1) as f64;
             diff_ratio < 3.0 // Within 3x size difference
         };
 
@@ -605,7 +605,7 @@ impl BolaScanner {
     fn create_bola_vulnerability(
         &self,
         original_url: &str,
-        test_url: &str,
+        _test_url: &str,
         original_id: &str,
         test_id: &str,
         resource_type: &str,

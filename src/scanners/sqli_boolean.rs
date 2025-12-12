@@ -212,6 +212,8 @@ impl SqliBooleanScanner {
             };
 
             // Step 3: Differential analysis
+            let db_type = pair.db_type.clone();
+            let description = pair.description.clone();
             let vulnerability = self.analyze_boolean_responses(
                 url,
                 param,
@@ -224,7 +226,7 @@ impl SqliBooleanScanner {
             if let Some(vuln) = vulnerability {
                 info!(
                     "Boolean-based blind SQLi detected: {} ({})",
-                    pair.db_type, pair.description
+                    db_type, description
                 );
                 vulnerabilities.push(vuln);
 

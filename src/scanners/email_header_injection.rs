@@ -127,9 +127,14 @@ impl EmailHeaderInjectionScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
+                    // Convert HashMap headers to Vec of tuples
+                    let headers_vec: Vec<(String, String)> = response.headers
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
                     if let Some(vuln) = self.analyze_response(
                         &response.body,
-                        &response.headers,
+                        &headers_vec,
                         baseline_response.as_ref(),
                         payload,
                         description,
@@ -252,7 +257,7 @@ impl EmailHeaderInjectionScanner {
         ];
 
         // If payload contains header injection and we see success message -> likely vulnerable
-        if (payload.contains("Bcc:") || payload.contains("Cc:") || payload.contains("To:")) {
+        if payload.contains("Bcc:") || payload.contains("Cc:") || payload.contains("To:") {
             for indicator in &success_indicators {
                 if body_lower.contains(indicator) {
                     // Check if baseline also has success message (to reduce false positives)
