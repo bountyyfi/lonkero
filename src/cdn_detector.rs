@@ -116,6 +116,51 @@ pub fn is_waf_protected_against_cve(response: &HttpResponse, cve_id: &str) -> Op
         }
     }
 
+    // WAFs with known CVE-2025-55183 (React RSC Source Code Exposure) protection
+    // Reference: https://blog.cloudflare.com/react2shell-rsc-vulnerabilities-exploitation-threat-brief/
+    if cve_id == "CVE-2025-55183" {
+        match cdn.as_str() {
+            "Cloudflare" => {
+                // Cloudflare deployed rules for source code exposure
+                // Paid Ruleset: 17c5123f1ac049818765ebf2fefb4e9b
+                // Free Ruleset: 3114709a3c3b4e3685052c7b251e86aa
+                debug!("Target is behind Cloudflare WAF - CVE-2025-55183 is blocked by default");
+                return Some("Cloudflare WAF (rule 17c5123f/3114709a)".to_string());
+            }
+            "AWS CloudFront" => {
+                debug!("Target may be protected by AWS WAF - verify WAF rules are enabled");
+                return Some("AWS WAF (verify rules are enabled)".to_string());
+            }
+            "Akamai" => {
+                debug!("Target may be protected by Akamai - verify App & API Protector is enabled");
+                return Some("Akamai (verify App & API Protector)".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    // WAFs with known CVE-2025-55184 (React RSC DoS via cyclic Promise) protection
+    // Reference: https://blog.cloudflare.com/react2shell-rsc-vulnerabilities-exploitation-threat-brief/
+    if cve_id == "CVE-2025-55184" {
+        match cdn.as_str() {
+            "Cloudflare" => {
+                // Cloudflare deployed rules for DoS protection
+                // Paid Ruleset: 2694f1610c0b471393b21aef102ec699
+                debug!("Target is behind Cloudflare WAF - CVE-2025-55184 is blocked by default");
+                return Some("Cloudflare WAF (rule 2694f161)".to_string());
+            }
+            "AWS CloudFront" => {
+                debug!("Target may be protected by AWS WAF - verify WAF rules are enabled");
+                return Some("AWS WAF (verify rules are enabled)".to_string());
+            }
+            "Akamai" => {
+                debug!("Target may be protected by Akamai - verify App & API Protector is enabled");
+                return Some("Akamai (verify App & API Protector)".to_string());
+            }
+            _ => {}
+        }
+    }
+
     None
 }
 
