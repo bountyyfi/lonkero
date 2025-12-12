@@ -25,9 +25,12 @@ use tracing::{debug, info, warn};
 
 pub mod xss;
 pub mod sqli;
+pub mod sqli_boolean;
+pub mod sqli_union;
 pub mod command_injection;
 pub mod path_traversal;
 pub mod ssrf;
+pub mod ssrf_blind;
 pub mod jwt;
 pub mod nosql;
 pub mod security_headers;
@@ -43,6 +46,7 @@ pub mod auth_bypass;
 pub mod session_management;
 pub mod mfa;
 pub mod idor;
+pub mod bola;
 pub mod auth_manager;
 pub mod advanced_auth;
 pub mod ldap_injection;
@@ -50,6 +54,7 @@ pub mod file_upload;
 pub mod open_redirect;
 pub mod clickjacking;
 pub mod crlf_injection;
+pub mod email_header_injection;
 pub mod template_injection;
 pub mod deserialization;
 pub mod prototype_pollution;
@@ -85,6 +90,7 @@ pub mod cve_2025_55182;
 pub mod cve_2025_55183;
 pub mod cve_2025_55184;
 pub mod azure_apim;
+pub mod redos;
 
 // Cloud security scanners
 pub mod cloud;
@@ -95,9 +101,12 @@ pub mod external;
 // Re-export scanner types for easy access
 pub use xss::XssScanner;
 pub use sqli::SqliScanner;
+pub use sqli_boolean::SqliBooleanScanner;
+pub use sqli_union::SqliUnionScanner;
 pub use command_injection::CommandInjectionScanner;
 pub use path_traversal::PathTraversalScanner;
 pub use ssrf::SsrfScanner;
+pub use ssrf_blind::SsrfBlindScanner;
 pub use jwt::JwtScanner;
 pub use nosql::NoSqlScanner;
 pub use security_headers::SecurityHeadersScanner;
@@ -113,6 +122,7 @@ pub use auth_bypass::AuthBypassScanner;
 pub use session_management::SessionManagementScanner;
 pub use mfa::MfaScanner;
 pub use idor::IdorScanner;
+pub use bola::BolaScanner;
 pub use auth_manager::AuthManagerScanner;
 pub use advanced_auth::AdvancedAuthScanner;
 pub use ldap_injection::LdapInjectionScanner;
@@ -120,6 +130,7 @@ pub use file_upload::FileUploadScanner;
 pub use open_redirect::OpenRedirectScanner;
 pub use clickjacking::ClickjackingScanner;
 pub use crlf_injection::CrlfInjectionScanner;
+pub use email_header_injection::EmailHeaderInjectionScanner;
 pub use template_injection::TemplateInjectionScanner;
 pub use deserialization::DeserializationScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
@@ -155,6 +166,7 @@ pub use cve_2025_55182::Cve202555182Scanner;
 pub use cve_2025_55183::Cve202555183Scanner;
 pub use cve_2025_55184::Cve202555184Scanner;
 pub use azure_apim::AzureApimScanner;
+pub use redos::RedosScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -164,9 +176,12 @@ pub struct ScanEngine {
     pub dns_cache: Option<Arc<crate::dns_cache::DnsCache>>,
     pub xss_scanner: XssScanner,
     pub sqli_scanner: SqliScanner,
+    pub sqli_boolean_scanner: SqliBooleanScanner,
+    pub sqli_union_scanner: SqliUnionScanner,
     pub cmdi_scanner: CommandInjectionScanner,
     pub path_scanner: PathTraversalScanner,
     pub ssrf_scanner: SsrfScanner,
+    pub ssrf_blind_scanner: SsrfBlindScanner,
     pub jwt_scanner: JwtScanner,
     pub nosql_scanner: NoSqlScanner,
     pub security_headers_scanner: SecurityHeadersScanner,
@@ -182,6 +197,7 @@ pub struct ScanEngine {
     pub session_management_scanner: SessionManagementScanner,
     pub mfa_scanner: MfaScanner,
     pub idor_scanner: IdorScanner,
+    pub bola_scanner: BolaScanner,
     pub auth_manager_scanner: AuthManagerScanner,
     pub advanced_auth_scanner: AdvancedAuthScanner,
     pub ldap_injection_scanner: LdapInjectionScanner,
@@ -189,6 +205,7 @@ pub struct ScanEngine {
     pub open_redirect_scanner: OpenRedirectScanner,
     pub clickjacking_scanner: ClickjackingScanner,
     pub crlf_injection_scanner: CrlfInjectionScanner,
+    pub email_header_injection_scanner: EmailHeaderInjectionScanner,
     pub template_injection_scanner: TemplateInjectionScanner,
     pub deserialization_scanner: DeserializationScanner,
     pub prototype_pollution_scanner: PrototypePollutionScanner,
@@ -224,6 +241,7 @@ pub struct ScanEngine {
     pub cve_2025_55183_scanner: Cve202555183Scanner,
     pub cve_2025_55184_scanner: Cve202555184Scanner,
     pub azure_apim_scanner: AzureApimScanner,
+    pub redos_scanner: RedosScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -322,9 +340,12 @@ impl ScanEngine {
             dns_cache,
             xss_scanner: XssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
+            sqli_boolean_scanner: SqliBooleanScanner::new(Arc::clone(&http_client)),
+            sqli_union_scanner: SqliUnionScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
             path_scanner: PathTraversalScanner::new(Arc::clone(&http_client)),
             ssrf_scanner: SsrfScanner::new(Arc::clone(&http_client)),
+            ssrf_blind_scanner: SsrfBlindScanner::new(Arc::clone(&http_client)),
             jwt_scanner: JwtScanner::new(Arc::clone(&http_client)),
             nosql_scanner: NoSqlScanner::new(Arc::clone(&http_client)),
             security_headers_scanner: SecurityHeadersScanner::new(Arc::clone(&http_client)),
@@ -340,6 +361,7 @@ impl ScanEngine {
             session_management_scanner: SessionManagementScanner::new(Arc::clone(&http_client)),
             mfa_scanner: MfaScanner::new(Arc::clone(&http_client)),
             idor_scanner: IdorScanner::new(Arc::clone(&http_client)),
+            bola_scanner: BolaScanner::new(Arc::clone(&http_client)),
             auth_manager_scanner: AuthManagerScanner::new(Arc::clone(&http_client)),
             advanced_auth_scanner: AdvancedAuthScanner::new(Arc::clone(&http_client)),
             ldap_injection_scanner: LdapInjectionScanner::new(Arc::clone(&http_client)),
@@ -347,6 +369,7 @@ impl ScanEngine {
             open_redirect_scanner: OpenRedirectScanner::new(Arc::clone(&http_client)),
             clickjacking_scanner: ClickjackingScanner::new(Arc::clone(&http_client)),
             crlf_injection_scanner: CrlfInjectionScanner::new(Arc::clone(&http_client)),
+            email_header_injection_scanner: EmailHeaderInjectionScanner::new(Arc::clone(&http_client)),
             template_injection_scanner: TemplateInjectionScanner::new(Arc::clone(&http_client)),
             deserialization_scanner: DeserializationScanner::new(Arc::clone(&http_client)),
             prototype_pollution_scanner: PrototypePollutionScanner::new(Arc::clone(&http_client)),
@@ -382,6 +405,7 @@ impl ScanEngine {
             cve_2025_55183_scanner: Cve202555183Scanner::new(Arc::clone(&http_client)),
             cve_2025_55184_scanner: Cve202555184Scanner::new(Arc::clone(&http_client)),
             azure_apim_scanner: AzureApimScanner::new(Arc::clone(&http_client)),
+            redos_scanner: RedosScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -589,6 +613,22 @@ impl ScanEngine {
                     total_tests += sqli_tests as u64;
 
                     queue.increment_tests(scan_id.clone(), sqli_tests as u64).await?;
+
+                    // Boolean-based Blind SQLi Testing
+                    let (sqli_bool_vulns, sqli_bool_tests) = self.sqli_boolean_scanner
+                        .scan_parameter(&target, param_name, &config)
+                        .await?;
+                    all_vulnerabilities.extend(sqli_bool_vulns);
+                    total_tests += sqli_bool_tests as u64;
+                    queue.increment_tests(scan_id.clone(), sqli_bool_tests as u64).await?;
+
+                    // UNION-based SQLi Testing
+                    let (sqli_union_vulns, sqli_union_tests) = self.sqli_union_scanner
+                        .scan_parameter(&target, param_name, &config)
+                        .await?;
+                    all_vulnerabilities.extend(sqli_union_vulns);
+                    total_tests += sqli_union_tests as u64;
+                    queue.increment_tests(scan_id.clone(), sqli_union_tests as u64).await?;
                 }
 
                 // Command Injection Testing (skip if CDN protected)
@@ -622,6 +662,14 @@ impl ScanEngine {
 
                 queue.increment_tests(scan_id.clone(), ssrf_tests as u64).await?;
 
+                // Blind SSRF with OOB Callback Testing
+                let (ssrf_blind_vulns, ssrf_blind_tests) = self.ssrf_blind_scanner
+                    .scan_parameter(&target, param_name, &config)
+                    .await?;
+                all_vulnerabilities.extend(ssrf_blind_vulns);
+                total_tests += ssrf_blind_tests as u64;
+                queue.increment_tests(scan_id.clone(), ssrf_blind_tests as u64).await?;
+
                 // NoSQL Injection Testing (skip if CDN protected)
                 if !self.should_skip_scanner("nosql", &cdn_info) {
                     let (nosql_vulns, nosql_tests) = self.nosql_scanner
@@ -643,6 +691,15 @@ impl ScanEngine {
 
                     queue.increment_tests(scan_id.clone(), xxe_tests as u64).await?;
                 }
+
+                // ReDoS Testing
+                let (redos_vulns, redos_tests) = self.redos_scanner
+                    .scan_parameter(&target, param_name, &config)
+                    .await?;
+                all_vulnerabilities.extend(redos_vulns);
+                total_tests += redos_tests as u64;
+
+                queue.increment_tests(scan_id.clone(), redos_tests as u64).await?;
             }
         }
 
@@ -856,6 +913,15 @@ impl ScanEngine {
         total_tests += idor_tests as u64;
         queue.increment_tests(scan_id.clone(), idor_tests as u64).await?;
 
+        // BOLA (Broken Object Level Authorization) Check (scans base URL)
+        info!("Checking for BOLA vulnerabilities");
+        let (bola_vulns, bola_tests) = self.bola_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(bola_vulns);
+        total_tests += bola_tests as u64;
+        queue.increment_tests(scan_id.clone(), bola_tests as u64).await?;
+
         // Authentication Manager Security Check (scans base URL)
         info!("Checking authentication management security");
         let (auth_mgr_vulns, auth_mgr_tests) = self.auth_manager_scanner
@@ -909,6 +975,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(crlf_vulns);
         total_tests += crlf_tests as u64;
         queue.increment_tests(scan_id.clone(), crlf_tests as u64).await?;
+
+        // Email Header Injection Security Check (scans base URL)
+        info!("Checking for email header injection vulnerabilities");
+        let (email_header_vulns, email_header_tests) = self.email_header_injection_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(email_header_vulns);
+        total_tests += email_header_tests as u64;
+        queue.increment_tests(scan_id.clone(), email_header_tests as u64).await?;
 
         // Template Injection Security Check (scans base URL)
         info!("Checking for template injection (SSTI) vulnerabilities");

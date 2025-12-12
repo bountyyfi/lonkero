@@ -412,7 +412,7 @@ impl LicenseManager {
         let mut request = self.http_client
             .post(&url)
             .header("X-Product", "lonkero")
-            .header("X-Version", "1.0.0");
+            .header("X-Version", env!("CARGO_PKG_VERSION"));
 
         if let Some(ref hw_id) = self.hardware_id {
             request = request.header("X-Hardware-ID", hw_id);
@@ -422,7 +422,7 @@ impl LicenseManager {
             "license_key": self.license_key,
             "hardware_id": self.hardware_id,
             "product": "lonkero",
-            "version": "1.0.0"
+            "version": env!("CARGO_PKG_VERSION")
         });
 
         let response = request.json(&body).send().await?;
