@@ -529,4 +529,4 @@ Personal/non-commercial use is permitted for security research and education.
 
 ---
 
-Bountyy Oy - Helsinki, Finland
+Made in Finland - Bountyy Oy
