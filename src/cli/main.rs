@@ -775,8 +775,11 @@ async fn execute_standalone_scan(
     if is_nodejs_stack || detected_technologies.iter().any(|t| t.contains("next") || t.contains("react")) {
         info!("  - Checking CVE-2025-55182 (React Server Components RCE)");
         let (vulns, tests) = engine.cve_2025_55182_scanner.scan(target, scan_config).await?;
-        if !vulns.is_empty() {
+        // Only warn if actually vulnerable (not just WAF-protected informational note)
+        if vulns.iter().any(|v| v.severity == lonkero_scanner::types::Severity::Critical) {
             warn!("[CRITICAL] CVE-2025-55182 vulnerability detected!");
+        } else if !vulns.is_empty() {
+            info!("[OK] CVE-2025-55182: Protected by WAF");
         }
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
@@ -785,8 +788,10 @@ async fn execute_standalone_scan(
         // Only affects Next.js 15.x+ - can leak Server Action source code
         info!("  - Checking CVE-2025-55183 (RSC Source Code Exposure)");
         let (vulns, tests) = engine.cve_2025_55183_scanner.scan(target, scan_config).await?;
-        if !vulns.is_empty() {
+        if vulns.iter().any(|v| v.severity == lonkero_scanner::types::Severity::Medium || v.severity == lonkero_scanner::types::Severity::High) {
             warn!("[ALERT] CVE-2025-55183 vulnerability detected!");
+        } else if !vulns.is_empty() {
+            info!("[OK] CVE-2025-55183: Protected by WAF");
         }
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
@@ -795,8 +800,10 @@ async fn execute_standalone_scan(
         // Cyclic Promise references cause server hang
         info!("  - Checking CVE-2025-55184 (RSC Denial of Service)");
         let (vulns, tests) = engine.cve_2025_55184_scanner.scan(target, scan_config).await?;
-        if !vulns.is_empty() {
+        if vulns.iter().any(|v| v.severity == lonkero_scanner::types::Severity::High || v.severity == lonkero_scanner::types::Severity::Critical) {
             warn!("[ALERT] CVE-2025-55184 vulnerability detected!");
+        } else if !vulns.is_empty() {
+            info!("[OK] CVE-2025-55184: Protected by WAF");
         }
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
