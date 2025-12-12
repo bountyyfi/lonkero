@@ -401,7 +401,10 @@ async fn handle_license_command(action: LicenseAction, _current_key: Option<&str
 
             if status.valid {
                 if let Some(lt) = status.license_type {
-                    println!("License Type:    {}", lt);
+                    match lt {
+                        LicenseType::Personal => println!("License Type:    Free Non-Commercial"),
+                        _ => println!("License Type:    {}", lt),
+                    }
                 }
                 if let Some(ref licensee) = status.licensee {
                     println!("Licensed to:     {}", licensee);
