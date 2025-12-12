@@ -464,4 +464,4 @@ This software is proprietary and confidential.
 
 ---
 
-Made with security in mind by [Bountyy Oy](https://bountyy.fi)
+Made in Finland 🇫🇮 - [Bountyy Oy](https://bountyy.fi)
