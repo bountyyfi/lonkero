@@ -2,7 +2,7 @@
 > ⚠️ **Alpha Release** - This software is in active development. APIs and features may change.
 
 <p align="center">
-  <img src="https://i.ibb.co/XgtszXr/IMG-0816.png" alt="Lonkero Scanner" width="700">
+  <img src="https://i.ibb.co/pcJ39yC/Na-ytto-kuva-2025-12-12-kello-11-38-54.png" alt="Lonkero Scanner" width="700">
 </p>
 
 **Enterprise-Grade Web Security Vulnerability Scanner**
