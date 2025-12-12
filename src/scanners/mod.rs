@@ -389,6 +389,14 @@ impl ScanEngine {
         let start_time = Instant::now();
         let started_at = chrono::Utc::now().to_rfc3339();
 
+        // Runtime state verification (anti-tampering)
+        if !crate::license::verify_rt_state() {
+            return Err(anyhow::anyhow!("Scanner integrity check failed. Please reinstall or contact support@bountyy.fi"));
+        }
+
+        // Increment scan counter for tracking
+        crate::license::increment_scan_counter();
+
         // Clone job fields to owned types to fix Send lifetime issues
         let scan_id = job.scan_id.clone();
         let target = job.target.clone();
@@ -713,6 +721,7 @@ impl ScanEngine {
             warn!("[WARNING]  INCOMPLETE SCAN: Some vulnerabilities may have been missed!");
 
             let elapsed = start_time.elapsed();
+            let license_sig = crate::license::get_license_signature();
             return Ok(ScanResults {
                 scan_id: scan_id.clone(),
                 target: target.clone(),
@@ -726,6 +735,8 @@ impl ScanEngine {
                     "Scan stopped early after finding {} critical vulnerabilities. Enable comprehensive scanning for full results.",
                     critical_count
                 )),
+                scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                license_signature: Some(license_sig),
             });
         }
 
@@ -1230,6 +1241,9 @@ impl ScanEngine {
             elapsed.as_secs_f64()
         );
 
+        // Embed license signature in results for audit trail
+        let license_sig = crate::license::get_license_signature();
+
         Ok(ScanResults {
             scan_id: scan_id.clone(),
             target: target.clone(),
@@ -1240,6 +1254,8 @@ impl ScanEngine {
             duration_seconds: elapsed.as_secs_f64(),
             early_terminated: false,
             termination_reason: None,
+            scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            license_signature: Some(license_sig),
         })
     }
 

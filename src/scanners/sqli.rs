@@ -38,6 +38,11 @@ impl SqliScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // Integrity verification
+        if !crate::license::verify_rt_state() {
+            return Ok((Vec::new(), 0));
+        }
+
         info!("Testing parameter '{}' for SQL injection", parameter);
 
         // First, get baseline response

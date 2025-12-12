@@ -38,6 +38,11 @@ impl XssScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // Runtime verification (integrity check)
+        if !crate::license::verify_scan_authorized() {
+            return Ok((Vec::new(), 0));
+        }
+
         info!("Testing parameter '{}' for XSS", parameter);
 
         // Convert parameter to owned String to avoid &str lifetime issues across await

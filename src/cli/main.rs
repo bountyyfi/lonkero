@@ -1206,6 +1206,8 @@ async fn execute_standalone_scan(
         duration_seconds: elapsed.as_secs_f64(),
         early_terminated: false,
         termination_reason: None,
+        scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        license_signature: Some(license::get_license_signature()),
     })
 }
 

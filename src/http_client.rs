@@ -157,6 +157,14 @@ impl HttpClient {
 
     /// Send GET request with payload
     pub async fn get(&self, url: &str) -> Result<HttpResponse> {
+        // Periodic integrity verification (every 100 requests)
+        let counter = crate::license::get_scan_counter();
+        if counter > 0 && counter % 100 == 0 {
+            if !crate::license::verify_rt_state() {
+                return Err(anyhow::anyhow!("Request validation failed"));
+            }
+        }
+
         // Check circuit breaker first
         if let Some(cb) = &self.circuit_breaker {
             if !cb.is_request_allowed(url).await {

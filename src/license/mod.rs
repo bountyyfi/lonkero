@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use tracing::{debug, error, info, warn};
 
@@ -21,10 +21,175 @@ static KILLSWITCH_CHECKED: AtomicBool = AtomicBool::new(false);
 /// Global license status cache
 static GLOBAL_LICENSE: OnceLock<LicenseStatus> = OnceLock::new();
 
+// ============================================================================
+// Anti-tampering: Integrity verification system
+// These values are checked by distributed verifiers throughout the codebase
+// ============================================================================
+
+/// Internal validation token - set during license check, verified elsewhere
+static VALIDATION_TOKEN: AtomicU64 = AtomicU64::new(0);
+
+/// Scan counter - tracks scans performed, used for integrity verification
+static SCAN_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Module integrity marker - must match expected value
+const INTEGRITY_MARKER: u64 = 0x4C4F4E4B45524F; // "LONKERO" in hex
+
+/// Generate validation token from license status
+fn generate_token(status: &LicenseStatus) -> u64 {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("{:?}", status.license_type).as_bytes());
+    hasher.update(status.licensee.as_deref().unwrap_or("").as_bytes());
+    hasher.update(&status.max_targets.unwrap_or(0).to_le_bytes());
+    hasher.update(&INTEGRITY_MARKER.to_le_bytes());
+    let hash = hasher.finalize();
+    u64::from_le_bytes(hash[0..8].try_into().unwrap())
+}
+
+/// Verify the current validation state - called by distributed checks
+#[inline]
+pub fn verify_rt_state() -> bool {
+    let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
+    let checked = KILLSWITCH_CHECKED.load(Ordering::SeqCst);
+    // Token must be non-zero if we've checked, and killswitch must not be active
+    (token != 0 || !checked) && !KILLSWITCH_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Get current integrity marker for verification
+#[inline]
+pub fn get_integrity_marker() -> u64 {
+    INTEGRITY_MARKER ^ VALIDATION_TOKEN.load(Ordering::SeqCst)
+}
+
+/// Increment scan counter - must be called for each scan
+#[inline]
+pub fn increment_scan_counter() -> u64 {
+    SCAN_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
+/// Get scan counter value
+#[inline]
+pub fn get_scan_counter() -> u64 {
+    SCAN_COUNTER.load(Ordering::SeqCst)
+}
+
+/// Verify scan is authorized - combines multiple checks
+pub fn verify_scan_authorized() -> bool {
+    // Check 1: Killswitch not active
+    if is_killswitch_active() {
+        return false;
+    }
+
+    // Check 2: License was validated (token set)
+    if KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
+        let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
+        if token == 0 {
+            return false;
+        }
+    }
+
+    // Check 3: Global license exists and is valid
+    if let Some(license) = get_global_license() {
+        if !license.valid || license.killswitch_active {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Get license signature for embedding in results
+pub fn get_license_signature() -> String {
+    if let Some(license) = get_global_license() {
+        let mut hasher = Sha256::new();
+        hasher.update(format!("{:?}", license.license_type).as_bytes());
+        hasher.update(license.licensee.as_deref().unwrap_or("unlicensed").as_bytes());
+        hasher.update(&chrono::Utc::now().timestamp().to_le_bytes());
+        let hash = hasher.finalize();
+        format!("LKR-{}", hex::encode(&hash[0..8]))
+    } else {
+        "LKR-UNVALIDATED".to_string()
+    }
+}
+
 /// Check if killswitch is active
 #[inline]
 pub fn is_killswitch_active() -> bool {
     KILLSWITCH_ACTIVE.load(Ordering::SeqCst)
+}
+
+// ============================================================================
+// Feature gating - certain features require paid licenses
+// ============================================================================
+
+/// Premium features that require paid license
+const PREMIUM_FEATURES: &[&str] = &[
+    "cloud_scanning",
+    "api_fuzzing",
+    "container_scanning",
+    "ssti_advanced",
+    "team_sharing",
+    "custom_integrations",
+    "priority_support",
+];
+
+/// Check if a premium feature is available for the current license
+pub fn is_feature_available(feature: &str) -> bool {
+    // Always allow basic features
+    if !PREMIUM_FEATURES.contains(&feature) {
+        return true;
+    }
+
+    // Check license status
+    if let Some(license) = get_global_license() {
+        // Enterprise and Team get all features
+        if let Some(license_type) = license.license_type {
+            match license_type {
+                LicenseType::Enterprise | LicenseType::Team => return true,
+                LicenseType::Professional => {
+                    // Professional gets most features except team/enterprise-only
+                    let enterprise_only = &["team_sharing", "custom_integrations", "dedicated_support"];
+                    return !enterprise_only.contains(&feature);
+                }
+                LicenseType::Personal => {
+                    // Personal/Free gets limited premium features
+                    // Check if explicitly granted in features list
+                    return license.features.iter().any(|f| f == feature);
+                }
+            }
+        }
+    }
+
+    // If no license, check token validity (anti-tampering)
+    // This ensures removing license check doesn't grant access
+    let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
+    if token == 0 && KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
+        return false;
+    }
+
+    // Default to deny for premium features if license status unknown
+    false
+}
+
+/// Check if license allows commercial use
+pub fn allows_commercial_use() -> bool {
+    if let Some(license) = get_global_license() {
+        match license.license_type {
+            Some(LicenseType::Enterprise) | Some(LicenseType::Team) | Some(LicenseType::Professional) => true,
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
+/// Get max allowed targets for current license
+pub fn get_max_targets() -> usize {
+    if let Some(license) = get_global_license() {
+        license.max_targets.unwrap_or(100) as usize
+    } else {
+        100 // Default free limit
+    }
 }
 
 /// License types
@@ -208,8 +373,14 @@ impl LicenseManager {
                 KILLSWITCH_CHECKED.store(true, Ordering::SeqCst);
                 KILLSWITCH_ACTIVE.store(status.killswitch_active, Ordering::SeqCst);
 
+                // Set validation token for integrity verification
+                let token = generate_token(&status);
+                VALIDATION_TOKEN.store(token, Ordering::SeqCst);
+
                 if status.killswitch_active {
                     error!("KILLSWITCH ACTIVE: {}", status.killswitch_reason.as_deref().unwrap_or("Unknown"));
+                    // Clear token on killswitch
+                    VALIDATION_TOKEN.store(0, Ordering::SeqCst);
                 }
 
                 Ok(status)
@@ -221,7 +392,12 @@ impl LicenseManager {
                 KILLSWITCH_CHECKED.store(true, Ordering::SeqCst);
                 KILLSWITCH_ACTIVE.store(false, Ordering::SeqCst);
 
-                Ok(LicenseStatus::default())
+                // Generate token for default license
+                let default_status = LicenseStatus::default();
+                let token = generate_token(&default_status);
+                VALIDATION_TOKEN.store(token, Ordering::SeqCst);
+
+                Ok(default_status)
             }
         }
     }
