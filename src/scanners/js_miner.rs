@@ -801,6 +801,15 @@ impl JsMinerScanner {
                 "pid", "cid", "uid", "gid", "tid", "sid", "rid", "mid", "fid",
                 "idx", "len", "ptr", "buf", "ctx", "env", "obj", "arr", "str",
                 "val", "tmp", "ret", "res", "err", "evt", "req", "rsp",
+                // Analytics and tracking params
+                "s", "q", "query", "search",
+                "fmt", "format", "type",
+                "t", "ts", "timestamp", "time",
+                "cb", "cachebuster", "cache",
+                "v", "ver", "version",
+                "r", "ref", "referrer", "source", "src",
+                // React/Next.js framework internals
+                "sreact", "reactformreplay", "description",
             ];
             let s_lower = s.to_lowercase();
             if skip_exact.iter().any(|&skip| s_lower == skip) {
@@ -1158,6 +1167,7 @@ impl JsMinerScanner {
             "children", "dangerouslySetInnerHTML", "key", "ref",
             "className", "htmlFor", "onChange", "onClick", "onSubmit",
             "defaultValue", "defaultChecked", "suppressHydrationWarning",
+            "sreact", "reactformreplay", "description",
             // Build/chunk identifiers
             "buildId", "assetPrefix", "runtimeConfig", "nextExport",
             // Webpack/bundler internal params
@@ -1168,6 +1178,13 @@ impl JsMinerScanner {
             "L1", "L2", "L3", "L4", "L5", "M1", "M2", "M3", "N1", "N2",
             "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "i1", "j1",
             "fn", "cb", "el", "ns", "id", "op", "ix", "jx", "kx",
+            // Analytics and tracking params
+            "s", "q", "query", "search",
+            "fmt", "format",
+            "t", "ts", "timestamp", "time",
+            "cachebuster", "cache",
+            "v", "ver", "version",
+            "r", "referrer", "source",
         ];
         let name_lower = name.to_lowercase();
         for skip in skip_exact {

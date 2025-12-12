@@ -134,17 +134,26 @@ impl CachePoisoningScanner {
             }
         }
 
-        // Check for sensitive data patterns
+        // Check for sensitive data patterns - use more specific patterns to avoid false positives
+        // Note: Simple substring matching causes false positives (e.g., "ssn" matches "session")
         let sensitive_patterns = [
-            "credit card",
-            "ssn",
-            "password",
-            "api_key",
-            "secret",
-            "private_key",
+            ("credit card", true),       // Space ensures it's the phrase
+            ("creditcard", true),
+            ("social security", true),   // Full phrase, not "ssn" substring
+            ("\"ssn\"", true),           // JSON key "ssn"
+            ("'ssn'", true),             // JavaScript string 'ssn'
+            ("name=\"ssn\"", true),      // Form field
+            ("password", true),
+            ("api_key", true),
+            ("apikey", true),
+            ("secret_key", true),
+            ("secretkey", true),
+            ("private_key", true),
+            ("privatekey", true),
+            ("access_token", false),     // Too common in JS apps, lower confidence
         ];
-        for pattern in &sensitive_patterns {
-            if body_lower.contains(pattern) {
+        for (pattern, high_confidence) in &sensitive_patterns {
+            if body_lower.contains(pattern) && *high_confidence {
                 sensitivity.is_sensitive = true;
                 sensitivity.evidence.push(format!("Sensitive data: {}", pattern));
                 break;
