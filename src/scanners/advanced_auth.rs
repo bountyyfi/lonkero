@@ -1115,16 +1115,48 @@ impl AdvancedAuthScanner {
         ];
 
         for endpoint in &mfa_endpoints {
-            // Test: Brute force protection
             tests_run += 1;
 
+            // First, check if the endpoint actually exists
+            // Skip testing if endpoint returns 404 (doesn't exist)
+            let initial_check = match self.http_client.get(&endpoint).await {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            // Skip 404 endpoints - they don't exist
+            if initial_check.status_code == 404 {
+                continue;
+            }
+
+            // Check if this looks like an actual MFA page
+            let body_lower = initial_check.body.to_lowercase();
+            let is_mfa_related = body_lower.contains("code")
+                || body_lower.contains("verify")
+                || body_lower.contains("totp")
+                || body_lower.contains("authenticator")
+                || body_lower.contains("mfa")
+                || body_lower.contains("2fa")
+                || initial_check.status_code == 401
+                || initial_check.status_code == 403;
+
+            // If endpoint doesn't look like an MFA page, skip
+            if !is_mfa_related {
+                continue;
+            }
+
+            // Test: Brute force protection
             let attempts_before_lockout = 10;
             let mut successful_attempts = 0;
 
             for i in 0..attempts_before_lockout {
                 let test_data = format!("code={:06}", i);
-                match self.http_client.post_form(endpoint, &test_data).await {
+                match self.http_client.post_form(&endpoint, &test_data).await {
                     Ok(response) => {
+                        // 404 means endpoint doesn't handle POST, skip
+                        if response.status_code == 404 {
+                            break;
+                        }
                         if response.status_code != 429 && response.status_code != 403 {
                             successful_attempts += 1;
                         }
