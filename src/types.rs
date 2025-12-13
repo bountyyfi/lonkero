@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::signing::ReportSignature;
 
 /// Scan mode determines the intensity and scope of the security scan
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -140,9 +141,19 @@ pub struct ScanResults {
     /// Scanner version and build info
     #[serde(default)]
     pub scanner_version: Option<String>,
-    /// License signature watermark (for audit trail)
+    /// License signature watermark (for audit trail) - DEPRECATED: Use quantum_signature
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license_signature: Option<String>,
+    /// Quantum-safe cryptographic signature for result verification
+    /// This signature is created by the Bountyy signing service and proves:
+    /// 1. The scan was authorized before execution
+    /// 2. The results have not been tampered with
+    /// 3. The scan was performed by a legitimate Lonkero scanner
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quantum_signature: Option<ReportSignature>,
+    /// Scan authorization token ID (for audit correlation)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_token_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

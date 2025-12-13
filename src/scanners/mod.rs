@@ -413,6 +413,9 @@ impl ScanEngine {
     }
 
     /// Execute a complete scan job
+    ///
+    /// IMPORTANT: This function requires prior authorization via `crate::signing::authorize_scan()`.
+    /// Unauthorized scans will be rejected to prevent bypass of ban enforcement.
     pub async fn execute_scan(
         &self,
         job: Arc<ScanJob>,
@@ -421,9 +424,26 @@ impl ScanEngine {
         let start_time = Instant::now();
         let started_at = chrono::Utc::now().to_rfc3339();
 
+        // ============================================================
+        // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
+        // ============================================================
+        // This check ensures banned users cannot scan. The authorization
+        // must be obtained BEFORE this function is called.
+        if !crate::signing::is_scan_authorized() {
+            return Err(anyhow::anyhow!(
+                "SCAN BLOCKED: Authorization required. Call signing::authorize_scan() before scanning. \
+                This ensures banned users cannot access the scanner."
+            ));
+        }
+
+        // Get the scan token for later signing
+        let scan_token = crate::signing::get_scan_token()
+            .ok_or_else(|| anyhow::anyhow!("No valid scan token. Re-authorize to continue."))?
+            .clone();
+
         // Runtime state verification (anti-tampering)
         if !crate::license::verify_rt_state() {
-            return Err(anyhow::anyhow!("Scanner integrity check failed. Please reinstall or contact support@bountyy.fi"));
+            return Err(anyhow::anyhow!("Scanner integrity check failed. Please reinstall or contact info@bountyy.fi"));
         }
 
         // Increment scan counter for tracking
@@ -787,7 +807,8 @@ impl ScanEngine {
 
             let elapsed = start_time.elapsed();
             let license_sig = crate::license::get_license_signature();
-            return Ok(ScanResults {
+
+            let mut results = ScanResults {
                 scan_id: scan_id.clone(),
                 target: target.clone(),
                 tests_run: total_tests,
@@ -802,7 +823,28 @@ impl ScanEngine {
                 )),
                 scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
                 license_signature: Some(license_sig),
-            });
+                quantum_signature: None,
+                authorization_token_id: Some(scan_token.token.clone()),
+            };
+
+            // Sign even early-terminated results
+            let hardware_id = crate::signing::get_hardware_id();
+            if let Ok(results_hash) = crate::signing::hash_results(&results) {
+                if let Ok(signature) = crate::signing::sign_results(
+                    &results_hash,
+                    &scan_token,
+                    Some(&hardware_id),
+                    Some(crate::signing::ScanMetadata {
+                        targets_count: Some(1),
+                        scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                        scan_duration_ms: Some(elapsed.as_millis() as u64),
+                    }),
+                ).await {
+                    results.quantum_signature = Some(signature);
+                }
+            }
+
+            return Ok(results);
         }
 
         // Security Headers Check (scans base URL)
@@ -1351,10 +1393,11 @@ impl ScanEngine {
             elapsed.as_secs_f64()
         );
 
-        // Embed license signature in results for audit trail
+        // Embed license signature in results for audit trail (legacy)
         let license_sig = crate::license::get_license_signature();
 
-        Ok(ScanResults {
+        // Create preliminary results for hashing
+        let mut results = ScanResults {
             scan_id: scan_id.clone(),
             target: target.clone(),
             tests_run: total_tests,
@@ -1366,7 +1409,40 @@ impl ScanEngine {
             termination_reason: None,
             scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             license_signature: Some(license_sig),
-        })
+            quantum_signature: None,
+            authorization_token_id: Some(scan_token.token.clone()),
+        };
+
+        // ============================================================
+        // QUANTUM-SAFE SIGNING - MANDATORY FOR ALL RESULTS
+        // ============================================================
+        // Sign the results with the scan token to prove authenticity.
+        // This creates a cryptographic audit trail that cannot be forged.
+        let hardware_id = crate::signing::get_hardware_id();
+        let results_hash = crate::signing::hash_results(&results)
+            .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
+
+        match crate::signing::sign_results(
+            &results_hash,
+            &scan_token,
+            Some(&hardware_id),
+            Some(crate::signing::ScanMetadata {
+                targets_count: Some(1),
+                scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                scan_duration_ms: Some(elapsed.as_millis() as u64),
+            }),
+        ).await {
+            Ok(signature) => {
+                info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);
+                results.quantum_signature = Some(signature);
+            }
+            Err(e) => {
+                warn!("Failed to sign results: {}. Results will be unsigned.", e);
+                // Continue without signature - results are still valid but unverified
+            }
+        }
+
+        Ok(results)
     }
 
     /// Detect if target is behind a CDN

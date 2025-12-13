@@ -104,9 +104,13 @@ string-interner = "0.19"
 ahash = "0.8"
 smallvec = "1.13"
 
-# Cryptography (for JWT testing)
+# Cryptography (for JWT testing and quantum-safe signing)
 hmac = "0.12"
 sha2 = "0.10"
+blake3 = "1.5"
+
+# Hostname for hardware ID generation
+hostname = "0.4"
 
 # DNS resolution (hickory-dns is the modern fork of trust-dns with better async support)
 hickory-resolver = "0.25"

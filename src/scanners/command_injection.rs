@@ -38,6 +38,18 @@ impl CommandInjectionScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // ============================================================
+        // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
+        // ============================================================
+        // Defense in depth: verify both license and signing authorization
+        if !crate::license::verify_scan_authorized() {
+            return Ok((Vec::new(), 0));
+        }
+        if !crate::signing::is_scan_authorized() {
+            tracing::warn!("Command injection scan blocked: No valid scan authorization");
+            return Ok((Vec::new(), 0));
+        }
+
         info!("Testing parameter '{}' for command injection", parameter);
 
         let payloads = payloads::get_command_injection_payloads();

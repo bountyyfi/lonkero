@@ -38,8 +38,15 @@ impl XssScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        // Runtime verification (integrity check)
+        // ============================================================
+        // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
+        // ============================================================
+        // Defense in depth: verify both license and signing authorization
         if !crate::license::verify_scan_authorized() {
+            return Ok((Vec::new(), 0));
+        }
+        if !crate::signing::is_scan_authorized() {
+            tracing::warn!("XSS scan blocked: No valid scan authorization");
             return Ok((Vec::new(), 0));
         }
 

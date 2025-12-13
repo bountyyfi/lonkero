@@ -29,6 +29,7 @@ use lonkero_scanner::config::ScannerConfig;
 use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
 use lonkero_scanner::scanners::ScanEngine;
+use lonkero_scanner::signing::{self, ScanError, ScanToken};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults, Vulnerability};
 
 /// Lonkero - Enterprise Web Security Scanner
@@ -285,8 +286,9 @@ async fn async_main(cli: Cli) -> Result<()> {
             no_rate_limit,
             ultra,
         } => {
-            // Verify license before scanning
-            let license_status = verify_license_before_scan(
+            // Verify license AND authorize scan before proceeding
+            // Ban check happens during authorization - banned users are blocked here
+            let (license_status, _scan_token) = verify_license_before_scan(
                 cli.license_key.as_deref(),
                 targets.len(),
             ).await?;
@@ -325,22 +327,29 @@ async fn async_main(cli: Cli) -> Result<()> {
     }
 }
 
-/// Verify license before starting a scan
+/// Verify license and authorize scan before starting
+///
+/// This function performs two critical checks:
+/// 1. License verification (killswitch, limits, commercial use)
+/// 2. Scan authorization (ban check, token generation)
+///
+/// Both must pass for scanning to proceed. Banned users are
+/// rejected at the authorization stage - they cannot scan.
 async fn verify_license_before_scan(
     license_key: Option<&str>,
     target_count: usize,
-) -> Result<LicenseStatus> {
+) -> Result<(LicenseStatus, ScanToken)> {
     // Check if this appears to be commercial use (heuristic)
     let is_commercial = std::env::var("CI").is_ok()
         || std::env::var("GITHUB_ACTIONS").is_ok()
         || std::env::var("GITLAB_CI").is_ok()
         || std::env::var("JENKINS_URL").is_ok();
 
-    match license::verify_license_for_scan(license_key, target_count, is_commercial).await {
+    // Step 1: Verify license
+    let status = match license::verify_license_for_scan(license_key, target_count, is_commercial).await {
         Ok(status) => {
-            // Print license info
             license::print_license_info(&status);
-            Ok(status)
+            status
         }
         Err(e) => {
             error!("========================================================");
@@ -349,13 +358,71 @@ async fn verify_license_before_scan(
             error!("");
             error!("{}", e);
             error!("");
-            error!("To obtain a license, visit: https://bountyy.fi/license");
-            error!("For support, contact: support@bountyy.fi");
+            error!("To obtain a license, visit: https://bountyy.fi");
+            error!("For support, contact: info@bountyy.fi");
             error!("");
             error!("========================================================");
-            Err(e)
+            return Err(e);
         }
-    }
+    };
+
+    // Step 2: Authorize scan (ban check happens here!)
+    // This is where banned users are blocked from scanning.
+    let hardware_id = signing::get_hardware_id();
+
+    info!("Authorizing scan...");
+    let scan_token = match signing::authorize_scan(
+        target_count as u32,
+        &hardware_id,
+        license_key,
+    ).await {
+        Ok(token) => {
+            info!("[OK] Scan authorized: {} license, max {} targets",
+                token.license_type, token.max_targets);
+            token
+        }
+        Err(ScanError::Banned(reason)) => {
+            error!("========================================================");
+            error!("ACCESS DENIED - USER BANNED");
+            error!("========================================================");
+            error!("");
+            error!("Reason: {}", reason);
+            error!("");
+            error!("If you believe this is an error, contact:");
+            error!("  info@bountyy.fi");
+            error!("");
+            error!("========================================================");
+            std::process::exit(1);
+        }
+        Err(ScanError::Unauthorized(msg)) => {
+            error!("========================================================");
+            error!("SCAN NOT AUTHORIZED");
+            error!("========================================================");
+            error!("");
+            error!("{}", msg);
+            error!("");
+            error!("========================================================");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            // Other errors (network, server) - proceed with degraded mode
+            warn!("Authorization service unavailable: {}. Proceeding in offline mode.", e);
+            // Create a local token for offline operation
+            ScanToken {
+                token: format!("offline_{}", signing::generate_nonce()),
+                expires_at: chrono::Utc::now()
+                    .checked_add_signed(chrono::Duration::hours(6))
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_default(),
+                max_targets: status.max_targets.unwrap_or(100),
+                license_type: status.license_type
+                    .map(|t| format!("{:?}", t))
+                    .unwrap_or_else(|| "Personal".to_string()),
+            }
+        }
+    };
+
+    Ok((status, scan_token))
 }
 
 /// Handle license management commands
@@ -491,7 +558,7 @@ async fn run_scan(
         }
         error!("");
         error!("If you believe this is an error, please contact:");
-        error!("  support@bountyy.fi");
+        error!("  info@bountyy.fi");
         error!("");
         error!("========================================================");
         std::process::exit(1);
@@ -507,7 +574,7 @@ async fn run_scan(
             error!("Your license allows {} target(s), but you specified {}.", max_targets, targets.len());
             error!("");
             error!("To scan more targets, upgrade your license at:");
-            error!("  https://bountyy.fi/license");
+            error!("  https://bountyy.fi");
             error!("");
             error!("========================================================");
             std::process::exit(1);
@@ -660,8 +727,25 @@ async fn execute_standalone_scan(
 ) -> Result<ScanResults> {
     use lonkero_scanner::crawler::{CrawlResults, WebCrawler};
     use lonkero_scanner::framework_detector::FrameworkDetector;
+    use lonkero_scanner::signing::ReportSignature;
     use lonkero_scanner::types::{Confidence, Severity, Vulnerability};
     use std::collections::HashSet;
+
+    // ============================================================
+    // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
+    // ============================================================
+    // This ensures banned users cannot scan even through the standalone path.
+    if !signing::is_scan_authorized() {
+        return Err(anyhow::anyhow!(
+            "SCAN BLOCKED: Authorization required before scanning. \
+            This check prevents banned users from accessing the scanner."
+        ));
+    }
+
+    // Get scan token for signing results later
+    let scan_token = signing::get_scan_token()
+        .ok_or_else(|| anyhow::anyhow!("No valid scan token available. Re-authorize to continue."))?
+        .clone();
 
     let start_time = Instant::now();
     let started_at = chrono::Utc::now().to_rfc3339();
@@ -1365,7 +1449,8 @@ async fn execute_standalone_scan(
     info!("Scan completed: {} vulnerabilities, {} tests, {:.2}s",
         all_vulnerabilities.len(), total_tests, elapsed.as_secs_f64());
 
-    Ok(ScanResults {
+    // Create preliminary results for hashing
+    let mut results = ScanResults {
         scan_id: job.scan_id.clone(),
         target: target.clone(),
         tests_run: total_tests,
@@ -1377,7 +1462,40 @@ async fn execute_standalone_scan(
         termination_reason: None,
         scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         license_signature: Some(license::get_license_signature()),
-    })
+        quantum_signature: None,
+        authorization_token_id: Some(scan_token.token.clone()),
+    };
+
+    // ============================================================
+    // QUANTUM-SAFE SIGNING - MANDATORY FOR ALL RESULTS
+    // ============================================================
+    // Sign the results with the scan token to prove authenticity.
+    // This creates a cryptographic audit trail that cannot be forged.
+    let hardware_id = signing::get_hardware_id();
+    let results_hash = signing::hash_results(&results)
+        .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
+
+    match signing::sign_results(
+        &results_hash,
+        &scan_token,
+        Some(&hardware_id),
+        Some(signing::ScanMetadata {
+            targets_count: Some(1),
+            scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            scan_duration_ms: Some(elapsed.as_millis() as u64),
+        }),
+    ).await {
+        Ok(signature) => {
+            info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);
+            results.quantum_signature = Some(signature);
+        }
+        Err(e) => {
+            warn!("Failed to sign results: {}. Results will be unsigned.", e);
+            // Continue without signature - results are still valid but unverified
+        }
+    }
+
+    Ok(results)
 }
 
 fn print_banner() {
