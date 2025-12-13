@@ -353,19 +353,32 @@ impl ScannerWorker {
         // ============================================================
         // This check ensures banned users cannot scan through the worker.
         // Authorization must have been obtained before job processing.
+        // STRICT MODE: No offline fallback - server authorization required.
         if !crate::signing::is_scan_authorized() {
             // Attempt to authorize for this job
             let hardware_id = crate::signing::get_hardware_id();
-            match crate::signing::authorize_scan(1, &hardware_id, None).await {
+            match crate::signing::authorize_scan(
+                1,
+                &hardware_id,
+                None,
+                Some(env!("CARGO_PKG_VERSION")),
+            ).await {
                 Ok(_token) => {
                     info!("Scan authorized for worker job: {}", job.job_id);
                 }
-                Err(crate::signing::ScanError::Banned(reason)) => {
+                Err(crate::signing::SigningError::Banned(reason)) => {
                     error!("SCAN BLOCKED: Worker is banned - {}", reason);
                     return Err(anyhow::anyhow!("Worker banned: {}", reason));
                 }
+                Err(crate::signing::SigningError::ServerUnreachable(msg)) => {
+                    // STRICT MODE: No offline fallback
+                    error!("SCAN BLOCKED: Authorization server unreachable - {}", msg);
+                    return Err(anyhow::anyhow!("Authorization server unreachable: {}", msg));
+                }
                 Err(e) => {
-                    warn!("Authorization check failed: {}. Proceeding in offline mode.", e);
+                    // STRICT MODE: No offline fallback for any error
+                    error!("SCAN BLOCKED: Authorization failed - {}", e);
+                    return Err(anyhow::anyhow!("Authorization failed: {}", e));
                 }
             }
         }
@@ -424,15 +437,14 @@ impl ScannerWorker {
         // QUANTUM-SAFE SIGNING - MANDATORY FOR ALL RESULTS
         // ============================================================
         // Sign the results if we have a valid token
+        // STRICT MODE: Server signature required
         if let Some(token) = scan_token {
             let elapsed = start_time.elapsed();
-            let hardware_id = crate::signing::get_hardware_id();
 
             if let Ok(results_hash) = crate::signing::hash_results(&results) {
                 match crate::signing::sign_results(
                     &results_hash,
                     &token,
-                    Some(&hardware_id),
                     Some(crate::signing::ScanMetadata {
                         targets_count: Some(1),
                         scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -443,8 +455,15 @@ impl ScannerWorker {
                         info!("[SIGNED] Worker results signed with: {}", signature.algorithm);
                         results.quantum_signature = Some(signature);
                     }
+                    Err(crate::signing::SigningError::ServerUnreachable(msg)) => {
+                        // STRICT MODE: Signing requires server connection
+                        error!("Failed to sign worker results - server unreachable: {}", msg);
+                        return Err(anyhow::anyhow!("Signing server unreachable: {}", msg));
+                    }
                     Err(e) => {
-                        warn!("Failed to sign worker results: {}", e);
+                        // STRICT MODE: No unsigned results allowed
+                        error!("Failed to sign worker results: {}", e);
+                        return Err(anyhow::anyhow!("Failed to sign results: {}", e));
                     }
                 }
             }

@@ -828,19 +828,24 @@ impl ScanEngine {
             };
 
             // Sign even early-terminated results
-            let hardware_id = crate::signing::get_hardware_id();
+            // STRICT MODE: Server signature required
             if let Ok(results_hash) = crate::signing::hash_results(&results) {
-                if let Ok(signature) = crate::signing::sign_results(
+                match crate::signing::sign_results(
                     &results_hash,
                     &scan_token,
-                    Some(&hardware_id),
                     Some(crate::signing::ScanMetadata {
                         targets_count: Some(1),
                         scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
                         scan_duration_ms: Some(elapsed.as_millis() as u64),
                     }),
                 ).await {
-                    results.quantum_signature = Some(signature);
+                    Ok(signature) => {
+                        results.quantum_signature = Some(signature);
+                    }
+                    Err(e) => {
+                        // STRICT MODE: Signing failure is fatal
+                        return Err(anyhow::anyhow!("Failed to sign early-terminated results: {}", e));
+                    }
                 }
             }
 
@@ -1418,14 +1423,13 @@ impl ScanEngine {
         // ============================================================
         // Sign the results with the scan token to prove authenticity.
         // This creates a cryptographic audit trail that cannot be forged.
-        let hardware_id = crate::signing::get_hardware_id();
+        // STRICT MODE: Server signature required - no unsigned results allowed.
         let results_hash = crate::signing::hash_results(&results)
             .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
 
         match crate::signing::sign_results(
             &results_hash,
             &scan_token,
-            Some(&hardware_id),
             Some(crate::signing::ScanMetadata {
                 targets_count: Some(1),
                 scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -1436,9 +1440,15 @@ impl ScanEngine {
                 info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);
                 results.quantum_signature = Some(signature);
             }
+            Err(crate::signing::SigningError::ServerUnreachable(msg)) => {
+                // STRICT MODE: Signing requires server connection
+                error!("Failed to sign results - server unreachable: {}", msg);
+                return Err(anyhow::anyhow!("Signing server unreachable: {}", msg));
+            }
             Err(e) => {
-                warn!("Failed to sign results: {}. Results will be unsigned.", e);
-                // Continue without signature - results are still valid but unverified
+                // STRICT MODE: No unsigned results allowed
+                error!("Failed to sign results: {}", e);
+                return Err(anyhow::anyhow!("Failed to sign results: {}", e));
             }
         }
 

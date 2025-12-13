@@ -29,7 +29,7 @@ use lonkero_scanner::config::ScannerConfig;
 use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
 use lonkero_scanner::scanners::ScanEngine;
-use lonkero_scanner::signing::{self, ScanError, ScanToken};
+use lonkero_scanner::signing::{self, SigningError, ScanToken};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults, Vulnerability};
 
 /// Lonkero - Enterprise Web Security Scanner
@@ -375,13 +375,14 @@ async fn verify_license_before_scan(
         target_count as u32,
         &hardware_id,
         license_key,
+        Some(env!("CARGO_PKG_VERSION")),
     ).await {
         Ok(token) => {
             info!("[OK] Scan authorized: {} license, max {} targets",
                 token.license_type, token.max_targets);
             token
         }
-        Err(ScanError::Banned(reason)) => {
+        Err(SigningError::Banned(reason)) => {
             error!("========================================================");
             error!("ACCESS DENIED - USER BANNED");
             error!("========================================================");
@@ -394,9 +395,9 @@ async fn verify_license_before_scan(
             error!("========================================================");
             std::process::exit(1);
         }
-        Err(ScanError::Unauthorized(msg)) => {
+        Err(SigningError::LicenseError(msg)) => {
             error!("========================================================");
-            error!("SCAN NOT AUTHORIZED");
+            error!("LICENSE ERROR");
             error!("========================================================");
             error!("");
             error!("{}", msg);
@@ -404,21 +405,30 @@ async fn verify_license_before_scan(
             error!("========================================================");
             std::process::exit(1);
         }
+        Err(SigningError::ServerUnreachable(msg)) => {
+            // STRICT MODE: No offline fallback - server connection required
+            error!("========================================================");
+            error!("SERVER UNREACHABLE - SCAN BLOCKED");
+            error!("========================================================");
+            error!("");
+            error!("Cannot connect to authorization server: {}", msg);
+            error!("");
+            error!("Server connectivity is REQUIRED for scanning.");
+            error!("Please check your network connection and try again.");
+            error!("");
+            error!("========================================================");
+            std::process::exit(1);
+        }
         Err(e) => {
-            // Other errors (network, server) - proceed with degraded mode
-            warn!("Authorization service unavailable: {}. Proceeding in offline mode.", e);
-            // Create a local token for offline operation
-            ScanToken {
-                token: format!("offline_{}", signing::generate_nonce()),
-                expires_at: chrono::Utc::now()
-                    .checked_add_signed(chrono::Duration::hours(6))
-                    .map(|t| t.to_rfc3339())
-                    .unwrap_or_default(),
-                max_targets: status.max_targets.unwrap_or(100),
-                license_type: status.license_type
-                    .map(|t| format!("{:?}", t))
-                    .unwrap_or_else(|| "Personal".to_string()),
-            }
+            // Other errors (server error, invalid response) - no fallback
+            error!("========================================================");
+            error!("AUTHORIZATION FAILED");
+            error!("========================================================");
+            error!("");
+            error!("{}", e);
+            error!("");
+            error!("========================================================");
+            std::process::exit(1);
         }
     };
 
@@ -1471,14 +1481,12 @@ async fn execute_standalone_scan(
     // ============================================================
     // Sign the results with the scan token to prove authenticity.
     // This creates a cryptographic audit trail that cannot be forged.
-    let hardware_id = signing::get_hardware_id();
     let results_hash = signing::hash_results(&results)
         .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
 
     match signing::sign_results(
         &results_hash,
         &scan_token,
-        Some(&hardware_id),
         Some(signing::ScanMetadata {
             targets_count: Some(1),
             scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -1489,9 +1497,15 @@ async fn execute_standalone_scan(
             info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);
             results.quantum_signature = Some(signature);
         }
+        Err(SigningError::ServerUnreachable(msg)) => {
+            // STRICT MODE: Signing requires server connection
+            error!("Failed to sign results - server unreachable: {}", msg);
+            error!("Results cannot be verified without server signature.");
+            return Err(anyhow::anyhow!("Signing server unreachable: {}", msg));
+        }
         Err(e) => {
-            warn!("Failed to sign results: {}. Results will be unsigned.", e);
-            // Continue without signature - results are still valid but unverified
+            error!("Failed to sign results: {}", e);
+            return Err(anyhow::anyhow!("Failed to sign results: {}", e));
         }
     }
 

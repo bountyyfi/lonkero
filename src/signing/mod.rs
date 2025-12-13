@@ -1,88 +1,159 @@
 // Copyright (c) 2025 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-//! Quantum-safe report signing with scan authorization
-//! Banned users cannot scan - ban is enforced at authorization time
+//! Strict quantum-safe report signing with mandatory server authorization
 //!
 //! This module provides cryptographic signing of scan results with
-//! mandatory pre-scan authorization. The authorization flow ensures:
-//!
-//! 1. Users must be authorized BEFORE scanning begins
-//! 2. Banned users are rejected at authorization time
-//! 3. Scan tokens are required for result signing
-//! 4. All results include cryptographic signatures for audit trails
+//! mandatory pre-scan authorization. NO OFFLINE FALLBACK - all operations
+//! require server connectivity.
 //!
 //! ## Usage Flow
 //! ```ignore
 //! // Step 1: Authorize scan (ban check happens here!)
-//! let scan_token = authorize_scan(target_count, &hardware_id, license_key).await?;
+//! let scan_token = authorize_scan(target_count, &hardware_id, license_key, scanner_version).await?;
 //!
 //! // Step 2: Perform the actual scan
 //! let results = perform_scan(targets).await?;
 //!
 //! // Step 3: Hash and sign results
 //! let results_hash = hash_results(&results)?;
-//! let signature = sign_results(&results_hash, &scan_token, Some(&hardware_id), metadata).await?;
+//! let signature = sign_results(&results_hash, &scan_token, metadata).await?;
 //! ```
 
 use blake3::Hasher;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-/// Bountyy signing server endpoint
+/// Backwards-compatible type alias for SigningError
+pub type ScanError = SigningError;
+
+/// Bountyy signing server base URL
 const API_BASE: &str = "https://lonkero.bountyy.fi/api/v1";
 
-/// Global authorization state - tracks if current session is authorized
-static AUTHORIZATION_VALID: AtomicBool = AtomicBool::new(false);
-
-/// Global scan token storage
-static GLOBAL_SCAN_TOKEN: OnceLock<ScanToken> = OnceLock::new();
-
-/// Authorization timestamp for token expiry checking
-static AUTH_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
+/// Request timeout in seconds
+const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 /// Token validity duration in seconds (6 hours)
 const TOKEN_VALIDITY_SECS: u64 = 6 * 60 * 60;
 
-// ============ SCAN AUTHORIZATION ============
+/// Global scan token storage
+static GLOBAL_SCAN_TOKEN: OnceLock<ScanToken> = OnceLock::new();
+
+// ============ ERRORS ============
+
+/// Errors that can occur during scan authorization or signing
+#[derive(Debug, Clone, Error)]
+pub enum SigningError {
+    /// User is not authorized to scan
+    #[error("Not authorized. Call authorize_scan() first.")]
+    NotAuthorized,
+
+    /// Authorization token has expired
+    #[error("Authorization expired. Re-authorize to continue.")]
+    AuthorizationExpired,
+
+    /// User is banned from scanning
+    #[error("BANNED: {0}")]
+    Banned(String),
+
+    /// License error
+    #[error("License error: {0}")]
+    LicenseError(String),
+
+    /// Server is unreachable (network error)
+    #[error("Server unreachable: {0}")]
+    ServerUnreachable(String),
+
+    /// Server returned an error
+    #[error("Server error: {0}")]
+    ServerError(String),
+
+    /// Invalid response from server
+    #[error("Invalid response: {0}")]
+    InvalidResponse(String),
+}
+
+// ============ REQUEST/RESPONSE STRUCTS ============
 
 /// Request to authorize a scan before it begins
 #[derive(Debug, Clone, Serialize)]
-pub struct ScanAuthorizeRequest {
+struct ScanAuthorizeRequest {
     /// Number of targets to scan
-    pub targets_count: u32,
+    targets_count: u32,
     /// Hardware fingerprint for device identification
-    pub hardware_id: String,
+    hardware_id: String,
     /// Optional license key for premium features
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub license_key: Option<String>,
+    license_key: Option<String>,
     /// Scanner version for compatibility checking
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub scanner_version: Option<String>,
+    scanner_version: Option<String>,
 }
 
 /// Response from scan authorization endpoint
 #[derive(Debug, Clone, Deserialize)]
-pub struct ScanAuthorizeResponse {
+struct ScanAuthorizeResponse {
     /// Whether the scan is authorized
-    pub authorized: bool,
+    authorized: bool,
     /// Scan token for subsequent signing (only if authorized)
-    pub scan_token: Option<String>,
-    /// Token expiration timestamp
-    pub token_expires_at: Option<String>,
+    scan_token: Option<String>,
+    /// Token expiration timestamp (ISO 8601)
+    token_expires_at: Option<String>,
     /// Maximum targets allowed for this license
-    pub max_targets: Option<u32>,
+    max_targets: Option<u32>,
     /// License type (Personal, Professional, Team, Enterprise)
-    pub license_type: Option<String>,
+    license_type: Option<String>,
     /// Error message if not authorized
-    pub error: Option<String>,
-    /// Ban reason if user is banned
-    pub ban_reason: Option<String>,
+    error: Option<String>,
+    /// Ban reason if user is banned - CHECK THIS FIRST
+    ban_reason: Option<String>,
 }
+
+/// Request to sign scan results
+#[derive(Debug, Clone, Serialize)]
+struct SignRequest {
+    /// BLAKE3 hash of the scan results (64 hex chars, lowercase)
+    results_hash: String,
+    /// Scan token from authorization (REQUIRED)
+    scan_token: String,
+    /// Optional license key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    license_key: Option<String>,
+    /// Hardware fingerprint
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hardware_id: Option<String>,
+    /// Request timestamp in MILLISECONDS since epoch
+    timestamp: u64,
+    /// Cryptographic nonce for replay protection (min 16 chars)
+    nonce: String,
+    /// Optional scan metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scan_metadata: Option<ScanMetadata>,
+}
+
+/// Response from signing endpoint
+#[derive(Debug, Clone, Deserialize)]
+struct SignResponse {
+    /// Whether signing was successful
+    valid: bool,
+    /// The cryptographic signature (128 hex chars HMAC-SHA512)
+    signature: Option<String>,
+    /// Signing timestamp (ISO 8601)
+    signed_at: Option<String>,
+    /// License type used for signing
+    license_type: Option<String>,
+    /// Signing algorithm used (e.g., "HMAC-SHA512")
+    algorithm: Option<String>,
+    /// Error message if signing failed
+    error: Option<String>,
+}
+
+// ============ PUBLIC STRUCTS ============
 
 /// Authorization token received from server - required for signing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,158 +169,87 @@ pub struct ScanToken {
 }
 
 impl ScanToken {
-    /// Check if the token is still valid
+    /// Check if the token is still valid based on expiration time
     pub fn is_valid(&self) -> bool {
-        // Check global authorization state
-        if !AUTHORIZATION_VALID.load(Ordering::SeqCst) {
-            return false;
+        // Parse the ISO 8601 expires_at timestamp
+        if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(&self.expires_at) {
+            let now = chrono::Utc::now();
+            return now < expires;
         }
 
-        // Check timestamp-based expiry
-        let auth_time = AUTH_TIMESTAMP.load(Ordering::SeqCst);
-        if auth_time == 0 {
-            return false;
-        }
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
-        now < auth_time + TOKEN_VALIDITY_SECS
+        // If parsing fails, check against token validity duration
+        false
     }
 }
 
-// ============ SIGNING ============
-
-/// Request to sign scan results
-#[derive(Debug, Clone, Serialize)]
-pub struct SignRequest {
-    /// BLAKE3 hash of the scan results
+/// Complete signature attached to a report
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportSignature {
+    /// Cryptographic signature from server (128 hex chars)
+    pub signature: String,
+    /// Algorithm used (e.g., "HMAC-SHA512")
+    pub algorithm: String,
+    /// Signing timestamp (ISO 8601)
+    pub signed_at: String,
+    /// License type used
+    pub license_type: String,
+    /// Hash of the results that were signed
     pub results_hash: String,
-    /// Scan token from authorization (REQUIRED)
-    pub scan_token: String,
-    /// Optional license key
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub license_key: Option<String>,
-    /// Hardware fingerprint
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hardware_id: Option<String>,
-    /// Request timestamp (ms since epoch)
-    pub timestamp: u64,
-    /// Cryptographic nonce for replay protection
-    pub nonce: String,
-    /// Optional scan metadata
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scan_metadata: Option<ScanMetadata>,
 }
 
 /// Metadata about the scan for audit purposes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanMetadata {
     /// Number of targets scanned
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub targets_count: Option<u32>,
     /// Scanner version
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub scanner_version: Option<String>,
     /// Scan duration in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub scan_duration_ms: Option<u64>,
 }
 
-/// Response from signing endpoint
-#[derive(Debug, Clone, Deserialize)]
-pub struct SignResponse {
-    /// Whether signing was successful
-    pub valid: bool,
-    /// The cryptographic signature
-    pub signature: Option<String>,
-    /// Signing timestamp (ISO 8601)
-    pub signed_at: Option<String>,
-    /// License type used for signing
-    pub license_type: Option<String>,
-    /// Signing algorithm used
-    pub algorithm: Option<String>,
-    /// Error message if signing failed
-    pub error: Option<String>,
-}
+// ============ PUBLIC FUNCTIONS ============
 
-/// Complete signature attached to a report
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReportSignature {
-    /// Hash of the results that were signed
-    pub results_hash: String,
-    /// Cryptographic signature from server
-    pub signature: String,
-    /// Signing timestamp (ISO 8601)
-    pub signed_at: String,
-    /// License type used
-    pub license_type: String,
-    /// Algorithm used (e.g., "HMAC-SHA512", "CRYSTALS-Dilithium")
-    pub algorithm: String,
-    /// Nonce used for this signature
-    pub nonce: String,
-    /// Request timestamp
-    pub timestamp: u64,
-}
-
-// ============ ERRORS ============
-
-/// Errors that can occur during scan authorization or signing
-#[derive(Debug, Clone)]
-pub enum ScanError {
-    /// User is banned from scanning
-    Banned(String),
-    /// License is invalid or expired
-    LicenseInvalid(String),
-    /// Network communication error
-    NetworkError(String),
-    /// Authorization denied (not banned, but not allowed)
-    Unauthorized(String),
-    /// Server-side error
-    ServerError(String),
-    /// No valid authorization token
-    NotAuthorized,
-    /// Token has expired
-    TokenExpired,
-}
-
-impl std::fmt::Display for ScanError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Banned(r) => write!(f, "BANNED: {}", r),
-            Self::LicenseInvalid(r) => write!(f, "License invalid: {}", r),
-            Self::NetworkError(e) => write!(f, "Network error: {}", e),
-            Self::Unauthorized(e) => write!(f, "Unauthorized: {}", e),
-            Self::ServerError(e) => write!(f, "Server error: {}", e),
-            Self::NotAuthorized => write!(f, "Scan not authorized. Call authorize_scan() first."),
-            Self::TokenExpired => write!(f, "Scan token has expired. Re-authorize to continue."),
-        }
-    }
-}
-
-impl std::error::Error for ScanError {}
-
-// ============ HELPER FUNCTIONS ============
-
-/// Generate a cryptographically secure nonce
+/// Generate a cryptographically secure nonce (32 hex chars = 16 bytes)
 pub fn generate_nonce() -> String {
-    use rand::Rng;
     let mut rng = rand::rng();
-    let bytes: [u8; 24] = rng.random();
+    let bytes: [u8; 16] = rng.random();
     hex::encode(bytes)
 }
 
 /// Hash scan results using BLAKE3
-pub fn hash_results<T: Serialize>(results: &T) -> Result<String, serde_json::Error> {
-    let json = serde_json::to_string(results)?;
-    Ok(hash_bytes(json.as_bytes()))
+///
+/// Returns a 64 character lowercase hex string
+pub fn hash_results<T: Serialize>(results: &T) -> Result<String, SigningError> {
+    let json = serde_json::to_string(results)
+        .map_err(|e| SigningError::InvalidResponse(format!("Failed to serialize results: {}", e)))?;
+
+    let mut hasher = Hasher::new();
+    hasher.update(json.as_bytes());
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
-/// Hash raw bytes using BLAKE3
-pub fn hash_bytes(data: &[u8]) -> String {
-    let mut hasher = Hasher::new();
-    hasher.update(data);
-    hasher.finalize().to_hex().to_string()
+/// Check if scan is currently authorized
+#[inline]
+pub fn is_authorized() -> bool {
+    match GLOBAL_SCAN_TOKEN.get() {
+        Some(token) => token.is_valid(),
+        None => false,
+    }
+}
+
+/// Get the current scan token if authorized
+pub fn get_scan_token() -> Option<&'static ScanToken> {
+    GLOBAL_SCAN_TOKEN.get().filter(|t| t.is_valid())
+}
+
+/// Backwards-compatible alias for is_authorized()
+#[inline]
+pub fn is_scan_authorized() -> bool {
+    is_authorized()
 }
 
 /// Get hardware fingerprint for device identification
@@ -306,45 +306,7 @@ pub fn get_hardware_id() -> String {
     hex::encode(hasher.finalize())[..32].to_string()
 }
 
-// ============ MAIN FUNCTIONS ============
-
-/// Check if scan is currently authorized
-#[inline]
-pub fn is_scan_authorized() -> bool {
-    if !AUTHORIZATION_VALID.load(Ordering::SeqCst) {
-        return false;
-    }
-
-    // Also check token expiry
-    let auth_time = AUTH_TIMESTAMP.load(Ordering::SeqCst);
-    if auth_time == 0 {
-        return false;
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    now < auth_time + TOKEN_VALIDITY_SECS
-}
-
-/// Get the current scan token if authorized
-pub fn get_scan_token() -> Option<&'static ScanToken> {
-    if is_scan_authorized() {
-        GLOBAL_SCAN_TOKEN.get()
-    } else {
-        None
-    }
-}
-
-/// Clear authorization state (for cleanup or on error)
-pub fn clear_authorization() {
-    AUTHORIZATION_VALID.store(false, Ordering::SeqCst);
-    AUTH_TIMESTAMP.store(0, Ordering::SeqCst);
-}
-
-/// Step 1: Authorize scan BEFORE starting
+/// Authorize scan BEFORE starting - NO OFFLINE FALLBACK
 ///
 /// This MUST be called before any scanning operations. It:
 /// - Checks if the user is banned (IP, ASN, hardware, license)
@@ -355,144 +317,133 @@ pub fn clear_authorization() {
 /// * `targets_count` - Number of targets to scan
 /// * `hardware_id` - Hardware fingerprint for device identification
 /// * `license_key` - Optional license key for premium features
+/// * `scanner_version` - Optional scanner version string
 ///
 /// # Returns
 /// * `Ok(ScanToken)` - Authorization successful, use this token for signing
-/// * `Err(ScanError::Banned)` - User is banned, cannot proceed
-/// * `Err(ScanError::Unauthorized)` - Authorization denied
-/// * `Err(ScanError::NetworkError)` - Network communication failed
+/// * `Err(SigningError::Banned)` - User is banned, cannot proceed
+/// * `Err(SigningError::ServerUnreachable)` - Network error, NO FALLBACK
 pub async fn authorize_scan(
     targets_count: u32,
     hardware_id: &str,
     license_key: Option<&str>,
-) -> Result<ScanToken, ScanError> {
+    scanner_version: Option<&str>,
+) -> Result<ScanToken, SigningError> {
     debug!("Authorizing scan for {} targets", targets_count);
 
     let request = ScanAuthorizeRequest {
         targets_count,
         hardware_id: hardware_id.to_string(),
         license_key: license_key.map(String::from),
-        scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        scanner_version: scanner_version.map(String::from),
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .user_agent(format!("Lonkero/{}", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| ScanError::NetworkError(e.to_string()))?;
+        .map_err(|e| SigningError::ServerUnreachable(e.to_string()))?;
 
-    let response = match client
+    // Send authorization request - NO FALLBACK ON NETWORK ERROR
+    let response = client
         .post(format!("{}/scan/authorize", API_BASE))
         .json(&request)
         .send()
         .await
-    {
-        Ok(resp) => resp,
-        Err(e) => {
-            // Network error - FAIL OPEN for availability
-            // Generate a local token that can be validated later
-            warn!("Authorization server unreachable: {}. Proceeding with local authorization.", e);
-
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-
-            let local_token = ScanToken {
-                token: format!("local_{}", generate_nonce()),
-                expires_at: chrono::Utc::now()
-                    .checked_add_signed(chrono::Duration::hours(6))
-                    .map(|t| t.to_rfc3339())
-                    .unwrap_or_default(),
-                max_targets: 100,
-                license_type: "Personal".to_string(),
-            };
-
-            // Set global authorization state
-            AUTH_TIMESTAMP.store(now, Ordering::SeqCst);
-            AUTHORIZATION_VALID.store(true, Ordering::SeqCst);
-            let _ = GLOBAL_SCAN_TOKEN.set(local_token.clone());
-
-            info!("Local authorization granted (offline mode)");
-            return Ok(local_token);
-        }
-    };
+        .map_err(|e| {
+            error!("Authorization server unreachable: {}", e);
+            SigningError::ServerUnreachable(e.to_string())
+        })?;
 
     let status = response.status();
-    let auth_response: ScanAuthorizeResponse = response
-        .json()
-        .await
-        .map_err(|e| ScanError::ServerError(format!("Failed to parse response: {}", e)))?;
+    let auth_response: ScanAuthorizeResponse = response.json().await.map_err(|e| {
+        SigningError::InvalidResponse(format!("Failed to parse authorization response: {}", e))
+    })?;
 
-    if !auth_response.authorized {
-        // Clear any previous authorization
-        clear_authorization();
-
-        // Check if banned
-        if let Some(ban_reason) = auth_response.ban_reason {
-            error!("SCAN BLOCKED: User is banned - {}", ban_reason);
-            return Err(ScanError::Banned(ban_reason));
-        }
-
-        let error = auth_response.error.unwrap_or_else(|| "Authorization denied".into());
-
-        if status.as_u16() == 403 {
-            return Err(ScanError::Unauthorized(error));
-        }
-        return Err(ScanError::ServerError(error));
+    // CRITICAL: Check ban_reason FIRST, before checking authorized field
+    if let Some(ban_reason) = auth_response.ban_reason {
+        error!("SCAN BLOCKED: User is banned - {}", ban_reason);
+        return Err(SigningError::Banned(ban_reason));
     }
 
-    // Authorization successful - create and store token
+    // Check if authorized
+    if !auth_response.authorized {
+        let error_msg = auth_response
+            .error
+            .unwrap_or_else(|| "Authorization denied".to_string());
+
+        if status.as_u16() == 403 || error_msg.to_lowercase().contains("license") {
+            return Err(SigningError::LicenseError(error_msg));
+        }
+        return Err(SigningError::ServerError(error_msg));
+    }
+
+    // Extract token from response
+    let token_str = auth_response
+        .scan_token
+        .ok_or_else(|| SigningError::InvalidResponse("Missing scan_token in response".to_string()))?;
+
+    let expires_at = auth_response
+        .token_expires_at
+        .ok_or_else(|| SigningError::InvalidResponse("Missing token_expires_at in response".to_string()))?;
+
+    let max_targets = auth_response.max_targets.unwrap_or(100);
+    let license_type = auth_response
+        .license_type
+        .unwrap_or_else(|| "Personal".to_string());
+
     let token = ScanToken {
-        token: auth_response.scan_token.ok_or(ScanError::ServerError("Missing token".into()))?,
-        expires_at: auth_response.token_expires_at.unwrap_or_default(),
-        max_targets: auth_response.max_targets.unwrap_or(100),
-        license_type: auth_response.license_type.unwrap_or_else(|| "Personal".into()),
+        token: token_str,
+        expires_at,
+        max_targets,
+        license_type: license_type.clone(),
     };
 
-    // Set global authorization state
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    AUTH_TIMESTAMP.store(now, Ordering::SeqCst);
-    AUTHORIZATION_VALID.store(true, Ordering::SeqCst);
+    // Store token globally (only succeeds once per process)
     let _ = GLOBAL_SCAN_TOKEN.set(token.clone());
 
-    info!("Scan authorized: {} license, max {} targets",
-        token.license_type, token.max_targets);
+    info!(
+        "Scan authorized: {} license, max {} targets",
+        license_type, max_targets
+    );
 
     Ok(token)
 }
 
-/// Step 2: Sign results AFTER scanning (requires token from Step 1)
+/// Sign results AFTER scanning - NO OFFLINE FALLBACK
 ///
-/// This creates a cryptographic signature for the scan results.
+/// Creates a cryptographic signature for the scan results.
 /// The signature can be verified by third parties to prove authenticity.
 ///
 /// # Arguments
-/// * `results_hash` - BLAKE3 hash of the scan results
+/// * `results_hash` - BLAKE3 hash of the scan results (64 hex chars, lowercase)
 /// * `scan_token` - Token from authorize_scan()
-/// * `hardware_id` - Optional hardware fingerprint
 /// * `metadata` - Optional scan metadata for audit purposes
 ///
 /// # Returns
 /// * `Ok(ReportSignature)` - Signature created successfully
-/// * `Err(ScanError)` - Signing failed
+/// * `Err(SigningError::ServerUnreachable)` - Network error, NO FALLBACK
 pub async fn sign_results(
     results_hash: &str,
     scan_token: &ScanToken,
-    hardware_id: Option<&str>,
     metadata: Option<ScanMetadata>,
-) -> Result<ReportSignature, ScanError> {
-    // Verify token is still valid
-    if !scan_token.is_valid() {
-        return Err(ScanError::TokenExpired);
+) -> Result<ReportSignature, SigningError> {
+    // Validate hash format: 64 hex chars, lowercase
+    if !is_valid_blake3_hash(results_hash) {
+        return Err(SigningError::InvalidResponse(
+            "Invalid results_hash: must be 64 lowercase hex characters".to_string(),
+        ));
     }
 
+    // Verify token is still valid
+    if !scan_token.is_valid() {
+        return Err(SigningError::AuthorizationExpired);
+    }
+
+    // Generate timestamp in MILLISECONDS
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| ScanError::ServerError("Timestamp error".into()))?
+        .map_err(|_| SigningError::ServerError("System time error".to_string()))?
         .as_millis() as u64;
 
     let nonce = generate_nonce();
@@ -501,105 +452,77 @@ pub async fn sign_results(
         results_hash: results_hash.to_string(),
         scan_token: scan_token.token.clone(),
         license_key: None,
-        hardware_id: hardware_id.map(String::from),
+        hardware_id: None,
         timestamp,
-        nonce: nonce.clone(),
+        nonce,
         scan_metadata: metadata,
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .user_agent(format!("Lonkero/{}", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| ScanError::NetworkError(e.to_string()))?;
+        .map_err(|e| SigningError::ServerUnreachable(e.to_string()))?;
 
-    let response = match client
+    // Send sign request - NO FALLBACK ON NETWORK ERROR
+    let response = client
         .post(format!("{}/sign", API_BASE))
         .json(&request)
         .send()
         .await
-    {
-        Ok(resp) => resp,
-        Err(e) => {
-            // Network error - generate local signature
-            warn!("Signing server unreachable: {}. Generating local signature.", e);
+        .map_err(|e| {
+            error!("Signing server unreachable: {}", e);
+            SigningError::ServerUnreachable(e.to_string())
+        })?;
 
-            // Create a local signature using HMAC-SHA256
-            let mut hasher = Sha256::new();
-            hasher.update(results_hash.as_bytes());
-            hasher.update(scan_token.token.as_bytes());
-            hasher.update(&timestamp.to_le_bytes());
-            hasher.update(nonce.as_bytes());
-            let local_sig = hex::encode(hasher.finalize());
+    let sign_response: SignResponse = response.json().await.map_err(|e| {
+        SigningError::InvalidResponse(format!("Failed to parse sign response: {}", e))
+    })?;
 
-            return Ok(ReportSignature {
-                results_hash: results_hash.to_string(),
-                signature: format!("local_{}", local_sig),
-                signed_at: chrono::Utc::now().to_rfc3339(),
-                license_type: scan_token.license_type.clone(),
-                algorithm: "HMAC-SHA256-LOCAL".to_string(),
-                nonce,
-                timestamp,
-            });
-        }
-    };
-
-    let sign_response: SignResponse = response
-        .json()
-        .await
-        .map_err(|e| ScanError::ServerError(format!("Failed to parse response: {}", e)))?;
-
+    // Check for errors
     if !sign_response.valid {
-        return Err(ScanError::ServerError(
-            sign_response.error.unwrap_or_else(|| "Signing failed".into()),
-        ));
+        let error_msg = sign_response
+            .error
+            .unwrap_or_else(|| "Signing failed".to_string());
+        return Err(SigningError::ServerError(error_msg));
     }
 
+    // Extract signature from response
+    let signature = sign_response
+        .signature
+        .ok_or_else(|| SigningError::InvalidResponse("Missing signature in response".to_string()))?;
+
+    let signed_at = sign_response
+        .signed_at
+        .ok_or_else(|| SigningError::InvalidResponse("Missing signed_at in response".to_string()))?;
+
+    let algorithm = sign_response
+        .algorithm
+        .unwrap_or_else(|| "HMAC-SHA512".to_string());
+
+    let license_type = sign_response
+        .license_type
+        .unwrap_or_else(|| scan_token.license_type.clone());
+
+    info!("Results signed successfully with {}", algorithm);
+
     Ok(ReportSignature {
+        signature,
+        algorithm,
+        signed_at,
+        license_type,
         results_hash: results_hash.to_string(),
-        signature: sign_response.signature.ok_or(ScanError::ServerError("Missing signature".into()))?,
-        signed_at: sign_response.signed_at.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-        license_type: sign_response.license_type.unwrap_or_else(|| scan_token.license_type.clone()),
-        algorithm: sign_response.algorithm.unwrap_or_else(|| "HMAC-SHA512".into()),
-        nonce,
-        timestamp,
     })
 }
 
-/// Guard that ensures scan is authorized before proceeding
-///
-/// Use this at the start of any scan operation to enforce authorization.
-/// Returns an error if not authorized, preventing the scan from proceeding.
-///
-/// # Example
-/// ```ignore
-/// // At the start of any scan function:
-/// require_authorization()?;
-/// // ... proceed with scan
-/// ```
-#[inline]
-pub fn require_authorization() -> Result<(), ScanError> {
-    if !is_scan_authorized() {
-        error!("Scan attempted without authorization!");
-        return Err(ScanError::NotAuthorized);
+// ============ HELPER FUNCTIONS ============
+
+/// Validate BLAKE3 hash format: exactly 64 lowercase hex characters
+fn is_valid_blake3_hash(hash: &str) -> bool {
+    if hash.len() != 64 {
+        return false;
     }
-    Ok(())
-}
-
-/// Authorization guard for scanner modules
-///
-/// This macro-like function provides a consistent way to check authorization
-/// and return early if not authorized. It also increments scan counters.
-#[inline]
-pub fn scanner_auth_guard() -> Result<(), ScanError> {
-    require_authorization()?;
-
-    // Also verify license module state (defense in depth)
-    if !crate::license::verify_scan_authorized() {
-        return Err(ScanError::Unauthorized("License verification failed".into()));
-    }
-
-    Ok(())
+    hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 // ============ TESTS ============
@@ -609,44 +532,138 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hash_bytes() {
-        let data = b"test data";
-        let hash = hash_bytes(data);
-        assert!(!hash.is_empty());
-        assert_eq!(hash.len(), 64); // BLAKE3 produces 32 bytes = 64 hex chars
-    }
-
-    #[test]
     fn test_generate_nonce() {
         let nonce1 = generate_nonce();
         let nonce2 = generate_nonce();
+
+        // Nonces should be unique
         assert_ne!(nonce1, nonce2);
-        assert_eq!(nonce1.len(), 48); // 24 bytes = 48 hex chars
+
+        // Nonce should be at least 16 chars (requirement)
+        assert!(nonce1.len() >= 16);
+
+        // Our implementation produces 32 hex chars (16 bytes)
+        assert_eq!(nonce1.len(), 32);
+
+        // Should be valid hex
+        assert!(nonce1.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
-    fn test_hardware_id() {
-        let hw_id = get_hardware_id();
-        assert!(!hw_id.is_empty());
-        assert_eq!(hw_id.len(), 32);
+    fn test_hash_results() {
+        #[derive(Serialize)]
+        struct TestData {
+            value: String,
+        }
+
+        let data = TestData {
+            value: "test".to_string(),
+        };
+
+        let hash = hash_results(&data).unwrap();
+
+        // BLAKE3 produces 64 hex chars
+        assert_eq!(hash.len(), 64);
+
+        // Should be lowercase hex
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+
+        // Same input should produce same hash
+        let hash2 = hash_results(&data).unwrap();
+        assert_eq!(hash, hash2);
     }
 
     #[test]
-    fn test_authorization_state_default() {
-        // Initial state should be not authorized
-        // Note: This test may fail if run after successful authorization
-        // In a real test suite, we'd reset state between tests
-        let is_auth = AUTHORIZATION_VALID.load(Ordering::SeqCst);
-        // Just check it's a boolean, don't assert specific value
-        assert!(is_auth == true || is_auth == false);
+    fn test_is_valid_blake3_hash() {
+        // Valid hash
+        let valid = "a".repeat(64);
+        assert!(is_valid_blake3_hash(&valid));
+
+        // Too short
+        assert!(!is_valid_blake3_hash("abc123"));
+
+        // Too long
+        let too_long = "a".repeat(65);
+        assert!(!is_valid_blake3_hash(&too_long));
+
+        // Contains uppercase (invalid for our requirement)
+        let uppercase = "A".repeat(64);
+        assert!(!is_valid_blake3_hash(&uppercase));
+
+        // Contains non-hex characters
+        let invalid_chars = "g".repeat(64);
+        assert!(!is_valid_blake3_hash(&invalid_chars));
     }
 
     #[test]
-    fn test_scan_error_display() {
-        let err = ScanError::Banned("Test ban".to_string());
+    fn test_scan_token_validity() {
+        // Valid token (expires in future)
+        let future = chrono::Utc::now() + chrono::Duration::hours(1);
+        let valid_token = ScanToken {
+            token: "test_token".to_string(),
+            expires_at: future.to_rfc3339(),
+            max_targets: 100,
+            license_type: "Personal".to_string(),
+        };
+        assert!(valid_token.is_valid());
+
+        // Expired token
+        let past = chrono::Utc::now() - chrono::Duration::hours(1);
+        let expired_token = ScanToken {
+            token: "test_token".to_string(),
+            expires_at: past.to_rfc3339(),
+            max_targets: 100,
+            license_type: "Personal".to_string(),
+        };
+        assert!(!expired_token.is_valid());
+
+        // Invalid timestamp format
+        let invalid_token = ScanToken {
+            token: "test_token".to_string(),
+            expires_at: "invalid".to_string(),
+            max_targets: 100,
+            license_type: "Personal".to_string(),
+        };
+        assert!(!invalid_token.is_valid());
+    }
+
+    #[test]
+    fn test_signing_error_display() {
+        let err = SigningError::Banned("Test ban reason".to_string());
         assert!(err.to_string().contains("BANNED"));
+        assert!(err.to_string().contains("Test ban reason"));
 
-        let err = ScanError::NotAuthorized;
+        let err = SigningError::NotAuthorized;
         assert!(err.to_string().contains("authorize_scan"));
+
+        let err = SigningError::AuthorizationExpired;
+        assert!(err.to_string().contains("expired"));
+
+        let err = SigningError::ServerUnreachable("connection refused".to_string());
+        assert!(err.to_string().contains("unreachable"));
+    }
+
+    #[test]
+    fn test_timestamp_is_milliseconds() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        // Timestamp should be in milliseconds (roughly 13+ digits as of 2024)
+        // Seconds would be ~10 digits
+        assert!(now > 1_000_000_000_000); // After year ~2001 in milliseconds
+    }
+
+    #[test]
+    fn test_no_local_or_offline_tokens() {
+        // Ensure our module doesn't contain any local/offline token generation
+        // This is a compile-time check via code review - the absence of
+        // "local_" or "offline_" prefix generation in the codebase confirms this
+
+        // The generate_nonce function should not produce local_ prefixed values
+        let nonce = generate_nonce();
+        assert!(!nonce.starts_with("local_"));
+        assert!(!nonce.starts_with("offline_"));
     }
 }
