@@ -31,6 +31,18 @@ impl SsrfScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // ============================================================
+        // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
+        // ============================================================
+        // Defense in depth: verify both license and signing authorization
+        if !crate::license::verify_scan_authorized() {
+            return Ok((Vec::new(), 0));
+        }
+        if !crate::signing::is_scan_authorized() {
+            tracing::warn!("SSRF scan blocked: No valid scan authorization");
+            return Ok((Vec::new(), 0));
+        }
+
         info!("[SSRF] Scanning parameter: {}", parameter);
 
         let mut vulnerabilities = Vec::new();

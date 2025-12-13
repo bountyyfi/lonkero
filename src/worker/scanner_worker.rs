@@ -342,17 +342,44 @@ impl ScannerWorker {
     }
 
     /// Run the actual scan
+    ///
+    /// IMPORTANT: This function requires prior authorization via `crate::signing::authorize_scan()`.
+    /// The authorization must be done before jobs are pulled from the queue.
     async fn run_scan(&self, job: &ScanJob) -> Result<ScanResults> {
-        // This would call your actual scanner implementation
-        // For now, we'll create a placeholder
+        let start_time = std::time::Instant::now();
+
+        // ============================================================
+        // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
+        // ============================================================
+        // This check ensures banned users cannot scan through the worker.
+        // Authorization must have been obtained before job processing.
+        if !crate::signing::is_scan_authorized() {
+            // Attempt to authorize for this job
+            let hardware_id = crate::signing::get_hardware_id();
+            match crate::signing::authorize_scan(1, &hardware_id, None).await {
+                Ok(_token) => {
+                    info!("Scan authorized for worker job: {}", job.job_id);
+                }
+                Err(crate::signing::ScanError::Banned(reason)) => {
+                    error!("SCAN BLOCKED: Worker is banned - {}", reason);
+                    return Err(anyhow::anyhow!("Worker banned: {}", reason));
+                }
+                Err(e) => {
+                    warn!("Authorization check failed: {}. Proceeding in offline mode.", e);
+                }
+            }
+        }
+
+        // Get scan token for signing
+        let scan_token = crate::signing::get_scan_token().cloned();
 
         // Import scanner based on scan type
-        match job.scan_type.as_str() {
+        let mut results = match job.scan_type.as_str() {
             "xss" => {
                 // Run XSS scan
                 info!("Running XSS scan on {}", job.target);
                 // Call actual scanner...
-                Ok(ScanResults {
+                ScanResults {
                     scan_id: job.scan_id.clone(),
                     target: job.target.clone(),
                     tests_run: 0,
@@ -364,12 +391,14 @@ impl ScannerWorker {
                     termination_reason: None,
                     scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
                     license_signature: Some(crate::license::get_license_signature()),
-                })
+                    quantum_signature: None,
+                    authorization_token_id: scan_token.as_ref().map(|t| t.token.clone()),
+                }
             }
             "sqli" => {
                 // Run SQLi scan
                 info!("Running SQLi scan on {}", job.target);
-                Ok(ScanResults {
+                ScanResults {
                     scan_id: job.scan_id.clone(),
                     target: job.target.clone(),
                     tests_run: 0,
@@ -381,13 +410,47 @@ impl ScannerWorker {
                     termination_reason: None,
                     scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
                     license_signature: Some(crate::license::get_license_signature()),
-                })
+                    quantum_signature: None,
+                    authorization_token_id: scan_token.as_ref().map(|t| t.token.clone()),
+                }
             }
             _ => {
                 warn!("Unknown scan type: {}", job.scan_type);
-                Err(ScannerError::UnsupportedScanType(job.scan_type.clone()).into())
+                return Err(ScannerError::UnsupportedScanType(job.scan_type.clone()).into());
+            }
+        };
+
+        // ============================================================
+        // QUANTUM-SAFE SIGNING - MANDATORY FOR ALL RESULTS
+        // ============================================================
+        // Sign the results if we have a valid token
+        if let Some(token) = scan_token {
+            let elapsed = start_time.elapsed();
+            let hardware_id = crate::signing::get_hardware_id();
+
+            if let Ok(results_hash) = crate::signing::hash_results(&results) {
+                match crate::signing::sign_results(
+                    &results_hash,
+                    &token,
+                    Some(&hardware_id),
+                    Some(crate::signing::ScanMetadata {
+                        targets_count: Some(1),
+                        scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                        scan_duration_ms: Some(elapsed.as_millis() as u64),
+                    }),
+                ).await {
+                    Ok(signature) => {
+                        info!("[SIGNED] Worker results signed with: {}", signature.algorithm);
+                        results.quantum_signature = Some(signature);
+                    }
+                    Err(e) => {
+                        warn!("Failed to sign worker results: {}", e);
+                    }
+                }
             }
         }
+
+        Ok(results)
     }
 
     /// Store job result

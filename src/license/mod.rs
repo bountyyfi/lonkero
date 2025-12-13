@@ -255,7 +255,7 @@ impl Default for LicenseStatus {
             max_targets: Some(100),
             killswitch_active: false,
             killswitch_reason: None,
-            message: Some("Non-commercial use. For commercial licensing: https://bountyy.fi/license".to_string()),
+            message: Some("Non-commercial use. For commercial licensing: https://bountyy.fi".to_string()),
         }
     }
 }
@@ -495,7 +495,7 @@ pub async fn verify_license_for_scan(
     if status.killswitch_active {
         return Err(anyhow!(
             "Scanner disabled: {}",
-            status.killswitch_reason.clone().unwrap_or_else(|| "Contact support@bountyy.fi".to_string())
+            status.killswitch_reason.clone().unwrap_or_else(|| "Contact info@bountyy.fi".to_string())
         ));
     }
 
@@ -503,7 +503,7 @@ pub async fn verify_license_for_scan(
     if is_commercial && !manager.allows_commercial_use() {
         warn!("========================================================");
         warn!("NOTE: Commercial use requires a license from Bountyy Oy");
-        warn!("      Visit: https://bountyy.fi/license");
+        warn!("      Visit: https://bountyy.fi");
         warn!("========================================================");
     }
 

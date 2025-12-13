@@ -76,3 +76,6 @@ pub mod napi_bridge;
 
 // License verification and killswitch module
 pub mod license;
+
+// Quantum-safe signing and scan authorization module
+pub mod signing;

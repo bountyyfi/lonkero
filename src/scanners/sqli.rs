@@ -38,8 +38,15 @@ impl SqliScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        // Integrity verification
+        // ============================================================
+        // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
+        // ============================================================
+        // Defense in depth: verify both license and signing authorization
         if !crate::license::verify_rt_state() {
+            return Ok((Vec::new(), 0));
+        }
+        if !crate::signing::is_scan_authorized() {
+            tracing::warn!("SQLi scan blocked: No valid scan authorization");
             return Ok((Vec::new(), 0));
         }
 
