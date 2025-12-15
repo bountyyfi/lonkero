@@ -217,6 +217,9 @@ hex = "0.4"
 # License and configuration directories
 dirs = "5.0"
 
+# Secure credential storage (OS keychain)
+keyring = "3.7"
+
 [profile.release]
 opt-level = 3
 lto = true
