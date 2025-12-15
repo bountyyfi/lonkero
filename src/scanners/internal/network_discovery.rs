@@ -515,9 +515,37 @@ impl NetworkDiscoveryScanner {
         Ok(ips)
     }
 
+    /// Validate network interface name
+    fn validate_interface_name(interface: &str) -> Result<()> {
+        // Only allow alphanumeric characters (standard interface naming)
+        let valid_chars = interface.chars().all(|c| c.is_alphanumeric());
+
+        if !valid_chars {
+            return Err(anyhow::anyhow!("Invalid interface name: contains illegal characters"));
+        }
+
+        if interface.is_empty() || interface.len() > 16 {
+            return Err(anyhow::anyhow!("Invalid interface name: length out of bounds"));
+        }
+
+        // On Linux, verify interface exists
+        #[cfg(target_os = "linux")]
+        {
+            let sys_path = std::path::Path::new("/sys/class/net").join(interface);
+            if !sys_path.exists() {
+                return Err(anyhow::anyhow!("Interface does not exist: {}", interface));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Perform ARP scan on local network
     pub async fn arp_scan(&self, interface: &str) -> Result<Vec<NetworkDiscoveryResult>> {
         info!("Performing ARP scan on interface: {}", interface);
+
+        // Validate interface name before using it
+        Self::validate_interface_name(interface)?;
 
         let output = Command::new("arp-scan")
             .arg("--interface")

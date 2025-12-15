@@ -6,20 +6,26 @@
  * Performs authenticated vulnerability and configuration scanning
  *
  * Features:
- * - SSH credential scanning
- * - Windows credential scanning (WMI, PowerShell)
+ * - SSH credential scanning (using native SSH library - SECURE)
  * - Database credential scanning
  * - API key-based scanning
  * - LDAP/Active Directory integration
  * - Patch level detection
  * - Configuration compliance
  *
+ * SECURITY: This module uses the ssh2 crate for native SSH connections
+ * to prevent command injection vulnerabilities. All user inputs are
+ * validated before use.
+ *
  * © 2025 Bountyy Oy
  */
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use ssh2::Session;
+use std::io::Read;
+use std::net::TcpStream;
+use std::path::PathBuf;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -224,6 +230,9 @@ impl AuthenticatedScanner {
     ) -> Result<AuthenticatedScanResult> {
         info!("Starting authenticated scan for {}", target);
 
+        // Validate target before attempting connection
+        Self::validate_target(target)?;
+
         // Try each credential until one works
         for credential in credentials {
             match self.try_credential(target, credential).await {
@@ -239,7 +248,44 @@ impl AuthenticatedScanner {
             }
         }
 
-        Err(anyhow::anyhow!("Failed to authenticate with any provided credentials"))
+        Err(anyhow!("Failed to authenticate with any provided credentials"))
+    }
+
+    /// Validate target hostname/IP
+    fn validate_target(target: &str) -> Result<()> {
+        // Whitelist: only allow valid hostnames and IP addresses
+        // No special characters that could be used for injection
+        let valid_chars = target.chars().all(|c| {
+            c.is_alphanumeric() || c == '.' || c == '-' || c == '_' || c == ':'
+        });
+
+        if !valid_chars {
+            return Err(anyhow!("Invalid target: contains illegal characters"));
+        }
+
+        if target.is_empty() || target.len() > 253 {
+            return Err(anyhow!("Invalid target: length out of bounds"));
+        }
+
+        Ok(())
+    }
+
+    /// Validate username
+    fn validate_username(username: &str) -> Result<()> {
+        // Username validation: alphanumeric, underscore, hyphen, dot
+        let valid_chars = username.chars().all(|c| {
+            c.is_alphanumeric() || c == '_' || c == '-' || c == '.'
+        });
+
+        if !valid_chars {
+            return Err(anyhow!("Invalid username: contains illegal characters"));
+        }
+
+        if username.is_empty() || username.len() > 32 {
+            return Err(anyhow!("Invalid username: length out of bounds"));
+        }
+
+        Ok(())
     }
 
     /// Try scanning with a specific credential
@@ -250,18 +296,43 @@ impl AuthenticatedScanner {
     ) -> Result<AuthenticatedScanResult> {
         match credential {
             ScanCredential::SshKey { username, private_key, port } => {
+                Self::validate_username(username)?;
                 self.scan_ssh_key(target, username, private_key, *port).await
             }
             ScanCredential::SshPassword { username, password, port } => {
+                Self::validate_username(username)?;
                 self.scan_ssh_password(target, username, password, *port).await
             }
-            ScanCredential::WindowsPassword { username, password, domain } => {
-                self.scan_windows(target, username, password, domain.as_deref()).await
+            ScanCredential::WindowsPassword { .. } => {
+                Err(anyhow!(
+                    "Windows authentication is currently disabled due to security concerns. \
+                     Native Windows remoting library support is planned for a future release."
+                ))
             }
             _ => {
-                Err(anyhow::anyhow!("Credential type not yet implemented"))
+                Err(anyhow!("Credential type not yet implemented"))
             }
         }
+    }
+
+    /// Create SSH session and connect
+    fn create_ssh_session(target: &str, port: u16, timeout: Duration) -> Result<Session> {
+        // Connect via TCP
+        let tcp = TcpStream::connect_timeout(
+            &format!("{}:{}", target, port).parse()?,
+            timeout,
+        ).context("Failed to connect to SSH server")?;
+
+        tcp.set_read_timeout(Some(timeout))?;
+        tcp.set_write_timeout(Some(timeout))?;
+
+        // Create SSH session
+        let mut sess = Session::new().context("Failed to create SSH session")?;
+        sess.set_tcp_stream(tcp);
+        sess.set_timeout(timeout.as_millis() as u32);
+        sess.handshake().context("SSH handshake failed")?;
+
+        Ok(sess)
     }
 
     /// Scan via SSH with key
@@ -273,33 +344,28 @@ impl AuthenticatedScanner {
         port: Option<u16>,
     ) -> Result<AuthenticatedScanResult> {
         let port = port.unwrap_or(22);
-
         info!("Scanning {} via SSH (key auth) as {}", target, username);
 
         // Write private key to temporary file
         let key_file = self.write_temp_key(private_key)?;
 
-        // Test connection
-        let test_cmd = format!(
-            "ssh -i {} -p {} -o StrictHostKeyChecking=no -o ConnectTimeout=10 {}@{} 'echo connected'",
-            key_file.display(),
-            port,
+        // Create session
+        let mut sess = Self::create_ssh_session(target, port, self.timeout)?;
+
+        // Authenticate with public key
+        sess.userauth_pubkey_file(
             username,
-            target
-        );
+            None,
+            &key_file,
+            None,
+        ).context("SSH key authentication failed")?;
 
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(&test_cmd)
-            .output()
-            .context("Failed to execute SSH command")?;
-
-        if !output.status.success() {
-            return Err(anyhow::anyhow!("SSH connection failed"));
+        if !sess.authenticated() {
+            return Err(anyhow!("SSH authentication failed"));
         }
 
         // Gather system information
-        let result = self.gather_ssh_info(target, username, &key_file.to_string_lossy(), port).await?;
+        let result = self.gather_ssh_info(&sess, target, username).await?;
 
         // Clean up key file
         let _ = std::fs::remove_file(key_file);
@@ -316,81 +382,82 @@ impl AuthenticatedScanner {
         port: Option<u16>,
     ) -> Result<AuthenticatedScanResult> {
         let port = port.unwrap_or(22);
-
         info!("Scanning {} via SSH (password auth) as {}", target, username);
 
-        // Use sshpass for password authentication
-        let test_cmd = format!(
-            "sshpass -p '{}' ssh -p {} -o StrictHostKeyChecking=no -o ConnectTimeout=10 {}@{} 'echo connected'",
-            password,
-            port,
-            username,
-            target
-        );
+        // Create session
+        let mut sess = Self::create_ssh_session(target, port, self.timeout)?;
 
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(&test_cmd)
-            .output()
-            .context("Failed to execute SSH command")?;
+        // Authenticate with password
+        sess.userauth_password(username, password)
+            .context("SSH password authentication failed")?;
 
-        if !output.status.success() {
-            return Err(anyhow::anyhow!("SSH connection failed"));
+        if !sess.authenticated() {
+            return Err(anyhow!("SSH authentication failed"));
         }
 
-        // Gather system information using password
-        self.gather_ssh_info_password(target, username, password, port).await
+        // Gather system information
+        self.gather_ssh_info(&sess, target, username).await
     }
 
-    /// Scan Windows system via WMI/PowerShell
-    async fn scan_windows(
-        &self,
-        target: &str,
-        username: &str,
-        password: &str,
-        domain: Option<&str>,
-    ) -> Result<AuthenticatedScanResult> {
-        info!("Scanning Windows system {} as {}", target, username);
+    /// Execute command over SSH session
+    fn ssh_exec(sess: &Session, command: &str) -> Result<String> {
+        let mut channel = sess.channel_session()
+            .context("Failed to open SSH channel")?;
 
-        let full_username = if let Some(d) = domain {
-            format!("{}\\{}", d, username)
-        } else {
-            username.to_string()
-        };
+        channel.exec(command)
+            .context("Failed to execute command")?;
 
-        // Use PowerShell remoting or WMI
-        let result = self.scan_windows_wmi(target, &full_username, password).await?;
+        let mut output = String::new();
+        channel.read_to_string(&mut output)
+            .context("Failed to read command output")?;
 
-        Ok(result)
+        channel.wait_close()
+            .context("Failed to close channel")?;
+
+        let exit_status = channel.exit_status()?;
+        if exit_status != 0 {
+            debug!("Command exited with status {}: {}", exit_status, command);
+        }
+
+        Ok(output)
     }
 
     /// Gather information via SSH
     async fn gather_ssh_info(
         &self,
+        sess: &Session,
         target: &str,
         username: &str,
-        key_file: &str,
-        port: u16,
     ) -> Result<AuthenticatedScanResult> {
-        let ssh_base = format!(
-            "ssh -i {} -p {} -o StrictHostKeyChecking=no {}@{}",
-            key_file, port, username, target
-        );
+        debug!("Gathering system information from {}", target);
 
         // Get hostname
-        let hostname = self.ssh_exec(&ssh_base, "hostname").await?;
+        let hostname = Self::ssh_exec(sess, "hostname")
+            .unwrap_or_else(|_| target.to_string());
 
         // Get OS info
-        let os_info = self.ssh_exec(&ssh_base, "uname -a && cat /etc/os-release 2>/dev/null || cat /etc/redhat-release 2>/dev/null").await?;
+        let os_info = Self::ssh_exec(
+            sess,
+            "uname -a && cat /etc/os-release 2>/dev/null || cat /etc/redhat-release 2>/dev/null"
+        ).unwrap_or_default();
 
-        // Get installed packages (Debian/Ubuntu)
-        let packages = self.ssh_exec(&ssh_base, "dpkg -l 2>/dev/null || rpm -qa 2>/dev/null").await.unwrap_or_default();
+        // Get installed packages
+        let packages = Self::ssh_exec(
+            sess,
+            "dpkg -l 2>/dev/null || rpm -qa 2>/dev/null"
+        ).unwrap_or_default();
 
         // Get sudo users
-        let sudo_users = self.ssh_exec(&ssh_base, "getent group sudo 2>/dev/null | cut -d: -f4").await.unwrap_or_default();
+        let sudo_users = Self::ssh_exec(
+            sess,
+            "getent group sudo 2>/dev/null | cut -d: -f4"
+        ).unwrap_or_default();
 
         // Get running services
-        let services = self.ssh_exec(&ssh_base, "systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null").await.unwrap_or_default();
+        let services = Self::ssh_exec(
+            sess,
+            "systemctl list-units --type=service --state=running --no-pager 2>/dev/null || service --status-all 2>/dev/null"
+        ).unwrap_or_default();
 
         // Parse and structure the results
         let (os_type, os_version) = self.parse_os_info(&os_info);
@@ -402,12 +469,16 @@ impl AuthenticatedScanner {
             os_version,
             os_build: None,
             patches_installed: self.parse_packages(&packages),
-            patches_missing: Vec::new(), // Would need to check against CVE database
+            patches_missing: Vec::new(),
             last_patch_date: None,
             configurations: Vec::new(),
             misconfigurations: Vec::new(),
             local_admins: Vec::new(),
-            sudo_users: sudo_users.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+            sudo_users: sudo_users
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
             privileged_accounts: Vec::new(),
             ad_domain: None,
             ad_groups: Vec::new(),
@@ -417,146 +488,8 @@ impl AuthenticatedScanner {
         })
     }
 
-    /// Gather information via SSH with password
-    async fn gather_ssh_info_password(
-        &self,
-        target: &str,
-        username: &str,
-        password: &str,
-        port: u16,
-    ) -> Result<AuthenticatedScanResult> {
-        let ssh_base = format!(
-            "sshpass -p '{}' ssh -p {} -o StrictHostKeyChecking=no {}@{}",
-            password, port, username, target
-        );
-
-        // Get hostname
-        let hostname = self.ssh_exec(&ssh_base, "hostname").await?;
-
-        // Get OS info
-        let os_info = self.ssh_exec(&ssh_base, "uname -a && cat /etc/os-release").await?;
-
-        let (os_type, os_version) = self.parse_os_info(&os_info);
-
-        Ok(AuthenticatedScanResult {
-            authenticated: true,
-            hostname: hostname.trim().to_string(),
-            os_type,
-            os_version,
-            os_build: None,
-            patches_installed: Vec::new(),
-            patches_missing: Vec::new(),
-            last_patch_date: None,
-            configurations: Vec::new(),
-            misconfigurations: Vec::new(),
-            local_admins: Vec::new(),
-            sudo_users: Vec::new(),
-            privileged_accounts: Vec::new(),
-            ad_domain: None,
-            ad_groups: Vec::new(),
-            ad_policies: serde_json::json!({}),
-            services: Vec::new(),
-            vulnerabilities: Vec::new(),
-        })
-    }
-
-    /// Scan Windows via WMI
-    async fn scan_windows_wmi(
-        &self,
-        target: &str,
-        username: &str,
-        password: &str,
-    ) -> Result<AuthenticatedScanResult> {
-        // Use wmic or PowerShell remoting
-        // This is a placeholder - actual implementation would use Windows Management Instrumentation
-
-        info!("Scanning Windows system via WMI: {}", target);
-
-        // Get computer name
-        let hostname_cmd = format!(
-            "wmic /node:{} /user:{} /password:{} computersystem get name",
-            target, username, password
-        );
-
-        let hostname = self.exec_command(&hostname_cmd).await.unwrap_or_else(|_| target.to_string());
-
-        // Get OS info
-        let os_cmd = format!(
-            "wmic /node:{} /user:{} /password:{} os get Caption,Version",
-            target, username, password
-        );
-
-        let os_info = self.exec_command(&os_cmd).await.unwrap_or_default();
-
-        // Get installed updates
-        let updates_cmd = format!(
-            "wmic /node:{} /user:{} /password:{} qfe list",
-            target, username, password
-        );
-
-        let updates = self.exec_command(&updates_cmd).await.unwrap_or_default();
-
-        // Get local administrators
-        let admins_cmd = format!(
-            "wmic /node:{} /user:{} /password:{} group where name='Administrators' get",
-            target, username, password
-        );
-
-        let admins = self.exec_command(&admins_cmd).await.unwrap_or_default();
-
-        Ok(AuthenticatedScanResult {
-            authenticated: true,
-            hostname: hostname.trim().to_string(),
-            os_type: "windows".to_string(),
-            os_version: os_info.trim().to_string(),
-            os_build: None,
-            patches_installed: self.parse_windows_updates(&updates),
-            patches_missing: Vec::new(),
-            last_patch_date: None,
-            configurations: Vec::new(),
-            misconfigurations: Vec::new(),
-            local_admins: self.parse_windows_admins(&admins),
-            sudo_users: Vec::new(),
-            privileged_accounts: Vec::new(),
-            ad_domain: None,
-            ad_groups: Vec::new(),
-            ad_policies: serde_json::json!({}),
-            services: Vec::new(),
-            vulnerabilities: Vec::new(),
-        })
-    }
-
-    /// Execute SSH command
-    async fn ssh_exec(&self, ssh_base: &str, command: &str) -> Result<String> {
-        let full_command = format!("{} '{}'", ssh_base, command);
-
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(&full_command)
-            .output()
-            .context("Failed to execute SSH command")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Command failed: {}", stderr));
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    }
-
-    /// Execute generic command
-    async fn exec_command(&self, command: &str) -> Result<String> {
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .output()
-            .context("Failed to execute command")?;
-
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    }
-
     /// Write temporary SSH key file
-    fn write_temp_key(&self, key_content: &str) -> Result<std::path::PathBuf> {
+    fn write_temp_key(&self, key_content: &str) -> Result<PathBuf> {
         use std::io::Write;
 
         let temp_dir = std::env::temp_dir();
@@ -624,33 +557,6 @@ impl AuthenticatedScanner {
             .collect()
     }
 
-    /// Parse Windows updates
-    fn parse_windows_updates(&self, updates: &str) -> Vec<PatchInfo> {
-        updates
-            .lines()
-            .filter(|line| !line.trim().is_empty() && line.contains("KB"))
-            .map(|line| {
-                PatchInfo {
-                    id: line.trim().to_string(),
-                    name: line.trim().to_string(),
-                    severity: "info".to_string(),
-                    installed: true,
-                    install_date: None,
-                    description: None,
-                }
-            })
-            .collect()
-    }
-
-    /// Parse Windows administrators
-    fn parse_windows_admins(&self, admins: &str) -> Vec<String> {
-        admins
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| line.trim().to_string())
-            .collect()
-    }
-
     /// Parse running services
     fn parse_services(&self, services: &str) -> Vec<ServiceInfo> {
         services
@@ -660,7 +566,7 @@ impl AuthenticatedScanner {
             .map(|line| {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 ServiceInfo {
-                    name: parts.get(0).unwrap_or(&"unknown").to_string(),
+                    name: parts.first().unwrap_or(&"unknown").to_string(),
                     status: "running".to_string(),
                     version: None,
                     port: None,
@@ -687,5 +593,35 @@ mod tests {
         let (os_type, os_version) = scanner.parse_os_info(os_info);
         assert_eq!(os_type, "ubuntu");
         assert!(os_version.contains("22.04") || os_version.contains("Ubuntu"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_target() {
+        // Valid targets
+        assert!(AuthenticatedScanner::validate_target("example.com").is_ok());
+        assert!(AuthenticatedScanner::validate_target("192.168.1.1").is_ok());
+        assert!(AuthenticatedScanner::validate_target("host-name.example.com").is_ok());
+        assert!(AuthenticatedScanner::validate_target("192.168.1.1:22").is_ok());
+
+        // Invalid targets (potential injection)
+        assert!(AuthenticatedScanner::validate_target("host; rm -rf /").is_err());
+        assert!(AuthenticatedScanner::validate_target("host`whoami`").is_err());
+        assert!(AuthenticatedScanner::validate_target("host$(ls)").is_err());
+        assert!(AuthenticatedScanner::validate_target("host&& cat /etc/passwd").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_username() {
+        // Valid usernames
+        assert!(AuthenticatedScanner::validate_username("admin").is_ok());
+        assert!(AuthenticatedScanner::validate_username("user123").is_ok());
+        assert!(AuthenticatedScanner::validate_username("user_name").is_ok());
+        assert!(AuthenticatedScanner::validate_username("user-name").is_ok());
+
+        // Invalid usernames (potential injection)
+        assert!(AuthenticatedScanner::validate_username("user; whoami").is_err());
+        assert!(AuthenticatedScanner::validate_username("user`id`").is_err());
+        assert!(AuthenticatedScanner::validate_username("user$(pwd)").is_err());
+        assert!(AuthenticatedScanner::validate_username("user && ls").is_err());
     }
 }
