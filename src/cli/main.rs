@@ -147,10 +147,6 @@ enum Commands {
         /// Disable rate limiting entirely (use with caution!)
         #[arg(long)]
         no_rate_limit: bool,
-
-        /// Enable ultra mode (more thorough, slower)
-        #[arg(long)]
-        ultra: bool,
     },
 
     /// List available scanner modules
@@ -284,7 +280,6 @@ async fn async_main(cli: Cli) -> Result<()> {
             insecure,
             rate_limit,
             no_rate_limit,
-            ultra,
         } => {
             // Verify license AND authorize scan before proceeding
             // Ban check happens during authorization - banned users are blocked here
@@ -314,7 +309,6 @@ async fn async_main(cli: Cli) -> Result<()> {
                 insecure,
                 rate_limit,
                 no_rate_limit,
-                ultra,
                 license_status,
             )
             .await
@@ -553,7 +547,6 @@ async fn run_scan(
     _insecure: bool,
     rate_limit: u32,
     no_rate_limit: bool,
-    ultra: bool,
     license_status: LicenseStatus,
 ) -> Result<()> {
     // Check if killswitch is active
@@ -614,7 +607,7 @@ async fn run_scan(
         cache_ttl_secs: 300,
         dns_cache_enabled: true,
         subdomain_enum_enabled: subdomains,
-        subdomain_enum_thorough: ultra,
+        subdomain_enum_thorough: matches!(mode, ScanMode::Thorough | ScanMode::Insane),
         cdn_detection_enabled: true,
         early_termination_enabled: false,
         adaptive_concurrency_enabled: true,
@@ -660,7 +653,6 @@ async fn run_scan(
         // Build scan job
         let scan_config = ScanConfig {
             scan_mode: mode,
-            ultra,
             enable_crawler: crawl,
             max_depth,
             max_pages: 100,
@@ -1424,9 +1416,9 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
-    // Phase 8: Cloud & Container (if applicable)
-    if scan_config.ultra {
-        info!("Phase 8: Cloud & Container security (Ultra mode)");
+    // Phase 8: Cloud & Container (Thorough/Insane modes)
+    if scan_config.enable_cloud_scanning() {
+        info!("Phase 8: Cloud & Container security");
 
         // Cloud Storage
         info!("  - Testing Cloud Storage Misconfigurations");
@@ -2058,9 +2050,6 @@ timeout = 30
 
 # Rate limit (requests per second per target)
 rate_limit = 100
-
-# Enable ultra mode for more thorough scanning
-ultra = false
 
 # Enable subdomain enumeration
 subdomains = false

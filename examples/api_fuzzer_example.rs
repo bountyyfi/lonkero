@@ -59,7 +59,6 @@ async fn test_rest_api() -> anyhow::Result<()> {
     // Basic configuration
     let config = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 3,
         max_pages: 100,
@@ -99,7 +98,6 @@ async fn test_graphql_api() -> anyhow::Result<()> {
 
     let config = ScanConfig {
         scan_mode: "normal".to_string(),
-        ultra: true,
         enable_crawler: false,
         max_depth: 3,
         max_pages: 100,
@@ -114,7 +112,7 @@ async fn test_graphql_api() -> anyhow::Result<()> {
     let target = "https://countries.trevorblades.com/graphql";
 
     println!("  Target: {}", target);
-    println!("  Mode: {} (Ultra: {})", config.scan_mode, config.ultra);
+    println!("  Mode: {} (Cloud: {})", config.scan_mode, config.enable_cloud_scanning());
 
     let (vulnerabilities, tests_run) = fuzzer.scan(target, &config).await?;
 
@@ -151,7 +149,6 @@ async fn test_authentication() -> anyhow::Result<()> {
 
     let config = ScanConfig {
         scan_mode: "thorough".to_string(),
-        ultra: true,
         enable_crawler: false,
         max_depth: 3,
         max_pages: 100,
@@ -166,7 +163,7 @@ async fn test_authentication() -> anyhow::Result<()> {
     let target = "https://jsonplaceholder.typicode.com/users";
 
     println!("  Target: {}", target);
-    println!("  Mode: {} (Ultra: {})", config.scan_mode, config.ultra);
+    println!("  Mode: {} (Cloud: {})", config.scan_mode, config.enable_cloud_scanning());
     println!("  Authentication: Yes");
 
     let (vulnerabilities, tests_run) = fuzzer.scan(target, &config).await?;
@@ -213,7 +210,6 @@ async fn comprehensive_audit(target: &str) -> anyhow::Result<()> {
 
     let config = ScanConfig {
         scan_mode: "insane".to_string(), // Most thorough
-        ultra: true,
         enable_crawler: true, // Discover additional endpoints
         max_depth: 5,
         max_pages: 500,

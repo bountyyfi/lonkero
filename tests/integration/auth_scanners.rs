@@ -27,7 +27,6 @@ use wiremock::{
 fn create_scan_config() -> ScanConfig {
     ScanConfig {
         scan_mode: "thorough".to_string(),
-        ultra: true,
         enable_crawler: false,
         max_depth: 3,
         max_pages: 100,

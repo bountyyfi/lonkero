@@ -50,7 +50,6 @@ async fn test_xss_detection_workflow() {
 
     let config = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -196,7 +195,6 @@ async fn test_multiple_vulnerability_detection() {
 
     let config = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -235,7 +233,6 @@ async fn test_scan_with_error_handling() {
 
     let config = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -276,7 +273,6 @@ async fn test_post_body_scanning() {
 
     let config = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -300,7 +296,6 @@ async fn test_post_body_scanning() {
 async fn test_scan_modes_payload_count() {
     let config_fast = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -313,7 +308,6 @@ async fn test_scan_modes_payload_count() {
 
     let config_normal = ScanConfig {
         scan_mode: "normal".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -326,7 +320,6 @@ async fn test_scan_modes_payload_count() {
 
     let config_thorough = ScanConfig {
         scan_mode: "thorough".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -415,7 +408,6 @@ async fn test_vulnerability_false_positive_filtering() {
 
     let config = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
@@ -449,7 +441,6 @@ async fn test_concurrent_scanning() {
 
     let config = ScanConfig {
         scan_mode: "fast".to_string(),
-        ultra: false,
         enable_crawler: false,
         max_depth: 1,
         max_pages: 10,
