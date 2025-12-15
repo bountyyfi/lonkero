@@ -109,6 +109,9 @@ hmac = "0.12"
 sha2 = "0.10"
 blake3 = "1.5"
 
+# SSH client for secure authenticated scanning
+ssh2 = "0.9"
+
 # Hostname for hardware ID generation
 hostname = "0.4"
 

@@ -128,8 +128,67 @@ pub struct CustomTemplateExecutor {
 }
 
 impl CustomTemplateExecutor {
+    /// Allowed nuclei binary paths for security
+    const ALLOWED_BINARY_PATHS: &'static [&'static str] = &[
+        "nuclei",                    // Search in PATH
+        "/usr/bin/nuclei",          // Common Linux install
+        "/usr/local/bin/nuclei",    // Local Linux install
+        "/opt/nuclei/nuclei",       // Custom install location
+    ];
+
+    /// Validate nuclei binary path
+    fn validate_binary_path(path: &str) -> Result<String, String> {
+        // Check if path is in allowed list
+        if !Self::ALLOWED_BINARY_PATHS.contains(&path) {
+            return Err(format!(
+                "Binary path not allowed: {}. Allowed paths: {:?}",
+                path,
+                Self::ALLOWED_BINARY_PATHS
+            ));
+        }
+
+        // If it's just "nuclei", search in PATH
+        if path == "nuclei" {
+            return Ok(path.to_string());
+        }
+
+        // For absolute paths, verify the file exists and is executable
+        let binary_path = std::path::Path::new(path);
+        if !binary_path.exists() {
+            return Err(format!("Binary does not exist: {}", path));
+        }
+
+        // Verify it's actually the nuclei binary by checking version
+        match std::process::Command::new(path)
+            .arg("-version")
+            .output()
+        {
+            Ok(output) => {
+                let version_output = String::from_utf8_lossy(&output.stdout);
+                if !version_output.to_lowercase().contains("nuclei") {
+                    return Err(format!("Binary is not nuclei: {}", path));
+                }
+                Ok(path.to_string())
+            }
+            Err(e) => Err(format!("Failed to verify binary: {}", e)),
+        }
+    }
+
     pub fn new(nuclei_binary_path: Option<String>) -> Self {
-        let binary_path = nuclei_binary_path.unwrap_or_else(|| "nuclei".to_string());
+        let binary_path = if let Some(path) = nuclei_binary_path {
+            // Validate custom binary path
+            match Self::validate_binary_path(&path) {
+                Ok(validated_path) => validated_path,
+                Err(e) => {
+                    eprintln!("WARNING: Invalid nuclei binary path: {}", e);
+                    eprintln!("Falling back to default 'nuclei' in PATH");
+                    "nuclei".to_string()
+                }
+            }
+        } else {
+            "nuclei".to_string()
+        };
+
         let temp_dir = std::env::temp_dir().join("nuclei-custom-templates");
 
         // Create temp directory if it doesn't exist
