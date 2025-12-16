@@ -598,6 +598,66 @@ impl HttpClient {
 
         Err(last_error.unwrap().into())
     }
+
+    /// Send request with custom HTTP method (e.g., PURGE, OPTIONS, PATCH)
+    pub async fn request_with_method(&self, method: &str, url: &str) -> Result<HttpResponse> {
+        // Wait for rate limiter slot if enabled
+        if let Some(limiter) = &self.rate_limiter {
+            limiter.wait_for_slot(url).await?;
+        }
+
+        let mut attempts = 0;
+        let mut last_error = None;
+
+        while attempts <= self.max_retries {
+            let http_method = reqwest::Method::from_bytes(method.as_bytes())
+                .unwrap_or(reqwest::Method::GET);
+
+            match self.client.request(http_method, url).send().await {
+                Ok(response) => {
+                    let status = response.status();
+                    let status_code = status.as_u16();
+                    let response_headers = response.headers().clone();
+                    let response_body = response.text().await.unwrap_or_default();
+
+                    // Handle rate limiting responses
+                    if let Some(limiter) = &self.rate_limiter {
+                        if status_code == 429 || status_code == 503 {
+                            limiter.record_rate_limit(url, status_code).await;
+                            attempts += 1;
+                            continue;
+                        } else if status.is_success() {
+                            limiter.record_success(url).await;
+                        }
+                    }
+
+                    return Ok(HttpResponse {
+                        status_code,
+                        body: response_body,
+                        headers: response_headers
+                            .iter()
+                            .map(|(k, v)| {
+                                (
+                                    k.as_str().to_string(),
+                                    v.to_str().unwrap_or("").to_string(),
+                                )
+                            })
+                            .collect(),
+                        duration_ms: 0,
+                    });
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    attempts += 1;
+                    if attempts <= self.max_retries {
+                        tokio::time::sleep(Duration::from_millis(100 * attempts as u64)).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap().into())
+    }
 }
 
 #[derive(Debug, Clone)]
