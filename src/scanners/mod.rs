@@ -16,12 +16,12 @@ use crate::http_client::HttpClient;
 use crate::queue::RedisQueue;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use crate::subdomain_enum::SubdomainEnumerator;
-use crate::types::{ScanJob, ScanResults, Severity, Vulnerability};
+use crate::types::{ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub mod xss_detection;
 pub mod xss_enhanced;
@@ -525,7 +525,7 @@ impl ScanEngine {
                 if let Some(domain_str) = parsed_url.host_str() {
                     // Convert to owned String to avoid lifetime issues
                     let domain = domain_str.to_string();
-                    let thorough = self.config.subdomain_enum_thorough || config.ultra;
+                    let thorough = self.config.subdomain_enum_thorough || config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive;
 
                     match self.subdomain_enumerator.enumerate(&domain, thorough).await {
                         Ok(subdomains) => {
@@ -1348,8 +1348,8 @@ impl ScanEngine {
         }
 
         // Phase 3: Ultra mode - Additional attack vectors
-        if config.ultra {
-            info!("Ultra mode enabled - testing advanced attack vectors");
+        if config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive {
+            info!("Comprehensive/Aggressive mode enabled - testing advanced attack vectors");
 
             // Note: Time-based blind SQLi is now automatically included in the unified scanner
 

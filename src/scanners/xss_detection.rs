@@ -121,7 +121,7 @@ impl XssDetector {
         let bypass_detected = self.check_encoding_bypass(body, payload);
         if bypass_detected {
             detected = true;
-            confidence = (confidence + 0.3).min(1.0);
+            confidence = (confidence + 0.3_f32).min(1.0_f32);
             evidence.push("Encoding bypass detected".to_string());
         }
 

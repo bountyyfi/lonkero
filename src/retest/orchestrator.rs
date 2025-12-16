@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::http_client::HttpClient;
 use crate::scanners::{
-    sqli::SqliScanner,
+    sqli_enhanced::SqliScanner,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

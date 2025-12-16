@@ -17,7 +17,7 @@
  */
 
 use crate::http_client::HttpClient;
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::types::{Confidence, ScanConfig, ScanMode, Severity, Vulnerability};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -404,7 +404,7 @@ impl ApiFuzzerScanner {
         }
 
         // Integer overflow testing
-        if config.ultra {
+        if config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive {
             let overflow_payloads = vec![
                 json!({"id": "9223372036854775807"}), // Max int64
                 json!({"id": "18446744073709551615"}), // Max uint64
@@ -1251,7 +1251,7 @@ impl ApiFuzzerScanner {
             tests_run += tests;
 
             // Test token replay attacks
-            if config.ultra {
+            if config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive {
                 let (vulns, tests) = self.test_token_replay(&endpoint.url).await?;
                 vulnerabilities.extend(vulns);
                 tests_run += tests;

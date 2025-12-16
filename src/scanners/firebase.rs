@@ -141,12 +141,14 @@ impl FirebaseScanner {
         let mut firebase_configs = self.detect_firebase_config(url).await;
 
         // Get project ID (prioritize direct URL detection, then configs)
-        let project_id = direct_project_id.or_else(|| {
+        let project_id = if let Some(ref pid) = direct_project_id {
+            Some(pid.clone())
+        } else {
             firebase_configs
                 .iter()
                 .find(|c| c.project_id.is_some())
                 .and_then(|c| c.project_id.clone())
-        });
+        };
 
         // If we have a direct Firebase URL but no configs, create a placeholder
         if let Some(ref pid) = direct_project_id {

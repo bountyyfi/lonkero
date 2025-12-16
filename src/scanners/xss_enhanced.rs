@@ -148,19 +148,19 @@ impl EnhancedXssScanner {
                                     category: "Injection".to_string(),
                                     url: test_url.clone(),
                                     parameter: Some(parameter_owned.clone()),
-                                    payload: Some(payload.clone()),
+                                    payload: payload.clone(),
                                     description: format!(
                                         "XSS vulnerability in {} context. Evidence: {}",
                                         format!("{:?}", detection.context),
                                         detection.evidence.join(", ")
                                     ),
                                     evidence: Some(detection.evidence.join("\n")),
-                                    cwe: Some("CWE-79".to_string()),
-                                    cvss: Some(7.1),
+                                    cwe: "CWE-79".to_string(),
+                                    cvss: 7.1,
                                     verified: true,
                                     false_positive: false,
-                                    remediation: Some(self.get_remediation(&detection.context)),
-                                    discovered_at: Some(chrono::Utc::now().to_rfc3339()),
+                                    remediation: self.get_remediation(&detection.context),
+                                    discovered_at: chrono::Utc::now().to_rfc3339(),
                                 };
 
                                 info!(
@@ -252,19 +252,19 @@ impl EnhancedXssScanner {
                             category: "Injection".to_string(),
                             url: test_url.clone(),
                             parameter: Some(body_param_owned.clone()),
-                            payload: Some(payload.clone()),
+                            payload: payload.clone(),
                             description: format!(
                                 "XSS vulnerability in POST body ({}). Context: {:?}",
                                 if is_json { "JSON" } else { "Form" },
                                 detection.context
                             ),
                             evidence: Some(detection.evidence.join("\n")),
-                            cwe: Some("CWE-79".to_string()),
-                            cvss: Some(7.1),
+                            cwe: "CWE-79".to_string(),
+                            cvss: 7.1,
                             verified: true,
                             false_positive: false,
-                            remediation: Some(self.get_remediation(&detection.context)),
-                            discovered_at: Some(chrono::Utc::now().to_rfc3339()),
+                            remediation: self.get_remediation(&detection.context),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
                         };
 
                         info!(
@@ -444,7 +444,7 @@ impl EnhancedXssScanner {
                                 category: "Injection".to_string(),
                                 url: url.to_string(),
                                 parameter: Some(source.clone()),
-                                payload: Some(format!("#<img src=x onerror=alert(1)>")),
+                                payload: format!("#<img src=x onerror=alert(1)>"),
                                 description: format!(
                                     "Potential DOM-based XSS: data flows from {} to {}",
                                     source, sink
@@ -453,12 +453,12 @@ impl EnhancedXssScanner {
                                     "Found JavaScript code that reads from {} and writes to {}",
                                     source, sink
                                 )),
-                                cwe: Some("CWE-79".to_string()),
-                                cvss: Some(7.1),
+                                cwe: "CWE-79".to_string(),
+                                cvss: 7.1,
                                 verified: false, // Needs manual confirmation
                                 false_positive: false,
-                                remediation: Some("Sanitize data from DOM sources before using in DOM sinks. Use textContent instead of innerHTML.".to_string()),
-                                discovered_at: Some(chrono::Utc::now().to_rfc3339()),
+                                remediation: "Sanitize data from DOM sources before using in DOM sinks. Use textContent instead of innerHTML.".to_string(),
+                                discovered_at: chrono::Utc::now().to_rfc3339(),
                             };
 
                             info!("Potential DOM XSS: {} -> {}", source, sink);
@@ -521,18 +521,18 @@ impl EnhancedXssScanner {
                                 category: "Injection".to_string(),
                                 url: test_url.clone(),
                                 parameter: Some(header_name.to_string()),
-                                payload: Some(payload.clone()),
+                                payload: payload.clone(),
                                 description: format!(
                                     "XSS via {} header reflection",
                                     header_name
                                 ),
                                 evidence: Some(detection.evidence.join("\n")),
-                                cwe: Some("CWE-79".to_string()),
-                                cvss: Some(6.1),
+                                cwe: "CWE-79".to_string(),
+                                cvss: 6.1,
                                 verified: true,
                                 false_positive: false,
-                                remediation: Some("Sanitize and encode header values before reflection.".to_string()),
-                                discovered_at: Some(chrono::Utc::now().to_rfc3339()),
+                                remediation: "Sanitize and encode header values before reflection.".to_string(),
+                                discovered_at: chrono::Utc::now().to_rfc3339(),
                             };
 
                             info!("Header XSS in {}", header_name);
@@ -682,15 +682,15 @@ impl EnhancedXssScanner {
                             category: "Injection".to_string(),
                             url: test_url.clone(),
                             parameter: Some(parameter.to_string()),
-                            payload: Some(payload.to_string()),
+                            payload: payload.to_string(),
                             description: "XSS vulnerability via SVG vector".to_string(),
                             evidence: Some(detection.evidence.join("\n")),
-                            cwe: Some("CWE-79".to_string()),
-                            cvss: Some(7.1),
+                            cwe: "CWE-79".to_string(),
+                            cvss: 7.1,
                             verified: true,
                             false_positive: false,
-                            remediation: Some("Sanitize SVG content. Disable inline SVG if not needed.".to_string()),
-                            discovered_at: Some(chrono::Utc::now().to_rfc3339()),
+                            remediation: "Sanitize SVG content. Disable inline SVG if not needed.".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
                         };
 
                         info!("SVG XSS detected in parameter '{}'", parameter);
