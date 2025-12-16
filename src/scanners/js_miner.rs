@@ -25,6 +25,12 @@ pub struct JsMinerResults {
     pub form_actions: HashSet<String>,
     /// GraphQL endpoints
     pub graphql_endpoints: HashSet<String>,
+    /// Discovered S3 bucket URLs (for automatic scanning)
+    pub s3_buckets: HashSet<String>,
+    /// Discovered Azure Blob Storage URLs
+    pub azure_blobs: HashSet<String>,
+    /// Discovered GCS bucket URLs
+    pub gcs_buckets: HashSet<String>,
 }
 
 impl JsMinerResults {
@@ -36,6 +42,9 @@ impl JsMinerResults {
             parameters: HashMap::new(),
             form_actions: HashSet::new(),
             graphql_endpoints: HashSet::new(),
+            s3_buckets: HashSet::new(),
+            azure_blobs: HashSet::new(),
+            gcs_buckets: HashSet::new(),
         }
     }
 }
@@ -384,6 +393,62 @@ impl JsMinerScanner {
                     let url_str = url.as_str().to_string();
                     if !Self::is_documentation_url(&url_str) {
                         results.graphql_endpoints.insert(url_str);
+                    }
+                }
+            }
+        }
+
+        // Extract S3 bucket URLs (multiple patterns)
+        let s3_patterns = [
+            // Virtual-hosted style: bucket.s3.region.amazonaws.com
+            r#"["'`](https?://([a-z0-9][a-z0-9\-]{1,61}[a-z0-9])\.s3[\.-]([a-z0-9\-]+)\.amazonaws\.com[^"'`]*)"#,
+            // Virtual-hosted style (no region): bucket.s3.amazonaws.com
+            r#"["'`](https?://([a-z0-9][a-z0-9\-]{1,61}[a-z0-9])\.s3\.amazonaws\.com[^"'`]*)"#,
+            // Path-style: s3.region.amazonaws.com/bucket
+            r#"["'`](https?://s3[\.-]([a-z0-9\-]+)\.amazonaws\.com/([a-z0-9][a-z0-9\-]{1,61}[a-z0-9])[^"'`]*)"#,
+            // S3 subdomain patterns
+            r#"["'`](https?://s3\.amazonaws\.com/([a-z0-9][a-z0-9\-]{1,61}[a-z0-9])[^"'`]*)"#,
+        ];
+
+        for pattern in &s3_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(url) = cap.get(1) {
+                        let url_str = url.as_str().to_string();
+                        results.s3_buckets.insert(url_str);
+                    }
+                }
+            }
+        }
+
+        // Extract Azure Blob Storage URLs
+        let azure_patterns = [
+            r#"["'`](https?://([a-z0-9]+)\.blob\.core\.windows\.net[^"'`]*)"#,
+        ];
+
+        for pattern in &azure_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(url) = cap.get(1) {
+                        let url_str = url.as_str().to_string();
+                        results.azure_blobs.insert(url_str);
+                    }
+                }
+            }
+        }
+
+        // Extract Google Cloud Storage URLs
+        let gcs_patterns = [
+            r#"["'`](https?://storage\.googleapis\.com/([a-z0-9][a-z0-9_\-\.]{1,61}[a-z0-9])[^"'`]*)"#,
+            r#"["'`](https?://storage\.cloud\.google\.com/([a-z0-9][a-z0-9_\-\.]{1,61}[a-z0-9])[^"'`]*)"#,
+        ];
+
+        for pattern in &gcs_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(url) = cap.get(1) {
+                        let url_str = url.as_str().to_string();
+                        results.gcs_buckets.insert(url_str);
                     }
                 }
             }

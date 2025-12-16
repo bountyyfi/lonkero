@@ -251,46 +251,110 @@ impl CloudStorageScanner {
             Err(_) => {}
         }
 
-        // Test 2: Common sensitive file paths
+        // Test 2: Advanced sensitive file paths - really comprehensive list
         let sensitive_paths = vec![
-            ".git/config",
-            ".env",
-            "backup.sql",
-            "database.sql",
-            "config.php",
-            "wp-config.php",
-            ".aws/credentials",
-            "id_rsa",
-            "secrets.json",
-            "credentials.json",
-            "api-keys.json",
-            "firebase.json",
-            ".htpasswd",
-            "private.key",
-            "server.key",
+            // Git files
+            ".git/config", ".git/HEAD", ".git/index", ".git/logs/HEAD", ".gitignore",
+            ".github/workflows/deploy.yml", ".github/workflows/ci.yml",
+            // Environment & Config
+            ".env", ".env.local", ".env.production", ".env.backup", "config.json",
+            "config.php", "wp-config.php", "settings.py", "config.yml", "application.properties",
+            // AWS & Cloud Credentials
+            ".aws/credentials", ".aws/config", "aws.json", "credentials.json", "secrets.json",
+            "api-keys.json", "firebase.json", ".firebase",
+            // SSH & Crypto Keys
+            "id_rsa", "id_rsa.pub", "id_dsa", "id_ecdsa", "id_ed25519",
+            "private.key", "server.key", "privatekey.pem", ".ssh/id_rsa", ".ssh/authorized_keys",
+            // Database Files
+            "backup.sql", "database.sql", "dump.sql", "db.sql", "database.db",
+            "database.sqlite", "database.sqlite3", "db.sqlite", "data.db",
+            // Backup & Archive Files
+            "backup.zip", "backup.tar.gz", "backup.tar", "site-backup.zip", "backup.7z",
+            "dump.tar.gz", "www.zip", "site.tar.gz", "prod-backup.zip",
+            // Web Configs
+            ".htaccess", ".htpasswd", "web.config", "httpd.conf", "nginx.conf",
+            // Docker & Container
+            "docker-compose.yml", "Dockerfile", ".dockerignore",
+            // Package Managers
+            "package.json", "package-lock.json", "composer.json", "composer.lock",
+            "Gemfile", "Gemfile.lock", "requirements.txt", "yarn.lock",
+            // API Documentation
+            "swagger.json", "openapi.json", "postman_collection.json",
+            // Laravel specific
+            ".env.example", "storage/logs/laravel.log",
+            // WordPress
+            "wp-config-sample.php", "wp-content/debug.log",
+            // Terraform & IaC
+            "terraform.tfstate", "terraform.tfvars", ".terraform/",
+            // CI/CD
+            ".travis.yml", ".gitlab-ci.yml", "Jenkinsfile", "circle.yml", ".circleci/config.yml",
         ];
 
-        for path in sensitive_paths.iter().take(10) {
+        // Test first 25 most critical patterns
+        for path in sensitive_paths.iter().take(25) {
             tests_run += 1;
             let test_url = format!("{}/{}", bucket_url, path);
 
-            // Use GET to check if file exists (HEAD not available)
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     if response.status_code >= 200 && response.status_code < 300 {
                         let file_size = response.body.len();
-                        vulnerabilities.push(self.create_vulnerability_with_evidence(
-                            "Exposed Sensitive File in S3",
-                            &test_url,
-                            &format!("Sensitive file '{}' is publicly accessible in bucket '{}'. File size: {} bytes", path, bucket_name, file_size),
-                            Severity::Critical,
-                            "CWE-538",
-                            format!("Bucket: {}\nRegion: {}\nFile: {}\nStatus: {}\nSize: {} bytes",
-                                    bucket_name, region, path, response.status_code, file_size),
-                        ));
+
+                        // Check for actual content (not empty or error pages)
+                        if file_size > 0 && !response.body.contains("<Error>") {
+                            let severity = if path.contains("credentials") || path.contains("secret") ||
+                                           path.contains("key") || path.contains(".env") {
+                                Severity::Critical
+                            } else if path.contains("backup") || path.contains("dump") ||
+                                     path.contains("database") {
+                                Severity::Critical
+                            } else {
+                                Severity::High
+                            };
+
+                            vulnerabilities.push(self.create_vulnerability_with_evidence(
+                                "Exposed Sensitive File in S3",
+                                &test_url,
+                                &format!("Sensitive file '{}' is publicly accessible. File size: {} bytes",
+                                        path, file_size),
+                                severity,
+                                "CWE-538",
+                                format!("Bucket: {}\nRegion: {}\nFile: {}\nStatus: {}\nSize: {} bytes",
+                                        bucket_name, region, path, response.status_code, file_size),
+                            ));
+                        }
                     }
                 }
                 Err(_) => {}
+            }
+        }
+
+        // Test dated backup files (pattern: backup-YYYY-MM-DD.sql)
+        let current_year = chrono::Utc::now().year();
+        for year in (current_year - 2)..=current_year {
+            for month in [1, 6, 12] {
+                tests_run += 1;
+                let dated_backup = format!("backup-{}-{:02}-01.sql", year, month);
+                let test_url = format!("{}/{}", bucket_url, dated_backup);
+
+                match self.http_client.get(&test_url).await {
+                    Ok(response) => {
+                        if response.status_code >= 200 && response.status_code < 300 &&
+                           response.body.len() > 1000 {
+                            vulnerabilities.push(self.create_vulnerability_with_evidence(
+                                "Exposed Database Backup in S3",
+                                &test_url,
+                                &format!("Dated database backup '{}' is publicly accessible", dated_backup),
+                                Severity::Critical,
+                                "CWE-538",
+                                format!("Bucket: {}\nRegion: {}\nFile: {}\nSize: {} bytes",
+                                        bucket_name, region, dated_backup, response.body.len()),
+                            ));
+                            break; // Found one
+                        }
+                    }
+                    Err(_) => {}
+                }
             }
         }
 
