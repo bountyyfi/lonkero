@@ -40,6 +40,7 @@ pub enum TechCategory {
     WAF,
     LoadBalancer,
     Database,
+    ApiGateway,
     Other,
 }
 
@@ -212,6 +213,8 @@ impl FrameworkDetector {
                 ("caddy", "Caddy", TechCategory::Server, None),
                 ("lighttpd", "Lighttpd", TechCategory::Server, Some("lighttpd/")),
                 ("openresty", "OpenResty", TechCategory::Server, None),
+                ("tomcat", "Apache Tomcat", TechCategory::Server, Some("tomcat/")),
+                ("coyote", "Apache Tomcat (Coyote)", TechCategory::Server, None),
             ];
 
             for (pattern, name, category, version_prefix) in server_patterns {
@@ -231,21 +234,44 @@ impl FrameworkDetector {
         }
 
         let header_detections = vec![
+            // CDNs
             ("cf-ray", "Cloudflare", TechCategory::CDN, Confidence::High),
             ("cf-cache-status", "Cloudflare", TechCategory::CDN, Confidence::High),
             ("x-amz-cf-id", "Amazon CloudFront", TechCategory::CDN, Confidence::High),
             ("x-amz-cf-pop", "Amazon CloudFront", TechCategory::CDN, Confidence::High),
             ("x-akamai-transformed", "Akamai", TechCategory::CDN, Confidence::High),
-            ("x-vercel-id", "Vercel", TechCategory::CloudProvider, Confidence::High),
-            ("x-vercel-cache", "Vercel", TechCategory::CloudProvider, Confidence::High),
-            ("x-nf-request-id", "Netlify", TechCategory::CloudProvider, Confidence::High),
             ("x-fastly-request-id", "Fastly", TechCategory::CDN, Confidence::High),
             ("x-cdn", "Generic CDN", TechCategory::CDN, Confidence::Medium),
             ("x-azure-ref", "Azure CDN", TechCategory::CDN, Confidence::High),
+            ("x-bunny-cache", "Bunny CDN", TechCategory::CDN, Confidence::High),
+            ("bunny-cache-status", "Bunny CDN", TechCategory::CDN, Confidence::High),
+            ("cdn-pullzone", "Bunny CDN", TechCategory::CDN, Confidence::High),
+            ("x-keycdn-cache-status", "KeyCDN", TechCategory::CDN, Confidence::High),
+            ("x-sp-cache-status", "StackPath", TechCategory::CDN, Confidence::High),
+            ("x-sp-server", "StackPath", TechCategory::CDN, Confidence::High),
+            // Cloud providers
+            ("x-vercel-id", "Vercel", TechCategory::CloudProvider, Confidence::High),
+            ("x-vercel-cache", "Vercel", TechCategory::CloudProvider, Confidence::High),
+            ("x-nf-request-id", "Netlify", TechCategory::CloudProvider, Confidence::High),
             ("x-github-request-id", "GitHub", TechCategory::CloudProvider, Confidence::High),
             ("x-heroku-queue-wait-time", "Heroku", TechCategory::CloudProvider, Confidence::High),
             ("fly-request-id", "Fly.io", TechCategory::CloudProvider, Confidence::High),
             ("x-render-origin-server", "Render", TechCategory::CloudProvider, Confidence::High),
+            // API Gateways
+            ("x-kong-request-id", "Kong", TechCategory::ApiGateway, Confidence::High),
+            ("x-kong-upstream-latency", "Kong", TechCategory::ApiGateway, Confidence::High),
+            ("x-kong-proxy-latency", "Kong", TechCategory::ApiGateway, Confidence::High),
+            ("kong-request-id", "Kong", TechCategory::ApiGateway, Confidence::High),
+            ("x-tyk-request-id", "Tyk", TechCategory::ApiGateway, Confidence::High),
+            ("x-ratelimit-remaining", "Tyk", TechCategory::ApiGateway, Confidence::Medium),
+            ("x-amzn-requestid", "AWS API Gateway", TechCategory::ApiGateway, Confidence::High),
+            ("x-amz-apigw-id", "AWS API Gateway", TechCategory::ApiGateway, Confidence::High),
+            ("x-amzn-trace-id", "AWS API Gateway", TechCategory::ApiGateway, Confidence::Medium),
+            ("x-ms-request-id", "Azure API Management", TechCategory::ApiGateway, Confidence::High),
+            ("ocp-apim-subscription-key", "Azure API Management", TechCategory::ApiGateway, Confidence::High),
+            ("apim-request-id", "Azure API Management", TechCategory::ApiGateway, Confidence::High),
+            ("x-goog-api-client", "Google Cloud Endpoints", TechCategory::ApiGateway, Confidence::High),
+            ("x-apigee-request-id", "Apigee", TechCategory::ApiGateway, Confidence::High),
         ];
 
         for (header, name, category, confidence) in header_detections {
@@ -274,6 +300,25 @@ impl FrameworkDetector {
                 ("rails", "Ruby on Rails", TechCategory::Framework, None),
                 ("laravel", "Laravel", TechCategory::Framework, None),
                 ("symfony", "Symfony", TechCategory::Framework, None),
+                // Python frameworks
+                ("flask", "Flask", TechCategory::Framework, None),
+                ("fastapi", "FastAPI", TechCategory::Framework, None),
+                ("tornado", "Tornado", TechCategory::Framework, None),
+                ("starlette", "Starlette", TechCategory::Framework, None),
+                ("uvicorn", "Uvicorn", TechCategory::Server, None),
+                ("gunicorn", "Gunicorn", TechCategory::Server, None),
+                // Go frameworks
+                ("gin", "Gin", TechCategory::Framework, None),
+                ("echo", "Echo", TechCategory::Framework, None),
+                ("fiber", "Fiber", TechCategory::Framework, None),
+                ("chi", "Chi", TechCategory::Framework, None),
+                ("gorilla", "Gorilla", TechCategory::Framework, None),
+                // Rust frameworks
+                ("actix", "Actix Web", TechCategory::Framework, None),
+                ("rocket", "Rocket", TechCategory::Framework, None),
+                ("axum", "Axum", TechCategory::Framework, None),
+                ("warp", "Warp", TechCategory::Framework, None),
+                ("hyper", "Hyper", TechCategory::Server, None),
             ];
 
             for (pattern, name, category, version_prefix) in powered_by_patterns {
@@ -397,6 +442,19 @@ impl FrameworkDetector {
             ("__remix", "Remix", TechCategory::Framework, Confidence::High),
             ("__svelte", "SvelteKit", TechCategory::Framework, Confidence::High),
             ("__astro", "Astro", TechCategory::Framework, Confidence::High),
+            // Modern JS Frameworks
+            ("__qwik", "Qwik", TechCategory::Framework, Confidence::High),
+            ("q:container", "Qwik", TechCategory::Framework, Confidence::High),
+            ("qwik", "Qwik", TechCategory::Framework, Confidence::Medium),
+            ("_solid", "Solid.js", TechCategory::Framework, Confidence::High),
+            ("solid-js", "Solid.js", TechCategory::Framework, Confidence::High),
+            ("data-hk", "Solid.js", TechCategory::Framework, Confidence::Medium),
+            ("__preact", "Preact", TechCategory::Framework, Confidence::High),
+            ("preact", "Preact", TechCategory::Framework, Confidence::Medium),
+            ("__fresh", "Fresh", TechCategory::Framework, Confidence::High),
+            ("_frsh", "Fresh", TechCategory::Framework, Confidence::High),
+            ("__hono", "Hono", TechCategory::Framework, Confidence::High),
+            ("hono", "Hono", TechCategory::Framework, Confidence::Low),
             ("data-reactroot", "React", TechCategory::JavaScript, Confidence::High),
             ("data-react-helmet", "React", TechCategory::JavaScript, Confidence::High),
             ("__react", "React", TechCategory::JavaScript, Confidence::Medium),

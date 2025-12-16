@@ -34,6 +34,34 @@ Web scanner built for actual pentests. Fast, modular, Rust.
 
 ## What's New in v2.0
 
+### Expanded Technology Detection
+Lonkero now detects **80+ technologies** including:
+
+**Servers**
+- Apache Tomcat, Nginx, Apache, IIS, LiteSpeed, Caddy, OpenResty
+
+**Modern JavaScript Frameworks**
+- Qwik, Solid.js, Preact, Fresh, Hono
+- Next.js, Nuxt.js, Remix, SvelteKit, Astro, Gatsby
+
+**Backend Frameworks**
+- **Python**: Flask, FastAPI, Tornado, Starlette, Django
+- **Go**: Gin, Echo, Fiber, Chi, Gorilla
+- **Rust**: Actix Web, Rocket, Axum, Warp
+- **Node.js**: Express, Hono
+- **PHP**: Laravel, Symfony
+- **Ruby**: Ruby on Rails
+
+**CDNs & Edge Networks**
+- Cloudflare, Fastly, Akamai, CloudFront
+- Bunny CDN, KeyCDN, StackPath
+- Azure CDN, Google Cloud CDN
+
+**API Gateways**
+- Kong, Tyk, Apigee
+- AWS API Gateway, Azure API Management
+- Google Cloud Endpoints
+
 ### Enhanced Cloud Storage Security
 - **Auto-Detection**: Automatically detects and scans S3, Azure Blob, and GCS URLs found during scans
 - **Advanced Payloads**: 90+ sensitive file patterns including:
@@ -56,7 +84,7 @@ Web scanner built for actual pentests. Fast, modular, Rust.
 ## Features
 
 - **64+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
-- **Technology-Aware** - Detects frameworks and runs relevant tests only
+- **Technology-Aware** - Detects 80+ frameworks, CDNs, API gateways and runs relevant tests only
 - **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling
 - **Low False Positives** - Evidence-based detection with baseline comparison
 - **Multiple Output Formats** - JSON, HTML, SARIF, Markdown, CSV, XLSX, JUnit
@@ -133,7 +161,12 @@ Lonkero executes scans in multiple phases:
 ### Phase 0: Reconnaissance
 1. **Web Crawling** - Discovers URLs, forms, and input fields
 2. **JavaScript Mining** - Extracts API endpoints, parameters, and secrets from JS files
-3. **Technology Detection** - Identifies frameworks (Next.js, React, PHP, Django, etc.)
+3. **Technology Detection** - Identifies 80+ technologies:
+   - Servers: Apache Tomcat, Nginx, IIS, LiteSpeed
+   - JS Frameworks: Next.js, React, Vue, Angular, Qwik, Solid.js, Preact, Fresh, Hono
+   - Backend: Flask, FastAPI, Gin, Fiber, Actix, Rocket, Django, Rails, Laravel
+   - CDNs: Cloudflare, Fastly, Akamai, Bunny CDN, KeyCDN, StackPath
+   - API Gateways: Kong, Tyk, AWS API Gateway, Azure API Management
 
 ### Phase 1: Parameter Injection Testing
 Tests discovered parameters for:
