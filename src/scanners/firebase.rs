@@ -1206,8 +1206,8 @@ mod tests {
     fn test_firebase_api_key_pattern() {
         let pattern = Regex::new(r#"AIza[0-9A-Za-z\-_]{35}"#).unwrap();
 
-        // Valid Firebase API key
-        assert!(pattern.is_match("AIzaSyB0sQji446z_60MwtHZAEGPfuHNVqYVJp0"));
+        // Valid Firebase API key format (mock key, not real)
+        assert!(pattern.is_match("AIzaXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxX"));
 
         // Invalid patterns
         assert!(!pattern.is_match("AIza123")); // Too short
@@ -1219,9 +1219,9 @@ mod tests {
         let html = r#"
         <script>
         var firebaseConfig = {
-            apiKey: "AIzaSyB0sQji446z_60MwtHZAEGPfuHNVqYVJp0",
-            authDomain: "test-project.firebaseapp.com",
-            projectId: "test-project"
+            apiKey: "AIzaXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxX",
+            authDomain: "example-project.firebaseapp.com",
+            projectId: "example-project"
         };
         </script>
         "#;
@@ -1231,6 +1231,6 @@ mod tests {
 
         let project_pattern = Regex::new(r#"(?i)projectId["']?\s*:\s*["']?([a-z0-9\-]+)["']?"#).unwrap();
         let cap = project_pattern.captures(html).unwrap();
-        assert_eq!(cap.get(1).unwrap().as_str(), "test-project");
+        assert_eq!(cap.get(1).unwrap().as_str(), "example-project");
     }
 }
