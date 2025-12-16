@@ -11,7 +11,9 @@
 
 use crate::http_client::{HttpClient, HttpResponse};
 use anyhow::Result;
-use std::collections::HashSet;
+use regex::Regex;
+use scraper::{Html, Selector};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -21,6 +23,7 @@ pub struct DetectedTechnology {
     pub category: TechCategory,
     pub version: Option<String>,
     pub confidence: Confidence,
+    pub evidence: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -34,10 +37,13 @@ pub enum TechCategory {
     Analytics,
     JavaScript,
     CSS,
+    WAF,
+    LoadBalancer,
+    Database,
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Confidence {
     High,
     Medium,
@@ -46,126 +52,143 @@ pub enum Confidence {
 
 pub struct FrameworkDetector {
     http_client: Arc<HttpClient>,
+    patterns: DetectionPatterns,
+}
+
+struct DetectionPatterns {
+    header_patterns: HashMap<String, Vec<TechSignature>>,
+    body_patterns: Vec<TechSignature>,
+    url_patterns: Vec<TechSignature>,
+    meta_patterns: Vec<TechSignature>,
+    cookie_patterns: Vec<TechSignature>,
+}
+
+#[derive(Clone)]
+struct TechSignature {
+    name: String,
+    category: TechCategory,
+    pattern: String,
+    version_regex: Option<String>,
+    confidence: Confidence,
 }
 
 impl FrameworkDetector {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        Self {
+            http_client,
+            patterns: DetectionPatterns::default(),
+        }
     }
 
-    /// Detect all technologies used by a website
     pub async fn detect(&self, url: &str) -> Result<HashSet<DetectedTechnology>> {
         info!("Detecting technologies for: {}", url);
 
         let mut detected = HashSet::new();
 
-        // URL-based detection (works even if blocked or unreachable)
         detected.extend(self.detect_from_url(url));
 
-        // Try to fetch the main page - but don't fail if unreachable
         match self.http_client.get(url).await {
             Ok(response) => {
-                // Detect from blocked responses (403, 503, etc)
                 detected.extend(self.detect_from_blocked_response(&response));
-
-                // Header-based detection
                 detected.extend(self.detect_from_headers(&response));
 
-                // HTML-based detection (only if we got content)
                 if response.status_code == 200 {
                     detected.extend(self.detect_from_html(&response));
+                    detected.extend(self.detect_from_meta_tags(&response));
                     detected.extend(self.detect_from_scripts(&response));
                     detected.extend(self.detect_from_cookies(&response));
+                    detected.extend(self.detect_from_favicon(url).await);
                 }
             }
             Err(e) => {
                 debug!("Could not fetch {} for technology detection: {}", url, e);
-                // Continue with URL-based detections only
             }
         }
 
         info!("[SUCCESS] Detected {} technologies", detected.len());
         for tech in &detected {
-            debug!("  - {} ({:?})", tech.name, tech.category);
+            debug!("  - {} ({:?}) - Confidence: {:?}", tech.name, tech.category, tech.confidence);
         }
 
         Ok(detected)
     }
 
-    /// Detect from URL patterns (works even when site blocks us)
     fn detect_from_url(&self, url: &str) -> HashSet<DetectedTechnology> {
         let mut detected = HashSet::new();
         let url_lower = url.to_lowercase();
 
-        // Cloudflare Pages
-        if url_lower.contains("pages.dev") {
-            detected.insert(DetectedTechnology {
-                name: "Cloudflare Pages".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
+        let url_patterns = vec![
+            ("pages.dev", "Cloudflare Pages", TechCategory::CloudProvider),
+            ("vercel.app", "Vercel", TechCategory::CloudProvider),
+            ("netlify.app", "Netlify", TechCategory::CloudProvider),
+            ("netlify.com", "Netlify", TechCategory::CloudProvider),
+            ("herokuapp.com", "Heroku", TechCategory::CloudProvider),
+            ("azurewebsites.net", "Azure App Service", TechCategory::CloudProvider),
+            ("azurestaticapps.net", "Azure Static Web Apps", TechCategory::CloudProvider),
+            ("s3.amazonaws.com", "Amazon S3", TechCategory::CloudProvider),
+            ("s3-website", "Amazon S3", TechCategory::CloudProvider),
+            ("firebaseapp.com", "Firebase Hosting", TechCategory::CloudProvider),
+            ("web.app", "Firebase Hosting", TechCategory::CloudProvider),
+            ("github.io", "GitHub Pages", TechCategory::CloudProvider),
+            ("gitlab.io", "GitLab Pages", TechCategory::CloudProvider),
+            ("surge.sh", "Surge.sh", TechCategory::CloudProvider),
+            ("render.com", "Render", TechCategory::CloudProvider),
+            ("fly.dev", "Fly.io", TechCategory::CloudProvider),
+            ("railway.app", "Railway", TechCategory::CloudProvider),
+        ];
 
-        // Vercel
-        if url_lower.contains("vercel.app") {
-            detected.insert(DetectedTechnology {
-                name: "Vercel".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // Netlify
-        if url_lower.contains("netlify.app") || url_lower.contains("netlify.com") {
-            detected.insert(DetectedTechnology {
-                name: "Netlify".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // AWS S3
-        if url_lower.contains("s3.amazonaws.com") || url_lower.contains(".s3-website") {
-            detected.insert(DetectedTechnology {
-                name: "Amazon S3".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
+        for (pattern, name, category) in url_patterns {
+            if url_lower.contains(pattern) {
+                detected.insert(DetectedTechnology {
+                    name: name.to_string(),
+                    category,
+                    version: None,
+                    confidence: Confidence::High,
+                    evidence: vec![format!("URL contains: {}", pattern)],
+                });
+            }
         }
 
         detected
     }
 
-    /// Detect from blocked/error responses
     fn detect_from_blocked_response(&self, response: &HttpResponse) -> HashSet<DetectedTechnology> {
         let mut detected = HashSet::new();
 
-        // Cloudflare block detection
         if response.status_code == 403 || response.status_code == 503 {
             let body_lower = response.body.to_lowercase();
 
-            if body_lower.contains("access denied")
-                || body_lower.contains("cloudflare")
-                || body_lower.contains("cf-ray") {
-                detected.insert(DetectedTechnology {
-                    name: "Cloudflare".to_string(),
-                    category: TechCategory::CDN,
-                    version: None,
-                    confidence: Confidence::High,
-                });
+            let waf_signatures = vec![
+                ("cloudflare", "Cloudflare WAF", TechCategory::WAF),
+                ("access denied", "Cloudflare", TechCategory::CDN),
+                ("cf-ray", "Cloudflare", TechCategory::CDN),
+                ("akamai", "Akamai WAF", TechCategory::WAF),
+                ("incapsula", "Imperva Incapsula", TechCategory::WAF),
+                ("wordfence", "Wordfence", TechCategory::WAF),
+                ("sucuri", "Sucuri WAF", TechCategory::WAF),
+                ("mod_security", "ModSecurity", TechCategory::WAF),
+                ("aws waf", "AWS WAF", TechCategory::WAF),
+            ];
+
+            for (pattern, name, category) in waf_signatures {
+                if body_lower.contains(pattern) {
+                    detected.insert(DetectedTechnology {
+                        name: name.to_string(),
+                        category,
+                        version: None,
+                        confidence: Confidence::High,
+                        evidence: vec![format!("Block page contains: {}", pattern)],
+                    });
+                }
             }
 
-            // Check for Cloudflare Ray ID in headers even on 403
             if response.header("cf-ray").is_some() {
                 detected.insert(DetectedTechnology {
                     name: "Cloudflare".to_string(),
                     category: TechCategory::CDN,
                     version: None,
                     confidence: Confidence::High,
+                    evidence: vec!["CF-Ray header present on 403".to_string()],
                 });
             }
         }
@@ -173,120 +196,187 @@ impl FrameworkDetector {
         detected
     }
 
-    /// Detect technologies from HTTP headers
     fn detect_from_headers(&self, response: &HttpResponse) -> HashSet<DetectedTechnology> {
         let mut detected = HashSet::new();
 
-        // Server header
         if let Some(server) = response.header("server") {
             let server_lower = server.to_lowercase();
+            let mut evidence = vec![format!("Server: {}", server)];
 
-            if server_lower.contains("nginx") {
-                detected.insert(DetectedTechnology {
-                    name: "Nginx".to_string(),
-                    category: TechCategory::Server,
-                    version: self.extract_version(&server_lower, "nginx/"),
-                    confidence: Confidence::High,
-                });
+            let server_patterns = vec![
+                ("nginx", "Nginx", TechCategory::Server, Some("nginx/")),
+                ("apache", "Apache", TechCategory::Server, Some("apache/")),
+                ("cloudflare", "Cloudflare", TechCategory::CDN, None),
+                ("microsoft-iis", "Microsoft IIS", TechCategory::Server, Some("microsoft-iis/")),
+                ("litespeed", "LiteSpeed", TechCategory::Server, Some("litespeed/")),
+                ("caddy", "Caddy", TechCategory::Server, None),
+                ("lighttpd", "Lighttpd", TechCategory::Server, Some("lighttpd/")),
+                ("openresty", "OpenResty", TechCategory::Server, None),
+            ];
+
+            for (pattern, name, category, version_prefix) in server_patterns {
+                if server_lower.contains(pattern) {
+                    let version = version_prefix.and_then(|prefix| {
+                        self.extract_version(&server_lower, prefix)
+                    });
+                    detected.insert(DetectedTechnology {
+                        name: name.to_string(),
+                        category,
+                        version,
+                        confidence: Confidence::High,
+                        evidence: evidence.clone(),
+                    });
+                }
             }
+        }
 
-            if server_lower.contains("apache") {
-                detected.insert(DetectedTechnology {
-                    name: "Apache".to_string(),
-                    category: TechCategory::Server,
-                    version: self.extract_version(&server_lower, "apache/"),
-                    confidence: Confidence::High,
-                });
-            }
+        let header_detections = vec![
+            ("cf-ray", "Cloudflare", TechCategory::CDN, Confidence::High),
+            ("cf-cache-status", "Cloudflare", TechCategory::CDN, Confidence::High),
+            ("x-amz-cf-id", "Amazon CloudFront", TechCategory::CDN, Confidence::High),
+            ("x-amz-cf-pop", "Amazon CloudFront", TechCategory::CDN, Confidence::High),
+            ("x-akamai-transformed", "Akamai", TechCategory::CDN, Confidence::High),
+            ("x-vercel-id", "Vercel", TechCategory::CloudProvider, Confidence::High),
+            ("x-vercel-cache", "Vercel", TechCategory::CloudProvider, Confidence::High),
+            ("x-nf-request-id", "Netlify", TechCategory::CloudProvider, Confidence::High),
+            ("x-fastly-request-id", "Fastly", TechCategory::CDN, Confidence::High),
+            ("x-cdn", "Generic CDN", TechCategory::CDN, Confidence::Medium),
+            ("x-azure-ref", "Azure CDN", TechCategory::CDN, Confidence::High),
+            ("x-github-request-id", "GitHub", TechCategory::CloudProvider, Confidence::High),
+            ("x-heroku-queue-wait-time", "Heroku", TechCategory::CloudProvider, Confidence::High),
+            ("fly-request-id", "Fly.io", TechCategory::CloudProvider, Confidence::High),
+            ("x-render-origin-server", "Render", TechCategory::CloudProvider, Confidence::High),
+        ];
 
-            if server_lower.contains("cloudflare") {
+        for (header, name, category, confidence) in header_detections {
+            if let Some(value) = response.header(header) {
                 detected.insert(DetectedTechnology {
-                    name: "Cloudflare".to_string(),
-                    category: TechCategory::CDN,
+                    name: name.to_string(),
+                    category,
                     version: None,
-                    confidence: Confidence::High,
+                    confidence,
+                    evidence: vec![format!("{}: {}", header, value)],
                 });
             }
         }
 
-        // Cloudflare detection
-        if response.header("cf-ray").is_some() || response.header("cf-cache-status").is_some() {
-            detected.insert(DetectedTechnology {
-                name: "Cloudflare".to_string(),
-                category: TechCategory::CDN,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // CloudFront detection
-        if response.header("x-amz-cf-id").is_some() || response.header("x-amz-cf-pop").is_some() {
-            detected.insert(DetectedTechnology {
-                name: "Amazon CloudFront".to_string(),
-                category: TechCategory::CDN,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // Akamai detection
-        if response.header("x-akamai-transformed").is_some() {
-            detected.insert(DetectedTechnology {
-                name: "Akamai".to_string(),
-                category: TechCategory::CDN,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // Vercel detection
-        if response.header("x-vercel-id").is_some() || response.header("x-vercel-cache").is_some() {
-            detected.insert(DetectedTechnology {
-                name: "Vercel".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // Netlify detection
-        if response.header("x-nf-request-id").is_some() {
-            detected.insert(DetectedTechnology {
-                name: "Netlify".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // X-Powered-By header
         if let Some(powered_by) = response.header("x-powered-by") {
             let pb_lower = powered_by.to_lowercase();
+            let mut evidence = vec![format!("X-Powered-By: {}", powered_by)];
 
-            if pb_lower.contains("php") {
-                detected.insert(DetectedTechnology {
-                    name: "PHP".to_string(),
-                    category: TechCategory::Language,
-                    version: self.extract_version(&pb_lower, "php/"),
-                    confidence: Confidence::High,
-                });
+            let powered_by_patterns = vec![
+                ("php", "PHP", TechCategory::Language, Some("php/")),
+                ("express", "Express", TechCategory::Framework, None),
+                ("asp.net", "ASP.NET", TechCategory::Framework, None),
+                ("next.js", "Next.js", TechCategory::Framework, None),
+                ("nuxt", "Nuxt.js", TechCategory::Framework, None),
+                ("django", "Django", TechCategory::Framework, None),
+                ("rails", "Ruby on Rails", TechCategory::Framework, None),
+                ("laravel", "Laravel", TechCategory::Framework, None),
+                ("symfony", "Symfony", TechCategory::Framework, None),
+            ];
+
+            for (pattern, name, category, version_prefix) in powered_by_patterns {
+                if pb_lower.contains(pattern) {
+                    let version = version_prefix.and_then(|prefix| {
+                        self.extract_version(&pb_lower, prefix)
+                    });
+                    detected.insert(DetectedTechnology {
+                        name: name.to_string(),
+                        category,
+                        version,
+                        confidence: Confidence::High,
+                        evidence: evidence.clone(),
+                    });
+                }
             }
+        }
 
-            if pb_lower.contains("express") {
+        if let Some(waf_header) = response.header("x-sucuri-id") {
+            detected.insert(DetectedTechnology {
+                name: "Sucuri WAF".to_string(),
+                category: TechCategory::WAF,
+                version: None,
+                confidence: Confidence::High,
+                evidence: vec![format!("X-Sucuri-ID: {}", waf_header)],
+            });
+        }
+
+        if let Some(waf_header) = response.header("x-sucuri-cache") {
+            detected.insert(DetectedTechnology {
+                name: "Sucuri WAF".to_string(),
+                category: TechCategory::WAF,
+                version: None,
+                confidence: Confidence::High,
+                evidence: vec![format!("X-Sucuri-Cache: {}", waf_header)],
+            });
+        }
+
+        detected
+    }
+
+    fn detect_from_meta_tags(&self, response: &HttpResponse) -> HashSet<DetectedTechnology> {
+        let mut detected = HashSet::new();
+        let document = Html::parse_document(&response.body);
+
+        if let Ok(generator_selector) = Selector::parse("meta[name='generator']") {
+            for element in document.select(&generator_selector) {
+                if let Some(content) = element.value().attr("content") {
+                    let content_lower = content.to_lowercase();
+                    let evidence = vec![format!("Generator meta tag: {}", content)];
+
+                    let generators = vec![
+                        ("wordpress", "WordPress", TechCategory::CMS),
+                        ("drupal", "Drupal", TechCategory::CMS),
+                        ("joomla", "Joomla", TechCategory::CMS),
+                        ("wix", "Wix", TechCategory::CMS),
+                        ("squarespace", "Squarespace", TechCategory::CMS),
+                        ("shopify", "Shopify", TechCategory::CMS),
+                        ("ghost", "Ghost", TechCategory::CMS),
+                        ("hugo", "Hugo", TechCategory::Framework),
+                        ("jekyll", "Jekyll", TechCategory::Framework),
+                        ("gatsby", "Gatsby", TechCategory::Framework),
+                        ("next.js", "Next.js", TechCategory::Framework),
+                        ("nuxt", "Nuxt.js", TechCategory::Framework),
+                        ("docusaurus", "Docusaurus", TechCategory::Framework),
+                    ];
+
+                    for (pattern, name, category) in generators {
+                        if content_lower.contains(pattern) {
+                            let version = self.extract_version_advanced(&content_lower);
+                            detected.insert(DetectedTechnology {
+                                name: name.to_string(),
+                                category,
+                                version,
+                                confidence: Confidence::High,
+                                evidence: evidence.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(next_data_selector) = Selector::parse("script[id='__NEXT_DATA__']") {
+            if document.select(&next_data_selector).next().is_some() {
                 detected.insert(DetectedTechnology {
-                    name: "Express".to_string(),
+                    name: "Next.js".to_string(),
                     category: TechCategory::Framework,
                     version: None,
                     confidence: Confidence::High,
+                    evidence: vec!["__NEXT_DATA__ script found".to_string()],
                 });
             }
+        }
 
-            if pb_lower.contains("asp.net") {
+        if let Ok(nuxt_selector) = Selector::parse("script[id='__NUXT_DATA__']") {
+            if document.select(&nuxt_selector).next().is_some() {
                 detected.insert(DetectedTechnology {
-                    name: "ASP.NET".to_string(),
+                    name: "Nuxt.js".to_string(),
                     category: TechCategory::Framework,
                     version: None,
                     confidence: Confidence::High,
+                    evidence: vec!["__NUXT_DATA__ script found".to_string()],
                 });
             }
         }
@@ -294,220 +384,219 @@ impl FrameworkDetector {
         detected
     }
 
-    /// Detect technologies from HTML content
     fn detect_from_html(&self, response: &HttpResponse) -> HashSet<DetectedTechnology> {
         let mut detected = HashSet::new();
         let body_lower = response.body.to_lowercase();
 
-        // Next.js detection
-        if body_lower.contains("__next") || body_lower.contains("_next/") || body_lower.contains("__next_data__") {
-            detected.insert(DetectedTechnology {
-                name: "Next.js".to_string(),
-                category: TechCategory::Framework,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
+        let html_patterns = vec![
+            ("__next", "Next.js", TechCategory::Framework, Confidence::High),
+            ("_next/", "Next.js", TechCategory::Framework, Confidence::High),
+            ("__next_data__", "Next.js", TechCategory::Framework, Confidence::High),
+            ("__nuxt", "Nuxt.js", TechCategory::Framework, Confidence::High),
+            ("_nuxt/", "Nuxt.js", TechCategory::Framework, Confidence::High),
+            ("__remix", "Remix", TechCategory::Framework, Confidence::High),
+            ("__svelte", "SvelteKit", TechCategory::Framework, Confidence::High),
+            ("__astro", "Astro", TechCategory::Framework, Confidence::High),
+            ("data-reactroot", "React", TechCategory::JavaScript, Confidence::High),
+            ("data-react-helmet", "React", TechCategory::JavaScript, Confidence::High),
+            ("__react", "React", TechCategory::JavaScript, Confidence::Medium),
+            ("data-v-", "Vue.js", TechCategory::JavaScript, Confidence::High),
+            ("__vue__", "Vue.js", TechCategory::JavaScript, Confidence::High),
+            ("ng-version", "Angular", TechCategory::JavaScript, Confidence::High),
+            ("_nghost", "Angular", TechCategory::JavaScript, Confidence::High),
+            ("ng-app", "Angular", TechCategory::JavaScript, Confidence::High),
+            ("wp-content", "WordPress", TechCategory::CMS, Confidence::High),
+            ("wp-includes", "WordPress", TechCategory::CMS, Confidence::High),
+            ("/sites/default/files", "Drupal", TechCategory::CMS, Confidence::High),
+            ("drupal.settings", "Drupal", TechCategory::CMS, Confidence::High),
+            ("joomla", "Joomla", TechCategory::CMS, Confidence::Medium),
+            ("com_content", "Joomla", TechCategory::CMS, Confidence::High),
+            ("shopify", "Shopify", TechCategory::CMS, Confidence::High),
+            ("cdn.shopify.com", "Shopify", TechCategory::CMS, Confidence::High),
+            ("wix.com", "Wix", TechCategory::CMS, Confidence::High),
+            ("squarespace", "Squarespace", TechCategory::CMS, Confidence::High),
+            ("bootstrap", "Bootstrap", TechCategory::CSS, Confidence::Medium),
+            ("tailwind", "Tailwind CSS", TechCategory::CSS, Confidence::Medium),
+            ("tw-", "Tailwind CSS", TechCategory::CSS, Confidence::Low),
+            ("material-ui", "Material-UI", TechCategory::CSS, Confidence::Medium),
+            ("chakra-ui", "Chakra UI", TechCategory::CSS, Confidence::Medium),
+            ("jquery", "jQuery", TechCategory::JavaScript, Confidence::Medium),
+            ("google-analytics", "Google Analytics", TechCategory::Analytics, Confidence::High),
+            ("gtag", "Google Analytics 4", TechCategory::Analytics, Confidence::High),
+            ("ga.js", "Google Analytics", TechCategory::Analytics, Confidence::High),
+            ("googletagmanager", "Google Tag Manager", TechCategory::Analytics, Confidence::High),
+            ("hotjar", "Hotjar", TechCategory::Analytics, Confidence::High),
+            ("segment.com", "Segment", TechCategory::Analytics, Confidence::High),
+            ("mixpanel", "Mixpanel", TechCategory::Analytics, Confidence::High),
+            ("amplitude", "Amplitude", TechCategory::Analytics, Confidence::High),
+            ("intercom", "Intercom", TechCategory::Other, Confidence::High),
+            ("zendesk", "Zendesk", TechCategory::Other, Confidence::High),
+            ("stripe", "Stripe", TechCategory::Other, Confidence::Medium),
+            ("paypal", "PayPal", TechCategory::Other, Confidence::Medium),
+        ];
 
-        // React detection
-        if body_lower.contains("react") || body_lower.contains("__react") || body_lower.contains("data-reactroot") {
-            detected.insert(DetectedTechnology {
-                name: "React".to_string(),
-                category: TechCategory::JavaScript,
-                version: None,
-                confidence: Confidence::Medium,
-            });
-        }
-
-        // Vue.js detection
-        if body_lower.contains("vue.js") || body_lower.contains("data-v-") || body_lower.contains("__vue__") {
-            detected.insert(DetectedTechnology {
-                name: "Vue.js".to_string(),
-                category: TechCategory::JavaScript,
-                version: None,
-                confidence: Confidence::Medium,
-            });
-        }
-
-        // Angular detection
-        if body_lower.contains("ng-version") || body_lower.contains("_nghost") || body_lower.contains("ng-app") {
-            detected.insert(DetectedTechnology {
-                name: "Angular".to_string(),
-                category: TechCategory::JavaScript,
-                version: None,
-                confidence: Confidence::Medium,
-            });
-        }
-
-        // WordPress detection
-        if body_lower.contains("wp-content") || body_lower.contains("wp-includes") {
-            detected.insert(DetectedTechnology {
-                name: "WordPress".to_string(),
-                category: TechCategory::CMS,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // Drupal detection
-        if body_lower.contains("drupal") || body_lower.contains("/sites/default/files") {
-            detected.insert(DetectedTechnology {
-                name: "Drupal".to_string(),
-                category: TechCategory::CMS,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // Bootstrap detection
-        if body_lower.contains("bootstrap") {
-            detected.insert(DetectedTechnology {
-                name: "Bootstrap".to_string(),
-                category: TechCategory::CSS,
-                version: None,
-                confidence: Confidence::Medium,
-            });
-        }
-
-        // Tailwind CSS detection
-        if body_lower.contains("tailwind") || body_lower.contains("tw-") {
-            detected.insert(DetectedTechnology {
-                name: "Tailwind CSS".to_string(),
-                category: TechCategory::CSS,
-                version: None,
-                confidence: Confidence::Medium,
-            });
-        }
-
-        // jQuery detection
-        if body_lower.contains("jquery") {
-            detected.insert(DetectedTechnology {
-                name: "jQuery".to_string(),
-                category: TechCategory::JavaScript,
-                version: None,
-                confidence: Confidence::Medium,
-            });
-        }
-
-        // Google Analytics
-        if body_lower.contains("google-analytics") || body_lower.contains("gtag") || body_lower.contains("ga.js") {
-            detected.insert(DetectedTechnology {
-                name: "Google Analytics".to_string(),
-                category: TechCategory::Analytics,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // Cloudflare Pages
-        if body_lower.contains("pages.dev") || body_lower.contains("cloudflare-pages") {
-            detected.insert(DetectedTechnology {
-                name: "Cloudflare Pages".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
-        }
-
-        // AWS S3
-        if body_lower.contains("s3.amazonaws.com") || body_lower.contains("s3-") {
-            detected.insert(DetectedTechnology {
-                name: "Amazon S3".to_string(),
-                category: TechCategory::CloudProvider,
-                version: None,
-                confidence: Confidence::High,
-            });
+        for (pattern, name, category, confidence) in html_patterns {
+            if body_lower.contains(pattern) {
+                detected.insert(DetectedTechnology {
+                    name: name.to_string(),
+                    category,
+                    version: None,
+                    confidence,
+                    evidence: vec![format!("Body contains: {}", pattern)],
+                });
+            }
         }
 
         detected
     }
 
-    /// Detect technologies from JavaScript files
     fn detect_from_scripts(&self, response: &HttpResponse) -> HashSet<DetectedTechnology> {
         let mut detected = HashSet::new();
         let body = &response.body;
 
-        // Check for common JS framework patterns in inline scripts
-        if body.contains("webpack") || body.contains("__webpack") {
-            detected.insert(DetectedTechnology {
-                name: "Webpack".to_string(),
-                category: TechCategory::JavaScript,
-                version: None,
-                confidence: Confidence::Medium,
-            });
-        }
+        let script_patterns = vec![
+            ("webpack", "Webpack", TechCategory::JavaScript),
+            ("__webpack", "Webpack", TechCategory::JavaScript),
+            ("vite", "Vite", TechCategory::JavaScript),
+            ("/@vite/", "Vite", TechCategory::JavaScript),
+            ("parcel", "Parcel", TechCategory::JavaScript),
+            ("rollup", "Rollup", TechCategory::JavaScript),
+            ("turbopack", "Turbopack", TechCategory::JavaScript),
+            ("esbuild", "esbuild", TechCategory::JavaScript),
+        ];
 
-        if body.contains("vite") || body.contains("/@vite/") {
-            detected.insert(DetectedTechnology {
-                name: "Vite".to_string(),
-                category: TechCategory::JavaScript,
-                version: None,
-                confidence: Confidence::Medium,
-            });
+        for (pattern, name, category) in script_patterns {
+            if body.contains(pattern) {
+                detected.insert(DetectedTechnology {
+                    name: name.to_string(),
+                    category,
+                    version: None,
+                    confidence: Confidence::Medium,
+                    evidence: vec![format!("Script contains: {}", pattern)],
+                });
+            }
         }
 
         detected
     }
 
-    /// Detect technologies from cookies
     fn detect_from_cookies(&self, response: &HttpResponse) -> HashSet<DetectedTechnology> {
         let mut detected = HashSet::new();
 
         if let Some(cookies) = response.header("set-cookie") {
             let cookies_lower = cookies.to_lowercase();
 
-            // Laravel detection
-            if cookies_lower.contains("laravel_session") {
-                detected.insert(DetectedTechnology {
-                    name: "Laravel".to_string(),
-                    category: TechCategory::Framework,
-                    version: None,
-                    confidence: Confidence::High,
-                });
-            }
+            let cookie_patterns = vec![
+                ("laravel_session", "Laravel", TechCategory::Framework, Confidence::High),
+                ("phpsessid", "PHP", TechCategory::Language, Confidence::Medium),
+                ("jsessionid", "Java", TechCategory::Language, Confidence::High),
+                ("asp.net_sessionid", "ASP.NET", TechCategory::Framework, Confidence::High),
+                ("__requestverificationtoken", "ASP.NET", TechCategory::Framework, Confidence::High),
+                ("csrftoken", "Django", TechCategory::Framework, Confidence::Medium),
+                ("sessionid", "Django", TechCategory::Framework, Confidence::Low),
+                ("_session", "Ruby on Rails", TechCategory::Framework, Confidence::Medium),
+                ("wordpress_", "WordPress", TechCategory::CMS, Confidence::High),
+                ("wp-settings", "WordPress", TechCategory::CMS, Confidence::High),
+                ("__cfduid", "Cloudflare", TechCategory::CDN, Confidence::High),
+                ("cf_clearance", "Cloudflare", TechCategory::CDN, Confidence::High),
+            ];
 
-            // Django detection
-            if cookies_lower.contains("sessionid") && cookies_lower.contains("csrftoken") {
-                detected.insert(DetectedTechnology {
-                    name: "Django".to_string(),
-                    category: TechCategory::Framework,
-                    version: None,
-                    confidence: Confidence::Medium,
-                });
-            }
-
-            // ASP.NET detection
-            if cookies_lower.contains("asp.net_sessionid") || cookies_lower.contains("__requestverificationtoken") {
-                detected.insert(DetectedTechnology {
-                    name: "ASP.NET".to_string(),
-                    category: TechCategory::Framework,
-                    version: None,
-                    confidence: Confidence::High,
-                });
+            for (pattern, name, category, confidence) in cookie_patterns {
+                if cookies_lower.contains(pattern) {
+                    detected.insert(DetectedTechnology {
+                        name: name.to_string(),
+                        category,
+                        version: None,
+                        confidence,
+                        evidence: vec![format!("Cookie: {}", pattern)],
+                    });
+                }
             }
         }
 
         detected
     }
 
-    /// Extract version from string
+    async fn detect_from_favicon(&self, base_url: &str) -> HashSet<DetectedTechnology> {
+        let mut detected = HashSet::new();
+
+        let favicon_url = format!("{}/favicon.ico", base_url.trim_end_matches('/'));
+
+        match self.http_client.get(&favicon_url).await {
+            Ok(response) if response.status_code == 200 => {
+                let hash = self.calculate_favicon_hash(&response.body);
+
+                let known_hashes = vec![
+                    (116323821_i64, "WordPress", TechCategory::CMS),
+                    (-697231548_i64, "Drupal", TechCategory::CMS),
+                    (81586312_i64, "Joomla", TechCategory::CMS),
+                ];
+
+                for (known_hash, name, category) in known_hashes {
+                    if hash == known_hash {
+                        detected.insert(DetectedTechnology {
+                            name: name.to_string(),
+                            category,
+                            version: None,
+                            confidence: Confidence::High,
+                            evidence: vec![format!("Favicon hash: {}", hash)],
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        detected
+    }
+
+    fn calculate_favicon_hash(&self, data: &str) -> i64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        hasher.finish() as i64
+    }
+
     fn extract_version(&self, text: &str, prefix: &str) -> Option<String> {
         if let Some(start) = text.find(prefix) {
             let version_start = start + prefix.len();
             let version_str = &text[version_start..];
 
-            // Extract until space or non-version character
             let version = version_str
                 .chars()
-                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
                 .collect::<String>();
 
-            if !version.is_empty() {
-                return Some(version);
+            if !version.is_empty() && version.chars().any(|c| c.is_ascii_digit()) {
+                return Some(version.trim_end_matches(['.', '-']).to_string());
             }
         }
 
         None
+    }
+
+    fn extract_version_advanced(&self, text: &str) -> Option<String> {
+        let version_regex = Regex::new(r"(\d+\.[\d.]+\d+|\d+\.\d+)").ok()?;
+
+        if let Some(cap) = version_regex.captures(text) {
+            return Some(cap[1].to_string());
+        }
+
+        None
+    }
+}
+
+impl Default for DetectionPatterns {
+    fn default() -> Self {
+        Self {
+            header_patterns: HashMap::new(),
+            body_patterns: Vec::new(),
+            url_patterns: Vec::new(),
+            meta_patterns: Vec::new(),
+            cookie_patterns: Vec::new(),
+        }
     }
 }
 
@@ -528,5 +617,45 @@ mod tests {
             detector.extract_version("apache/2.4.41 (ubuntu)", "apache/"),
             Some("2.4.41".to_string())
         );
+
+        assert_eq!(
+            detector.extract_version("PHP/7.4.3", "php/"),
+            Some("7.4.3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_version_advanced() {
+        let detector = FrameworkDetector::new(Arc::new(HttpClient::new(30, 3).unwrap()));
+
+        assert_eq!(
+            detector.extract_version_advanced("WordPress 6.4.2"),
+            Some("6.4.2".to_string())
+        );
+
+        assert_eq!(
+            detector.extract_version_advanced("Next.js v14.0.3"),
+            Some("14.0.3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_confidence_ordering() {
+        assert!(Confidence::High > Confidence::Medium);
+        assert!(Confidence::Medium > Confidence::Low);
+    }
+
+    #[test]
+    fn test_detect_from_url() {
+        let detector = FrameworkDetector::new(Arc::new(HttpClient::new(30, 3).unwrap()));
+
+        let detected = detector.detect_from_url("https://example.vercel.app");
+        assert!(detected.iter().any(|t| t.name == "Vercel"));
+
+        let detected = detector.detect_from_url("https://example.pages.dev");
+        assert!(detected.iter().any(|t| t.name == "Cloudflare Pages"));
+
+        let detected = detector.detect_from_url("https://bucket.s3.amazonaws.com");
+        assert!(detected.iter().any(|t| t.name == "Amazon S3"));
     }
 }

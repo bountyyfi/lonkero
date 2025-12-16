@@ -1,10 +1,8 @@
 # Lonkero
 
-> **Alpha Release** - This software is in active development. APIs and features may change.
+**Enterprise Web Security Scanner v2.0**
 
-**Enterprise Web Security Scanner**
-
-Lonkero is a high-performance security scanner built in Rust with 64+ vulnerability detection modules. Designed for professional penetration testing, security assessments, and CI/CD integration.
+Web scanner built for actual pentests. Fast, modular, Rust.
 
 ```
     __                __
@@ -19,6 +17,7 @@ Lonkero is a high-performance security scanner built in Rust with 64+ vulnerabil
 
 ## Table of Contents
 
+- [What's New in v2.0](#whats-new-in-v20)
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -33,16 +32,36 @@ Lonkero is a high-performance security scanner built in Rust with 64+ vulnerabil
 - [Command Reference](#command-reference)
 - [License](#license)
 
+## What's New in v2.0
+
+### Enhanced Cloud Storage Security
+- **Auto-Detection**: Automatically detects and scans S3, Azure Blob, and GCS URLs found during scans
+- **Advanced Payloads**: 90+ sensitive file patterns including:
+  - Git files (.git/config, .github/workflows)
+  - Environment files (.env, .env.production, .env.backup)
+  - AWS credentials (.aws/credentials, aws.json, credentials.json)
+  - SSH keys (id_rsa, id_dsa, id_ecdsa, id_ed25519)
+  - Database backups (backup.sql, database.sqlite)
+  - IaC files (terraform.tfstate, docker-compose.yml)
+  - CI/CD configs (.travis.yml, .gitlab-ci.yml)
+- **Dated Backup Detection**: Intelligently tests for backup files with dates (backup-2024-01-01.sql)
+- **JavaScript Mining Integration**: Extracts cloud storage URLs from JavaScript for automatic scanning
+
+### Improved Scanner Engine
+- **Context-Aware XSS Detection**: Enhanced detection with proper context handling
+- **Unified SQL Injection**: Consolidated SQL injection detection with enhanced accuracy
+- **Firebase Security**: Comprehensive Firebase authentication and configuration testing
+- **False Positive Reduction**: Baseline detection, evidence tracking, and smart deduplication
+
 ## Features
 
 - **64+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
-- **Technology-Aware** - Detects frameworks (Next.js, React, PHP, Django, etc.) and runs relevant tests only
-- **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling, adaptive rate limiting
+- **Technology-Aware** - Detects frameworks and runs relevant tests only
+- **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling
 - **Low False Positives** - Evidence-based detection with baseline comparison
-- **CVE Detection** - Scans for critical CVEs including CVE-2025-55182, CVE-2025-55183, CVE-2025-55184
 - **Multiple Output Formats** - JSON, HTML, SARIF, Markdown, CSV, XLSX, JUnit
-- **Cloud Security** - AWS S3/EC2/RDS/Lambda, Azure, GCP scanning
-- **CI/CD Ready** - SARIF output for GitHub Security, GitLab SAST integration
+- **Cloud Security** - S3, Azure Blob, GCS misconfigurations
+- **CI/CD Ready** - SARIF output for GitHub Security, GitLab SAST
 - **Configurable** - TOML configuration with scan profiles
 
 ## Installation
@@ -115,7 +134,6 @@ Lonkero executes scans in multiple phases:
 1. **Web Crawling** - Discovers URLs, forms, and input fields
 2. **JavaScript Mining** - Extracts API endpoints, parameters, and secrets from JS files
 3. **Technology Detection** - Identifies frameworks (Next.js, React, PHP, Django, etc.)
-4. **CVE Checks** - Tests for critical CVEs based on detected technology
 
 ### Phase 1: Parameter Injection Testing
 Tests discovered parameters for:
@@ -165,7 +183,7 @@ Only runs relevant tests based on detected stack:
 - Open redirect
 - Information disclosure
 
-### Phase 8: Cloud Security (Ultra Mode)
+### Phase 8: Cloud Security
 - Cloud storage misconfigurations
 - Container security
 - API Gateway security
@@ -251,13 +269,12 @@ Only runs relevant tests based on detected stack:
 | sensitive_data | Sensitive Data Exposure |
 | js_miner | JavaScript Secret Mining |
 
-### CVE Detection (4 modules)
+### Specific CVE Checks (3 modules)
 | Module | CVE | Severity |
 |--------|-----|----------|
 | cve_2025_55182 | React Server Components RCE | Critical (CVSS 10.0) |
 | cve_2025_55183 | RSC Source Code Exposure | Medium (CVSS 5.3) |
 | cve_2025_55184 | RSC Denial of Service | High (CVSS 7.5) |
-| azure_apim | Cross-Tenant Signup Bypass | High |
 
 ### Cloud Security (6 modules)
 | Module | Description |
@@ -302,7 +319,7 @@ lonkero scan https://example.com -o results.xml -f junit
 
 ```bash
 lonkero scan https://example.com --mode fast
-lonkero scan https://example.com --mode thorough --ultra
+lonkero scan https://example.com --mode thorough
 ```
 
 ## Configuration
@@ -361,23 +378,45 @@ lonkero scan https://example.com -H "X-API-Key: secret" -H "X-Tenant: acme"
 
 ## Cloud Security Scanning
 
+### Automatic Cloud Storage Detection (NEW in v2.0)
+
+Lonkero now automatically detects and scans cloud storage URLs during any scan:
+
+```bash
+# Regular scan automatically detects S3, Azure, GCS URLs
+lonkero scan https://example.com
+
+# If JavaScript files reference cloud storage:
+# - https://bucket.s3.amazonaws.com/data.json
+# - https://account.blob.core.windows.net/container
+# These are automatically scanned for misconfigurations!
+```
+
 ### AWS S3 Bucket Scanning
 
-Two modes available:
-
-**1. Public Bucket Scan (no credentials required)**
+**1. Direct S3 URL Scan (auto-triggered)**
 ```bash
-# Scan public S3 bucket by URL
+# Scan S3 bucket directly - automatically detects region and runs 90+ checks
+lonkero scan https://bucket-name.s3.eu-north-1.amazonaws.com
+
+# Works with all S3 URL formats:
+lonkero scan https://bucket.s3.amazonaws.com
+lonkero scan https://s3.region.amazonaws.com/bucket
+```
+
+**2. Advanced S3 Scanner (dedicated tool)**
+```bash
+# Public bucket scan (no credentials required)
 lonkero-aws-s3 --url https://bucket-name.s3.eu-north-1.amazonaws.com/
 
 # Scan multiple buckets
 lonkero-aws-s3 --url https://bucket1.s3.us-east-1.amazonaws.com/,https://bucket2.s3.eu-west-1.amazonaws.com/
 
-# Check for sensitive files
+# Check for sensitive files (90+ patterns)
 lonkero-aws-s3 --url https://bucket.s3.region.amazonaws.com/ --check-objects
 ```
 
-**2. Authenticated Scan (requires AWS credentials)**
+**3. Authenticated Scan (requires AWS credentials)**
 ```bash
 # Set credentials
 export AWS_ACCESS_KEY_ID=AKIA...
@@ -386,6 +425,16 @@ export AWS_SECRET_ACCESS_KEY=...
 # Scan your own buckets
 lonkero-aws-s3 --regions us-east-1,eu-west-1
 ```
+
+**Sensitive Files Checked (90+ patterns)**:
+- Git: `.git/config`, `.git/HEAD`, `.github/workflows/deploy.yml`
+- Environment: `.env`, `.env.local`, `.env.production`, `.env.backup`
+- AWS Credentials: `.aws/credentials`, `.aws/config`, `credentials.json`
+- SSH Keys: `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.pem`
+- Databases: `backup.sql`, `database.sqlite`, `db.sql`
+- Backups: `backup.zip`, `backup.tar.gz`, `backup-YYYY-MM-DD.sql`
+- IaC: `terraform.tfstate`, `docker-compose.yml`, `kubernetes.yml`
+- CI/CD: `.travis.yml`, `.gitlab-ci.yml`, `.circleci/config.yml`
 
 ### AWS EC2 Scanning
 
@@ -477,7 +526,6 @@ lonkero license activate <KEY>         # Activate license
 | `--only` | Only run specific modules (comma-separated) |
 | `--proxy` | Proxy URL (http://host:port) |
 | `--insecure` | Disable TLS certificate verification |
-| `--ultra` | Enable ultra mode (more thorough) |
 
 ### Global Options
 
@@ -526,7 +574,7 @@ Personal/non-commercial use is permitted for security research and education.
 
 - Documentation: https://github.com/bountyyfi/lonkero
 - Issues: https://github.com/bountyyfi/lonkero/issues
-- Email: support@bountyy.fi, info@bountyy.fi
+- Email: info@bountyy.fi
 - Website: https://bountyy.fi
 
 ---

@@ -1,9 +1,9 @@
 [package]
 name = "lonkero"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
-authors = ["Bountyy Oy <security@bountyy.fi>"]
-description = "Enterprise-grade web security vulnerability scanner with 60+ attack modules"
+authors = ["Bountyy Oy <info@bountyy.fi>"]
+description = "Web scanner built for actual pentests. Fast, modular, Rust."
 license = "Proprietary"
 repository = "https://github.com/bountyyfi/lonkero"
 keywords = ["security", "scanner", "vulnerability", "pentest", "web-security"]
@@ -120,6 +120,7 @@ hickory-resolver = "0.25"
 
 # HTML parsing
 scraper = "0.25"
+html-escape = "0.2"
 
 # Rate limiting - Token Bucket
 governor = "0.10"
@@ -221,7 +222,7 @@ hex = "0.4"
 dirs = "5.0"
 
 # Secure credential storage (OS keychain)
-keyring = "3.7"
+keyring = "3.6.3"
 
 [profile.release]
 opt-level = 3

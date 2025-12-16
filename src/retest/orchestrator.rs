@@ -15,9 +15,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::http_client::HttpClient;
-use crate::scanners::{
-    sqli::SqliScanner,
-};
+use crate::scanners::SqliScanner;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetestConfig {

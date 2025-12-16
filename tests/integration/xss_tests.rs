@@ -10,7 +10,7 @@
  */
 
 use lonkero_scanner::http_client::HttpClient;
-use lonkero_scanner::scanners::xss::XssScanner;
+use lonkero_scanner::scanners::XssScanner;
 use lonkero_scanner::types::{ScanConfig, ScanMode, Severity, Confidence};
 use mockito::Server;
 use std::sync::Arc;

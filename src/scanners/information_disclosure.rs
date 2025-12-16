@@ -19,17 +19,23 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::baseline_detector::BaselineDetector;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct InformationDisclosureScanner {
     http_client: Arc<HttpClient>,
+    baseline_detector: BaselineDetector,
 }
 
 impl InformationDisclosureScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        let baseline_detector = BaselineDetector::new(Arc::clone(&http_client));
+        Self {
+            http_client,
+            baseline_detector,
+        }
     }
 
     /// Scan endpoint for information disclosure vulnerabilities
@@ -42,6 +48,16 @@ impl InformationDisclosureScanner {
         let mut tests_run = 0;
 
         info!("Testing information disclosure vulnerabilities");
+
+        // Baseline detection: check if site responds identically to all requests
+        let baseline_result = self.baseline_detector.is_static_responder(url).await;
+        if baseline_result.is_static_responder {
+            warn!(
+                "Skipping info disclosure tests: Site appears to respond identically to all requests ({:.1}% similarity)",
+                baseline_result.similarity_score * 100.0
+            );
+            return Ok((Vec::new(), 0));
+        }
 
         // Test for sensitive file exposure
         let (vulns, tests) = self.test_sensitive_files(url).await?;
@@ -220,14 +236,14 @@ impl InformationDisclosureScanner {
 
         match self.http_client.get(url).await {
             Ok(response) => {
-                if self.detect_server_disclosure(&response.headers) {
-                    info!("Server information disclosed in headers");
+                if let Some(evidence) = self.detect_server_disclosure(&response.headers) {
+                    info!("Server information disclosed in headers: {}", evidence);
                     vulnerabilities.push(self.create_vulnerability(
                         url,
                         "Server Information Disclosure",
                         "",
                         "Server headers reveal version information",
-                        "Detailed server/framework version exposed in headers",
+                        &evidence,
                         Severity::Low,
                         "CWE-200",
                     ));
@@ -363,21 +379,30 @@ impl InformationDisclosureScanner {
     }
 
     /// Detect server information disclosure
-    fn detect_server_disclosure(&self, headers: &std::collections::HashMap<String, String>) -> bool {
+    /// Returns Some(evidence) if server info is disclosed, None otherwise
+    fn detect_server_disclosure(&self, headers: &std::collections::HashMap<String, String>) -> Option<String> {
+        let mut evidence_parts = Vec::new();
+
         for (key, value) in headers {
             let key_lower = key.to_lowercase();
             let value_lower = value.to_lowercase();
 
             if key_lower == "server" || key_lower == "x-powered-by" {
                 // Check if version information is present
-                if value_lower.contains("/") ||
-                   value_lower.chars().any(|c| c.is_numeric()) {
-                    return true;
+                if value_lower.contains("/") || value_lower.chars().any(|c| c.is_numeric()) {
+                    evidence_parts.push(format!("{}: {}", key, value));
                 }
             }
         }
 
-        false
+        if evidence_parts.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "Server/framework version headers found:\n  {}",
+                evidence_parts.join("\n  ")
+            ))
+        }
     }
 
     /// Detect debug mode

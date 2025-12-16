@@ -16,17 +16,17 @@ use crate::http_client::HttpClient;
 use crate::queue::RedisQueue;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use crate::subdomain_enum::SubdomainEnumerator;
-use crate::types::{ScanJob, ScanResults, Severity, Vulnerability};
+use crate::types::{ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
-pub mod xss;
-pub mod sqli;
-pub mod sqli_boolean;
-pub mod sqli_union;
+pub mod xss_detection;
+pub mod xss_enhanced;
+pub mod sqli_enhanced;
+pub mod baseline_detector;
 pub mod command_injection;
 pub mod path_traversal;
 pub mod ssrf;
@@ -35,6 +35,7 @@ pub mod jwt;
 pub mod nosql;
 pub mod security_headers;
 pub mod cors;
+pub mod firebase;
 pub mod csrf;
 pub mod xxe;
 pub mod graphql;
@@ -99,10 +100,8 @@ pub mod cloud;
 pub mod external;
 
 // Re-export scanner types for easy access
-pub use xss::XssScanner;
-pub use sqli::SqliScanner;
-pub use sqli_boolean::SqliBooleanScanner;
-pub use sqli_union::SqliUnionScanner;
+pub use xss_enhanced::EnhancedXssScanner as XssScanner;
+pub use sqli_enhanced::EnhancedSqliScanner as SqliScanner;
 pub use command_injection::CommandInjectionScanner;
 pub use path_traversal::PathTraversalScanner;
 pub use ssrf::SsrfScanner;
@@ -111,6 +110,7 @@ pub use jwt::JwtScanner;
 pub use nosql::NoSqlScanner;
 pub use security_headers::SecurityHeadersScanner;
 pub use cors::CorsScanner;
+pub use firebase::FirebaseScanner;
 pub use csrf::CsrfScanner;
 pub use xxe::XxeScanner;
 pub use graphql::GraphQlScanner;
@@ -176,8 +176,6 @@ pub struct ScanEngine {
     pub dns_cache: Option<Arc<crate::dns_cache::DnsCache>>,
     pub xss_scanner: XssScanner,
     pub sqli_scanner: SqliScanner,
-    pub sqli_boolean_scanner: SqliBooleanScanner,
-    pub sqli_union_scanner: SqliUnionScanner,
     pub cmdi_scanner: CommandInjectionScanner,
     pub path_scanner: PathTraversalScanner,
     pub ssrf_scanner: SsrfScanner,
@@ -186,6 +184,7 @@ pub struct ScanEngine {
     pub nosql_scanner: NoSqlScanner,
     pub security_headers_scanner: SecurityHeadersScanner,
     pub cors_scanner: CorsScanner,
+    pub firebase_scanner: FirebaseScanner,
     pub csrf_scanner: CsrfScanner,
     pub xxe_scanner: XxeScanner,
     pub graphql_scanner: GraphQlScanner,
@@ -340,8 +339,6 @@ impl ScanEngine {
             dns_cache,
             xss_scanner: XssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
-            sqli_boolean_scanner: SqliBooleanScanner::new(Arc::clone(&http_client)),
-            sqli_union_scanner: SqliUnionScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
             path_scanner: PathTraversalScanner::new(Arc::clone(&http_client)),
             ssrf_scanner: SsrfScanner::new(Arc::clone(&http_client)),
@@ -350,6 +347,7 @@ impl ScanEngine {
             nosql_scanner: NoSqlScanner::new(Arc::clone(&http_client)),
             security_headers_scanner: SecurityHeadersScanner::new(Arc::clone(&http_client)),
             cors_scanner: CorsScanner::new(Arc::clone(&http_client)),
+            firebase_scanner: FirebaseScanner::new(Arc::clone(&http_client)),
             csrf_scanner: CsrfScanner::new(Arc::clone(&http_client)),
             xxe_scanner: XxeScanner::new(Arc::clone(&http_client)),
             graphql_scanner: GraphQlScanner::new(Arc::clone(&http_client)),
@@ -527,7 +525,7 @@ impl ScanEngine {
                 if let Some(domain_str) = parsed_url.host_str() {
                     // Convert to owned String to avoid lifetime issues
                     let domain = domain_str.to_string();
-                    let thorough = self.config.subdomain_enum_thorough || config.ultra;
+                    let thorough = self.config.subdomain_enum_thorough || config.scan_mode == ScanMode::Thorough || config.scan_mode == ScanMode::Insane;
 
                     match self.subdomain_enumerator.enumerate(&domain, thorough).await {
                         Ok(subdomains) => {
@@ -624,31 +622,14 @@ impl ScanEngine {
                 // Update progress
                 queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
 
-                // SQLi Testing (skip if CDN protected)
+                // SQLi Testing (skip if CDN protected) - Unified scanner with all techniques
                 if !self.should_skip_scanner("sqli", &cdn_info) {
                     let (sqli_vulns, sqli_tests) = self.sqli_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
                     all_vulnerabilities.extend(sqli_vulns);
                     total_tests += sqli_tests as u64;
-
                     queue.increment_tests(scan_id.clone(), sqli_tests as u64).await?;
-
-                    // Boolean-based Blind SQLi Testing
-                    let (sqli_bool_vulns, sqli_bool_tests) = self.sqli_boolean_scanner
-                        .scan_parameter(&target, param_name, &config)
-                        .await?;
-                    all_vulnerabilities.extend(sqli_bool_vulns);
-                    total_tests += sqli_bool_tests as u64;
-                    queue.increment_tests(scan_id.clone(), sqli_bool_tests as u64).await?;
-
-                    // UNION-based SQLi Testing
-                    let (sqli_union_vulns, sqli_union_tests) = self.sqli_union_scanner
-                        .scan_parameter(&target, param_name, &config)
-                        .await?;
-                    all_vulnerabilities.extend(sqli_union_vulns);
-                    total_tests += sqli_union_tests as u64;
-                    queue.increment_tests(scan_id.clone(), sqli_union_tests as u64).await?;
                 }
 
                 // Command Injection Testing (skip if CDN protected)
@@ -1367,18 +1348,10 @@ impl ScanEngine {
         }
 
         // Phase 3: Ultra mode - Additional attack vectors
-        if config.ultra {
-            info!("Ultra mode enabled - testing advanced attack vectors");
+        if config.scan_mode == ScanMode::Thorough || config.scan_mode == ScanMode::Insane {
+            info!("Thorough/Insane mode enabled - testing advanced attack vectors");
 
-            // Test time-based blind SQLi (more thorough)
-            for (param_name, _) in &url_data.parameters {
-                let (time_vulns, time_tests) = self.sqli_scanner
-                    .scan_time_based(&target, param_name, &config)
-                    .await?;
-                all_vulnerabilities.extend(time_vulns);
-                total_tests += time_tests as u64;
-                queue.increment_tests(scan_id.clone(), time_tests as u64).await?;
-            }
+            // Note: Time-based blind SQLi is now automatically included in the unified scanner
 
             // Test for SSRF vulnerabilities
             let ssrf_result = self.test_ssrf(&target, &url_data.parameters).await;

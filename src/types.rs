@@ -56,9 +56,6 @@ pub struct ScanConfig {
     #[serde(default)]
     pub scan_mode: ScanMode,
 
-    #[serde(default = "default_ultra")]
-    pub ultra: bool,
-
     #[serde(default)]
     pub enable_crawler: bool,
 
@@ -84,10 +81,6 @@ pub struct ScanConfig {
     pub custom_headers: Option<HashMap<String, String>>,
 }
 
-fn default_ultra() -> bool {
-    true
-}
-
 fn default_max_depth() -> u32 {
     3
 }
@@ -100,7 +93,6 @@ impl Default for ScanConfig {
     fn default() -> Self {
         Self {
             scan_mode: ScanMode::Fast,
-            ultra: true,
             enable_crawler: false,
             max_depth: 3,
             max_pages: 100,
@@ -121,6 +113,18 @@ impl ScanConfig {
             ScanMode::Thorough => 5000,
             ScanMode::Insane => usize::MAX, // All payloads
         }
+    }
+
+    /// Determine if cloud/container security scanning should run
+    /// Enabled for Thorough and Insane modes
+    pub fn enable_cloud_scanning(&self) -> bool {
+        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane)
+    }
+
+    /// Determine if extended subdomain enumeration should be used
+    /// Enabled for Thorough and Insane modes
+    pub fn subdomain_extended(&self) -> bool {
+        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane)
     }
 }
 
