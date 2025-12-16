@@ -56,13 +56,12 @@ Web scanner built for actual pentests. Fast, modular, Rust.
 ## Features
 
 - **64+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
-- **Technology-Aware** - Detects frameworks (Next.js, React, PHP, Django, etc.) and runs relevant tests only
-- **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling, adaptive rate limiting
+- **Technology-Aware** - Detects frameworks and runs relevant tests only
+- **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling
 - **Low False Positives** - Evidence-based detection with baseline comparison
-- **CVE Detection** - Scans for critical CVEs including CVE-2025-55182, CVE-2025-55183, CVE-2025-55184
 - **Multiple Output Formats** - JSON, HTML, SARIF, Markdown, CSV, XLSX, JUnit
-- **Cloud Security** - AWS S3/EC2/RDS/Lambda, Azure, GCP scanning
-- **CI/CD Ready** - SARIF output for GitHub Security, GitLab SAST integration
+- **Cloud Security** - S3, Azure Blob, GCS misconfigurations
+- **CI/CD Ready** - SARIF output for GitHub Security, GitLab SAST
 - **Configurable** - TOML configuration with scan profiles
 
 ## Installation
@@ -135,7 +134,6 @@ Lonkero executes scans in multiple phases:
 1. **Web Crawling** - Discovers URLs, forms, and input fields
 2. **JavaScript Mining** - Extracts API endpoints, parameters, and secrets from JS files
 3. **Technology Detection** - Identifies frameworks (Next.js, React, PHP, Django, etc.)
-4. **CVE Checks** - Tests for critical CVEs based on detected technology
 
 ### Phase 1: Parameter Injection Testing
 Tests discovered parameters for:
@@ -271,13 +269,12 @@ Only runs relevant tests based on detected stack:
 | sensitive_data | Sensitive Data Exposure |
 | js_miner | JavaScript Secret Mining |
 
-### CVE Detection (4 modules)
+### Specific CVE Checks (3 modules)
 | Module | CVE | Severity |
 |--------|-----|----------|
 | cve_2025_55182 | React Server Components RCE | Critical (CVSS 10.0) |
 | cve_2025_55183 | RSC Source Code Exposure | Medium (CVSS 5.3) |
 | cve_2025_55184 | RSC Denial of Service | High (CVSS 7.5) |
-| azure_apim | Cross-Tenant Signup Bypass | High |
 
 ### Cloud Security (6 modules)
 | Module | Description |
