@@ -82,6 +82,29 @@ Completely rewritten injection scanners with **programmatic payload generation**
 - Cache poisoning vectors (X-Forwarded-Host, X-Original-URL)
 - Dangerous HTTP methods detection via OPTIONS
 
+### Merlin - JavaScript Library Vulnerability Scanner
+New **Merlin** module detects vulnerable third-party JavaScript libraries:
+- **100+ libraries** with known CVEs (jQuery, Angular, Vue, React, Lodash, Moment, etc.)
+- Detects versions from CDN URLs and JavaScript file content
+- Checks against CVE database with severity ratings
+- Reports exact vulnerable version and remediation (upgrade path)
+
+### Advanced WAF Bypass Testing
+12 bypass technique categories:
+- Encoding bypasses (URL, Unicode, HTML entities)
+- Protocol-level tricks (chunked encoding, HTTP method override)
+- Header injection and smuggling techniques
+- JSON/XML payload format manipulation
+
+### HTTP Parameter Pollution Scanner
+Detects HPP vulnerabilities across different server behaviors.
+
+### Enhanced Compliance Mapping
+Now maps findings to **6 compliance frameworks**:
+- OWASP Top 10, PCI-DSS, HIPAA, ISO 27001, GDPR
+- **NEW**: DORA (EU Digital Operational Resilience Act)
+- **NEW**: NIS2 (EU Network and Information Security Directive)
+
 ### Expanded Technology Detection
 Lonkero now detects **80+ technologies** including:
 
@@ -132,7 +155,12 @@ Lonkero now detects **80+ technologies** including:
 
 ## Features
 
+<<<<<<< HEAD
 - **66+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
+=======
+- **75+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
+- **Merlin JS Scanner** - Detects 100+ vulnerable JavaScript libraries with CVE mapping
+>>>>>>> 8feba09 (Update README with new v2.0 features)
 - **Technology-Aware** - Detects 80+ frameworks, CDNs, API gateways and runs relevant tests only
 - **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling
 - **Low False Positives** - Evidence-based detection with baseline comparison
@@ -272,7 +300,7 @@ Only runs relevant tests based on detected stack:
 
 ## Scanner Modules
 
-### Injection (14 modules)
+### Injection (16 modules)
 | Module | Description |
 |--------|-------------|
 | xss | Cross-Site Scripting (Reflected, Stored, DOM) |
@@ -289,30 +317,36 @@ Only runs relevant tests based on detected stack:
 | ldap | LDAP Injection |
 | code_injection | Code Injection (PHP, Python) |
 | email_header_injection | Email Header Injection |
+| http_parameter_pollution | HTTP Parameter Pollution |
+| waf_bypass | Advanced WAF Bypass Techniques |
 
-### Authentication (12 modules)
+### Authentication (14 modules)
 | Module | Description |
 |--------|-------------|
 | jwt | JWT Algorithm Confusion, Weak Secrets |
 | jwt_vulnerabilities | Comprehensive JWT Analysis |
+| jwt_analyzer | Deep JWT Security Analysis (alg:none, key confusion, claim tampering) |
 | oauth | OAuth 2.0 Vulnerabilities |
 | saml | SAML Security Issues |
 | auth_bypass | Authentication Bypass |
 | session_management | Session Security |
+| session_analyzer | Session Fixation, Prediction, Entropy Analysis |
 | mfa | MFA Bypass Detection |
 | idor | Insecure Direct Object References |
+| idor_analyzer | Advanced IDOR with UUID/Hash Pattern Detection |
 | bola | Broken Object Level Authorization |
 | advanced_auth | Advanced Authentication Testing |
-| auth_manager | Authentication Management Flaws |
 | webauthn | WebAuthn/FIDO2 Security |
 
-### Configuration (4 modules)
+### Configuration (6 modules)
 | Module | Description |
 |--------|-------------|
 | security_headers | Missing/Weak Security Headers |
 | cors | CORS Misconfiguration |
 | cors_misconfiguration | Advanced CORS Testing |
 | clickjacking | Clickjacking Protection |
+| tomcat_misconfig | Apache Tomcat Manager, Status, AJP Exposure |
+| varnish_misconfig | Varnish Cache Bypass, Debug Headers, Purge Access |
 
 ### API Security (5 modules)
 | Module | Description |
@@ -344,12 +378,13 @@ Only runs relevant tests based on detected stack:
 | cache_poisoning | Web Cache Poisoning |
 | prototype_pollution | Prototype Pollution |
 
-### Information Disclosure (3 modules)
+### Information Disclosure (4 modules)
 | Module | Description |
 |--------|-------------|
 | information_disclosure | Sensitive Information Leakage |
 | sensitive_data | Sensitive Data Exposure |
 | js_miner | JavaScript Secret Mining |
+| merlin | Vulnerable JavaScript Library Detection (100+ CVEs) |
 
 ### Specific CVE Checks (3 modules)
 | Module | CVE | Severity |
