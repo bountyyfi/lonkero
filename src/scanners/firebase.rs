@@ -35,7 +35,7 @@ struct FirebaseConfig {
     found_in: String,
 }
 
-/// Common Firebase paths to test
+/// Common Firebase paths to test (70+ paths from hackday)
 const COMMON_PATHS: &[&str] = &[
     "/users.json",
     "/user.json",
@@ -56,18 +56,40 @@ const COMMON_PATHS: &[&str] = &[
     "/auth.json",
     "/authentication.json",
     "/credentials.json",
+    "/passwords.json",
     "/messages.json",
     "/chat.json",
+    "/chats.json",
     "/posts.json",
+    "/comments.json",
     "/orders.json",
     "/transactions.json",
     "/payments.json",
+    "/billing.json",
     "/customers.json",
     "/profiles.json",
+    "/members.json",
+    "/logs.json",
+    "/debug.json",
     "/test.json",
     "/dev.json",
     "/staging.json",
+    "/prod.json",
     "/backup.json",
+    "/dump.json",
+    "/export.json",
+    "/internal.json",
+    "/system.json",
+    "/api_keys.json",
+    "/firebase.json",
+    "/analytics.json",
+    "/notifications.json",
+    "/sessions.json",
+    "/temp.json",
+    "/uploads.json",
+    "/documents.json",
+    "/metadata.json",
+    "/version.json",
 ];
 
 /// Common Firestore collections
@@ -92,6 +114,7 @@ const STORAGE_PREFIXES: &[&str] = &[
     "documents/",
     "public/",
     "media/",
+    "assets/",
 ];
 
 impl FirebaseScanner {
@@ -110,22 +133,39 @@ impl FirebaseScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // Step 1: Detect Firebase API keys and project IDs
-        tests_run += 1;
-        let firebase_configs = self.detect_firebase_config(url).await;
+        // Step 1a: Check if URL itself is a Firebase URL
+        let direct_project_id = self.detect_direct_firebase_url(url);
 
-        if firebase_configs.is_empty() {
-            debug!("No Firebase API keys or project IDs detected");
+        // Step 1b: Detect Firebase API keys and project IDs from page content
+        tests_run += 1;
+        let mut firebase_configs = self.detect_firebase_config(url).await;
+
+        // Get project ID (prioritize direct URL detection, then configs)
+        let project_id = direct_project_id.or_else(|| {
+            firebase_configs
+                .iter()
+                .find(|c| c.project_id.is_some())
+                .and_then(|c| c.project_id.clone())
+        });
+
+        // If we have a direct Firebase URL but no configs, create a placeholder
+        if let Some(ref pid) = direct_project_id {
+            if firebase_configs.is_empty() {
+                info!("Direct Firebase URL detected: {}", url);
+                firebase_configs.push(FirebaseConfig {
+                    api_key: String::new(), // No API key from URL alone
+                    project_id: Some(pid.clone()),
+                    found_in: "Direct Firebase URL".to_string(),
+                });
+            }
+        }
+
+        if firebase_configs.is_empty() && project_id.is_none() {
+            debug!("No Firebase API keys, project IDs, or Firebase URLs detected");
             return Ok((Vec::new(), tests_run));
         }
 
         info!("Found {} Firebase configuration(s)", firebase_configs.len());
-
-        // Get project ID from configs (prioritize configs with project_id)
-        let project_id = firebase_configs
-            .iter()
-            .find(|c| c.project_id.is_some())
-            .and_then(|c| c.project_id.clone());
 
         // Step 2: Test Realtime Database (doesn't need API key)
         if let Some(ref project_id_val) = project_id {
@@ -154,7 +194,23 @@ impl FirebaseScanner {
             tests_run += storage_tests;
         }
 
-        // Step 5: Test Cloud Functions
+        // Step 5: Test Firebase config discovery
+        if let Some(ref project_id_val) = project_id {
+            info!("Testing Firebase config discovery");
+
+            let (config_vulns, config_tests) = self.test_config_discovery(project_id_val, url).await;
+            vulnerabilities.extend(config_vulns);
+            tests_run += config_tests;
+        }
+
+        // Step 6: Test Remote Config
+        if let Some(ref project_id_val) = project_id {
+            let (remote_config_vulns, remote_config_tests) = self.test_remote_config(project_id_val, url).await;
+            vulnerabilities.extend(remote_config_vulns);
+            tests_run += remote_config_tests;
+        }
+
+        // Step 7: Test Cloud Functions
         if let Some(ref project_id_val) = project_id {
             info!("Testing Cloud Functions for project: {}", project_id_val);
 
@@ -163,7 +219,7 @@ impl FirebaseScanner {
             tests_run += functions_tests;
         }
 
-        // Step 6: API key tests (only if we have valid API keys)
+        // Step 8: API key tests (only if we have valid API keys)
         for firebase_config in &firebase_configs {
             // Validate API key first
             if !self.validate_api_key(&firebase_config.api_key).await {
@@ -182,6 +238,18 @@ impl FirebaseScanner {
             // Test anonymous signup
             tests_run += 1;
             if let Some(vuln) = self.test_anonymous_signup(firebase_config, url).await {
+                vulnerabilities.push(vuln);
+            }
+
+            // Test password reset enumeration
+            tests_run += 1;
+            if let Some(vuln) = self.test_password_reset_enum(firebase_config, url).await {
+                vulnerabilities.push(vuln);
+            }
+
+            // Test Google API key (Maps, Translation)
+            tests_run += 1;
+            if let Some(vuln) = self.test_google_api_key(firebase_config, url).await {
                 vulnerabilities.push(vuln);
             }
 
@@ -307,6 +375,288 @@ impl FirebaseScanner {
         }
 
         configs
+    }
+
+    /// Detect if URL is a direct Firebase URL
+    fn detect_direct_firebase_url(&self, url: &str) -> Option<String> {
+        if let Ok(parsed) = url::Url::parse(url) {
+            if let Some(host) = parsed.host_str() {
+                // Check for Firebase Realtime Database: PROJECT.firebaseio.com
+                if host.ends_with(".firebaseio.com") {
+                    let parts: Vec<&str> = host.split('.').collect();
+                    if parts.len() >= 3 {
+                        return Some(parts[0].to_string());
+                    }
+                }
+
+                // Check for Firebase Hosting: PROJECT.web.app or PROJECT.firebaseapp.com
+                if host.ends_with(".web.app") || host.ends_with(".firebaseapp.com") {
+                    let parts: Vec<&str> = host.split('.').collect();
+                    if parts.len() >= 2 {
+                        return Some(parts[0].to_string());
+                    }
+                }
+
+                // Check for Firestore: firestore.googleapis.com (extract from path)
+                if host == "firestore.googleapis.com" {
+                    let path = parsed.path();
+                    if path.contains("/projects/") {
+                        if let Some(start) = path.find("/projects/") {
+                            let after = &path[start + 10..];
+                            if let Some(end) = after.find('/') {
+                                return Some(after[..end].to_string());
+                            }
+                        }
+                    }
+                }
+
+                // Check for Firebase Storage: firebasestorage.googleapis.com
+                if host == "firebasestorage.googleapis.com" {
+                    let path = parsed.path();
+                    if path.contains("/b/") {
+                        if let Some(start) = path.find("/b/") {
+                            let after = &path[start + 3..];
+                            if let Some(end) = after.find(".appspot.com") {
+                                return Some(after[..end].to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Test Firebase config discovery endpoints
+    async fn test_config_discovery(&self, project_id: &str, url: &str) -> (Vec<Vulnerability>, usize) {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let config_urls = vec![
+            format!("https://{}.web.app/__/firebase/init.json", project_id),
+            format!("https://{}.firebaseapp.com/__/firebase/init.json", project_id),
+            format!("https://{}.firebaseio.com/.settings/rules.json", project_id),
+        ];
+
+        for config_url in config_urls {
+            tests_run += 1;
+            if let Ok(response) = self.http_client.get(&config_url).await {
+                if response.status_code == 200 && !response.body.is_empty() {
+                    let is_config = response.body.contains("\"apiKey\"") ||
+                                   response.body.contains("\"projectId\"") ||
+                                   response.body.contains("\"rules\"");
+
+                    if is_config {
+                        info!("Firebase configuration exposed at: {}", config_url);
+
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("firebase_config_{}", Self::generate_id()),
+                            vuln_type: "Firebase Configuration Disclosure".to_string(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::High,
+                            category: "Information Disclosure".to_string(),
+                            url: url.to_string(),
+                            parameter: None,
+                            payload: config_url.clone(),
+                            description: format!(
+                                "Firebase configuration is publicly accessible at {}. \
+                                This may expose API keys, project details, or security rules.",
+                                config_url
+                            ),
+                            evidence: Some(format!(
+                                "URL: {}\nStatus: {}\nConfiguration found",
+                                config_url, response.status_code
+                            )),
+                            cwe: "CWE-200".to_string(),
+                            cvss: 5.3,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Remove publicly accessible configuration files\n\
+                                          2. Use environment variables for sensitive config\n\
+                                          3. Implement authentication for config endpoints\n\
+                                          4. Review Firebase security rules".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                    }
+                }
+            }
+        }
+
+        (vulnerabilities, tests_run)
+    }
+
+    /// Test Firebase Remote Config
+    async fn test_remote_config(&self, project_id: &str, url: &str) -> (Vec<Vulnerability>, usize) {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let remote_config_url = format!(
+            "https://firebaseremoteconfig.googleapis.com/v1/projects/{}/remoteConfig",
+            project_id
+        );
+
+        tests_run += 1;
+        if let Ok(response) = self.http_client.get(&remote_config_url).await {
+            if response.status_code == 200 && response.body.contains("\"parameters\"") {
+                info!("Firebase Remote Config is publicly accessible");
+
+                vulnerabilities.push(Vulnerability {
+                    id: format!("firebase_remote_config_{}", Self::generate_id()),
+                    vuln_type: "Firebase Remote Config - Public Access".to_string(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::High,
+                    category: "Access Control".to_string(),
+                    url: url.to_string(),
+                    parameter: None,
+                    payload: remote_config_url.clone(),
+                    description: format!(
+                        "Firebase Remote Config for project '{}' is publicly accessible.",
+                        project_id
+                    ),
+                    evidence: Some(format!(
+                        "URL: {}\nStatus: {}\nConfig parameters exposed",
+                        remote_config_url, response.status_code
+                    )),
+                    cwe: "CWE-732".to_string(),
+                    cvss: 5.3,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "1. Restrict Remote Config API access\n\
+                                  2. Require authentication for config retrieval\n\
+                                  3. Review Remote Config permissions\n\
+                                  4. Use IAM policies to limit access".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+        }
+
+        (vulnerabilities, tests_run)
+    }
+
+    /// Test password reset for email enumeration
+    async fn test_password_reset_enum(&self, config: &FirebaseConfig, url: &str) -> Option<Vulnerability> {
+        let endpoint = format!(
+            "https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={}",
+            config.api_key
+        );
+
+        let test_email = format!("nonexistent-test-{}@example.invalid",
+            uuid::Uuid::new_v4().to_string());
+
+        let payload = json!({
+            "requestType": "PASSWORD_RESET",
+            "email": test_email
+        });
+
+        match self.make_firebase_request(&endpoint, &payload).await {
+            Ok(response) => {
+                let body_lower = response.body.to_lowercase();
+
+                // Check if response reveals whether email exists
+                if body_lower.contains("user_not_found") ||
+                   body_lower.contains("email not found") ||
+                   (response.status_code == 400 && body_lower.contains("\"error\"")) {
+                    info!("Password reset endpoint allows email enumeration");
+
+                    return Some(Vulnerability {
+                        id: format!("firebase_password_enum_{}", Self::generate_id()),
+                        vuln_type: "Firebase Password Reset Email Enumeration".to_string(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::High,
+                        category: "Information Disclosure".to_string(),
+                        url: url.to_string(),
+                        parameter: Some("email".to_string()),
+                        payload: test_email,
+                        description: "Firebase password reset endpoint reveals whether an email is registered. \
+                                      Error messages differ for existing vs non-existing accounts.".to_string(),
+                        evidence: Some(format!(
+                            "Endpoint: {}\nResponse reveals account existence through error messages",
+                            endpoint
+                        )),
+                        cwe: "CWE-204".to_string(),
+                        cvss: 5.3,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "1. Return generic error messages for password reset\n\
+                                      2. Enable email enumeration protection in Firebase Console\n\
+                                      3. Use same response for existing and non-existing accounts\n\
+                                      4. Implement rate limiting on password reset requests".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+            }
+            Err(_) => {}
+        }
+
+        None
+    }
+
+    /// Test if Google API key works with Maps/Translation APIs
+    async fn test_google_api_key(&self, config: &FirebaseConfig, url: &str) -> Option<Vulnerability> {
+        let mut exposed_apis = Vec::new();
+
+        // Test Maps API
+        let maps_url = format!(
+            "https://maps.googleapis.com/maps/api/staticmap?center=0,0&zoom=1&size=100x100&key={}",
+            config.api_key
+        );
+
+        if let Ok(response) = self.http_client.get(&maps_url).await {
+            if response.status_code == 200 && response.body.len() > 1000 {
+                exposed_apis.push("Google Maps API");
+            }
+        }
+
+        // Test Translation API
+        let translation_url = format!(
+            "https://translation.googleapis.com/language/translate/v2?key={}&q=test&target=fi",
+            config.api_key
+        );
+
+        if let Ok(response) = self.http_client.get(&translation_url).await {
+            if response.status_code == 200 && response.body.contains("\"translatedText\"") {
+                exposed_apis.push("Google Translation API");
+            }
+        }
+
+        if !exposed_apis.is_empty() {
+            info!("Firebase API key works with: {}", exposed_apis.join(", "));
+
+            return Some(Vulnerability {
+                id: format!("firebase_api_abuse_{}", Self::generate_id()),
+                vuln_type: "Firebase API Key - Google Services Accessible".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::High,
+                category: "Configuration".to_string(),
+                url: url.to_string(),
+                parameter: None,
+                payload: format!("API Key: {}...", &config.api_key[..20]),
+                description: format!(
+                    "Firebase API key can be used to access Google services: {}. \
+                    This may result in quota abuse and unexpected billing.",
+                    exposed_apis.join(", ")
+                ),
+                evidence: Some(format!(
+                    "Accessible APIs: {}\n\
+                    API key should be restricted to specific services and domains.",
+                    exposed_apis.join(", ")
+                )),
+                cwe: "CWE-284".to_string(),
+                cvss: 7.5,
+                verified: true,
+                false_positive: false,
+                remediation: "1. Restrict API key to specific APIs in Google Cloud Console\n\
+                              2. Add HTTP referrer restrictions\n\
+                              3. Add IP address restrictions for server keys\n\
+                              4. Regenerate compromised keys\n\
+                              5. Monitor API usage for abuse\n\
+                              6. Set usage quotas to prevent billing surprises".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+
+        None
     }
 
     /// Test Firebase Authentication API for email enumeration vulnerability
@@ -540,8 +890,51 @@ impl FirebaseScanner {
             }
         }
 
-        // Test 2: Common sensitive paths
-        for path in COMMON_PATHS.iter().take(10) {  // Limit to prevent excessive requests
+        // Test 2: Rules disclosure
+        tests_run += 1;
+        let rules_url = format!("{}/.settings/rules.json", rtdb_url);
+        if let Ok(response) = self.http_client.get(&rules_url).await {
+            if response.status_code == 200 && !response.body.is_empty() && response.body != "null" {
+                info!("Firebase Realtime Database rules are publicly accessible!");
+
+                vulnerabilities.push(Vulnerability {
+                    id: format!("firebase_rules_{}", Self::generate_id()),
+                    vuln_type: "Firebase Realtime Database - Rules Disclosure".to_string(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::High,
+                    category: "Information Disclosure".to_string(),
+                    url: url.to_string(),
+                    parameter: Some("Rules".to_string()),
+                    payload: rules_url.clone(),
+                    description: format!(
+                        "Firebase Realtime Database security rules for project '{}' are publicly accessible. \
+                        This reveals the security model and may help attackers identify weaknesses.",
+                        project_id
+                    ),
+                    evidence: Some(format!(
+                        "URL: {}\nStatus: {}\nRules: {}",
+                        rules_url, response.status_code,
+                        if response.body.len() > 200 {
+                            format!("{}... [truncated]", &response.body[..200])
+                        } else {
+                            response.body.clone()
+                        }
+                    )),
+                    cwe: "CWE-200".to_string(),
+                    cvss: 5.3,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "1. Restrict access to /.settings/rules.json\n\
+                                  2. Review Firebase security rules\n\
+                                  3. Follow principle of least privilege in rules\n\
+                                  4. Use Firebase Console to manage rules securely".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+        }
+
+        // Test 3: Common sensitive paths
+        for path in COMMON_PATHS.iter().take(15) {  // Test 15 paths
             tests_run += 1;
             let test_url = format!("{}{}", rtdb_url, path);
 
