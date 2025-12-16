@@ -105,6 +105,63 @@ Now maps findings to **6 compliance frameworks**:
 - **NEW**: DORA (EU Digital Operational Resilience Act)
 - **NEW**: NIS2 (EU Network and Information Security Directive)
 
+### JavaScript Sensitive Information Scanner (NEW)
+Deep analysis of JavaScript files for leaked secrets and sensitive data:
+
+**API Keys & Tokens**
+- Mapbox tokens (pk.eyJ/sk.eyJ) with billing abuse impact analysis (~$200K for 100M requests)
+- OpenAI, Twilio, SendGrid, Mailgun API keys
+- AWS, GCP, Azure credentials
+- Stripe, PayPal, Square payment keys
+- NPM, PyPI, RubyGems package tokens
+
+**Internal Information**
+- Employee email lists and corporate email patterns
+- Jira tickets and project references
+- Internal URLs (staging, dev, admin)
+- Active Directory/LDAP references
+- Organization chart and hierarchy data
+
+**Development Artifacts**
+- Debug endpoints and admin panels
+- Source maps exposing original code
+- TODO/FIXME comments with security context
+- Hardcoded passwords and secrets
+
+### Rate Limiting Scanner (NEW)
+Tests authentication endpoints for missing or insufficient rate limiting:
+- Signup endpoint brute force testing
+- Login endpoint rate limit detection
+- Password reset abuse potential
+- OTP/2FA code brute force
+- Generates unique test data per request to avoid caching
+
+### CMS Security Scanners (Personal+ License)
+
+**WordPress Security Scanner**
+- **User Enumeration**: Author parameter, REST API, login error messages
+- **XML-RPC Attacks**: Multicall brute force amplification, pingback SSRF
+- **Plugin Vulnerabilities**: 18+ known vulnerable plugins with CVEs
+- **Configuration Exposure**: wp-config.php backups, debug.log, error_log
+- **Version Disclosure**: Generator meta, readme.html, feed links
+- **Sensitive Files**: .htaccess, backup archives, installation scripts
+
+**Drupal Security Scanner**
+- **Drupalgeddon Detection**: CVE-2014-3704, CVE-2018-7600, CVE-2018-7602
+- **User Enumeration**: User paths, JSON API, password reset timing
+- **Module Vulnerabilities**: 15+ vulnerable contributed modules
+- **Configuration Exposure**: settings.php backups, status report
+- **Update/Install Scripts**: update.php, install.php exposure
+- **API Security**: REST/JSON API exposure, cron.php without key
+
+### Firebase Authentication Bypass (NEW)
+Detects Firebase misconfigurations:
+- **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI
+- **Anonymous Auth**: Unauthorized anonymous authentication
+- **Firestore Rules**: Insecure database security rules
+- **Storage Rules**: Public cloud storage access
+- **API Key Exposure**: Unrestricted Firebase API keys
+
 ### Expanded Technology Detection
 Lonkero now detects **80+ technologies** including:
 
@@ -155,12 +212,9 @@ Lonkero now detects **80+ technologies** including:
 
 ## Features
 
-<<<<<<< HEAD
-- **66+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
-=======
-- **75+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
+- **80+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
 - **Merlin JS Scanner** - Detects 100+ vulnerable JavaScript libraries with CVE mapping
->>>>>>> 8feba09 (Update README with new v2.0 features)
+- **CMS Security** - Advanced WordPress and Drupal vulnerability detection (Personal+ license)
 - **Technology-Aware** - Detects 80+ frameworks, CDNs, API gateways and runs relevant tests only
 - **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling
 - **Low False Positives** - Evidence-based detection with baseline comparison
