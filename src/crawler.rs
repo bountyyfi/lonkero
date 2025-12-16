@@ -13,6 +13,9 @@ use crate::http_client::HttpClient;
 use anyhow::{Context, Result};
 use scraper::{Html, Selector};
 use std::collections::{HashSet, HashMap};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::net::IpAddr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use url::Url;
@@ -24,6 +27,24 @@ pub struct DiscoveredForm {
     pub method: String,
     pub inputs: Vec<FormInput>,
     pub discovered_at: String,
+}
+
+impl DiscoveredForm {
+    /// Generate a hash signature for deduplication
+    pub fn signature(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.action.hash(&mut hasher);
+        self.method.hash(&mut hasher);
+
+        // Sort input names for consistent hashing
+        let mut names: Vec<_> = self.inputs.iter().map(|i| &i.name).collect();
+        names.sort();
+        for name in names {
+            name.hash(&mut hasher);
+        }
+
+        hasher.finish()
+    }
 }
 
 /// Form input field
@@ -95,12 +116,30 @@ impl CrawlResults {
 
         all_params
     }
+
+    /// Deduplicate forms based on their signature
+    pub fn deduplicate_forms(&mut self) {
+        let mut seen_signatures = HashSet::new();
+        let original_count = self.forms.len();
+
+        self.forms.retain(|form| {
+            let sig = form.signature();
+            seen_signatures.insert(sig)
+        });
+
+        let removed = original_count - self.forms.len();
+        if removed > 0 {
+            info!("Deduplicated {} duplicate forms", removed);
+        }
+    }
 }
 
 pub struct WebCrawler {
     http_client: Arc<HttpClient>,
     max_depth: usize,
     max_pages: usize,
+    robots_cache: Arc<tokio::sync::Mutex<HashMap<String, bool>>>, // host -> allowed
+    respect_robots: bool,
 }
 
 impl WebCrawler {
@@ -109,6 +148,19 @@ impl WebCrawler {
             http_client,
             max_depth,
             max_pages,
+            robots_cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            respect_robots: true,
+        }
+    }
+
+    /// Create a new crawler that ignores robots.txt
+    pub fn new_aggressive(http_client: Arc<HttpClient>, max_depth: usize, max_pages: usize) -> Self {
+        Self {
+            http_client,
+            max_depth,
+            max_pages,
+            robots_cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            respect_robots: false,
         }
     }
 
@@ -120,11 +172,17 @@ impl WebCrawler {
         let mut to_visit: Vec<(String, usize)> = vec![(start_url.to_string(), 0)];
         let mut visited: HashSet<String> = HashSet::new();
 
-        let base_url = Url::parse(start_url)
-            .context("Failed to parse start URL")?;
+        // Validate URL for SSRF protection
+        let base_url = self.is_safe_url(start_url)?;
         let base_domain = base_url.host_str()
             .context("Failed to get host from URL")?
             .to_string(); // Convert to owned String for Send safety
+
+        // Discover URLs from sitemap.xml
+        let sitemap_urls = self.discover_sitemap(&base_url).await;
+        for url in sitemap_urls {
+            to_visit.push((url, 0));
+        }
 
         while let Some((url, depth)) = to_visit.pop() {
             // Check limits
@@ -139,6 +197,22 @@ impl WebCrawler {
 
             if visited.contains(&url) {
                 continue;
+            }
+
+            // SSRF protection - validate each URL
+            if let Err(e) = self.is_safe_url(&url) {
+                warn!("Skipping unsafe URL {}: {}", url, e);
+                continue;
+            }
+
+            // Check robots.txt
+            if self.respect_robots {
+                if let Ok(parsed_url) = Url::parse(&url) {
+                    if !self.is_allowed_by_robots(&parsed_url).await {
+                        debug!("Skipping {} (blocked by robots.txt)", url);
+                        continue;
+                    }
+                }
             }
 
             visited.insert(url.clone());
@@ -197,6 +271,9 @@ impl WebCrawler {
             }
         }
 
+        // Deduplicate forms before returning
+        results.deduplicate_forms();
+
         info!("[SUCCESS] Crawl complete: {} pages, {} forms, {} scripts, {} links",
             results.crawled_urls.len(),
             results.forms.len(),
@@ -211,6 +288,135 @@ impl WebCrawler {
         }
 
         Ok(results)
+    }
+
+    /// Discover URLs from sitemap.xml
+    async fn discover_sitemap(&self, base_url: &Url) -> Vec<String> {
+        let sitemap_url = format!("{}://{}/sitemap.xml",
+            base_url.scheme(),
+            base_url.host_str().unwrap_or("")
+        );
+
+        let mut urls = Vec::new();
+
+        if let Ok(resp) = self.http_client.get(&sitemap_url).await {
+            // Simple XML parsing - look for <loc> tags
+            let body = &resp.body;
+            let mut in_loc = false;
+            let mut current_url = String::new();
+
+            for line in body.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("<loc>") {
+                    in_loc = true;
+                    if let Some(url_start) = trimmed.find("<loc>") {
+                        if let Some(url_end) = trimmed.find("</loc>") {
+                            let url = &trimmed[url_start + 5..url_end];
+                            urls.push(url.to_string());
+                            in_loc = false;
+                        } else {
+                            current_url = trimmed[url_start + 5..].to_string();
+                        }
+                    }
+                } else if trimmed.ends_with("</loc>") && in_loc {
+                    if let Some(url_end) = trimmed.find("</loc>") {
+                        current_url.push_str(trimmed[..url_end].trim());
+                        urls.push(current_url.clone());
+                        current_url.clear();
+                        in_loc = false;
+                    }
+                } else if in_loc {
+                    current_url.push_str(trimmed);
+                }
+            }
+        }
+
+        if !urls.is_empty() {
+            info!("Discovered {} URLs from sitemap.xml", urls.len());
+        }
+        urls
+    }
+
+    /// Check if URL is allowed by robots.txt
+    async fn is_allowed_by_robots(&self, url: &Url) -> bool {
+        let host = match url.host_str() {
+            Some(h) => h,
+            None => return true, // No host = allow
+        };
+
+        let mut cache = self.robots_cache.lock().await;
+
+        // Check cache first
+        if let Some(&allowed) = cache.get(host) {
+            return allowed;
+        }
+
+        // Fetch robots.txt
+        let robots_url = format!("{}://{}/robots.txt", url.scheme(), host);
+
+        let allowed = match self.http_client.get(&robots_url).await {
+            Ok(resp) => {
+                // Simple robots.txt parsing - look for Disallow directives for our user-agent
+                let body = &resp.body;
+                let mut in_our_section = false;
+                let mut allowed = true;
+
+                for line in body.lines() {
+                    let trimmed = line.trim();
+
+                    // Check User-agent directive
+                    if trimmed.to_lowercase().starts_with("user-agent:") {
+                        let agent = trimmed[11..].trim().to_lowercase();
+                        in_our_section = agent == "*" || agent == "lonkerobot" || agent == "lonkero";
+                    }
+
+                    // Check Disallow directive in our section
+                    if in_our_section && trimmed.to_lowercase().starts_with("disallow:") {
+                        let path = trimmed[9..].trim();
+                        if !path.is_empty() && url.path().starts_with(path) {
+                            allowed = false;
+                            break;
+                        }
+                    }
+                }
+
+                allowed
+            }
+            Err(_) => {
+                // No robots.txt = allow all
+                true
+            }
+        };
+
+        cache.insert(host.to_string(), allowed);
+        allowed
+    }
+
+    /// Validate URL to prevent SSRF attacks
+    fn is_safe_url(&self, url_str: &str) -> Result<Url> {
+        let url = Url::parse(url_str)?;
+
+        // Only allow HTTP(S)
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err(anyhow::anyhow!("Invalid scheme: {}", url.scheme()));
+        }
+
+        // Block internal/private IPs
+        if let Some(host) = url.host_str() {
+            // Block localhost variants
+            if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+                return Err(anyhow::anyhow!("Cannot crawl localhost"));
+            }
+
+            // Block private IP ranges
+            if let Ok(ip) = host.parse::<IpAddr>() {
+                if is_private_ip(&ip) {
+                    return Err(anyhow::anyhow!("Cannot crawl private IP: {}", ip));
+                }
+            }
+        }
+
+        Ok(url)
     }
 
     /// Extract forms from HTML
@@ -425,6 +631,24 @@ impl WebCrawler {
     }
 }
 
+/// Check if IP address is private/internal
+fn is_private_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => {
+            ipv4.is_private()
+            || ipv4.is_loopback()
+            || ipv4.is_link_local()
+            || ipv4.octets()[0] == 169 && ipv4.octets()[1] == 254 // 169.254.0.0/16
+            || ipv4.octets()[0] == 10 // 10.0.0.0/8
+            || (ipv4.octets()[0] == 172 && (16..=31).contains(&ipv4.octets()[1])) // 172.16.0.0/12
+            || (ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168) // 192.168.0.0/16
+        }
+        IpAddr::V6(ipv6) => {
+            ipv6.is_loopback() || ipv6.is_unspecified()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,5 +683,69 @@ mod tests {
         results1.merge(results2);
 
         assert_eq!(results1.links.len(), 2);
+    }
+
+    #[test]
+    fn test_form_signature() {
+        let form1 = DiscoveredForm {
+            action: "/submit".to_string(),
+            method: "POST".to_string(),
+            inputs: vec![
+                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None },
+                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None },
+            ],
+            discovered_at: "/login".to_string(),
+        };
+
+        let form2 = DiscoveredForm {
+            action: "/submit".to_string(),
+            method: "POST".to_string(),
+            inputs: vec![
+                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None },
+                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None },
+            ],
+            discovered_at: "/login".to_string(),
+        };
+
+        // Same inputs in different order should have same signature
+        assert_eq!(form1.signature(), form2.signature());
+    }
+
+    #[test]
+    fn test_deduplicate_forms() {
+        let mut results = CrawlResults::new();
+
+        let form = DiscoveredForm {
+            action: "/submit".to_string(),
+            method: "POST".to_string(),
+            inputs: vec![
+                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None },
+            ],
+            discovered_at: "/page1".to_string(),
+        };
+
+        results.forms.push(form.clone());
+        results.forms.push(form.clone());
+        results.forms.push(form);
+
+        assert_eq!(results.forms.len(), 3);
+        results.deduplicate_forms();
+        assert_eq!(results.forms.len(), 1);
+    }
+
+    #[test]
+    fn test_is_private_ip() {
+        use std::net::Ipv4Addr;
+
+        // Private IPs
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(is_private_ip(&IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1))));
+
+        // Public IPs
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!is_private_ip(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
     }
 }
