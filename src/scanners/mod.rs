@@ -105,6 +105,7 @@ pub mod laravel_security;
 pub mod express_security;
 pub mod nextjs_security;
 pub mod sveltekit_security;
+pub mod react_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -193,6 +194,7 @@ pub use laravel_security::LaravelSecurityScanner;
 pub use express_security::ExpressSecurityScanner;
 pub use nextjs_security::NextJsSecurityScanner;
 pub use sveltekit_security::SvelteKitSecurityScanner;
+pub use react_security::ReactSecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -280,6 +282,7 @@ pub struct ScanEngine {
     pub express_security_scanner: ExpressSecurityScanner,
     pub nextjs_security_scanner: NextJsSecurityScanner,
     pub sveltekit_security_scanner: SvelteKitSecurityScanner,
+    pub react_security_scanner: ReactSecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -456,6 +459,7 @@ impl ScanEngine {
             express_security_scanner: ExpressSecurityScanner::new(Arc::clone(&http_client)),
             nextjs_security_scanner: NextJsSecurityScanner::new(Arc::clone(&http_client)),
             sveltekit_security_scanner: SvelteKitSecurityScanner::new(Arc::clone(&http_client)),
+            react_security_scanner: ReactSecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1484,6 +1488,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(sveltekit_vulns);
         total_tests += sveltekit_tests as u64;
         queue.increment_tests(scan_id.clone(), sveltekit_tests as u64).await?;
+
+        // React Security Scanner (Personal+ license)
+        info!("[React] Advanced React security scanning");
+        let (react_vulns, react_tests) = self.react_security_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(react_vulns);
+        total_tests += react_tests as u64;
+        queue.increment_tests(scan_id.clone(), react_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {

@@ -205,6 +205,19 @@ Tests authentication endpoints for missing or insufficient rate limiting:
 - **Source Map/Config**: svelte.config.js, .env, package.json exposure
 - **Known CVEs**: 6 CVEs with version-based detection (CSRF, path traversal, XSS)
 
+**React Security Scanner**
+- **Dangerous Patterns**: dangerouslySetInnerHTML, innerHTML, eval with user input
+- **DevTools Exposure**: React/Redux/Apollo/React Query DevTools in production
+- **Environment Variables**: Server-side env vars exposed in bundles
+- **Source Map Exposure**: Production source maps leaking component code
+- **SSR Data Leakage**: __INITIAL_STATE__, __PRELOADED_STATE__ with secrets
+- **Build Artifacts**: .env, package.json, webpack.config.js exposure
+- **href/src XSS**: javascript: and data: URI injection via URL parameters
+- **Prototype Pollution**: __proto__ and constructor.prototype injection
+- **GraphQL Introspection**: Schema discovery on /graphql endpoints
+- **CORS Misconfig**: Permissive Access-Control-Allow-Origin headers
+- **Known CVEs**: 8 CVEs covering react, react-router, immer, semver, json5
+
 ### Firebase Authentication Bypass (NEW)
 Detects Firebase misconfigurations:
 - **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI
