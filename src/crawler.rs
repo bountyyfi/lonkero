@@ -785,6 +785,98 @@ impl WebCrawler {
     fn extract_framework_forms(&self, document: &Html, page_url: &str) -> Vec<DiscoveredForm> {
         let mut forms = Vec::new();
 
+        // =====================================================================
+        // NEXT.JS SPECIFIC DETECTION
+        // =====================================================================
+
+        // Extract form fields from Next.js __NEXT_DATA__ script
+        if let Ok(next_data_selector) = Selector::parse("script#__NEXT_DATA__") {
+            for script in document.select(&next_data_selector) {
+                let json_text = script.text().collect::<String>();
+                // Look for form-related field names in the JSON
+                let form_field_patterns = [
+                    "email", "password", "username", "name", "phone", "message",
+                    "firstName", "lastName", "company", "address", "city", "subject",
+                    "comment", "feedback", "search", "query", "nimi", "viesti", "puhelin",
+                ];
+
+                let mut next_inputs = Vec::new();
+                for field in form_field_patterns {
+                    // Check if field appears as a key in JSON: "email": or "email":
+                    let patterns = [
+                        format!(r#""{}":\s*"#, field),
+                        format!(r#"'{}'\s*:"#, field),
+                    ];
+                    for pattern in patterns {
+                        if let Ok(re) = regex::Regex::new(&pattern) {
+                            if re.is_match(&json_text) && !next_inputs.iter().any(|i: &FormInput| i.name == field) {
+                                next_inputs.push(FormInput {
+                                    name: field.to_string(),
+                                    input_type: "text".to_string(),
+                                    value: None,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if !next_inputs.is_empty() {
+                    debug!("Found {} form fields from __NEXT_DATA__", next_inputs.len());
+                    forms.push(DiscoveredForm {
+                        action: page_url.to_string(),
+                        method: "POST".to_string(),
+                        inputs: next_inputs,
+                        discovered_at: format!("{} (Next.js SSR data)", page_url),
+                    });
+                }
+            }
+        }
+
+        // Look for Next.js RSC payload data (React Server Components)
+        if let Ok(rsc_selector) = Selector::parse("script[type='application/rsc'], script[data-rsc]") {
+            for script in document.select(&rsc_selector) {
+                let rsc_text = script.text().collect::<String>();
+                // RSC payloads often contain form field names
+                let mut rsc_inputs = Vec::new();
+                let field_pattern = r#"(?:name|field|input|param)\s*[=:]\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#;
+                if let Ok(re) = regex::Regex::new(field_pattern) {
+                    for cap in re.captures_iter(&rsc_text) {
+                        if let Some(field) = cap.get(1) {
+                            let field_name = field.as_str();
+                            if !rsc_inputs.iter().any(|i: &FormInput| i.name == field_name) {
+                                rsc_inputs.push(FormInput {
+                                    name: field_name.to_string(),
+                                    input_type: "text".to_string(),
+                                    value: None,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if !rsc_inputs.is_empty() {
+                    debug!("Found {} form fields from RSC payload", rsc_inputs.len());
+                    forms.push(DiscoveredForm {
+                        action: page_url.to_string(),
+                        method: "POST".to_string(),
+                        inputs: rsc_inputs,
+                        discovered_at: format!("{} (Next.js RSC)", page_url),
+                    });
+                }
+            }
+        }
+
+        // Look for hydration data that might contain form schemas
+        if let Ok(hydration_selector) = Selector::parse("script[data-nscript], script[data-next-font]") {
+            // These scripts often load after SSR and contain form definitions
+            for script in document.select(&hydration_selector) {
+                if let Some(src) = script.value().attr("src") {
+                    // Mark these for JS mining
+                    debug!("Found Next.js hydration script for mining: {}", src);
+                }
+            }
+        }
+
         // Look for Next.js server action forms
         if let Ok(action_selector) = Selector::parse("[data-action], form[action^='/api'], form[action*='action']") {
             for elem in document.select(&action_selector) {

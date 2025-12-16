@@ -1308,6 +1308,176 @@ impl JsMinerScanner {
                 }
             }
         }
+
+        // =====================================================================
+        // NEXT.JS / REACT SERVER COMPONENTS SPECIFIC DETECTION
+        // =====================================================================
+
+        // Next.js Server Actions patterns
+        let nextjs_patterns = [
+            // Server Actions (Next.js 13+)
+            r#"useFormState\s*\([^)]*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"useFormStatus\s*\(\)"#,  // Marker for form presence
+            r#"startTransition.*formAction"#,  // Server action trigger
+            // Action function definitions
+            r#"async\s+function\s+([a-zA-Z_]*(?:submit|action|create|update|delete)[a-zA-Z_]*)"#,
+            r#"['"`]use\s+server['"`]"#,  // Server directive marker
+            // FormData extraction (common in server actions)
+            r#"formData\.get\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"formData\.getAll\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"Object\.fromEntries\s*\(\s*formData"#,  // Marker for form processing
+        ];
+
+        for pattern in nextjs_patterns {
+            if let Some(matches) = self.scan_pattern(content, pattern, "Next.js Form") {
+                for m in matches.into_iter().take(20) {
+                    let clean = m.split(&['=', ':', '(', '{', '.'][..]).last().unwrap_or(&m)
+                        .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')');
+                    if clean.len() > 2 && clean.len() < 30 && !Self::is_minified_param(clean) {
+                        results.parameters.entry("*".to_string())
+                            .or_insert_with(HashSet::new)
+                            .insert(clean.to_string());
+                    }
+                }
+            }
+        }
+
+        // Form validation schema detection (Yup, Zod, Joi)
+        let validation_patterns = [
+            // Zod schema
+            r#"z\.object\s*\(\s*\{([^}]+)\}"#,
+            r#"z\.string\(\).*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            // Yup schema
+            r#"yup\.object\s*\(\s*\{([^}]+)\}"#,
+            r#"Yup\.string\(\).*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            // Schema field definitions
+            r#"([a-zA-Z_][a-zA-Z0-9_]{1,30})\s*:\s*(?:z\.|Yup\.|joi\.)"#,
+        ];
+
+        for pattern in validation_patterns {
+            if let Some(matches) = self.scan_pattern(content, pattern, "Validation Schema") {
+                for m in matches.into_iter().take(30) {
+                    // Extract field names from schema object patterns
+                    if m.contains('{') {
+                        // Parse object keys: { email: z.string(), name: z.string() }
+                        let key_pattern = r#"([a-zA-Z_][a-zA-Z0-9_]{1,30})\s*:"#;
+                        if let Ok(re) = Regex::new(key_pattern) {
+                            for cap in re.captures_iter(&m) {
+                                if let Some(key) = cap.get(1) {
+                                    let field = key.as_str();
+                                    if !Self::is_minified_param(field) {
+                                        results.parameters.entry("*".to_string())
+                                            .or_insert_with(HashSet::new)
+                                            .insert(field.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        let clean = m.split(&['=', ':', '('][..]).next().unwrap_or(&m)
+                            .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
+                        if clean.len() > 2 && !Self::is_minified_param(clean) {
+                            results.parameters.entry("*".to_string())
+                                .or_insert_with(HashSet::new)
+                                .insert(clean.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Aggressive minified bundle extraction - look for string literals that are form fields
+        // In minified code, form fields often appear as: "email","password" or {email:"",password:""}
+        let form_field_strings = [
+            "email", "password", "username", "name", "phone", "message", "subject",
+            "firstName", "lastName", "first_name", "last_name", "fullName", "full_name",
+            "company", "organization", "address", "city", "state", "country", "zip",
+            "postal", "postcode", "zipcode", "street", "comment", "feedback", "inquiry",
+            "description", "title", "content", "body", "text", "note", "reason",
+            "budget", "amount", "price", "quantity", "date", "time", "datetime",
+            "birthday", "dob", "age", "gender", "newsletter", "subscribe", "consent",
+            "terms", "privacy", "file", "upload", "attachment", "avatar", "image",
+            "url", "website", "linkedin", "twitter", "facebook", "instagram",
+            "cardNumber", "card_number", "cvv", "expiry", "expiration",
+            "iban", "bic", "swift", "account", "routing",
+            // Finnish additions
+            "nimi", "sähköposti", "puhelin", "viesti", "osoite", "kaupunki",
+            "postinumero", "yritys", "aihe", "kuvaus", "kommentti",
+        ];
+
+        // Check for these strings appearing in form-like patterns
+        for field in form_field_strings {
+            // Pattern 1: Object key pattern  { email: or ,email: or "email":
+            let obj_key_pattern = format!(r#"[{{\s,]"?{}"?\s*:"#, field);
+            if let Ok(re) = Regex::new(&obj_key_pattern) {
+                if re.is_match(content) {
+                    results.parameters.entry("*".to_string())
+                        .or_insert_with(HashSet::new)
+                        .insert(field.to_string());
+                }
+            }
+
+            // Pattern 2: Name attribute in JSX  name="email" or name={"email"}
+            let jsx_name_pattern = format!(r#"name\s*=\s*[{{"'`]{}[}}"'`]"#, field);
+            if let Ok(re) = Regex::new(&jsx_name_pattern) {
+                if re.is_match(content) {
+                    results.parameters.entry("*".to_string())
+                        .or_insert_with(HashSet::new)
+                        .insert(field.to_string());
+                }
+            }
+        }
+
+        // Extract object destructuring patterns that might be form fields
+        // const { email, password, name } = formData OR const { email, password } = values
+        if let Some(destructure_matches) = self.scan_pattern(content,
+            r#"\{\s*([a-zA-Z_][a-zA-Z0-9_,\s]{3,100})\s*\}\s*=\s*(?:formData|values|data|form|state|props)"#,
+            "Destructure Form") {
+            for m in destructure_matches.into_iter().take(10) {
+                // Split by comma and extract field names
+                for part in m.split(',') {
+                    let field = part.trim().split(':').next().unwrap_or(part).trim()
+                        .split('=').next().unwrap_or("").trim();
+                    if field.len() > 2 && field.len() < 30 && !Self::is_minified_param(field)
+                        && !field.contains('{') && !field.contains('}') {
+                        results.parameters.entry("*".to_string())
+                            .or_insert_with(HashSet::new)
+                            .insert(field.to_string());
+                    }
+                }
+            }
+        }
+
+        // Look for fetch/axios POST body parameters
+        let http_body_patterns = [
+            // JSON body: body: JSON.stringify({ email, password })
+            r#"body\s*:\s*JSON\.stringify\s*\(\s*\{([^}]+)\}"#,
+            // Direct object: { email: value, password: value }
+            r#"(?:post|put|patch)\s*\([^)]*,\s*\{([^}]{5,200})\}"#,
+            // Axios data
+            r#"data\s*:\s*\{([^}]{5,200})\}"#,
+        ];
+
+        for pattern in http_body_patterns {
+            if let Some(matches) = self.scan_pattern(content, pattern, "HTTP Body") {
+                for m in matches.into_iter().take(10) {
+                    // Extract keys from object-like strings
+                    let key_pattern = r#"([a-zA-Z_][a-zA-Z0-9_]{2,25})\s*[,:}]"#;
+                    if let Ok(re) = Regex::new(key_pattern) {
+                        for cap in re.captures_iter(&m) {
+                            if let Some(key) = cap.get(1) {
+                                let field = key.as_str();
+                                if !Self::is_minified_param(field) {
+                                    results.parameters.entry("*".to_string())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(field.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Check if a parameter name looks like minified/webpack garbage or framework internal
