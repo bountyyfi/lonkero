@@ -3,6 +3,7 @@
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
+use chrono::Datelike;
 use std::sync::Arc;
 use tracing::info;
 
