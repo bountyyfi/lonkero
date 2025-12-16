@@ -728,6 +728,7 @@ async fn execute_standalone_scan(
     config: &ScannerConfig,
 ) -> Result<ScanResults> {
     use lonkero_scanner::crawler::{CrawlResults, WebCrawler};
+    use lonkero_scanner::headless_crawler::HeadlessCrawler;
     use lonkero_scanner::framework_detector::FrameworkDetector;
     use lonkero_scanner::signing::ReportSignature;
     use lonkero_scanner::types::{Confidence, Severity, Vulnerability};
@@ -854,6 +855,43 @@ async fn execute_standalone_scan(
         t.contains("cloudflare pages") || t.contains("vercel") || t.contains("netlify") ||
         t.contains("github pages")
     );
+
+    // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
+    // If we detected a JS framework and static crawler found few/no forms, use headless browser
+    let needs_headless = is_nodejs_stack && discovered_forms.is_empty();
+    if needs_headless {
+        info!("  - SPA detected with no forms found, trying headless browser...");
+        let headless = HeadlessCrawler::new(30);
+        match headless.extract_forms(target).await {
+            Ok(forms) => {
+                if !forms.is_empty() {
+                    info!("[SUCCESS] Headless browser found {} forms", forms.len());
+                    for form in &forms {
+                        let form_params: Vec<String> = form.inputs.iter()
+                            .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
+                                           !input.input_type.eq_ignore_ascii_case("submit") &&
+                                           !input.name.is_empty())
+                            .map(|input| input.name.clone())
+                            .collect();
+
+                        if !form_params.is_empty() {
+                            let action_url = if form.action.is_empty() {
+                                target.to_string()
+                            } else {
+                                form.action.clone()
+                            };
+                            discovered_forms.push((action_url, form_params.clone()));
+                            discovered_params.extend(form_params);
+                        }
+                    }
+                    info!("  - Found {} real form fields from rendered page", discovered_params.len());
+                }
+            }
+            Err(e) => {
+                warn!("  - Headless browser failed: {} (Chrome/Chromium may not be installed)", e);
+            }
+        }
+    }
 
     // CVE-2025-55182 Check - CRITICAL for Next.js/React sites
     // This is a CVSS 10.0 RCE vulnerability in React Server Components
