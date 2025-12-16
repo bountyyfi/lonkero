@@ -180,6 +180,19 @@ Tests authentication endpoints for missing or insufficient rate limiting:
 - **Debug Endpoints**: /debug, /metrics, /health with sensitive data
 - **Known CVEs**: 12+ CVEs covering Express, qs, mongoose, jsonwebtoken, lodash, axios, socket.io
 
+**Next.js Security Scanner**
+- **Middleware Bypass**: CVE-2025-29927, CVE-2024-39693, CVE-2024-34351 auth bypass detection
+- **_next/data Exposure**: Server-side props leaking sensitive data via JSON endpoints
+- **API Route Security**: Unprotected internal endpoints, CORS misconfigurations
+- **Environment Variables**: Server-side env vars exposed in client bundles
+- **Image Optimization SSRF**: CVE-2024-47831, CVE-2023-46298 internal network access
+- **Draft/Preview Mode**: Unauthenticated draft mode activation
+- **ISR Revalidation**: Exposed revalidation endpoints without auth
+- **Source Map Exposure**: Production source maps leaking original code
+- **Config File Exposure**: next.config.js, .env, package.json accessibility
+- **Server Actions**: CVE-2024-34351 Host header SSRF, cache poisoning
+- **Known CVEs**: 9+ CVEs with version-based detection (auth bypass, SSRF, path traversal)
+
 ### Firebase Authentication Bypass (NEW)
 Detects Firebase misconfigurations:
 - **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI

@@ -103,6 +103,7 @@ pub mod wordpress_security;
 pub mod drupal_security;
 pub mod laravel_security;
 pub mod express_security;
+pub mod nextjs_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -189,6 +190,7 @@ pub use wordpress_security::WordPressSecurityScanner;
 pub use drupal_security::DrupalSecurityScanner;
 pub use laravel_security::LaravelSecurityScanner;
 pub use express_security::ExpressSecurityScanner;
+pub use nextjs_security::NextJsSecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -274,6 +276,7 @@ pub struct ScanEngine {
     pub drupal_security_scanner: DrupalSecurityScanner,
     pub laravel_security_scanner: LaravelSecurityScanner,
     pub express_security_scanner: ExpressSecurityScanner,
+    pub nextjs_security_scanner: NextJsSecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -448,6 +451,7 @@ impl ScanEngine {
             drupal_security_scanner: DrupalSecurityScanner::new(Arc::clone(&http_client)),
             laravel_security_scanner: LaravelSecurityScanner::new(Arc::clone(&http_client)),
             express_security_scanner: ExpressSecurityScanner::new(Arc::clone(&http_client)),
+            nextjs_security_scanner: NextJsSecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1458,6 +1462,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(express_vulns);
         total_tests += express_tests as u64;
         queue.increment_tests(scan_id.clone(), express_tests as u64).await?;
+
+        // Next.js Security Scanner (Personal+ license)
+        info!("[Next.js] Advanced Next.js security scanning");
+        let (nextjs_vulns, nextjs_tests) = self.nextjs_security_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(nextjs_vulns);
+        total_tests += nextjs_tests as u64;
+        queue.increment_tests(scan_id.clone(), nextjs_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
