@@ -92,6 +92,9 @@ pub mod cve_2025_55183;
 pub mod cve_2025_55184;
 pub mod azure_apim;
 pub mod redos;
+pub mod http_parameter_pollution;
+pub mod waf_bypass;
+pub mod merlin;
 pub mod tomcat_misconfig;
 pub mod varnish_misconfig;
 
@@ -169,6 +172,9 @@ pub use cve_2025_55183::Cve202555183Scanner;
 pub use cve_2025_55184::Cve202555184Scanner;
 pub use azure_apim::AzureApimScanner;
 pub use redos::RedosScanner;
+pub use http_parameter_pollution::HttpParameterPollutionScanner;
+pub use waf_bypass::WafBypassScanner;
+pub use merlin::MerlinScanner;
 pub use tomcat_misconfig::TomcatMisconfigScanner;
 pub use varnish_misconfig::VarnishMisconfigScanner;
 
@@ -245,6 +251,9 @@ pub struct ScanEngine {
     pub cve_2025_55184_scanner: Cve202555184Scanner,
     pub azure_apim_scanner: AzureApimScanner,
     pub redos_scanner: RedosScanner,
+    pub hpp_scanner: HttpParameterPollutionScanner,
+    pub waf_bypass_scanner: WafBypassScanner,
+    pub merlin_scanner: MerlinScanner,
     pub tomcat_misconfig_scanner: TomcatMisconfigScanner,
     pub varnish_misconfig_scanner: VarnishMisconfigScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
@@ -410,6 +419,9 @@ impl ScanEngine {
             cve_2025_55184_scanner: Cve202555184Scanner::new(Arc::clone(&http_client)),
             azure_apim_scanner: AzureApimScanner::new(Arc::clone(&http_client)),
             redos_scanner: RedosScanner::new(Arc::clone(&http_client)),
+            hpp_scanner: HttpParameterPollutionScanner::new(Arc::clone(&http_client)),
+            waf_bypass_scanner: WafBypassScanner::new(Arc::clone(&http_client)),
+            merlin_scanner: MerlinScanner::new(Arc::clone(&http_client)),
             tomcat_misconfig_scanner: TomcatMisconfigScanner::new(Arc::clone(&http_client)),
             varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
@@ -1324,8 +1336,35 @@ impl ScanEngine {
         total_tests += cve_55184_tests as u64;
         queue.increment_tests(scan_id.clone(), cve_55184_tests as u64).await?;
 
-        // Tomcat Misconfiguration Check (stack traces, manager exposure, etc.)
-        info!("Checking for Tomcat misconfigurations");
+        // HTTP Parameter Pollution
+        info!("[HPP] Testing for HTTP Parameter Pollution");
+        let (hpp_vulns, hpp_tests) = self.hpp_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(hpp_vulns);
+        total_tests += hpp_tests as u64;
+        queue.increment_tests(scan_id.clone(), hpp_tests as u64).await?;
+
+        // WAF Bypass Testing
+        info!("[WAF-Bypass] Testing advanced WAF bypass techniques");
+        let (waf_vulns, waf_tests) = self.waf_bypass_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(waf_vulns);
+        total_tests += waf_tests as u64;
+        queue.increment_tests(scan_id.clone(), waf_tests as u64).await?;
+
+        // Merlin - JavaScript Library Vulnerability Detection
+        info!("[Merlin] Scanning for vulnerable JavaScript libraries");
+        let (merlin_vulns, merlin_tests) = self.merlin_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(merlin_vulns);
+        total_tests += merlin_tests as u64;
+        queue.increment_tests(scan_id.clone(), merlin_tests as u64).await?;
+
+        // Tomcat Misconfiguration Scanner
+        info!("[Tomcat] Checking for Apache Tomcat misconfigurations");
         let (tomcat_vulns, tomcat_tests) = self.tomcat_misconfig_scanner
             .scan(&target, &config)
             .await?;
@@ -1333,8 +1372,8 @@ impl ScanEngine {
         total_tests += tomcat_tests as u64;
         queue.increment_tests(scan_id.clone(), tomcat_tests as u64).await?;
 
-        // Varnish Cache Misconfiguration Check (unauthenticated purge, etc.)
-        info!("Checking for Varnish cache misconfigurations");
+        // Varnish Misconfiguration Scanner
+        info!("[Varnish] Checking for Varnish cache misconfigurations");
         let (varnish_vulns, varnish_tests) = self.varnish_misconfig_scanner
             .scan(&target, &config)
             .await?;

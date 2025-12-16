@@ -426,6 +426,7 @@ impl AuthBypassScanner {
     /// This exploits a known issue where Next.js middleware can be bypassed
     /// by prefixing protected paths with /_next/
     /// Example: /dashboard (protected) -> /_next/dashboard (bypassed)
+    /// Example: /kirjaudu (protected) -> /_next/kirjaudu (bypassed)
     async fn test_nextjs_middleware_bypass(&self, url: &str) -> Vec<(String, crate::http_client::HttpResponse, String)> {
         let mut results = Vec::new();
 
@@ -436,31 +437,30 @@ impl AuthBypassScanner {
         };
 
         let base_url = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+        let current_path = parsed.path();
 
-        // Protected paths that are commonly targeted
-        let protected_paths = vec![
-            "/admin",
-            "/dashboard",
-            "/api/admin",
-            "/api/users",
-            "/settings",
-            "/profile",
-            "/account",
-            "/internal",
-            "/manage",
-            "/panel",
-        ];
+        // DYNAMIC: Start with the actual path the user provided
+        let mut paths_to_test: Vec<String> = Vec::new();
 
-        // Next.js bypass prefixes
+        // Always test the path from the URL first (most important)
+        if !current_path.is_empty() && current_path != "/" {
+            paths_to_test.push(current_path.to_string());
+        }
+
+        // Next.js bypass prefixes - all known bypass vectors
         let bypass_prefixes = vec![
             "/_next",
             "/_next/static",
             "/_next/image",
             "/_next/data",
+            "/_next/static/chunks",
+            "/_next/static/css",
+            "/_next/static/media",
         ];
 
-        for path in &protected_paths {
-            // First, check if the original path is protected (returns 401/403/redirect)
+        // Test the provided path first with all bypass prefixes
+        for path in &paths_to_test {
+            // First check if original path requires auth
             let original_url = format!("{}{}", base_url, path);
 
             let original_response = match self.http_client.get(&original_url).await {
@@ -468,21 +468,26 @@ impl AuthBypassScanner {
                 Err(_) => continue,
             };
 
-            // Skip if original path is publicly accessible (no protection to bypass)
-            if original_response.status_code == 200 {
+            // If original returns 401/403/302 (protected), try bypass
+            let is_protected = original_response.status_code == 401
+                || original_response.status_code == 403
+                || original_response.status_code == 302
+                || original_response.status_code == 307;
+
+            if !is_protected {
                 continue;
             }
 
-            // Try bypass with /_next/ prefix
+            // Try all bypass prefixes
             for prefix in &bypass_prefixes {
                 let bypass_url = format!("{}{}{}", base_url, prefix, path);
 
                 match self.http_client.get(&bypass_url).await {
                     Ok(response) => {
-                        // Only report if bypass worked (200 vs original 401/403)
-                        if response.status_code == 200 && original_response.status_code != 200 {
+                        // Bypass successful if we get 200 where we got 401/403/302 before
+                        if response.status_code == 200 {
                             results.push((bypass_url, response, path.to_string()));
-                            break; // Found a bypass, no need to try other prefixes
+                            break;
                         }
                     }
                     Err(_) => continue,
@@ -490,7 +495,101 @@ impl AuthBypassScanner {
             }
         }
 
+        // Also discover and test links from the page
+        if let Ok(page_response) = self.http_client.get(url).await {
+            let discovered_paths = self.extract_paths_from_html(&page_response.body);
+
+            for path in discovered_paths {
+                // Skip already tested paths
+                if paths_to_test.contains(&path) {
+                    continue;
+                }
+
+                // Skip static assets
+                if path.contains(".js") || path.contains(".css") || path.contains(".png")
+                   || path.contains(".jpg") || path.contains(".svg") || path.contains(".ico") {
+                    continue;
+                }
+
+                let original_url = format!("{}{}", base_url, path);
+
+                let original_response = match self.http_client.get(&original_url).await {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+
+                let is_protected = original_response.status_code == 401
+                    || original_response.status_code == 403
+                    || original_response.status_code == 302
+                    || original_response.status_code == 307;
+
+                if !is_protected {
+                    continue;
+                }
+
+                for prefix in &bypass_prefixes {
+                    let bypass_url = format!("{}{}{}", base_url, prefix, path);
+
+                    match self.http_client.get(&bypass_url).await {
+                        Ok(response) => {
+                            if response.status_code == 200 {
+                                results.push((bypass_url, response, path.to_string()));
+                                break;
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+        }
+
         results
+    }
+
+    /// Extract paths from HTML content for dynamic testing
+    fn extract_paths_from_html(&self, html: &str) -> Vec<String> {
+        let mut paths = Vec::new();
+
+        // Extract href paths
+        let href_re = regex::Regex::new(r#"href=["'](/[^"']*?)["']"#).ok();
+        if let Some(re) = href_re {
+            for caps in re.captures_iter(html) {
+                if let Some(path) = caps.get(1) {
+                    let p = path.as_str().to_string();
+                    if !paths.contains(&p) {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+
+        // Extract action paths from forms
+        let action_re = regex::Regex::new(r#"action=["'](/[^"']*?)["']"#).ok();
+        if let Some(re) = action_re {
+            for caps in re.captures_iter(html) {
+                if let Some(path) = caps.get(1) {
+                    let p = path.as_str().to_string();
+                    if !paths.contains(&p) {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+
+        // Extract Next.js Link paths (common in Next.js apps)
+        let next_link_re = regex::Regex::new(r#"<Link[^>]*href=["'](/[^"']*?)["']"#).ok();
+        if let Some(re) = next_link_re {
+            for caps in re.captures_iter(html) {
+                if let Some(path) = caps.get(1) {
+                    let p = path.as_str().to_string();
+                    if !paths.contains(&p) {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+
+        paths
     }
 
     /// Check Next.js middleware bypass results
