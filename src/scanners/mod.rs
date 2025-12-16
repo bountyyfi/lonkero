@@ -23,7 +23,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
-pub mod xss;
 pub mod xss_detection;
 pub mod xss_enhanced;
 pub mod sqli;
@@ -101,7 +100,7 @@ pub mod cloud;
 pub mod external;
 
 // Re-export scanner types for easy access
-pub use xss::XssScanner;
+pub use xss_enhanced::EnhancedXssScanner as XssScanner;
 pub use sqli::SqliScanner;
 pub use sqli_boolean::SqliBooleanScanner;
 pub use sqli_union::SqliUnionScanner;

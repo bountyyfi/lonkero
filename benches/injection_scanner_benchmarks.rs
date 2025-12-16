@@ -12,7 +12,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::scanners::sqli::SqliScanner;
-use lonkero_scanner::scanners::xss::XssScanner;
+use lonkero_scanner::scanners::XssScanner;
 use lonkero_scanner::scanners::command_injection::CommandInjectionScanner;
 use lonkero_scanner::types::{ScanConfig, ScanMode};
 use std::sync::Arc;

@@ -12,7 +12,7 @@
 use lonkero_scanner::crawler::WebCrawler;
 use lonkero_scanner::framework_detector::FrameworkDetector;
 use lonkero_scanner::http_client::HttpClient;
-use lonkero_scanner::scanners::xss::XssScanner;
+use lonkero_scanner::scanners::XssScanner;
 use lonkero_scanner::types::{ScanConfig, Severity};
 use std::sync::Arc;
 use wiremock::{
