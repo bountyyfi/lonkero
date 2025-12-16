@@ -25,7 +25,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 /// Lonkero Internal Network Agent
 #[derive(Parser)]
 #[command(name = "lonkero-agent")]
-#[command(author = "Bountyy Oy <security@bountyy.fi>")]
+#[command(author = "Bountyy Oy <info@bountyy.fi>")]
 #[command(version = "1.0.0")]
 #[command(about = "Internal network scanning agent for Lonkero")]
 struct Cli {

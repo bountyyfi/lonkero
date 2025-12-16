@@ -2,7 +2,7 @@
 
 **Enterprise Web Security Scanner v2.0**
 
-Lonkero is a high-performance security scanner built in Rust with 64+ vulnerability detection modules. Designed for professional penetration testing, security assessments, and CI/CD integration.
+Web scanner built for actual pentests. Fast, modular, Rust.
 
 ```
     __                __

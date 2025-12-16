@@ -35,9 +35,9 @@ use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults, Vulnera
 /// Lonkero - Enterprise Web Security Scanner
 #[derive(Parser)]
 #[command(name = "lonkero")]
-#[command(author = "Bountyy Oy <security@bountyy.fi>")]
-#[command(version = "1.0.0")]
-#[command(about = "Enterprise-grade web vulnerability scanner with 60+ attack modules", long_about = None)]
+#[command(author = "Bountyy Oy <info@bountyy.fi>")]
+#[command(version = "2.0.0")]
+#[command(about = "Web scanner built for actual pentests. Fast, modular, Rust.", long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
     #[command(subcommand)]
