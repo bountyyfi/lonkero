@@ -202,7 +202,7 @@ impl FrameworkDetector {
 
         if let Some(server) = response.header("server") {
             let server_lower = server.to_lowercase();
-            let mut evidence = vec![format!("Server: {}", server)];
+            let evidence = vec![format!("Server: {}", server)];
 
             let server_patterns = vec![
                 ("nginx", "Nginx", TechCategory::Server, Some("nginx/")),
@@ -288,7 +288,7 @@ impl FrameworkDetector {
 
         if let Some(powered_by) = response.header("x-powered-by") {
             let pb_lower = powered_by.to_lowercase();
-            let mut evidence = vec![format!("X-Powered-By: {}", powered_by)];
+            let evidence = vec![format!("X-Powered-By: {}", powered_by)];
 
             let powered_by_patterns = vec![
                 ("php", "PHP", TechCategory::Language, Some("php/")),

@@ -964,7 +964,7 @@ impl OpenRedirectScanner {
                             found_bypass = Some(payload_info.category.as_str().to_string());
 
                             // In fast mode, stop after first find
-                            if config.mode == crate::types::ScanMode::Fast {
+                            if config.scan_mode == crate::types::ScanMode::Fast {
                                 break;
                             }
                         }
@@ -1269,7 +1269,8 @@ impl OpenRedirectScanner {
         }
 
         // Check for payload reflection in JS context (potential DOM-based)
-        if body.contains(payload) || body.contains(&urlencoding::decode(payload).unwrap_or_default()) {
+        let decoded_payload = urlencoding::decode(payload).unwrap_or_default();
+        if body.contains(payload) || body.contains(&*decoded_payload) {
             let js_context_patterns = [
                 "window.location", "location.href", "document.location",
                 "location.assign", "location.replace",
@@ -1280,7 +1281,7 @@ impl OpenRedirectScanner {
                     // Check if payload appears near redirect context
                     if let Some(pos) = body.find(ctx) {
                         let context_window = &body[pos.saturating_sub(200)..std::cmp::min(pos + 500, body.len())];
-                        if context_window.contains(payload) || context_window.contains(&urlencoding::decode(payload).unwrap_or_default()) {
+                        if context_window.contains(payload) || context_window.contains(&*decoded_payload) {
                             return Some(self.create_vulnerability(
                                 url,
                                 param_name,
@@ -1427,7 +1428,7 @@ impl OpenRedirectScanner {
                 found_params.insert(param.to_string());
 
                 // In fast mode, stop after first vulnerable param
-                if config.mode == crate::types::ScanMode::Fast {
+                if config.scan_mode == crate::types::ScanMode::Fast {
                     break;
                 }
             }

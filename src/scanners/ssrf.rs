@@ -25,7 +25,7 @@ use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// SSRF bypass category for classification
 #[derive(Debug, Clone, PartialEq)]

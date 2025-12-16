@@ -59,7 +59,7 @@ pub fn verify_binary_integrity() -> bool {
     let checked = KILLSWITCH_CHECKED.load(Ordering::SeqCst);
 
     // Check 3: Cross-verify with another integrity marker
-    let marker_xor = get_integrity_marker();
+    let _marker_xor = get_integrity_marker();
     if checked && token != 0 {
         // Token should never be exactly equal to marker (XOR relationship)
         if token == INTEGRITY_MARKER {
