@@ -99,6 +99,7 @@ pub mod tomcat_misconfig;
 pub mod varnish_misconfig;
 pub mod js_sensitive_info;
 pub mod rate_limiting;
+pub mod wordpress_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -181,6 +182,7 @@ pub use tomcat_misconfig::TomcatMisconfigScanner;
 pub use varnish_misconfig::VarnishMisconfigScanner;
 pub use js_sensitive_info::JsSensitiveInfoScanner;
 pub use rate_limiting::RateLimitingScanner;
+pub use wordpress_security::WordPressSecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -262,6 +264,7 @@ pub struct ScanEngine {
     pub varnish_misconfig_scanner: VarnishMisconfigScanner,
     pub js_sensitive_info_scanner: JsSensitiveInfoScanner,
     pub rate_limiting_scanner: RateLimitingScanner,
+    pub wordpress_security_scanner: WordPressSecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -432,6 +435,7 @@ impl ScanEngine {
             varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
             js_sensitive_info_scanner: JsSensitiveInfoScanner::new(Arc::clone(&http_client)),
             rate_limiting_scanner: RateLimitingScanner::new(Arc::clone(&http_client)),
+            wordpress_security_scanner: WordPressSecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1406,6 +1410,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(rate_limit_vulns);
         total_tests += rate_limit_tests as u64;
         queue.increment_tests(scan_id.clone(), rate_limit_tests as u64).await?;
+
+        // WordPress Security Scanner (Personal+ license)
+        info!("[WordPress] Advanced WordPress security scanning");
+        let (wordpress_vulns, wordpress_tests) = self.wordpress_security_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(wordpress_vulns);
+        total_tests += wordpress_tests as u64;
+        queue.increment_tests(scan_id.clone(), wordpress_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
