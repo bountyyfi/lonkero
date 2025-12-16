@@ -212,12 +212,13 @@ impl HeadlessCrawler {
     /// Check if headless browser is available
     pub async fn is_available() -> bool {
         tokio::task::spawn_blocking(|| {
-            Browser::new(
-                LaunchOptions::default_builder()
-                    .headless(true)
-                    .build()
-                    .ok()?
-            ).ok().is_some()
+            let options = match LaunchOptions::default_builder()
+                .headless(true)
+                .build() {
+                    Ok(o) => o,
+                    Err(_) => return false,
+                };
+            Browser::new(options).is_ok()
         })
         .await
         .unwrap_or(false)
