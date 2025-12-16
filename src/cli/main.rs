@@ -731,7 +731,6 @@ async fn execute_standalone_scan(
     use lonkero_scanner::framework_detector::FrameworkDetector;
     use lonkero_scanner::signing::ReportSignature;
     use lonkero_scanner::types::{Confidence, Severity, Vulnerability};
-    use std::collections::HashSet;
 
     // ============================================================
     // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
@@ -987,13 +986,13 @@ async fn execute_standalone_scan(
 
                 // Boolean-based Blind SQLi
                 info!("    Testing Boolean-based Blind SQLi on '{}'", param_name);
-                let (bool_vulns, bool_tests) = engine.sqli_boolean_scanner.scan_parameter(target, param_name, scan_config).await?;
+                let (bool_vulns, bool_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(bool_vulns);
                 total_tests += bool_tests as u64;
 
                 // UNION-based SQLi
                 info!("    Testing UNION-based SQLi on '{}'", param_name);
-                let (union_vulns, union_tests) = engine.sqli_union_scanner.scan_parameter(target, param_name, scan_config).await?;
+                let (union_vulns, union_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(union_vulns);
                 total_tests += union_tests as u64;
             }
