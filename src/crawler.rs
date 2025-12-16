@@ -659,120 +659,121 @@ impl WebCrawler {
     }
 
     /// Detect potential form parameter names from HTML content
+    /// IMPORTANT: This should only detect ACTUAL form fields, not just words on the page
     fn detect_form_params_from_html(&self, document: &Html) -> Vec<String> {
         let mut params = Vec::new();
-        let html_text = document.root_element().text().collect::<String>();
 
-        // Common form field labels that indicate form presence (multi-language)
+        // First, check if the page actually has form-like structures
+        // Only detect params if we see real form indicators
+        let has_form_structure = {
+            let form_selector = Selector::parse("form, [role='form'], .form, .contact-form, .signup-form, .login-form").ok();
+            let input_selector = Selector::parse("input:not([type='hidden']):not([type='submit']), textarea, select").ok();
+
+            let has_forms = form_selector.map(|s| document.select(&s).next().is_some()).unwrap_or(false);
+            let has_inputs = input_selector.map(|s| document.select(&s).next().is_some()).unwrap_or(false);
+
+            has_forms || has_inputs
+        };
+
+        // If no form structure exists, don't try to infer params from text
+        if !has_form_structure {
+            debug!("No form structure detected - skipping text-based param detection");
+            return params;
+        }
+
+        // Form field name mappings (indicator -> param_name)
         let form_indicators = [
             // Email variations
             ("email", "email"), ("e-mail", "email"), ("sähköposti", "email"),
-            ("correo", "email"), ("courriel", "email"), ("邮箱", "email"),
+            ("correo", "email"), ("courriel", "email"),
             // Name variations
-            ("name", "name"), ("nimi", "name"), ("full name", "fullname"),
-            ("nombre", "name"), ("nom", "name"), ("名前", "name"),
+            ("nimi", "name"), ("full name", "fullname"),
+            ("nombre", "name"), ("nom", "name"),
             // Phone variations
             ("phone", "phone"), ("puhelin", "phone"), ("telephone", "phone"),
             ("telefono", "phone"), ("téléphone", "phone"), ("mobile", "phone"),
-            ("cell", "phone"), ("contact number", "phone"),
-            // Message/comment variations
+            // Message variations
             ("message", "message"), ("viesti", "message"), ("comment", "comment"),
-            ("mensaje", "message"), ("commentaire", "comment"), ("feedback", "message"),
-            ("inquiry", "message"), ("question", "message"),
+            ("mensaje", "message"), ("feedback", "message"),
             // Subject variations
             ("subject", "subject"), ("aihe", "subject"), ("asunto", "subject"),
-            ("sujet", "subject"), ("topic", "subject"),
-            // Company/org variations
-            ("company", "company"), ("yritys", "company"), ("organization", "organization"),
-            ("empresa", "company"), ("société", "company"), ("business", "company"),
-            // Address variations
-            ("address", "address"), ("osoite", "address"), ("direccion", "address"),
-            ("adresse", "address"), ("street", "address"), ("住所", "address"),
-            // City/location variations
-            ("city", "city"), ("kaupunki", "city"), ("ciudad", "city"),
-            ("ville", "city"), ("town", "city"), ("location", "city"),
-            // Country variations
-            ("country", "country"), ("maa", "country"), ("pais", "country"),
-            ("pays", "country"), ("国", "country"),
+            // Company variations
+            ("company", "company"), ("yritys", "company"),
             // Auth fields
-            ("password", "password"), ("salasana", "password"), ("contraseña", "password"),
-            ("mot de passe", "password"), ("confirm password", "password_confirm"),
-            ("username", "username"), ("käyttäjänimi", "username"), ("usuario", "username"),
-            ("login", "username"), ("user", "username"),
+            ("password", "password"), ("salasana", "password"),
+            ("username", "username"), ("käyttäjänimi", "username"),
             // Name parts
-            ("first name", "firstname"), ("etunimi", "firstname"), ("prenom", "firstname"),
-            ("last name", "lastname"), ("sukunimi", "lastname"), ("apellido", "lastname"),
-            ("family name", "lastname"), ("surname", "lastname"),
-            // Search
-            ("search", "search"), ("haku", "search"), ("buscar", "search"),
-            ("query", "query"), ("keyword", "search"),
-            // Other common fields
-            ("zip", "zip"), ("postal", "postalcode"), ("postinumero", "postalcode"),
-            ("website", "website"), ("url", "url"), ("www", "website"),
-            ("date", "date"), ("birthday", "birthday"), ("syntymäpäivä", "birthday"),
-            ("age", "age"), ("gender", "gender"), ("sex", "gender"),
-            ("newsletter", "newsletter"), ("subscribe", "subscribe"),
-            ("agree", "terms"), ("accept", "terms"), ("consent", "consent"),
-            ("budget", "budget"), ("price", "price"), ("amount", "amount"),
-            ("quantity", "quantity"), ("number", "number"),
-            ("file", "file"), ("upload", "file"), ("attachment", "file"),
-            ("description", "description"), ("kuvaus", "description"),
-            ("title", "title"), ("otsikko", "title"),
-            ("reason", "reason"), ("syy", "reason"),
-            ("interest", "interest"), ("service", "service"),
-            ("product", "product"), ("order", "order"),
+            ("first name", "firstname"), ("etunimi", "firstname"),
+            ("last name", "lastname"), ("sukunimi", "lastname"),
         ];
 
-        let html_lower = html_text.to_lowercase();
-
-        for (indicator, param_name) in form_indicators {
-            if html_lower.contains(indicator) {
-                if !params.contains(&param_name.to_string()) {
-                    params.push(param_name.to_string());
+        // Look for label elements with for= attribute - these are REAL form fields
+        if let Ok(label_selector) = Selector::parse("label[for]") {
+            for label in document.select(&label_selector) {
+                if let Some(for_attr) = label.value().attr("for") {
+                    if !params.contains(&for_attr.to_string()) && for_attr.len() > 1 && for_attr.len() < 50 {
+                        params.push(for_attr.to_string());
+                    }
                 }
             }
         }
 
-        // Look for label elements
-        if let Ok(label_selector) = Selector::parse("label") {
-            for label in document.select(&label_selector) {
-                if let Some(for_attr) = label.value().attr("for") {
-                    if !params.contains(&for_attr.to_string()) && for_attr.len() > 1 {
-                        params.push(for_attr.to_string());
+        // Look for placeholder attributes - these are REAL form field indicators
+        if let Ok(placeholder_selector) = Selector::parse("[placeholder]") {
+            for elem in document.select(&placeholder_selector) {
+                if let Some(placeholder) = elem.value().attr("placeholder") {
+                    let placeholder_lower = placeholder.to_lowercase();
+                    for (indicator, param_name) in &form_indicators {
+                        if placeholder_lower.contains(indicator) && !params.contains(&param_name.to_string()) {
+                            params.push(param_name.to_string());
+                        }
                     }
                 }
-                // Also get label text content
+                // Also get name/id from the element itself
+                if let Some(name) = elem.value().attr("name").or_else(|| elem.value().attr("id")) {
+                    if !params.contains(&name.to_string()) && name.len() > 1 && name.len() < 50 {
+                        params.push(name.to_string());
+                    }
+                }
+            }
+        }
+
+        // Look for aria-label attributes on input-like elements
+        if let Ok(aria_selector) = Selector::parse("input[aria-label], textarea[aria-label], select[aria-label]") {
+            for elem in document.select(&aria_selector) {
+                if let Some(aria_label) = elem.value().attr("aria-label") {
+                    let aria_lower = aria_label.to_lowercase();
+                    for (indicator, param_name) in &form_indicators {
+                        if aria_lower.contains(indicator) && !params.contains(&param_name.to_string()) {
+                            params.push(param_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Look for data-* attributes that indicate form fields
+        if let Ok(data_selector) = Selector::parse("[data-field], [data-name], [data-param], [data-input], [data-form-field], [data-testid]") {
+            for elem in document.select(&data_selector) {
+                for attr in ["data-field", "data-name", "data-param", "data-input", "data-form-field", "data-testid"] {
+                    if let Some(value) = elem.value().attr(attr) {
+                        // data-testid often contains field names like "email-input"
+                        let clean_value = value.replace("-input", "").replace("-field", "").replace("_input", "").replace("_field", "");
+                        if !params.contains(&clean_value) && clean_value.len() > 1 && clean_value.len() < 50 {
+                            params.push(clean_value);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Look specifically inside form containers for label text
+        if let Ok(form_label_selector) = Selector::parse("form label, [role='form'] label, .form label") {
+            for label in document.select(&form_label_selector) {
                 let label_text = label.text().collect::<String>().to_lowercase();
                 for (indicator, param_name) in &form_indicators {
                     if label_text.contains(indicator) && !params.contains(&param_name.to_string()) {
                         params.push(param_name.to_string());
-                    }
-                }
-            }
-        }
-
-        // Look for data-* attributes that might indicate form fields
-        if let Ok(data_selector) = Selector::parse("[data-field], [data-name], [data-param], [data-input], [data-form-field]") {
-            for elem in document.select(&data_selector) {
-                for attr in ["data-field", "data-name", "data-param", "data-input", "data-form-field"] {
-                    if let Some(value) = elem.value().attr(attr) {
-                        if !params.contains(&value.to_string()) && value.len() > 1 {
-                            params.push(value.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        // Look for elements with common form-related class names
-        if let Ok(class_selector) = Selector::parse("[class*='input'], [class*='field'], [class*='form-control'], [class*='text-field']") {
-            for elem in document.select(&class_selector) {
-                // Try to get field name from various attributes
-                for attr in ["name", "id", "data-name", "aria-label", "placeholder"] {
-                    if let Some(value) = elem.value().attr(attr) {
-                        if !params.contains(&value.to_string()) && value.len() > 1 && value.len() < 50 {
-                            params.push(value.to_string());
-                        }
                     }
                 }
             }

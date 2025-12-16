@@ -1386,39 +1386,23 @@ impl JsMinerScanner {
             }
         }
 
-        // Aggressive minified bundle extraction - look for string literals that are form fields
-        // In minified code, form fields often appear as: "email","password" or {email:"",password:""}
+        // Targeted form field extraction - only look for SPECIFIC form-related patterns
+        // Avoid generic words like "name", "title", "content" that appear everywhere
         let form_field_strings = [
-            "email", "password", "username", "name", "phone", "message", "subject",
+            // These are specific enough to indicate actual form fields
+            "email", "password", "username", "phone", "message", "subject",
             "firstName", "lastName", "first_name", "last_name", "fullName", "full_name",
-            "company", "organization", "address", "city", "state", "country", "zip",
-            "postal", "postcode", "zipcode", "street", "comment", "feedback", "inquiry",
-            "description", "title", "content", "body", "text", "note", "reason",
-            "budget", "amount", "price", "quantity", "date", "time", "datetime",
-            "birthday", "dob", "age", "gender", "newsletter", "subscribe", "consent",
-            "terms", "privacy", "file", "upload", "attachment", "avatar", "image",
-            "url", "website", "linkedin", "twitter", "facebook", "instagram",
+            "company", "organization", "zipcode", "postalcode", "postal_code",
             "cardNumber", "card_number", "cvv", "expiry", "expiration",
-            "iban", "bic", "swift", "account", "routing",
-            // Finnish additions
-            "nimi", "sähköposti", "puhelin", "viesti", "osoite", "kaupunki",
-            "postinumero", "yritys", "aihe", "kuvaus", "kommentti",
+            "newsletter", "subscribe",
+            // Finnish additions (specific)
+            "sähköposti", "puhelin", "viesti", "postinumero", "yritys",
         ];
 
-        // Check for these strings appearing in form-like patterns
+        // Only add these if they appear in a form-related context (stricter matching)
         for field in form_field_strings {
-            // Pattern 1: Object key pattern  { email: or ,email: or "email":
-            let obj_key_pattern = format!(r#"[{{\s,]"?{}"?\s*:"#, field);
-            if let Ok(re) = Regex::new(&obj_key_pattern) {
-                if re.is_match(content) {
-                    results.parameters.entry("*".to_string())
-                        .or_insert_with(HashSet::new)
-                        .insert(field.to_string());
-                }
-            }
-
-            // Pattern 2: Name attribute in JSX  name="email" or name={"email"}
-            let jsx_name_pattern = format!(r#"name\s*=\s*[{{"'`]{}[}}"'`]"#, field);
+            // Pattern: name="email" or name={"email"} or name:'email' (JSX/form attribute)
+            let jsx_name_pattern = format!(r#"name\s*[=:]\s*[{{"'`]{}[}}"'`]"#, field);
             if let Ok(re) = Regex::new(&jsx_name_pattern) {
                 if re.is_match(content) {
                     results.parameters.entry("*".to_string())
