@@ -6,7 +6,7 @@ use crate::types::{ScanConfig, Severity, Vulnerability};
 use regex::Regex;
 use std::collections::{HashSet, HashMap};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -344,11 +344,8 @@ impl JsMinerScanner {
             if let Ok(response) = self.http_client.get(&js_url).await {
                 self.extract_endpoints_and_params(&response.body, &mut results);
 
-                // For Next.js page bundles, do aggressive form field extraction
-                if js_url.contains("_next/static/chunks/app/page") ||
-                   js_url.contains("_next/static/chunks/pages/") {
-                    self.extract_nextjs_form_fields(&response.body, &mut results);
-                }
+                // Extract form fields from ALL JS files (works for any framework)
+                self.extract_form_fields_from_js(&response.body, &mut results);
             }
         }
 
@@ -1470,50 +1467,49 @@ impl JsMinerScanner {
         }
     }
 
-    /// Check if a parameter name looks like minified/webpack garbage or framework internal
-    /// Returns true if we should SKIP this parameter
-    /// Extract form fields specifically from Next.js page bundles
-    /// This is aggressive - it looks for ALL common form field string patterns
-    fn extract_nextjs_form_fields(&self, content: &str, results: &mut JsMinerResults) {
-        // Known form field names to look for in minified bundles
-        // These appear as string literals: "email", "password", etc.
+    /// Extract form fields from ANY JavaScript file (works for all frameworks)
+    /// Looks for common form field names appearing as string literals
+    fn extract_form_fields_from_js(&self, content: &str, results: &mut JsMinerResults) {
+        // Common form field names - these work across ALL frameworks
         let known_form_fields = [
+            // Contact/signup forms
             "email", "password", "username", "phone", "telephone", "mobile",
             "message", "subject", "comment", "feedback", "inquiry",
-            "firstName", "lastName", "fullName", "name",
+            "firstName", "lastName", "fullName",
             "first_name", "last_name", "full_name",
             "company", "organization", "business",
             "address", "street", "city", "state", "country", "zip", "postal",
             "zipcode", "postcode", "postalcode",
-            "website", "url", "linkedin", "twitter",
+            "website", "linkedin", "twitter",
             "budget", "amount", "price",
             "description", "details", "notes",
             "contactName", "contactEmail", "contactPhone",
             "companyName", "companyEmail",
-            // Finnish
-            "nimi", "sähköposti", "puhelin", "viesti", "osoite", "kaupunki",
-            "postinumero", "yritys", "aihe", "kuvaus", "kommentti",
-            // Auth related
-            "login", "signin", "signup", "register",
+            // Auth forms
             "oldPassword", "newPassword", "confirmPassword", "password_confirmation",
             "currentPassword", "old_password", "new_password", "confirm_password",
+            // Multi-language (Finnish, Spanish, German, French)
+            "nimi", "sähköposti", "puhelin", "viesti", "osoite", "kaupunki",
+            "postinumero", "yritys", "aihe", "kuvaus", "kommentti",
+            "nombre", "correo", "telefono", "mensaje", "direccion",
+            "vorname", "nachname", "telefon", "nachricht", "adresse",
+            "prenom", "courriel", "adresse",
         ];
 
         let content_lower = content.to_lowercase();
 
         for field in known_form_fields {
-            // Look for the field name as a quoted string literal
-            // Pattern: "email" or 'email' or `email`
+            let field_lower = field.to_lowercase();
+            // Look for field as: "email", 'email', {email:, name="email", name:'email'
             let patterns = [
-                format!(r#"["']{}["']"#, field),
-                format!(r#"["']{}["']\s*:"#, field),  // Object key: "email":
-                format!(r#"name\s*[:=]\s*["']{}["']"#, field),  // name: "email" or name="email"
+                format!(r#"["']{}["']"#, field_lower),
+                format!(r#"\{{[^}}]*{}[^}}]*:"#, field_lower),
+                format!(r#"name\s*[=:]\s*["']{}["']"#, field_lower),
             ];
 
             for pattern in &patterns {
                 if let Ok(re) = Regex::new(pattern) {
                     if re.is_match(&content_lower) {
-                        debug!("[Next.js] Found form field: {}", field);
                         results.parameters.entry("*".to_string())
                             .or_insert_with(HashSet::new)
                             .insert(field.to_string());
@@ -1523,31 +1519,31 @@ impl JsMinerScanner {
             }
         }
 
-        // Also look for form-related API endpoints specific to Next.js
-        let nextjs_api_patterns = [
-            r#"/api/(?:contact|submit|form|send|message|inquiry)"#,
-            r#"/api/(?:auth|login|signup|register)"#,
-            r#"action\s*[:=]\s*["'](/api/[^"']+)["']"#,
+        // Look for form submission endpoints (works for any framework)
+        let api_patterns = [
+            r#"/api/(?:contact|submit|form|send|message|inquiry|feedback)"#,
+            r#"/api/(?:auth|login|signup|register|signin)"#,
+            r#"/(?:contact|submit|send|inquiry)(?:/|$)"#,
+            r#"action\s*[=:]\s*["']([^"']+)["']"#,
+            r#"formAction\s*[=:]\s*["']([^"']+)["']"#,
         ];
 
-        for pattern in nextjs_api_patterns {
+        for pattern in api_patterns {
             if let Ok(re) = Regex::new(pattern) {
                 for cap in re.captures_iter(content) {
                     if let Some(endpoint) = cap.get(1).or(cap.get(0)) {
                         let ep = endpoint.as_str().to_string();
-                        if ep.starts_with('/') {
-                            results.api_endpoints.insert(ep.clone());
+                        if ep.len() > 3 && ep.len() < 100 && !ep.contains("consent") && !ep.contains("cookie") {
                             results.form_actions.insert(ep);
                         }
                     }
                 }
             }
         }
-
-        debug!("[Next.js] Extracted {} form fields from page bundle",
-               results.parameters.get("*").map(|s| s.len()).unwrap_or(0));
     }
 
+    /// Check if a parameter name looks like minified/webpack garbage or framework internal
+    /// Returns true if we should SKIP this parameter
     fn is_minified_param(name: &str) -> bool {
         // Too short - likely minified
         if name.len() < 3 {
