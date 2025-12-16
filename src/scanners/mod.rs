@@ -35,6 +35,7 @@ pub mod jwt;
 pub mod nosql;
 pub mod security_headers;
 pub mod cors;
+pub mod firebase;
 pub mod csrf;
 pub mod xxe;
 pub mod graphql;
@@ -109,6 +110,7 @@ pub use jwt::JwtScanner;
 pub use nosql::NoSqlScanner;
 pub use security_headers::SecurityHeadersScanner;
 pub use cors::CorsScanner;
+pub use firebase::FirebaseScanner;
 pub use csrf::CsrfScanner;
 pub use xxe::XxeScanner;
 pub use graphql::GraphQlScanner;
@@ -182,6 +184,7 @@ pub struct ScanEngine {
     pub nosql_scanner: NoSqlScanner,
     pub security_headers_scanner: SecurityHeadersScanner,
     pub cors_scanner: CorsScanner,
+    pub firebase_scanner: FirebaseScanner,
     pub csrf_scanner: CsrfScanner,
     pub xxe_scanner: XxeScanner,
     pub graphql_scanner: GraphQlScanner,
@@ -344,6 +347,7 @@ impl ScanEngine {
             nosql_scanner: NoSqlScanner::new(Arc::clone(&http_client)),
             security_headers_scanner: SecurityHeadersScanner::new(Arc::clone(&http_client)),
             cors_scanner: CorsScanner::new(Arc::clone(&http_client)),
+            firebase_scanner: FirebaseScanner::new(Arc::clone(&http_client)),
             csrf_scanner: CsrfScanner::new(Arc::clone(&http_client)),
             xxe_scanner: XxeScanner::new(Arc::clone(&http_client)),
             graphql_scanner: GraphQlScanner::new(Arc::clone(&http_client)),
