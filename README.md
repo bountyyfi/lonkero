@@ -34,6 +34,54 @@ Web scanner built for actual pentests. Fast, modular, Rust.
 
 ## What's New in v2.0
 
+### Enterprise-Grade Injection Scanners
+Completely rewritten injection scanners with **programmatic payload generation** producing thousands of real-world bypass techniques:
+
+**SSRF Scanner (2000+ payloads)**
+- IP encoding matrix: decimal, hexadecimal, octal, IPv6, mixed encoding
+- Cloud metadata paths for AWS, GCP, Azure, DigitalOcean, Oracle, Alibaba
+- Protocol smuggling: gopher, dict, file, ldap, tftp
+- DNS rebinding and redirect chain detection
+- Bypass techniques: URL parsing differentials, Unicode normalization, double encoding
+
+**Path Traversal Scanner (2000+ payloads)**
+- 28 traversal sequences (../, ..\, ..%2f, %2e%2e/, etc.)
+- 15 depth levels with automatic path calculation
+- 55+ target files (passwd, shadow, hosts, web.config, etc.)
+- Encoding variations: URL, double, triple, Unicode, overlong UTF-8
+- Null byte injection and truncation attacks
+
+**Open Redirect Scanner (1500+ payloads)**
+- 30+ evil domain variations with homoglyphs and punycode
+- 45+ protocol variations (slashes, backslashes, case mutations)
+- 100+ encoding combinations
+- 23 bypass categories: whitelist, parser differential, CRLF, OAuth
+- JavaScript and data URI payloads
+
+**Command Injection Scanner (1000+ payloads)**
+- Shell metacharacter matrix: 15 separators × 47 commands
+- Command substitution: backticks, $(), nested
+- Time-based blind detection with configurable delays
+- IFS manipulation and environment variable tricks
+- Windows (CMD, PowerShell) and Unix-specific payloads
+- Filter evasion: wildcards, quotes, concatenation, base64
+
+### Server Misconfiguration Scanners (NEW)
+
+**Tomcat Misconfiguration Scanner**
+- Stack traces enabled detection (matches Nuclei template exactly)
+- Manager/host-manager interface exposure
+- Example applications accessible in production
+- Version disclosure via error pages
+- AJP protocol exposure (Ghostcat CVE-2020-1938 risk)
+
+**Varnish Cache Misconfiguration Scanner**
+- Unauthenticated PURGE method (matches Nuclei template exactly)
+- Unauthenticated BAN method for bulk cache invalidation
+- Cache information disclosure via headers (X-Varnish, Via, X-Cache)
+- Cache poisoning vectors (X-Forwarded-Host, X-Original-URL)
+- Dangerous HTTP methods detection via OPTIONS
+
 ### Expanded Technology Detection
 Lonkero now detects **80+ technologies** including:
 
@@ -80,10 +128,11 @@ Lonkero now detects **80+ technologies** including:
 - **Unified SQL Injection**: Consolidated SQL injection detection with enhanced accuracy
 - **Firebase Security**: Comprehensive Firebase authentication and configuration testing
 - **False Positive Reduction**: Baseline detection, evidence tracking, and smart deduplication
+- **Custom HTTP Methods**: Support for PURGE, BAN, and other non-standard methods
 
 ## Features
 
-- **64+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
+- **66+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
 - **Technology-Aware** - Detects 80+ frameworks, CDNs, API gateways and runs relevant tests only
 - **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling
 - **Low False Positives** - Evidence-based detection with baseline comparison
@@ -308,6 +357,12 @@ Only runs relevant tests based on detected stack:
 | cve_2025_55182 | React Server Components RCE | Critical (CVSS 10.0) |
 | cve_2025_55183 | RSC Source Code Exposure | Medium (CVSS 5.3) |
 | cve_2025_55184 | RSC Denial of Service | High (CVSS 7.5) |
+
+### Server Misconfiguration (2 modules)
+| Module | Description |
+|--------|-------------|
+| tomcat_misconfig | Tomcat Stack Traces, Manager Exposure, AJP (Ghostcat) |
+| varnish_misconfig | Unauthenticated Cache Purge/Ban, Header Disclosure |
 
 ### Cloud Security (6 modules)
 | Module | Description |
