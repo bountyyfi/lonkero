@@ -73,8 +73,17 @@ pub fn is_cdn_protected(response: &HttpResponse) -> Option<String> {
     }
 
     // KeyCDN
-    if response.header("server").map(|s| s.contains("keycdn")).unwrap_or(false) {
+    if response.header("server").map(|s| s.contains("keycdn")).unwrap_or(false)
+        || response.header("x-keycdn-cache-status").is_some() {
         return Some("KeyCDN".to_string());
+    }
+
+    // Bunny CDN
+    if response.header("x-bunny-cache").is_some()
+        || response.header("bunny-cache-status").is_some()
+        || response.header("cdn-pullzone").is_some()
+        || response.header("server").map(|s| s.contains("bunny")).unwrap_or(false) {
+        return Some("Bunny CDN".to_string());
     }
 
     // Generic CDN detection via cache headers

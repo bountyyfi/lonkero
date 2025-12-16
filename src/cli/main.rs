@@ -731,7 +731,6 @@ async fn execute_standalone_scan(
     use lonkero_scanner::framework_detector::FrameworkDetector;
     use lonkero_scanner::signing::ReportSignature;
     use lonkero_scanner::types::{Confidence, Severity, Vulnerability};
-    use std::collections::HashSet;
 
     // ============================================================
     // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
@@ -987,13 +986,13 @@ async fn execute_standalone_scan(
 
                 // Boolean-based Blind SQLi
                 info!("    Testing Boolean-based Blind SQLi on '{}'", param_name);
-                let (bool_vulns, bool_tests) = engine.sqli_boolean_scanner.scan_parameter(target, param_name, scan_config).await?;
+                let (bool_vulns, bool_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(bool_vulns);
                 total_tests += bool_tests as u64;
 
                 // UNION-based SQLi
                 info!("    Testing UNION-based SQLi on '{}'", param_name);
-                let (union_vulns, union_tests) = engine.sqli_union_scanner.scan_parameter(target, param_name, scan_config).await?;
+                let (union_vulns, union_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(union_vulns);
                 total_tests += union_tests as u64;
             }
@@ -1425,6 +1424,39 @@ async fn execute_standalone_scan(
         let (vulns, tests) = engine.cloud_storage_scanner.scan(target, scan_config).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
+
+        // Scan discovered S3 buckets from JS Mining
+        if !js_miner_results.s3_buckets.is_empty() {
+            info!("  - Scanning {} discovered S3 bucket URLs", js_miner_results.s3_buckets.len());
+            for s3_url in &js_miner_results.s3_buckets {
+                info!("    Scanning S3: {}", s3_url);
+                let (vulns, tests) = engine.cloud_storage_scanner.scan(s3_url, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+
+        // Scan discovered Azure Blob URLs from JS Mining
+        if !js_miner_results.azure_blobs.is_empty() {
+            info!("  - Scanning {} discovered Azure Blob URLs", js_miner_results.azure_blobs.len());
+            for azure_url in &js_miner_results.azure_blobs {
+                info!("    Scanning Azure Blob: {}", azure_url);
+                let (vulns, tests) = engine.cloud_storage_scanner.scan(azure_url, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+
+        // Scan discovered GCS bucket URLs from JS Mining
+        if !js_miner_results.gcs_buckets.is_empty() {
+            info!("  - Scanning {} discovered GCS bucket URLs", js_miner_results.gcs_buckets.len());
+            for gcs_url in &js_miner_results.gcs_buckets {
+                info!("    Scanning GCS: {}", gcs_url);
+                let (vulns, tests) = engine.cloud_storage_scanner.scan(gcs_url, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
 
         // Container Security
         info!("  - Testing Container Security");

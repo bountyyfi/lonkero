@@ -474,9 +474,90 @@ impl WebCrawler {
             debug!("Found form: {} with {} inputs", action, inputs_list.len());
         }
 
+        // Enhanced: Look for form-like containers in SPAs
+        // Many modern frameworks use div/section with class names like "form", "contact", "signup"
+        let form_container_selector = Selector::parse(
+            "[class*='form'], [class*='contact'], [class*='signup'], [class*='login'], \
+             [class*='subscribe'], [class*='newsletter'], [class*='register'], [class*='search'], \
+             [class*='feedback'], [class*='comment'], [class*='inquiry'], [class*='booking'], \
+             [class*='checkout'], [class*='payment'], [class*='billing'], [class*='shipping'], \
+             [data-form], [data-component*='form'], [data-testid*='form'], \
+             section[id*='contact'], div[id*='form'], div[id*='contact'], \
+             [role='form'], [aria-label*='form'], [aria-label*='contact']"
+        ).unwrap_or_else(|_| Selector::parse("form").unwrap());
+
+        for container in document.select(&form_container_selector) {
+            // Skip if this is already a form element
+            if container.value().name() == "form" {
+                continue;
+            }
+
+            let mut container_inputs = Vec::new();
+
+            // Look for inputs within this container
+            for input_element in container.select(&input_selector) {
+                let name = input_element.value().attr("name")
+                    .or_else(|| input_element.value().attr("id"))
+                    .or_else(|| input_element.value().attr("aria-label"))
+                    .or_else(|| input_element.value().attr("placeholder"))
+                    .or_else(|| input_element.value().attr("data-testid"));
+
+                if let Some(name) = name {
+                    if !form_input_ids.contains(name) {
+                        form_input_ids.insert(name.to_string());
+
+                        let tag_name = input_element.value().name();
+                        let input_type = input_element.value().attr("type")
+                            .unwrap_or(if tag_name == "textarea" { "textarea" } else if tag_name == "select" { "select" } else { "text" })
+                            .to_string();
+
+                        let value = input_element.value().attr("value")
+                            .map(|v| v.to_string());
+
+                        container_inputs.push(FormInput {
+                            name: name.to_string(),
+                            input_type,
+                            value,
+                        });
+                    }
+                }
+            }
+
+            // Also look for button/submit elements to identify form endpoints
+            let button_selector = Selector::parse("button, [type='submit'], [role='button']").unwrap();
+            let mut form_action = page_url.to_string();
+
+            for button in container.select(&button_selector) {
+                // Check for data attributes that might indicate submission endpoint
+                if let Some(action) = button.value().attr("data-action")
+                    .or_else(|| button.value().attr("data-url"))
+                    .or_else(|| button.value().attr("data-endpoint"))
+                    .or_else(|| button.value().attr("formaction")) {
+                    form_action = self.resolve_url(page_url, action);
+                    break;
+                }
+            }
+
+            if !container_inputs.is_empty() {
+                let container_class = container.value().attr("class").unwrap_or("");
+                debug!("Found form-like container with class '{}' containing {} inputs",
+                    container_class, container_inputs.len());
+
+                forms.push(DiscoveredForm {
+                    action: form_action,
+                    method: "POST".to_string(),
+                    inputs: container_inputs,
+                    discovered_at: page_url.to_string(),
+                });
+            }
+        }
+
         // Also look for standalone inputs (React/JS apps without <form> tags)
         // Broad selector: input, textarea, select, and contenteditable elements
-        let all_inputs_selector = Selector::parse("input, textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox']").unwrap();
+        let all_inputs_selector = Selector::parse(
+            "input, textarea, select, [contenteditable='true'], [role='textbox'], \
+             [role='combobox'], [role='searchbox'], [role='spinbutton']"
+        ).unwrap();
         let mut standalone_inputs = Vec::new();
         let mut input_counter = 0;
 
@@ -486,8 +567,8 @@ impl WebCrawler {
                 .unwrap_or(if tag_name == "textarea" { "textarea" } else if tag_name == "select" { "select" } else { "text" })
                 .to_lowercase();
 
-            // Skip non-data inputs (but keep select, textarea, contenteditable)
-            if tag_name == "input" && matches!(input_type.as_str(), "hidden" | "submit" | "button" | "checkbox" | "radio" | "file" | "image" | "reset") {
+            // Skip hidden/submit but keep checkbox/radio (they can be attack vectors)
+            if tag_name == "input" && matches!(input_type.as_str(), "hidden" | "submit" | "button" | "image" | "reset") {
                 continue;
             }
 
@@ -495,10 +576,14 @@ impl WebCrawler {
             let name = input_element.value().attr("name")
                 .or_else(|| input_element.value().attr("id"))
                 .or_else(|| input_element.value().attr("aria-label"))
+                .or_else(|| input_element.value().attr("aria-labelledby"))
                 .or_else(|| input_element.value().attr("placeholder"))
                 .or_else(|| input_element.value().attr("data-testid"))
+                .or_else(|| input_element.value().attr("data-cy"))
+                .or_else(|| input_element.value().attr("data-test"))
                 .or_else(|| input_element.value().attr("data-name"))
                 .or_else(|| input_element.value().attr("data-field"))
+                .or_else(|| input_element.value().attr("data-param"))
                 .or_else(|| input_element.value().attr("autocomplete"));
 
             // Generate name if none found - still track it as an input
@@ -534,6 +619,304 @@ impl WebCrawler {
                 discovered_at: page_url.to_string(),
             });
             debug!("Found {} standalone inputs (React/JS form)", standalone_inputs.len());
+        }
+
+        // Also detect common form parameter names from the page even if no input elements
+        // This catches React/Vue components that render inputs dynamically
+        let common_form_params = self.detect_form_params_from_html(document);
+        if !common_form_params.is_empty() && forms.is_empty() {
+            let synthetic_inputs: Vec<FormInput> = common_form_params.into_iter()
+                .filter(|p| !form_input_ids.contains(p))
+                .map(|name| FormInput {
+                    name,
+                    input_type: "text".to_string(),
+                    value: None,
+                })
+                .collect();
+
+            if !synthetic_inputs.is_empty() {
+                debug!("Detected {} potential form params from HTML analysis", synthetic_inputs.len());
+                forms.push(DiscoveredForm {
+                    action: page_url.to_string(),
+                    method: "POST".to_string(),
+                    inputs: synthetic_inputs,
+                    discovered_at: page_url.to_string(),
+                });
+            }
+        }
+
+        // Extract framework-specific forms (Material-UI, Bootstrap, Tailwind, etc.)
+        let framework_forms = self.extract_framework_forms(document, page_url);
+        for fw_form in framework_forms {
+            // Only add if not duplicate
+            let fw_sig = fw_form.signature();
+            if !forms.iter().any(|f| f.signature() == fw_sig) {
+                forms.push(fw_form);
+            }
+        }
+
+        forms
+    }
+
+    /// Detect potential form parameter names from HTML content
+    fn detect_form_params_from_html(&self, document: &Html) -> Vec<String> {
+        let mut params = Vec::new();
+        let html_text = document.root_element().text().collect::<String>();
+
+        // Common form field labels that indicate form presence (multi-language)
+        let form_indicators = [
+            // Email variations
+            ("email", "email"), ("e-mail", "email"), ("sähköposti", "email"),
+            ("correo", "email"), ("courriel", "email"), ("邮箱", "email"),
+            // Name variations
+            ("name", "name"), ("nimi", "name"), ("full name", "fullname"),
+            ("nombre", "name"), ("nom", "name"), ("名前", "name"),
+            // Phone variations
+            ("phone", "phone"), ("puhelin", "phone"), ("telephone", "phone"),
+            ("telefono", "phone"), ("téléphone", "phone"), ("mobile", "phone"),
+            ("cell", "phone"), ("contact number", "phone"),
+            // Message/comment variations
+            ("message", "message"), ("viesti", "message"), ("comment", "comment"),
+            ("mensaje", "message"), ("commentaire", "comment"), ("feedback", "message"),
+            ("inquiry", "message"), ("question", "message"),
+            // Subject variations
+            ("subject", "subject"), ("aihe", "subject"), ("asunto", "subject"),
+            ("sujet", "subject"), ("topic", "subject"),
+            // Company/org variations
+            ("company", "company"), ("yritys", "company"), ("organization", "organization"),
+            ("empresa", "company"), ("société", "company"), ("business", "company"),
+            // Address variations
+            ("address", "address"), ("osoite", "address"), ("direccion", "address"),
+            ("adresse", "address"), ("street", "address"), ("住所", "address"),
+            // City/location variations
+            ("city", "city"), ("kaupunki", "city"), ("ciudad", "city"),
+            ("ville", "city"), ("town", "city"), ("location", "city"),
+            // Country variations
+            ("country", "country"), ("maa", "country"), ("pais", "country"),
+            ("pays", "country"), ("国", "country"),
+            // Auth fields
+            ("password", "password"), ("salasana", "password"), ("contraseña", "password"),
+            ("mot de passe", "password"), ("confirm password", "password_confirm"),
+            ("username", "username"), ("käyttäjänimi", "username"), ("usuario", "username"),
+            ("login", "username"), ("user", "username"),
+            // Name parts
+            ("first name", "firstname"), ("etunimi", "firstname"), ("prenom", "firstname"),
+            ("last name", "lastname"), ("sukunimi", "lastname"), ("apellido", "lastname"),
+            ("family name", "lastname"), ("surname", "lastname"),
+            // Search
+            ("search", "search"), ("haku", "search"), ("buscar", "search"),
+            ("query", "query"), ("keyword", "search"),
+            // Other common fields
+            ("zip", "zip"), ("postal", "postalcode"), ("postinumero", "postalcode"),
+            ("website", "website"), ("url", "url"), ("www", "website"),
+            ("date", "date"), ("birthday", "birthday"), ("syntymäpäivä", "birthday"),
+            ("age", "age"), ("gender", "gender"), ("sex", "gender"),
+            ("newsletter", "newsletter"), ("subscribe", "subscribe"),
+            ("agree", "terms"), ("accept", "terms"), ("consent", "consent"),
+            ("budget", "budget"), ("price", "price"), ("amount", "amount"),
+            ("quantity", "quantity"), ("number", "number"),
+            ("file", "file"), ("upload", "file"), ("attachment", "file"),
+            ("description", "description"), ("kuvaus", "description"),
+            ("title", "title"), ("otsikko", "title"),
+            ("reason", "reason"), ("syy", "reason"),
+            ("interest", "interest"), ("service", "service"),
+            ("product", "product"), ("order", "order"),
+        ];
+
+        let html_lower = html_text.to_lowercase();
+
+        for (indicator, param_name) in form_indicators {
+            if html_lower.contains(indicator) {
+                if !params.contains(&param_name.to_string()) {
+                    params.push(param_name.to_string());
+                }
+            }
+        }
+
+        // Look for label elements
+        if let Ok(label_selector) = Selector::parse("label") {
+            for label in document.select(&label_selector) {
+                if let Some(for_attr) = label.value().attr("for") {
+                    if !params.contains(&for_attr.to_string()) && for_attr.len() > 1 {
+                        params.push(for_attr.to_string());
+                    }
+                }
+                // Also get label text content
+                let label_text = label.text().collect::<String>().to_lowercase();
+                for (indicator, param_name) in &form_indicators {
+                    if label_text.contains(indicator) && !params.contains(&param_name.to_string()) {
+                        params.push(param_name.to_string());
+                    }
+                }
+            }
+        }
+
+        // Look for data-* attributes that might indicate form fields
+        if let Ok(data_selector) = Selector::parse("[data-field], [data-name], [data-param], [data-input], [data-form-field]") {
+            for elem in document.select(&data_selector) {
+                for attr in ["data-field", "data-name", "data-param", "data-input", "data-form-field"] {
+                    if let Some(value) = elem.value().attr(attr) {
+                        if !params.contains(&value.to_string()) && value.len() > 1 {
+                            params.push(value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Look for elements with common form-related class names
+        if let Ok(class_selector) = Selector::parse("[class*='input'], [class*='field'], [class*='form-control'], [class*='text-field']") {
+            for elem in document.select(&class_selector) {
+                // Try to get field name from various attributes
+                for attr in ["name", "id", "data-name", "aria-label", "placeholder"] {
+                    if let Some(value) = elem.value().attr(attr) {
+                        if !params.contains(&value.to_string()) && value.len() > 1 && value.len() < 50 {
+                            params.push(value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        params
+    }
+
+    /// Extract additional forms from framework-specific patterns
+    fn extract_framework_forms(&self, document: &Html, page_url: &str) -> Vec<DiscoveredForm> {
+        let mut forms = Vec::new();
+
+        // Look for Next.js server action forms
+        if let Ok(action_selector) = Selector::parse("[data-action], form[action^='/api'], form[action*='action']") {
+            for elem in document.select(&action_selector) {
+                let action = elem.value().attr("action")
+                    .or_else(|| elem.value().attr("data-action"))
+                    .unwrap_or(page_url);
+
+                let mut inputs = Vec::new();
+                let input_selector = Selector::parse("input, textarea, select").unwrap();
+
+                for input in elem.select(&input_selector) {
+                    if let Some(name) = input.value().attr("name").or_else(|| input.value().attr("id")) {
+                        inputs.push(FormInput {
+                            name: name.to_string(),
+                            input_type: input.value().attr("type").unwrap_or("text").to_string(),
+                            value: input.value().attr("value").map(|v| v.to_string()),
+                        });
+                    }
+                }
+
+                if !inputs.is_empty() {
+                    forms.push(DiscoveredForm {
+                        action: self.resolve_url(page_url, action),
+                        method: elem.value().attr("method").unwrap_or("POST").to_uppercase(),
+                        inputs,
+                        discovered_at: page_url.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Look for React/Material-UI/Tailwind form patterns
+        let mui_patterns = [
+            "[class*='MuiTextField'], [class*='MuiInput'], [class*='MuiSelect']",
+            "[class*='chakra-input'], [class*='chakra-select'], [class*='chakra-textarea']",
+            "[class*='ant-input'], [class*='ant-select'], [class*='ant-form-item']",
+            "[class*='bp3-input'], [class*='bp4-input'], [class*='bp5-input']",
+        ];
+
+        for pattern in mui_patterns {
+            if let Ok(mui_selector) = Selector::parse(pattern) {
+                let mut mui_inputs = Vec::new();
+
+                for elem in document.select(&mui_selector) {
+                    let name = elem.value().attr("name")
+                        .or_else(|| elem.value().attr("id"))
+                        .or_else(|| elem.value().attr("aria-label"))
+                        .or_else(|| elem.value().attr("data-testid"));
+
+                    if let Some(name) = name {
+                        if name.len() > 1 && !mui_inputs.iter().any(|i: &FormInput| i.name == name) {
+                            mui_inputs.push(FormInput {
+                                name: name.to_string(),
+                                input_type: elem.value().attr("type").unwrap_or("text").to_string(),
+                                value: elem.value().attr("value").map(|v| v.to_string()),
+                            });
+                        }
+                    }
+                }
+
+                if !mui_inputs.is_empty() {
+                    debug!("Found {} inputs from UI framework pattern", mui_inputs.len());
+                    forms.push(DiscoveredForm {
+                        action: page_url.to_string(),
+                        method: "POST".to_string(),
+                        inputs: mui_inputs,
+                        discovered_at: page_url.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Look for Bootstrap form patterns
+        if let Ok(bootstrap_selector) = Selector::parse(".form-group input, .form-group textarea, .form-group select, .form-floating input, .mb-3 input") {
+            let mut bootstrap_inputs = Vec::new();
+
+            for elem in document.select(&bootstrap_selector) {
+                let name = elem.value().attr("name")
+                    .or_else(|| elem.value().attr("id"))
+                    .or_else(|| elem.value().attr("placeholder"));
+
+                if let Some(name) = name {
+                    if name.len() > 1 && !bootstrap_inputs.iter().any(|i: &FormInput| i.name == name) {
+                        bootstrap_inputs.push(FormInput {
+                            name: name.to_string(),
+                            input_type: elem.value().attr("type").unwrap_or("text").to_string(),
+                            value: elem.value().attr("value").map(|v| v.to_string()),
+                        });
+                    }
+                }
+            }
+
+            if !bootstrap_inputs.is_empty() {
+                debug!("Found {} Bootstrap form inputs", bootstrap_inputs.len());
+                forms.push(DiscoveredForm {
+                    action: page_url.to_string(),
+                    method: "POST".to_string(),
+                    inputs: bootstrap_inputs,
+                    discovered_at: page_url.to_string(),
+                });
+            }
+        }
+
+        // Look for Tailwind form patterns
+        if let Ok(tailwind_selector) = Selector::parse("[class*='rounded'][class*='border'] input, [class*='shadow'][class*='rounded'] input, .space-y-4 input, .grid input") {
+            let mut tailwind_inputs = Vec::new();
+
+            for elem in document.select(&tailwind_selector) {
+                let name = elem.value().attr("name")
+                    .or_else(|| elem.value().attr("id"))
+                    .or_else(|| elem.value().attr("placeholder"));
+
+                if let Some(name) = name {
+                    if name.len() > 1 && !tailwind_inputs.iter().any(|i: &FormInput| i.name == name) {
+                        tailwind_inputs.push(FormInput {
+                            name: name.to_string(),
+                            input_type: elem.value().attr("type").unwrap_or("text").to_string(),
+                            value: elem.value().attr("value").map(|v| v.to_string()),
+                        });
+                    }
+                }
+            }
+
+            if !tailwind_inputs.is_empty() {
+                debug!("Found {} Tailwind form inputs", tailwind_inputs.len());
+                forms.push(DiscoveredForm {
+                    action: page_url.to_string(),
+                    method: "POST".to_string(),
+                    inputs: tailwind_inputs,
+                    discovered_at: page_url.to_string(),
+                });
+            }
         }
 
         forms

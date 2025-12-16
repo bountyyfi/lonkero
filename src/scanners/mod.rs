@@ -92,6 +92,8 @@ pub mod cve_2025_55183;
 pub mod cve_2025_55184;
 pub mod azure_apim;
 pub mod redos;
+pub mod tomcat_misconfig;
+pub mod varnish_misconfig;
 
 // Cloud security scanners
 pub mod cloud;
@@ -167,6 +169,8 @@ pub use cve_2025_55183::Cve202555183Scanner;
 pub use cve_2025_55184::Cve202555184Scanner;
 pub use azure_apim::AzureApimScanner;
 pub use redos::RedosScanner;
+pub use tomcat_misconfig::TomcatMisconfigScanner;
+pub use varnish_misconfig::VarnishMisconfigScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -241,6 +245,8 @@ pub struct ScanEngine {
     pub cve_2025_55184_scanner: Cve202555184Scanner,
     pub azure_apim_scanner: AzureApimScanner,
     pub redos_scanner: RedosScanner,
+    pub tomcat_misconfig_scanner: TomcatMisconfigScanner,
+    pub varnish_misconfig_scanner: VarnishMisconfigScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -404,6 +410,8 @@ impl ScanEngine {
             cve_2025_55184_scanner: Cve202555184Scanner::new(Arc::clone(&http_client)),
             azure_apim_scanner: AzureApimScanner::new(Arc::clone(&http_client)),
             redos_scanner: RedosScanner::new(Arc::clone(&http_client)),
+            tomcat_misconfig_scanner: TomcatMisconfigScanner::new(Arc::clone(&http_client)),
+            varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1315,6 +1323,24 @@ impl ScanEngine {
         all_vulnerabilities.extend(cve_55184_vulns);
         total_tests += cve_55184_tests as u64;
         queue.increment_tests(scan_id.clone(), cve_55184_tests as u64).await?;
+
+        // Tomcat Misconfiguration Check (stack traces, manager exposure, etc.)
+        info!("Checking for Tomcat misconfigurations");
+        let (tomcat_vulns, tomcat_tests) = self.tomcat_misconfig_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(tomcat_vulns);
+        total_tests += tomcat_tests as u64;
+        queue.increment_tests(scan_id.clone(), tomcat_tests as u64).await?;
+
+        // Varnish Cache Misconfiguration Check (unauthenticated purge, etc.)
+        info!("Checking for Varnish cache misconfigurations");
+        let (varnish_vulns, varnish_tests) = self.varnish_misconfig_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(varnish_vulns);
+        total_tests += varnish_tests as u64;
+        queue.increment_tests(scan_id.clone(), varnish_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {

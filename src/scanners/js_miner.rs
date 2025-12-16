@@ -1185,29 +1185,126 @@ impl JsMinerScanner {
         // Pattern: { param1: value, param2: value } or ?param1=&param2=
         self.extract_request_params(content, results);
 
-        // Extract form field names
-        if let Some(fields) = self.scan_pattern(content, r#"(?:name|field|param)\s*[=:]\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#, "Field Name") {
-            for field in fields.into_iter().take(50) {
-                let clean = field.split(&['=', ':'][..]).last().unwrap_or(&field)
-                    .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
-                if clean.len() > 1 && clean.len() < 30 {
-                    // Add to a generic endpoint
-                    results.parameters.entry("*".to_string())
-                        .or_insert_with(HashSet::new)
-                        .insert(clean.to_string());
+        // Extract form field names - expanded patterns
+        let field_patterns = [
+            r#"(?:name|field|param|input)\s*[=:]\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"(?:placeholder|aria-label)\s*[=:]\s*['"`]([^'"]+)['"`]"#,
+            r#"(?:id|htmlFor|for)\s*[=:]\s*['"`]([a-zA-Z_][a-zA-Z0-9_\-]{1,30})['"`]"#,
+        ];
+
+        for pattern in field_patterns {
+            if let Some(fields) = self.scan_pattern(content, pattern, "Field Name") {
+                for field in fields.into_iter().take(50) {
+                    let clean = field.split(&['=', ':'][..]).last().unwrap_or(&field)
+                        .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
+                    if clean.len() > 1 && clean.len() < 30 && !Self::is_minified_param(clean) {
+                        results.parameters.entry("*".to_string())
+                            .or_insert_with(HashSet::new)
+                            .insert(clean.to_string());
+                    }
                 }
             }
         }
 
-        // Extract React/Vue form input names
-        if let Some(inputs) = self.scan_pattern(content, r#"(?:v-model|formik|register|Controller.*name)\s*[=:({]\s*['"`]?([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]?"#, "Form Input") {
-            for input in inputs.into_iter().take(30) {
-                let clean = input.split(&['=', ':', '(', '{'][..]).last().unwrap_or(&input)
-                    .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')' || c == '}');
-                if clean.len() > 1 && clean.len() < 30 && !clean.contains("Controller") {
-                    results.parameters.entry("*".to_string())
-                        .or_insert_with(HashSet::new)
-                        .insert(clean.to_string());
+        // Extract React/Vue/Angular form patterns - comprehensive
+        let form_input_patterns = [
+            // React Hook Form
+            r#"register\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"useForm.*defaultValues.*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            // Formik
+            r#"formik\.values\.([a-zA-Z_][a-zA-Z0-9_]{1,30})"#,
+            r#"Field.*name\s*=\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"setFieldValue\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            // Vue
+            r#"v-model\s*=\s*['"`]?(?:form\.)?([a-zA-Z_][a-zA-Z0-9_]{1,30})"#,
+            r#"ref\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]\s*\)"#,
+            // Angular
+            r#"formControlName\s*=\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"ngModel.*name\s*=\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            // React useState for form fields
+            r#"useState.*\[\s*([a-zA-Z_][a-zA-Z0-9_]{1,20})\s*,\s*set[A-Z]"#,
+            // Generic onChange/onInput handlers
+            r#"onChange.*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            r#"handleChange.*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            // Input value bindings
+            r#"value\s*[=:]\s*(?:this\.state\.|state\.|props\.)?([a-zA-Z_][a-zA-Z0-9_]{1,30})"#,
+            // Form data keys
+            r#"formData\.(?:get|set|append)\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
+            // Object destructuring from form
+            r#"\{\s*([a-zA-Z_][a-zA-Z0-9_]{1,20})\s*(?:,\s*[a-zA-Z_][a-zA-Z0-9_]{1,20}\s*)*\}\s*=\s*(?:form|formData|values|data)"#,
+        ];
+
+        for pattern in form_input_patterns {
+            if let Some(inputs) = self.scan_pattern(content, pattern, "Form Input") {
+                for input in inputs.into_iter().take(30) {
+                    let clean = input.split(&['=', ':', '(', '{', '.'][..]).last().unwrap_or(&input)
+                        .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')' || c == '}');
+                    if clean.len() > 1 && clean.len() < 30 && !Self::is_minified_param(clean) {
+                        results.parameters.entry("*".to_string())
+                            .or_insert_with(HashSet::new)
+                            .insert(clean.to_string());
+                    }
+                }
+            }
+        }
+
+        // Extract form submission endpoints
+        let submit_patterns = [
+            r#"onSubmit.*(?:fetch|axios|post)\s*\(\s*['"`]([^'"]+)['"`]"#,
+            r#"handleSubmit.*(?:fetch|axios|post)\s*\(\s*['"`]([^'"]+)['"`]"#,
+            r#"action\s*[=:]\s*['"`](/[^'"]+)['"`]"#,
+            r#"submitForm.*['"`]([^'"]+api[^'"]+)['"`]"#,
+            r#"formAction\s*[=:]\s*['"`]([^'"]+)['"`]"#,
+        ];
+
+        for pattern in submit_patterns {
+            if let Some(endpoints) = self.scan_pattern(content, pattern, "Form Submit") {
+                for endpoint in endpoints.into_iter().take(10) {
+                    let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
+                    if !clean.is_empty() && !clean.contains("consent") && clean.len() < 200 {
+                        results.form_actions.insert(clean.to_string());
+                    }
+                }
+            }
+        }
+
+        // Extract common form field names from text content (labels, placeholders)
+        let common_form_fields = [
+            ("email", "email"), ("e-mail", "email"), ("sähköposti", "email"), ("correo", "email"),
+            ("name", "name"), ("nimi", "name"), ("nombre", "name"), ("fullname", "fullname"),
+            ("phone", "phone"), ("puhelin", "phone"), ("telefono", "phone"), ("mobile", "phone"),
+            ("message", "message"), ("viesti", "message"), ("mensaje", "message"), ("comment", "comment"),
+            ("subject", "subject"), ("aihe", "subject"), ("asunto", "subject"),
+            ("company", "company"), ("yritys", "company"), ("empresa", "company"),
+            ("address", "address"), ("osoite", "address"), ("direccion", "address"),
+            ("password", "password"), ("salasana", "password"), ("contraseña", "password"),
+            ("username", "username"), ("käyttäjä", "username"), ("usuario", "username"),
+            ("firstname", "firstname"), ("etunimi", "firstname"), ("nombre", "firstname"),
+            ("lastname", "lastname"), ("sukunimi", "lastname"), ("apellido", "lastname"),
+            ("search", "search"), ("haku", "search"), ("buscar", "search"), ("query", "query"),
+            ("city", "city"), ("kaupunki", "city"), ("ciudad", "city"),
+            ("country", "country"), ("maa", "country"), ("pais", "country"),
+            ("zip", "zip"), ("postal", "postalcode"), ("postinumero", "postalcode"),
+        ];
+
+        let content_lower = content.to_lowercase();
+        for (indicator, param_name) in common_form_fields {
+            // Look for label/placeholder patterns with these words
+            if content_lower.contains(indicator) {
+                // Check if it appears in a form-related context
+                let form_context_patterns = [
+                    &format!(r#"(?:label|placeholder|aria-label).*{}"#, indicator),
+                    &format!(r#"{}.*(?:input|field|form)"#, indicator),
+                    &format!(r#"<(?:input|textarea|select).*{}"#, indicator),
+                ];
+
+                for ctx_pattern in form_context_patterns {
+                    if Regex::new(ctx_pattern).map(|re| re.is_match(&content_lower)).unwrap_or(false) {
+                        results.parameters.entry("*".to_string())
+                            .or_insert_with(HashSet::new)
+                            .insert(param_name.to_string());
+                        break;
+                    }
                 }
             }
         }
