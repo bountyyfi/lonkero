@@ -26,6 +26,7 @@ use tracing::{debug, info, warn};
 pub mod xss_detection;
 pub mod xss_enhanced;
 pub mod sqli_enhanced;
+pub mod baseline_detector;
 pub mod command_injection;
 pub mod path_traversal;
 pub mod ssrf;
