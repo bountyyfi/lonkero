@@ -154,6 +154,18 @@ Tests authentication endpoints for missing or insufficient rate limiting:
 - **Update/Install Scripts**: update.php, install.php exposure
 - **API Security**: REST/JSON API exposure, cron.php without key
 
+**Laravel Security Scanner**
+- **Ignition RCE**: CVE-2021-3129 remote code execution detection
+- **Debug Mode**: APP_DEBUG=true with environment variable exposure
+- **Admin Panels**: Telescope, Horizon, Nova, Pulse exposure detection
+- **Environment Files**: .env, .env.backup, .env.local exposure
+- **Storage/Logs**: Directory listing, laravel.log, session files
+- **Vendor Exposure**: PHPUnit RCE, composer.json/lock disclosure
+- **Configuration**: Cached config, .git, artisan script exposure
+- **API Security**: Unprotected routes, GraphQL playground
+- **Livewire**: Component vulnerabilities, CSRF misconfigurations
+- **Known CVEs**: Version-based vulnerability detection (7 CVEs)
+
 ### Firebase Authentication Bypass (NEW)
 Detects Firebase misconfigurations:
 - **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI

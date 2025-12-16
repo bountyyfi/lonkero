@@ -101,6 +101,7 @@ pub mod js_sensitive_info;
 pub mod rate_limiting;
 pub mod wordpress_security;
 pub mod drupal_security;
+pub mod laravel_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -185,6 +186,7 @@ pub use js_sensitive_info::JsSensitiveInfoScanner;
 pub use rate_limiting::RateLimitingScanner;
 pub use wordpress_security::WordPressSecurityScanner;
 pub use drupal_security::DrupalSecurityScanner;
+pub use laravel_security::LaravelSecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -268,6 +270,7 @@ pub struct ScanEngine {
     pub rate_limiting_scanner: RateLimitingScanner,
     pub wordpress_security_scanner: WordPressSecurityScanner,
     pub drupal_security_scanner: DrupalSecurityScanner,
+    pub laravel_security_scanner: LaravelSecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -440,6 +443,7 @@ impl ScanEngine {
             rate_limiting_scanner: RateLimitingScanner::new(Arc::clone(&http_client)),
             wordpress_security_scanner: WordPressSecurityScanner::new(Arc::clone(&http_client)),
             drupal_security_scanner: DrupalSecurityScanner::new(Arc::clone(&http_client)),
+            laravel_security_scanner: LaravelSecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1432,6 +1436,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(drupal_vulns);
         total_tests += drupal_tests as u64;
         queue.increment_tests(scan_id.clone(), drupal_tests as u64).await?;
+
+        // Laravel Security Scanner (Personal+ license)
+        info!("[Laravel] Advanced Laravel security scanning");
+        let (laravel_vulns, laravel_tests) = self.laravel_security_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(laravel_vulns);
+        total_tests += laravel_tests as u64;
+        queue.increment_tests(scan_id.clone(), laravel_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
