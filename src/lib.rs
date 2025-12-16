@@ -14,6 +14,7 @@ pub mod cdn_detector;
 pub mod circuit_breaker;
 pub mod config;
 pub mod crawler;
+pub mod headless_crawler;
 pub mod database;
 pub mod dns_cache;
 pub mod framework_detector;
