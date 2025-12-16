@@ -81,3 +81,6 @@ pub mod license;
 
 // Quantum-safe signing and scan authorization module
 pub mod signing;
+
+// Module IDs for server-side authorization
+pub mod modules;

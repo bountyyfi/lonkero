@@ -93,6 +93,17 @@ struct ScanAuthorizeRequest {
     /// Scanner version for compatibility checking
     #[serde(skip_serializing_if = "Option::is_none")]
     scanner_version: Option<String>,
+    /// List of module IDs to request authorization for
+    modules: Vec<String>,
+}
+
+/// Denied module information from server
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeniedModuleInfo {
+    /// Module ID that was denied
+    pub module: String,
+    /// Reason for denial
+    pub reason: String,
 }
 
 /// Response from scan authorization endpoint
@@ -108,6 +119,10 @@ struct ScanAuthorizeResponse {
     max_targets: Option<u32>,
     /// License type (Personal, Professional, Team, Enterprise)
     license_type: Option<String>,
+    /// Modules the server authorized
+    authorized_modules: Option<Vec<String>>,
+    /// Modules denied with reasons
+    denied_modules: Option<Vec<DeniedModuleInfo>>,
     /// Error message if not authorized
     error: Option<String>,
     /// Ban reason if user is banned - CHECK THIS FIRST
@@ -131,6 +146,8 @@ struct SignRequest {
     timestamp: u64,
     /// Cryptographic nonce for replay protection (min 16 chars)
     nonce: String,
+    /// Modules that were actually used in the scan
+    modules_used: Vec<String>,
     /// Optional scan metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     scan_metadata: Option<ScanMetadata>,
@@ -166,6 +183,8 @@ pub struct ScanToken {
     pub max_targets: u32,
     /// License type
     pub license_type: String,
+    /// Modules authorized by the server
+    pub authorized_modules: Vec<String>,
 }
 
 impl ScanToken {
@@ -179,6 +198,11 @@ impl ScanToken {
 
         // If parsing fails, check against token validity duration
         false
+    }
+
+    /// Check if a module is authorized by the server
+    pub fn is_module_authorized(&self, module_id: &str) -> bool {
+        self.authorized_modules.iter().any(|m| m == module_id)
     }
 }
 
@@ -311,13 +335,15 @@ pub fn get_hardware_id() -> String {
 /// This MUST be called before any scanning operations. It:
 /// - Checks if the user is banned (IP, ASN, hardware, license)
 /// - Validates the license (if provided)
-/// - Returns a scan token required for signing
+/// - Validates requested modules against license
+/// - Returns a scan token with authorized modules
 ///
 /// # Arguments
 /// * `targets_count` - Number of targets to scan
 /// * `hardware_id` - Hardware fingerprint for device identification
 /// * `license_key` - Optional license key for premium features
 /// * `scanner_version` - Optional scanner version string
+/// * `modules` - List of module IDs to request authorization for
 ///
 /// # Returns
 /// * `Ok(ScanToken)` - Authorization successful, use this token for signing
@@ -328,14 +354,16 @@ pub async fn authorize_scan(
     hardware_id: &str,
     license_key: Option<&str>,
     scanner_version: Option<&str>,
+    modules: Vec<String>,
 ) -> Result<ScanToken, SigningError> {
-    debug!("Authorizing scan for {} targets", targets_count);
+    debug!("Authorizing scan for {} targets with {} modules", targets_count, modules.len());
 
     let request = ScanAuthorizeRequest {
         targets_count,
         hardware_id: hardware_id.to_string(),
         license_key: license_key.map(String::from),
         scanner_version: scanner_version.map(String::from),
+        modules,
     };
 
     let client = reqwest::Client::builder()
@@ -366,6 +394,13 @@ pub async fn authorize_scan(
         return Err(SigningError::Banned(ban_reason));
     }
 
+    // Log denied modules
+    if let Some(ref denied) = auth_response.denied_modules {
+        for d in denied {
+            warn!("[Auth] Module '{}' denied: {}", d.module, d.reason);
+        }
+    }
+
     // Check if authorized
     if !auth_response.authorized {
         let error_msg = auth_response
@@ -391,21 +426,23 @@ pub async fn authorize_scan(
     let license_type = auth_response
         .license_type
         .unwrap_or_else(|| "Personal".to_string());
+    let authorized_modules = auth_response.authorized_modules.unwrap_or_default();
+
+    info!(
+        "[Auth] Authorized: {} license, max {} targets, {} modules",
+        license_type, max_targets, authorized_modules.len()
+    );
 
     let token = ScanToken {
         token: token_str,
         expires_at,
         max_targets,
         license_type: license_type.clone(),
+        authorized_modules,
     };
 
     // Store token globally (only succeeds once per process)
     let _ = GLOBAL_SCAN_TOKEN.set(token.clone());
-
-    info!(
-        "Scan authorized: {} license, max {} targets",
-        license_type, max_targets
-    );
 
     Ok(token)
 }
@@ -418,6 +455,7 @@ pub async fn authorize_scan(
 /// # Arguments
 /// * `results_hash` - BLAKE3 hash of the scan results (64 hex chars, lowercase)
 /// * `scan_token` - Token from authorize_scan()
+/// * `modules_used` - List of module IDs that were actually used during the scan
 /// * `metadata` - Optional scan metadata for audit purposes
 ///
 /// # Returns
@@ -426,6 +464,7 @@ pub async fn authorize_scan(
 pub async fn sign_results(
     results_hash: &str,
     scan_token: &ScanToken,
+    modules_used: Vec<String>,
     metadata: Option<ScanMetadata>,
 ) -> Result<ReportSignature, SigningError> {
     // Validate hash format: 64 hex chars, lowercase
@@ -448,6 +487,8 @@ pub async fn sign_results(
 
     let nonce = generate_nonce();
 
+    debug!("[Sign] Signing with {} modules used", modules_used.len());
+
     let request = SignRequest {
         results_hash: results_hash.to_string(),
         scan_token: scan_token.token.clone(),
@@ -455,6 +496,7 @@ pub async fn sign_results(
         hardware_id: None,
         timestamp,
         nonce,
+        modules_used,
         scan_metadata: metadata,
     };
 
@@ -604,8 +646,11 @@ mod tests {
             expires_at: future.to_rfc3339(),
             max_targets: 100,
             license_type: "Personal".to_string(),
+            authorized_modules: vec!["sqli_scanner".to_string(), "xss_scanner".to_string()],
         };
         assert!(valid_token.is_valid());
+        assert!(valid_token.is_module_authorized("sqli_scanner"));
+        assert!(!valid_token.is_module_authorized("wordpress_scanner"));
 
         // Expired token
         let past = chrono::Utc::now() - chrono::Duration::hours(1);
@@ -614,6 +659,7 @@ mod tests {
             expires_at: past.to_rfc3339(),
             max_targets: 100,
             license_type: "Personal".to_string(),
+            authorized_modules: vec![],
         };
         assert!(!expired_token.is_valid());
 
@@ -623,6 +669,7 @@ mod tests {
             expires_at: "invalid".to_string(),
             max_targets: 100,
             license_type: "Personal".to_string(),
+            authorized_modules: vec![],
         };
         assert!(!invalid_token.is_valid());
     }

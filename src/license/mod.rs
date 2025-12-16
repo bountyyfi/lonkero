@@ -2,6 +2,9 @@
 // This software is proprietary and confidential.
 // License verification and killswitch module.
 
+pub mod scan_auth;
+pub use scan_auth::{DeniedModule, ModuleAuthorizeResponse, ScanAuthorization};
+
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -271,6 +274,66 @@ pub fn allows_commercial_use() -> bool {
     } else {
         false
     }
+}
+
+/// Check if a feature is available based on license
+///
+/// Feature requirements:
+/// - "cms_security" -> Personal+ (WordPress, Drupal, Laravel, Django, etc.)
+/// - "advanced_scanning" -> Professional+ (SQLi, XSS, SSRF, etc.)
+/// - "cloud_scanning" -> Team+ (AWS, Azure, GCP, K8s)
+/// - "custom_integrations" -> Enterprise (custom modules, compliance)
+///
+/// NOTE: This is a LOCAL check only. Server-side authorization via
+/// ScanAuthorization should be used for actual module access control.
+/// This function is for backwards compatibility and offline fallback.
+pub fn has_feature(feature: &str) -> bool {
+    // Check global license status
+    if let Some(license) = get_global_license() {
+        // Check if killswitch is active
+        if license.killswitch_active {
+            return false;
+        }
+
+        // Check if feature is explicitly in the features list
+        if license.features.iter().any(|f| f == feature || f == "all_features") {
+            return true;
+        }
+
+        // Check based on license type
+        if let Some(license_type) = license.license_type {
+            match license_type {
+                LicenseType::Enterprise => {
+                    // Enterprise gets everything
+                    return true;
+                }
+                LicenseType::Team => {
+                    // Team gets cloud_scanning, advanced_scanning, cms_security
+                    return matches!(
+                        feature,
+                        "cloud_scanning" | "advanced_scanning" | "cms_security"
+                    );
+                }
+                LicenseType::Professional => {
+                    // Professional gets advanced_scanning, cms_security
+                    return matches!(feature, "advanced_scanning" | "cms_security");
+                }
+                LicenseType::Personal => {
+                    // Personal gets cms_security only
+                    return feature == "cms_security";
+                }
+            }
+        }
+    }
+
+    // Anti-tampering check
+    let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
+    if token == 0 && KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
+        return false;
+    }
+
+    // Default: deny premium features
+    false
 }
 
 /// Get max allowed targets for current license
