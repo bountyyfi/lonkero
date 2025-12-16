@@ -12,6 +12,7 @@
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::info;
 
@@ -111,13 +112,24 @@ impl OAuthScanner {
             }
         }
 
+        // Deduplicate vulnerabilities by type
+        // Multiple OAuth endpoints (/oauth/authorize, /oauth2/authorize) might trigger same vulns
+        let mut seen_types = HashSet::new();
+        let unique_vulns: Vec<Vulnerability> = vulnerabilities
+            .into_iter()
+            .filter(|v| {
+                let key = format!("{}:{}", v.vuln_type, v.parameter.as_ref().unwrap_or(&String::new()));
+                seen_types.insert(key)
+            })
+            .collect();
+
         info!(
-            "[SUCCESS] [OAuth] Completed {} tests, found {} issues",
+            "[SUCCESS] [OAuth] Completed {} tests, found {} unique issues",
             tests_run,
-            vulnerabilities.len()
+            unique_vulns.len()
         );
 
-        Ok((vulnerabilities, tests_run))
+        Ok((unique_vulns, tests_run))
     }
 
     /// Detect ACTUAL OAuth implementation (not just keyword mentions)
