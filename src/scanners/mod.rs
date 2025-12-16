@@ -104,6 +104,7 @@ pub mod drupal_security;
 pub mod laravel_security;
 pub mod express_security;
 pub mod nextjs_security;
+pub mod sveltekit_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -191,6 +192,7 @@ pub use drupal_security::DrupalSecurityScanner;
 pub use laravel_security::LaravelSecurityScanner;
 pub use express_security::ExpressSecurityScanner;
 pub use nextjs_security::NextJsSecurityScanner;
+pub use sveltekit_security::SvelteKitSecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -277,6 +279,7 @@ pub struct ScanEngine {
     pub laravel_security_scanner: LaravelSecurityScanner,
     pub express_security_scanner: ExpressSecurityScanner,
     pub nextjs_security_scanner: NextJsSecurityScanner,
+    pub sveltekit_security_scanner: SvelteKitSecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -452,6 +455,7 @@ impl ScanEngine {
             laravel_security_scanner: LaravelSecurityScanner::new(Arc::clone(&http_client)),
             express_security_scanner: ExpressSecurityScanner::new(Arc::clone(&http_client)),
             nextjs_security_scanner: NextJsSecurityScanner::new(Arc::clone(&http_client)),
+            sveltekit_security_scanner: SvelteKitSecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1471,6 +1475,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(nextjs_vulns);
         total_tests += nextjs_tests as u64;
         queue.increment_tests(scan_id.clone(), nextjs_tests as u64).await?;
+
+        // SvelteKit Security Scanner (Personal+ license)
+        info!("[SvelteKit] Advanced SvelteKit security scanning");
+        let (sveltekit_vulns, sveltekit_tests) = self.sveltekit_security_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(sveltekit_vulns);
+        total_tests += sveltekit_tests as u64;
+        queue.increment_tests(scan_id.clone(), sveltekit_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {

@@ -193,6 +193,18 @@ Tests authentication endpoints for missing or insufficient rate limiting:
 - **Server Actions**: CVE-2024-34351 Host header SSRF, cache poisoning
 - **Known CVEs**: 9+ CVEs with version-based detection (auth bypass, SSRF, path traversal)
 
+**SvelteKit Security Scanner**
+- **Load Data Exposure**: Server load function data leaking via __data.json endpoints
+- **Form Actions CSRF**: CVE-2024-23641, CVE-2023-29008 cross-site request forgery
+- **Hooks Bypass**: Authentication bypass via path manipulation in hooks
+- **+server.js Security**: Unprotected API endpoints, CORS misconfigurations
+- **Environment Variables**: $env/static/private exposure in client bundles
+- **Path Traversal**: CVE-2024-24563 static file serving vulnerability
+- **Open Redirect**: CVE-2024-29893, CVE-2023-29007 redirect vulnerabilities
+- **Prerender Leakage**: Cached user/auth data in prerendered pages
+- **Source Map/Config**: svelte.config.js, .env, package.json exposure
+- **Known CVEs**: 6 CVEs with version-based detection (CSRF, path traversal, XSS)
+
 ### Firebase Authentication Bypass (NEW)
 Detects Firebase misconfigurations:
 - **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI
