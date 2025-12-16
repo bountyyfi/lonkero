@@ -13,9 +13,6 @@
  * - Cache poisoning vectors
  * - BAN method without authentication
  *
- * Based on Nuclei template: unauthenticated-varnish-cache-purge
- * https://github.com/projectdiscovery/nuclei-templates
- *
  * @copyright 2025 Bountyy Oy
  * @license Proprietary
  */
@@ -45,7 +42,7 @@ impl VarnishMisconfigScanner {
 
         info!("Testing for Varnish cache misconfigurations");
 
-        // Test 1: Unauthenticated Cache Purge (from Nuclei template)
+        // Test 1: Unauthenticated Cache Purge
         // Send PURGE request to check if cache can be purged without authentication
         tests_run += 1;
         let purge_paths = vec![
@@ -65,7 +62,7 @@ impl VarnishMisconfigScanner {
                 Ok(response) => {
                     let body_lower = response.body.to_lowercase();
 
-                    // Primary check: Nuclei template exact match
+                    // Primary check: successful purge response
                     // body contains '<title>200 Purged</title>' OR '"status": "ok"' AND status == 200
                     let has_purged_title = body_lower.contains("<title>200 purged</title>");
                     let has_status_ok = body_lower.contains("\"status\": \"ok\"")

@@ -69,14 +69,14 @@ Completely rewritten injection scanners with **programmatic payload generation**
 ### Server Misconfiguration Scanners (NEW)
 
 **Tomcat Misconfiguration Scanner**
-- Stack traces enabled detection (matches Nuclei template exactly)
+- Stack traces enabled detection via malformed requests
 - Manager/host-manager interface exposure
 - Example applications accessible in production
 - Version disclosure via error pages
 - AJP protocol exposure (Ghostcat CVE-2020-1938 risk)
 
 **Varnish Cache Misconfiguration Scanner**
-- Unauthenticated PURGE method (matches Nuclei template exactly)
+- Unauthenticated PURGE method detection
 - Unauthenticated BAN method for bulk cache invalidation
 - Cache information disclosure via headers (X-Varnish, Via, X-Cache)
 - Cache poisoning vectors (X-Forwarded-Host, X-Original-URL)

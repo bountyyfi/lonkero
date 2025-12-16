@@ -12,9 +12,7 @@
  * - Example applications accessible
  * - Manager/host-manager interfaces exposed
  * - Default credentials
- *
- * Based on Nuclei template: tomcat-stacktraces
- * https://github.com/projectdiscovery/nuclei-templates
+ * - AJP protocol exposure (Ghostcat CVE-2020-1938)
  *
  * @copyright 2025 Bountyy Oy
  * @license Proprietary
@@ -45,11 +43,11 @@ impl TomcatMisconfigScanner {
 
         info!("Testing for Tomcat misconfigurations");
 
-        // Test 1: Stack Traces Enabled (from Nuclei template)
+        // Test 1: Stack Traces Enabled
         // Send malformed query parameter to trigger error page
         tests_run += 1;
         let stack_trace_payloads = vec![
-            "?f=\\[",           // Original Nuclei payload
+            "?f=\\[",           // Malformed bracket to trigger parse error
             "?f=%5b",           // URL encoded bracket
             "?f={{",            // Template syntax
             "?%00=test",        // Null byte
@@ -79,9 +77,9 @@ impl TomcatMisconfigScanner {
                         || body_lower.contains("stacktrace")
                         || body_lower.contains("caused by:");
 
-                    // Primary check: Tomcat + org.apache + 400 status (matches Nuclei exactly)
+                    // Primary check: Tomcat + org.apache + 400 status
                     if has_tomcat && has_org_apache && response.status_code == 400 {
-                        info!("Tomcat stack traces enabled (exact Nuclei match) at {}", test_url);
+                        info!("Tomcat stack traces enabled at {}", test_url);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "TOMCAT_STACKTRACE_ENABLED",
