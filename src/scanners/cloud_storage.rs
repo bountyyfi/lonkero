@@ -330,7 +330,7 @@ impl CloudStorageScanner {
         }
 
         // Test dated backup files (pattern: backup-YYYY-MM-DD.sql)
-        let current_year = chrono::Utc::now().year();
+        let current_year = chrono::Utc::now().year_ce().1 as i32;
         for year in (current_year - 2)..=current_year {
             for month in [1, 6, 12] {
                 tests_run += 1;
