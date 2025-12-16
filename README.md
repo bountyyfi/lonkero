@@ -574,7 +574,7 @@ Personal/non-commercial use is permitted for security research and education.
 
 - Documentation: https://github.com/bountyyfi/lonkero
 - Issues: https://github.com/bountyyfi/lonkero/issues
-- Email: support@bountyy.fi, info@bountyy.fi
+- Email: info@bountyy.fi
 - Website: https://bountyy.fi
 
 ---
