@@ -255,6 +255,12 @@ impl FirebaseScanner {
                 vulnerabilities.push(vuln);
             }
 
+            // Test unauthorized email/password signup (login-only UI bypass)
+            tests_run += 1;
+            if let Some(vuln) = self.test_signup_when_login_only(firebase_config, url).await {
+                vulnerabilities.push(vuln);
+            }
+
             // Only test one valid API key to avoid excessive requests
             break;
         }
@@ -1109,6 +1115,192 @@ impl FirebaseScanner {
         }
 
         (vulnerabilities, tests_run)
+    }
+
+    /// Test if email/password signup is enabled when app only shows login UI
+    /// This is a common misconfiguration where developers disable signup in UI but forget Firebase backend
+    async fn test_signup_when_login_only(&self, config: &FirebaseConfig, url: &str) -> Option<Vulnerability> {
+        // First, fetch the page and check if it appears to be login-only
+        let page_response = self.http_client.get(url).await.ok()?;
+        let body_lower = page_response.body.to_lowercase();
+
+        // Indicators that this is a login page (not signup)
+        let has_login_form = body_lower.contains("login") ||
+                            body_lower.contains("sign in") ||
+                            body_lower.contains("signin") ||
+                            body_lower.contains("kirjaudu") ||  // Finnish
+                            body_lower.contains("anmelden");    // German
+
+        // Check if signup is intentionally hidden/disabled in UI
+        let signup_hidden = !body_lower.contains("sign up") &&
+                           !body_lower.contains("signup") &&
+                           !body_lower.contains("register") &&
+                           !body_lower.contains("create account") &&
+                           !body_lower.contains("rekisteröidy") &&  // Finnish
+                           !body_lower.contains("registrieren");    // German
+
+        // Only test if this looks like a login-only page
+        if !has_login_form || !signup_hidden {
+            debug!("Page appears to have signup UI, skipping signup bypass test");
+            return None;
+        }
+
+        info!("Detected login-only UI, testing if Firebase signup is still enabled");
+
+        // Try to create an account via Firebase API (signUp with email/password)
+        let endpoint = format!(
+            "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={}",
+            config.api_key
+        );
+
+        // Use a unique test email that won't conflict with real accounts
+        let test_email = format!(
+            "bountyy-test-{}@nonexistent-domain-{}.invalid",
+            Self::generate_id(),
+            chrono::Utc::now().timestamp()
+        );
+        let test_password = format!("TestPass{}!", Self::generate_id());
+
+        let payload = json!({
+            "email": test_email,
+            "password": test_password,
+            "returnSecureToken": true
+        });
+
+        match self.make_firebase_request(&endpoint, &payload).await {
+            Ok(response) => {
+                // Check if signup succeeded (returns idToken) or specific errors
+                if response.status_code == 200 && response.body.contains("\"idToken\"") {
+                    info!("CRITICAL: Firebase email/password signup enabled despite login-only UI!");
+
+                    // Try to immediately delete the test account we created
+                    // (best effort - don't fail if this doesn't work)
+                    if let Ok(json_resp) = serde_json::from_str::<Value>(&response.body) {
+                        if let Some(id_token) = json_resp.get("idToken").and_then(|v| v.as_str()) {
+                            let delete_endpoint = format!(
+                                "https://identitytoolkit.googleapis.com/v1/accounts:delete?key={}",
+                                config.api_key
+                            );
+                            let delete_payload = json!({ "idToken": id_token });
+                            let _ = self.make_firebase_request(&delete_endpoint, &delete_payload).await;
+                            debug!("Cleaned up test account");
+                        }
+                    }
+
+                    return Some(Vulnerability {
+                        id: format!("firebase_signup_bypass_{}", Self::generate_id()),
+                        vuln_type: "Firebase Signup Bypass - Unauthorized Account Creation".to_string(),
+                        severity: Severity::Critical,
+                        confidence: Confidence::High,
+                        category: "Authentication".to_string(),
+                        url: url.to_string(),
+                        parameter: Some("Firebase Auth".to_string()),
+                        payload: format!(
+                            "API: accounts:signUp with email/password\n\
+                            Endpoint: {}",
+                            endpoint
+                        ),
+                        description: format!(
+                            "Firebase Authentication allows email/password signup even though the application \
+                            UI only shows a login form (no registration option). This is a critical \
+                            misconfiguration where signup was disabled in the frontend but remains enabled \
+                            in Firebase backend. Attackers can:\n\
+                            1. Create unauthorized accounts by calling the Firebase API directly\n\
+                            2. Gain access to protected resources meant for approved users only\n\
+                            3. Bypass invitation-only or approval-based registration flows\n\
+                            4. Access internal/enterprise applications\n\n\
+                            Project: {:?}",
+                            config.project_id
+                        ),
+                        evidence: Some(format!(
+                            "Login-only UI detected: Yes\n\
+                            Signup visible in UI: No\n\
+                            Firebase signUp API enabled: YES (VULNERABLE)\n\
+                            \n\
+                            Attack: POST to {}\n\
+                            Body: {{\"email\": \"attacker@email.com\", \"password\": \"password\", \"returnSecureToken\": true}}\n\
+                            Result: Account created successfully\n\
+                            \n\
+                            This allows anyone to create accounts and potentially access:\n\
+                            - Internal dashboards\n\
+                            - Employee/customer portals\n\
+                            - Admin interfaces\n\
+                            - API endpoints restricted to authenticated users",
+                            endpoint
+                        )),
+                        cwe: "CWE-287".to_string(), // Improper Authentication
+                        cvss: 9.8,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "1. CRITICAL: Disable email/password signup in Firebase Console immediately:\n\
+                                      - Go to Firebase Console → Authentication → Sign-in method\n\
+                                      - Click on Email/Password provider\n\
+                                      - Set 'Email/Password' to DISABLED\n\
+                                      - Or use Admin SDK to control who can sign up\n\
+                                      \n\
+                                      2. If you need controlled signup, implement one of:\n\
+                                      - Use Firebase Admin SDK for server-side account creation only\n\
+                                      - Use email link sign-in with domain restrictions\n\
+                                      - Implement custom claims to approve users after signup\n\
+                                      - Use Cloud Functions to validate and auto-delete unauthorized signups\n\
+                                      \n\
+                                      3. Audit existing accounts for unauthorized registrations\n\
+                                      \n\
+                                      4. Review Firestore/RTDB security rules to ensure unapproved users can't access data\n\
+                                      \n\
+                                      Reference: https://firebase.google.com/docs/auth/admin/manage-users".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+
+                // Check for specific error messages
+                let body_lower = response.body.to_lowercase();
+                if body_lower.contains("email_exists") {
+                    // Email exists but signup endpoint is enabled - still vulnerable
+                    info!("Firebase signup enabled (email exists error returned)");
+
+                    return Some(Vulnerability {
+                        id: format!("firebase_signup_bypass_{}", Self::generate_id()),
+                        vuln_type: "Firebase Signup Bypass - Signup API Enabled".to_string(),
+                        severity: Severity::High,
+                        confidence: Confidence::High,
+                        category: "Authentication".to_string(),
+                        url: url.to_string(),
+                        parameter: Some("Firebase Auth".to_string()),
+                        payload: endpoint.clone(),
+                        description: format!(
+                            "Firebase email/password signup API is enabled despite login-only UI. \
+                            The test email happened to exist, but the signup endpoint accepts requests. \
+                            Attackers can create accounts using any non-registered email."
+                        ),
+                        evidence: Some(format!(
+                            "Login-only UI detected: Yes\n\
+                            Signup endpoint returns EMAIL_EXISTS error (not disabled)\n\
+                            Endpoint: {}\n\
+                            This confirms signup API is enabled and accepts registration attempts.",
+                            endpoint
+                        )),
+                        cwe: "CWE-287".to_string(),
+                        cvss: 8.1,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "Disable email/password signup in Firebase Console or use Admin SDK for controlled registration.".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+
+                if body_lower.contains("operation_not_allowed") ||
+                   body_lower.contains("sign_up_disabled") ||
+                   body_lower.contains("admin_only_operation") {
+                    debug!("Firebase signup is properly disabled");
+                }
+            }
+            Err(e) => {
+                debug!("Firebase signup test request failed: {}", e);
+            }
+        }
+
+        None
     }
 
     /// Test anonymous signup capability

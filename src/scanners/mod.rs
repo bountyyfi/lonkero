@@ -97,6 +97,8 @@ pub mod waf_bypass;
 pub mod merlin;
 pub mod tomcat_misconfig;
 pub mod varnish_misconfig;
+pub mod js_sensitive_info;
+pub mod rate_limiting;
 
 // Cloud security scanners
 pub mod cloud;
@@ -177,6 +179,8 @@ pub use waf_bypass::WafBypassScanner;
 pub use merlin::MerlinScanner;
 pub use tomcat_misconfig::TomcatMisconfigScanner;
 pub use varnish_misconfig::VarnishMisconfigScanner;
+pub use js_sensitive_info::JsSensitiveInfoScanner;
+pub use rate_limiting::RateLimitingScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -256,6 +260,8 @@ pub struct ScanEngine {
     pub merlin_scanner: MerlinScanner,
     pub tomcat_misconfig_scanner: TomcatMisconfigScanner,
     pub varnish_misconfig_scanner: VarnishMisconfigScanner,
+    pub js_sensitive_info_scanner: JsSensitiveInfoScanner,
+    pub rate_limiting_scanner: RateLimitingScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -424,6 +430,8 @@ impl ScanEngine {
             merlin_scanner: MerlinScanner::new(Arc::clone(&http_client)),
             tomcat_misconfig_scanner: TomcatMisconfigScanner::new(Arc::clone(&http_client)),
             varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
+            js_sensitive_info_scanner: JsSensitiveInfoScanner::new(Arc::clone(&http_client)),
+            rate_limiting_scanner: RateLimitingScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1380,6 +1388,24 @@ impl ScanEngine {
         all_vulnerabilities.extend(varnish_vulns);
         total_tests += varnish_tests as u64;
         queue.increment_tests(scan_id.clone(), varnish_tests as u64).await?;
+
+        // JavaScript Sensitive Information Leakage Scanner
+        info!("[JS-Sensitive] Scanning JavaScript for sensitive information leakage");
+        let (js_sensitive_vulns, js_sensitive_tests) = self.js_sensitive_info_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(js_sensitive_vulns);
+        total_tests += js_sensitive_tests as u64;
+        queue.increment_tests(scan_id.clone(), js_sensitive_tests as u64).await?;
+
+        // Rate Limiting Scanner
+        info!("[RateLimit] Testing for insufficient rate limiting on authentication endpoints");
+        let (rate_limit_vulns, rate_limit_tests) = self.rate_limiting_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(rate_limit_vulns);
+        total_tests += rate_limit_tests as u64;
+        queue.increment_tests(scan_id.clone(), rate_limit_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {

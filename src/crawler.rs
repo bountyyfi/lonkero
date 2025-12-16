@@ -53,6 +53,10 @@ pub struct FormInput {
     pub name: String,
     pub input_type: String,
     pub value: Option<String>,
+    /// For SELECT elements - available options
+    pub options: Option<Vec<String>>,
+    /// Whether field is required
+    pub required: bool,
 }
 
 /// Discovered JavaScript file
@@ -457,6 +461,8 @@ impl WebCrawler {
                         name: name.to_string(),
                         input_type,
                         value,
+                        options: None,
+                        required: false,
                     });
                 }
             }
@@ -518,6 +524,8 @@ impl WebCrawler {
                             name: name.to_string(),
                             input_type,
                             value,
+                            options: None,
+                            required: false,
                         });
                     }
                 }
@@ -607,6 +615,8 @@ impl WebCrawler {
                 name: final_name,
                 input_type: input_type.clone(),
                 value,
+                options: None,
+                required: false,
             });
         }
 
@@ -631,6 +641,8 @@ impl WebCrawler {
                     name,
                     input_type: "text".to_string(),
                     value: None,
+                    options: None,
+                    required: false,
                 })
                 .collect();
 
@@ -815,6 +827,8 @@ impl WebCrawler {
                                     name: field.to_string(),
                                     input_type: "text".to_string(),
                                     value: None,
+                                    options: None,
+                                    required: false,
                                 });
                             }
                         }
@@ -849,6 +863,8 @@ impl WebCrawler {
                                     name: field_name.to_string(),
                                     input_type: "text".to_string(),
                                     value: None,
+                                    options: None,
+                                    required: false,
                                 });
                             }
                         }
@@ -894,6 +910,8 @@ impl WebCrawler {
                             name: name.to_string(),
                             input_type: input.value().attr("type").unwrap_or("text").to_string(),
                             value: input.value().attr("value").map(|v| v.to_string()),
+                            options: None,
+                            required: false,
                         });
                     }
                 }
@@ -933,6 +951,8 @@ impl WebCrawler {
                                 name: name.to_string(),
                                 input_type: elem.value().attr("type").unwrap_or("text").to_string(),
                                 value: elem.value().attr("value").map(|v| v.to_string()),
+                                options: None,
+                                required: false,
                             });
                         }
                     }
@@ -965,6 +985,8 @@ impl WebCrawler {
                             name: name.to_string(),
                             input_type: elem.value().attr("type").unwrap_or("text").to_string(),
                             value: elem.value().attr("value").map(|v| v.to_string()),
+                            options: None,
+                            required: false,
                         });
                     }
                 }
@@ -996,6 +1018,8 @@ impl WebCrawler {
                             name: name.to_string(),
                             input_type: elem.value().attr("type").unwrap_or("text").to_string(),
                             value: elem.value().attr("value").map(|v| v.to_string()),
+                            options: None,
+                            required: false,
                         });
                     }
                 }
@@ -1167,8 +1191,8 @@ mod tests {
             action: "/submit".to_string(),
             method: "POST".to_string(),
             inputs: vec![
-                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None },
-                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None },
+                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None, options: None, required: false },
+                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None, options: None, required: false },
             ],
             discovered_at: "/login".to_string(),
         };
@@ -1177,8 +1201,8 @@ mod tests {
             action: "/submit".to_string(),
             method: "POST".to_string(),
             inputs: vec![
-                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None },
-                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None },
+                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None, options: None, required: false },
+                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None, options: None, required: false },
             ],
             discovered_at: "/login".to_string(),
         };
@@ -1195,7 +1219,7 @@ mod tests {
             action: "/submit".to_string(),
             method: "POST".to_string(),
             inputs: vec![
-                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None },
+                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None, options: None, required: false },
             ],
             discovered_at: "/page1".to_string(),
         };

@@ -137,6 +137,9 @@ pub struct ComplianceMapping {
     pub soc2: HashMap<String, Vec<String>>,
     pub iso27001: HashMap<String, Vec<String>>,
     pub gdpr: HashMap<String, Vec<String>>,
+    pub nist_csf: HashMap<String, Vec<String>>,
+    pub dora: HashMap<String, Vec<String>>,
+    pub nis2: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

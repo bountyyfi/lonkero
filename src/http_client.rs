@@ -658,6 +658,29 @@ impl HttpClient {
 
         Err(last_error.unwrap().into())
     }
+
+    /// Send authenticated GET request using AuthSession
+    pub async fn get_authenticated(&self, url: &str, auth: &crate::auth_context::AuthSession) -> Result<HttpResponse> {
+        self.get_with_headers(url, auth.auth_headers()).await
+    }
+
+    /// Send authenticated POST request using AuthSession
+    pub async fn post_authenticated(&self, url: &str, body: &str, auth: &crate::auth_context::AuthSession) -> Result<HttpResponse> {
+        self.post_with_headers(url, body, auth.auth_headers()).await
+    }
+
+    /// Send authenticated POST request with content type using AuthSession
+    pub async fn post_authenticated_with_content_type(
+        &self,
+        url: &str,
+        body: &str,
+        content_type: &str,
+        auth: &crate::auth_context::AuthSession,
+    ) -> Result<HttpResponse> {
+        let mut headers = auth.auth_headers();
+        headers.push(("Content-Type".to_string(), content_type.to_string()));
+        self.post_with_headers(url, body, headers).await
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -120,6 +120,18 @@ enum Commands {
         #[arg(long)]
         basic_auth: Option<String>,
 
+        /// Auto-login username (requires --auth-password)
+        #[arg(long)]
+        auth_username: Option<String>,
+
+        /// Auto-login password (requires --auth-username)
+        #[arg(long)]
+        auth_password: Option<String>,
+
+        /// Custom login URL (for auto-login)
+        #[arg(long)]
+        auth_login_url: Option<String>,
+
         /// Custom headers (format: "Header: Value")
         #[arg(short = 'H', long)]
         header: Vec<String>,
@@ -273,6 +285,9 @@ async fn async_main(cli: Cli) -> Result<()> {
             cookie,
             token,
             basic_auth,
+            auth_username,
+            auth_password,
+            auth_login_url,
             header,
             skip,
             only,
@@ -302,6 +317,9 @@ async fn async_main(cli: Cli) -> Result<()> {
                 cookie,
                 token,
                 basic_auth,
+                auth_username,
+                auth_password,
+                auth_login_url,
                 header,
                 skip,
                 only,
@@ -540,6 +558,9 @@ async fn run_scan(
     cookie: Option<String>,
     token: Option<String>,
     basic_auth: Option<String>,
+    auth_username: Option<String>,
+    auth_password: Option<String>,
+    auth_login_url: Option<String>,
     headers: Vec<String>,
     _skip: Vec<String>,
     _only: Vec<String>,
@@ -628,6 +649,58 @@ async fn run_scan(
 
     if let Some(ua) = &user_agent {
         custom_headers.insert("User-Agent".to_string(), ua.clone());
+    }
+
+    // Initialize authentication session
+    use lonkero_scanner::auth_context::{AuthSession, Authenticator, LoginCredentials};
+
+    let auth_session: Option<AuthSession> = if let (Some(username), Some(password)) = (&auth_username, &auth_password) {
+        // Auto-login mode
+        info!("[Auth] Auto-login enabled for user: {}", username);
+        let authenticator = Authenticator::new(timeout);
+        let mut creds = LoginCredentials::new(username, password);
+        if let Some(login_url) = &auth_login_url {
+            creds = creds.with_login_url(login_url);
+        }
+
+        // Use first target as base URL for login
+        let base_url = targets.first().map(|t| t.as_str()).unwrap_or("");
+        match authenticator.login(base_url, &creds).await {
+            Ok(session) => {
+                if session.is_authenticated {
+                    info!("[Auth] Login successful - {} cookies, JWT: {}",
+                        session.cookies.len(),
+                        session.find_jwt().is_some()
+                    );
+                    Some(session)
+                } else {
+                    warn!("[Auth] Login may have failed - proceeding without auth");
+                    None
+                }
+            }
+            Err(e) => {
+                warn!("[Auth] Auto-login failed: {} - proceeding without auth", e);
+                None
+            }
+        }
+    } else if let Some(tok) = &token {
+        // Bearer token provided
+        info!("[Auth] Using provided bearer token");
+        Some(Authenticator::from_token(tok, "bearer"))
+    } else if let Some(cook) = &cookie {
+        // Cookie provided
+        info!("[Auth] Using provided cookies");
+        Some(Authenticator::from_token(cook, "cookie"))
+    } else {
+        None
+    };
+
+    // Add auth headers to custom headers if we have a session
+    if let Some(ref session) = auth_session {
+        for (key, value) in session.auth_headers() {
+            custom_headers.insert(key, value);
+        }
+        info!("[Auth] Authentication context ready - scanning authenticated endpoints");
     }
 
     // Create scan engine
@@ -722,6 +795,103 @@ async fn run_scan(
     Ok(())
 }
 
+/// Generate smart dummy values for form fields based on field name
+fn get_dummy_value(field_name: &str) -> String {
+    let name_lower = field_name.to_lowercase();
+
+    // Email fields
+    if name_lower.contains("email") || name_lower.contains("mail") {
+        return "test@example.com".to_string();
+    }
+
+    // Phone fields
+    if name_lower.contains("phone") || name_lower.contains("tel") || name_lower.contains("mobile") {
+        return "+1234567890".to_string();
+    }
+
+    // Name fields
+    if name_lower.contains("name") || name_lower.contains("nimi") {
+        return "Test User".to_string();
+    }
+
+    // Message/comment fields
+    if name_lower.contains("message") || name_lower.contains("comment") || name_lower.contains("viesti") ||
+       name_lower.contains("description") || name_lower.contains("text") || name_lower.contains("body") {
+        return "Test message content".to_string();
+    }
+
+    // Password fields
+    if name_lower.contains("password") || name_lower.contains("pass") {
+        return "TestPass123!".to_string();
+    }
+
+    // URL fields
+    if name_lower.contains("url") || name_lower.contains("website") || name_lower.contains("link") {
+        return "https://example.com".to_string();
+    }
+
+    // Number/amount fields
+    if name_lower.contains("amount") || name_lower.contains("price") || name_lower.contains("number") ||
+       name_lower.contains("quantity") || name_lower.contains("age") {
+        return "100".to_string();
+    }
+
+    // Subject fields
+    if name_lower.contains("subject") || name_lower.contains("title") || name_lower.contains("aihe") {
+        return "Test Subject".to_string();
+    }
+
+    // Company fields
+    if name_lower.contains("company") || name_lower.contains("organization") || name_lower.contains("yritys") {
+        return "Test Company Ltd".to_string();
+    }
+
+    // Address fields
+    if name_lower.contains("address") || name_lower.contains("street") || name_lower.contains("osoite") {
+        return "123 Test Street".to_string();
+    }
+
+    // City fields
+    if name_lower.contains("city") || name_lower.contains("kaupunki") {
+        return "Helsinki".to_string();
+    }
+
+    // Country fields
+    if name_lower.contains("country") || name_lower.contains("maa") {
+        return "Finland".to_string();
+    }
+
+    // Zip/postal code
+    if name_lower.contains("zip") || name_lower.contains("postal") || name_lower.contains("postinumero") {
+        return "00100".to_string();
+    }
+
+    // Default: generic test value
+    "test_value".to_string()
+}
+
+/// Get value for a form input, using SELECT options if available
+fn get_form_input_value(input: &crate::crawler::FormInput) -> String {
+    // For SELECT elements with options, use first option
+    if input.input_type.eq_ignore_ascii_case("select") {
+        if let Some(ref options) = input.options {
+            if !options.is_empty() {
+                return options[0].clone();
+            }
+        }
+    }
+
+    // If input has a preset value, use it
+    if let Some(ref value) = input.value {
+        if !value.is_empty() {
+            return value.clone();
+        }
+    }
+
+    // Fall back to smart dummy value based on field name
+    get_dummy_value(&input.name)
+}
+
 async fn execute_standalone_scan(
     engine: Arc<ScanEngine>,
     job: Arc<ScanJob>,
@@ -775,7 +945,7 @@ async fn execute_standalone_scan(
 
     // Web crawling (if enabled) - STORE results for parameter discovery
     let mut discovered_params: Vec<String> = Vec::new();
-    let mut discovered_forms: Vec<(String, Vec<String>)> = Vec::new(); // (action_url, field_names)
+    let mut discovered_forms: Vec<(String, Vec<crate::crawler::FormInput>)> = Vec::new(); // (action_url, form_inputs)
 
     if scan_config.enable_crawler {
         info!("  - Running web crawler (depth: {})", scan_config.max_depth);
@@ -786,21 +956,22 @@ async fn execute_standalone_scan(
 
                 // Extract parameters from discovered forms for XSS testing
                 for form in &results.forms {
-                    let form_params: Vec<String> = form.inputs.iter()
+                    let form_inputs: Vec<crate::crawler::FormInput> = form.inputs.iter()
                         .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                        !input.input_type.eq_ignore_ascii_case("submit") &&
                                        !input.name.is_empty())
-                        .map(|input| input.name.clone())
+                        .cloned()
                         .collect();
 
-                    if !form_params.is_empty() {
+                    if !form_inputs.is_empty() {
                         let action_url = if form.action.is_empty() {
                             target.to_string()
                         } else {
                             form.action.clone()
                         };
-                        discovered_forms.push((action_url, form_params.clone()));
-                        discovered_params.extend(form_params);
+                        let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
+                        discovered_forms.push((action_url, form_inputs));
+                        discovered_params.extend(param_names);
                     }
                 }
 
@@ -859,29 +1030,32 @@ async fn execute_standalone_scan(
     // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
     // If we detected a JS framework and static crawler found few/no forms, use headless browser
     let needs_headless = is_nodejs_stack && discovered_forms.is_empty();
+    let mut headless_found_forms = false;
     if needs_headless {
         info!("  - SPA detected with no forms found, trying headless browser...");
         let headless = HeadlessCrawler::new(30);
         match headless.extract_forms(target).await {
             Ok(forms) => {
                 if !forms.is_empty() {
+                    headless_found_forms = true;
                     info!("[SUCCESS] Headless browser found {} forms", forms.len());
                     for form in &forms {
-                        let form_params: Vec<String> = form.inputs.iter()
+                        let form_inputs: Vec<crate::crawler::FormInput> = form.inputs.iter()
                             .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                            !input.input_type.eq_ignore_ascii_case("submit") &&
                                            !input.name.is_empty())
-                            .map(|input| input.name.clone())
+                            .cloned()
                             .collect();
 
-                        if !form_params.is_empty() {
+                        if !form_inputs.is_empty() {
                             let action_url = if form.action.is_empty() {
                                 target.to_string()
                             } else {
                                 form.action.clone()
                             };
-                            discovered_forms.push((action_url, form_params.clone()));
-                            discovered_params.extend(form_params);
+                            let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
+                            discovered_forms.push((action_url, form_inputs));
+                            discovered_params.extend(param_names);
                         }
                     }
                     info!("  - Found {} real form fields from rendered page", discovered_params.len());
@@ -977,7 +1151,8 @@ async fn execute_standalone_scan(
         }
     }
 
-    // Add parameters discovered from JavaScript analysis (critical for SPAs!)
+    // Add parameters discovered from JavaScript analysis
+    // JS miner finds API endpoints, sensitive tokens, etc. - always valuable
     for param_set in js_miner_results.parameters.values() {
         for param in param_set {
             if !test_params.iter().any(|(name, _)| name == param) {
@@ -1005,7 +1180,40 @@ async fn execute_standalone_scan(
 
     // Only run parameter injection tests if we have REAL parameters to test
     if has_real_params {
-        // Run XSS scanner
+        // FIRST: Test discovered forms with POST (full form body)
+        if !discovered_forms.is_empty() {
+            info!("  - Testing {} discovered forms with POST", discovered_forms.len());
+            for (action_url, form_inputs) in &discovered_forms {
+                // Build base form body using smart values (SELECT options, preset values, or dummy)
+                let base_body: String = form_inputs.iter()
+                    .map(|input| format!("{}={}", input.name, get_form_input_value(input)))
+                    .collect::<Vec<_>>()
+                    .join("&");
+
+                // Test each field in the form
+                for input in form_inputs {
+                    info!("    Testing form field '{}' ({}) at {}", input.name, input.input_type, action_url);
+
+                    // XSS on form field
+                    let (vulns, tests) = engine.xss_scanner.scan_post_body(
+                        action_url, &input.name, &base_body, Some("application/x-www-form-urlencoded"), scan_config
+                    ).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests as u64;
+
+                    // SQLi on form field (if not static)
+                    if !is_static_site {
+                        let (vulns, tests) = engine.sqli_scanner.scan_post_body(
+                            action_url, &input.name, &base_body, Some("application/x-www-form-urlencoded"), scan_config
+                        ).await?;
+                        all_vulnerabilities.extend(vulns);
+                        total_tests += tests as u64;
+                    }
+                }
+            }
+        }
+
+        // THEN: Test URL parameters with GET (original behavior)
         info!("  - Testing XSS ({} parameters)", test_params.len());
         for (param_name, _) in &test_params {
             let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config).await?;
