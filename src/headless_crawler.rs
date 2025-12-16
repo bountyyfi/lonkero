@@ -28,10 +28,9 @@ impl HeadlessCrawler {
     pub async fn extract_forms(&self, url: &str) -> Result<Vec<DiscoveredForm>> {
         info!("[Headless] Launching browser for: {}", url);
 
-        // Launch browser
+        // Launch browser (headless mode)
         let (mut browser, mut handler) = Browser::launch(
             BrowserConfig::builder()
-                .with_head(false)
                 .window_size(1920, 1080)
                 .request_timeout(self.timeout)
                 .build()
@@ -234,12 +233,11 @@ impl HeadlessCrawler {
     /// Check if headless browser is available
     pub async fn is_available() -> bool {
         // Try to launch browser briefly
-        match Browser::launch(
-            BrowserConfig::builder()
-                .with_head(false)
-                .build()
-                .unwrap_or_default()
-        ).await {
+        let config = match BrowserConfig::builder().build() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        match Browser::launch(config).await {
             Ok((mut browser, _)) => {
                 browser.close().await.ok();
                 true
