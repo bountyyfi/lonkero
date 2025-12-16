@@ -218,6 +218,18 @@ Tests authentication endpoints for missing or insufficient rate limiting:
 - **CORS Misconfig**: Permissive Access-Control-Allow-Origin headers
 - **Known CVEs**: 8 CVEs covering react, react-router, immer, semver, json5
 
+**Django Security Scanner**
+- **DEBUG Mode**: DEBUG=True detection via error pages and settings exposure
+- **Admin Interface**: /admin/ exposure, weak authentication, missing 2FA
+- **SECRET_KEY Exposure**: Hardcoded secrets in JavaScript bundles, settings files
+- **Security Settings**: Missing SECURE_SSL_REDIRECT, CSRF_COOKIE_SECURE, SESSION_COOKIE_SECURE
+- **Django Debug Toolbar**: Production exposure with SQL queries and request data
+- **Config File Exposure**: settings.py, .env, local_settings.py accessibility
+- **Django REST Framework**: Browsable API exposure, token disclosure, permission issues
+- **Static/Media Exposure**: STATIC_ROOT/MEDIA_ROOT directory listing
+- **Celery/Flower**: Flower dashboard exposure without authentication
+- **Known CVEs**: 13+ CVEs including CVE-2024-42005 (SQL injection), CVE-2024-45230 (DoS), CVE-2024-39330 (path traversal), CVE-2024-39614 (ReDoS), CVE-2024-38875 (DoS)
+
 ### Firebase Authentication Bypass (NEW)
 Detects Firebase misconfigurations:
 - **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI
