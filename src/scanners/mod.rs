@@ -24,6 +24,8 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 
 pub mod xss;
+pub mod xss_detection;
+pub mod xss_enhanced;
 pub mod sqli;
 pub mod sqli_boolean;
 pub mod sqli_union;

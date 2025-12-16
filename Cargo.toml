@@ -120,6 +120,7 @@ hickory-resolver = "0.25"
 
 # HTML parsing
 scraper = "0.25"
+html-escape = "0.2"
 
 # Rate limiting - Token Bucket
 governor = "0.10"
