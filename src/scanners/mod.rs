@@ -525,7 +525,7 @@ impl ScanEngine {
                 if let Some(domain_str) = parsed_url.host_str() {
                     // Convert to owned String to avoid lifetime issues
                     let domain = domain_str.to_string();
-                    let thorough = self.config.subdomain_enum_thorough || config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive;
+                    let thorough = self.config.subdomain_enum_thorough || config.scan_mode == ScanMode::Thorough || config.scan_mode == ScanMode::Insane;
 
                     match self.subdomain_enumerator.enumerate(&domain, thorough).await {
                         Ok(subdomains) => {
@@ -1348,8 +1348,8 @@ impl ScanEngine {
         }
 
         // Phase 3: Ultra mode - Additional attack vectors
-        if config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive {
-            info!("Comprehensive/Aggressive mode enabled - testing advanced attack vectors");
+        if config.scan_mode == ScanMode::Thorough || config.scan_mode == ScanMode::Insane {
+            info!("Thorough/Insane mode enabled - testing advanced attack vectors");
 
             // Note: Time-based blind SQLi is now automatically included in the unified scanner
 

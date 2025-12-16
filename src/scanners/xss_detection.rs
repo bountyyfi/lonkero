@@ -11,7 +11,6 @@
 
 use crate::http_client::HttpResponse;
 use scraper::{Html, Selector};
-use std::collections::HashSet;
 
 /// Injection context determines where user input appears
 #[derive(Debug, Clone, PartialEq)]

@@ -404,7 +404,7 @@ impl ApiFuzzerScanner {
         }
 
         // Integer overflow testing
-        if config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive {
+        if config.scan_mode == ScanMode::Thorough || config.scan_mode == ScanMode::Insane {
             let overflow_payloads = vec![
                 json!({"id": "9223372036854775807"}), // Max int64
                 json!({"id": "18446744073709551615"}), // Max uint64
@@ -1251,7 +1251,7 @@ impl ApiFuzzerScanner {
             tests_run += tests;
 
             // Test token replay attacks
-            if config.scan_mode == ScanMode::Comprehensive || config.scan_mode == ScanMode::Aggressive {
+            if config.scan_mode == ScanMode::Thorough || config.scan_mode == ScanMode::Insane {
                 let (vulns, tests) = self.test_token_replay(&endpoint.url).await?;
                 vulnerabilities.extend(vulns);
                 tests_run += tests;

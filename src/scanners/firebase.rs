@@ -21,7 +21,7 @@ use anyhow::Result;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct FirebaseScanner {
     http_client: Arc<HttpClient>,

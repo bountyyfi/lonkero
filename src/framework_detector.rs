@@ -15,7 +15,7 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DetectedTechnology {

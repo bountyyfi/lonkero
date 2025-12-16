@@ -131,7 +131,8 @@ impl EnhancedXssScanner {
                         &detection.context,
                     ).await {
                         if confirmed {
-                            let vuln_key = format!("{}:{}:{}", test_url, parameter_owned, detection.context as u8);
+                            let context_clone = detection.context.clone();
+                            let vuln_key = format!("{}:{}:{}", test_url, parameter_owned, context_clone as u8);
 
                             // Deduplicate
                             let mut vulns = self.confirmed_vulns.lock().unwrap();
@@ -339,7 +340,7 @@ impl EnhancedXssScanner {
         base_url: &str,
         parameter: &str,
         original_payload: &str,
-        context: &InjectionContext,
+        _context: &InjectionContext,
     ) -> Result<bool> {
         // Get context-specific mutations
         let mutations = self.detector.mutate_payload(original_payload);
@@ -411,7 +412,7 @@ impl EnhancedXssScanner {
     pub async fn scan_dom_xss(
         &self,
         url: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("Testing for DOM-based XSS at {}", url);
 
@@ -641,7 +642,7 @@ impl EnhancedXssScanner {
         &self,
         base_url: &str,
         parameter: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("Testing SVG-based XSS vectors");
 
