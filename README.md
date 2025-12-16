@@ -166,6 +166,20 @@ Tests authentication endpoints for missing or insufficient rate limiting:
 - **Livewire**: Component vulnerabilities, CSRF misconfigurations
 - **Known CVEs**: Version-based vulnerability detection (7 CVEs)
 
+**Express.js Security Scanner**
+- **X-Powered-By Header**: Express framework disclosure detection
+- **Development Mode**: Stack trace exposure, NODE_ENV detection
+- **Security Headers**: Missing Helmet.js middleware detection
+- **API Documentation**: Swagger UI, GraphQL Playground, GraphiQL exposure
+- **Config Exposure**: package.json, .env, config files
+- **Source Maps**: JavaScript source map exposure (.js.map files)
+- **Process Manager**: PM2 dashboard and metrics exposure
+- **Prototype Pollution**: Request body and query parameter pollution
+- **CORS Issues**: Misconfigured CORS allowing credential theft
+- **Session Security**: Cookie flags, secure session configuration
+- **Debug Endpoints**: /debug, /metrics, /health with sensitive data
+- **Known CVEs**: 12+ CVEs covering Express, qs, mongoose, jsonwebtoken, lodash, axios, socket.io
+
 ### Firebase Authentication Bypass (NEW)
 Detects Firebase misconfigurations:
 - **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI

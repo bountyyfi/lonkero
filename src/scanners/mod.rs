@@ -102,6 +102,7 @@ pub mod rate_limiting;
 pub mod wordpress_security;
 pub mod drupal_security;
 pub mod laravel_security;
+pub mod express_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -187,6 +188,7 @@ pub use rate_limiting::RateLimitingScanner;
 pub use wordpress_security::WordPressSecurityScanner;
 pub use drupal_security::DrupalSecurityScanner;
 pub use laravel_security::LaravelSecurityScanner;
+pub use express_security::ExpressSecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -271,6 +273,7 @@ pub struct ScanEngine {
     pub wordpress_security_scanner: WordPressSecurityScanner,
     pub drupal_security_scanner: DrupalSecurityScanner,
     pub laravel_security_scanner: LaravelSecurityScanner,
+    pub express_security_scanner: ExpressSecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -444,6 +447,7 @@ impl ScanEngine {
             wordpress_security_scanner: WordPressSecurityScanner::new(Arc::clone(&http_client)),
             drupal_security_scanner: DrupalSecurityScanner::new(Arc::clone(&http_client)),
             laravel_security_scanner: LaravelSecurityScanner::new(Arc::clone(&http_client)),
+            express_security_scanner: ExpressSecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1445,6 +1449,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(laravel_vulns);
         total_tests += laravel_tests as u64;
         queue.increment_tests(scan_id.clone(), laravel_tests as u64).await?;
+
+        // Express.js Security Scanner (Personal+ license)
+        info!("[Express] Advanced Express.js/Node.js security scanning");
+        let (express_vulns, express_tests) = self.express_security_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(express_vulns);
+        total_tests += express_tests as u64;
+        queue.increment_tests(scan_id.clone(), express_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
