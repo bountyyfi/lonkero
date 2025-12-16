@@ -1,8 +1,6 @@
 # Lonkero
 
-> **Alpha Release** - This software is in active development. APIs and features may change.
-
-**Enterprise Web Security Scanner**
+**Enterprise Web Security Scanner v2.0**
 
 Lonkero is a high-performance security scanner built in Rust with 64+ vulnerability detection modules. Designed for professional penetration testing, security assessments, and CI/CD integration.
 
@@ -19,6 +17,7 @@ Lonkero is a high-performance security scanner built in Rust with 64+ vulnerabil
 
 ## Table of Contents
 
+- [What's New in v2.0](#whats-new-in-v20)
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -32,6 +31,27 @@ Lonkero is a high-performance security scanner built in Rust with 64+ vulnerabil
 - [CI/CD Integration](#cicd-integration)
 - [Command Reference](#command-reference)
 - [License](#license)
+
+## What's New in v2.0
+
+### Enhanced Cloud Storage Security
+- **Auto-Detection**: Automatically detects and scans S3, Azure Blob, and GCS URLs found during scans
+- **Advanced Payloads**: 90+ sensitive file patterns including:
+  - Git files (.git/config, .github/workflows)
+  - Environment files (.env, .env.production, .env.backup)
+  - AWS credentials (.aws/credentials, aws.json, credentials.json)
+  - SSH keys (id_rsa, id_dsa, id_ecdsa, id_ed25519)
+  - Database backups (backup.sql, database.sqlite)
+  - IaC files (terraform.tfstate, docker-compose.yml)
+  - CI/CD configs (.travis.yml, .gitlab-ci.yml)
+- **Dated Backup Detection**: Intelligently tests for backup files with dates (backup-2024-01-01.sql)
+- **JavaScript Mining Integration**: Extracts cloud storage URLs from JavaScript for automatic scanning
+
+### Improved Scanner Engine
+- **Context-Aware XSS Detection**: Enhanced detection with proper context handling
+- **Unified SQL Injection**: Consolidated SQL injection detection with enhanced accuracy
+- **Firebase Security**: Comprehensive Firebase authentication and configuration testing
+- **False Positive Reduction**: Baseline detection, evidence tracking, and smart deduplication
 
 ## Features
 
@@ -361,23 +381,45 @@ lonkero scan https://example.com -H "X-API-Key: secret" -H "X-Tenant: acme"
 
 ## Cloud Security Scanning
 
+### Automatic Cloud Storage Detection (NEW in v2.0)
+
+Lonkero now automatically detects and scans cloud storage URLs during any scan:
+
+```bash
+# Regular scan automatically detects S3, Azure, GCS URLs
+lonkero scan https://example.com
+
+# If JavaScript files reference cloud storage:
+# - https://bucket.s3.amazonaws.com/data.json
+# - https://account.blob.core.windows.net/container
+# These are automatically scanned for misconfigurations!
+```
+
 ### AWS S3 Bucket Scanning
 
-Two modes available:
-
-**1. Public Bucket Scan (no credentials required)**
+**1. Direct S3 URL Scan (auto-triggered)**
 ```bash
-# Scan public S3 bucket by URL
+# Scan S3 bucket directly - automatically detects region and runs 90+ checks
+lonkero scan https://bucket-name.s3.eu-north-1.amazonaws.com
+
+# Works with all S3 URL formats:
+lonkero scan https://bucket.s3.amazonaws.com
+lonkero scan https://s3.region.amazonaws.com/bucket
+```
+
+**2. Advanced S3 Scanner (dedicated tool)**
+```bash
+# Public bucket scan (no credentials required)
 lonkero-aws-s3 --url https://bucket-name.s3.eu-north-1.amazonaws.com/
 
 # Scan multiple buckets
 lonkero-aws-s3 --url https://bucket1.s3.us-east-1.amazonaws.com/,https://bucket2.s3.eu-west-1.amazonaws.com/
 
-# Check for sensitive files
+# Check for sensitive files (90+ patterns)
 lonkero-aws-s3 --url https://bucket.s3.region.amazonaws.com/ --check-objects
 ```
 
-**2. Authenticated Scan (requires AWS credentials)**
+**3. Authenticated Scan (requires AWS credentials)**
 ```bash
 # Set credentials
 export AWS_ACCESS_KEY_ID=AKIA...
@@ -386,6 +428,16 @@ export AWS_SECRET_ACCESS_KEY=...
 # Scan your own buckets
 lonkero-aws-s3 --regions us-east-1,eu-west-1
 ```
+
+**Sensitive Files Checked (90+ patterns)**:
+- Git: `.git/config`, `.git/HEAD`, `.github/workflows/deploy.yml`
+- Environment: `.env`, `.env.local`, `.env.production`, `.env.backup`
+- AWS Credentials: `.aws/credentials`, `.aws/config`, `credentials.json`
+- SSH Keys: `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.pem`
+- Databases: `backup.sql`, `database.sqlite`, `db.sql`
+- Backups: `backup.zip`, `backup.tar.gz`, `backup-YYYY-MM-DD.sql`
+- IaC: `terraform.tfstate`, `docker-compose.yml`, `kubernetes.yml`
+- CI/CD: `.travis.yml`, `.gitlab-ci.yml`, `.circleci/config.yml`
 
 ### AWS EC2 Scanning
 

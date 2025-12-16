@@ -1,9 +1,9 @@
 [package]
 name = "lonkero"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 authors = ["Bountyy Oy <security@bountyy.fi>"]
-description = "Enterprise-grade web security vulnerability scanner with 60+ attack modules"
+description = "Enterprise-grade web security vulnerability scanner with 64+ attack modules"
 license = "Proprietary"
 repository = "https://github.com/bountyyfi/lonkero"
 keywords = ["security", "scanner", "vulnerability", "pentest", "web-security"]
