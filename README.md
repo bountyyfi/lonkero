@@ -230,6 +230,19 @@ Tests authentication endpoints for missing or insufficient rate limiting:
 - **Celery/Flower**: Flower dashboard exposure without authentication
 - **Known CVEs**: 13+ CVEs including CVE-2024-42005 (SQL injection), CVE-2024-45230 (DoS), CVE-2024-39330 (path traversal), CVE-2024-39614 (ReDoS), CVE-2024-38875 (DoS)
 
+**Liferay Security Scanner**
+- **JSON Web Services**: /api/jsonws exposure, unauthenticated API invocation
+- **Control Panel**: Admin interface exposure, guest access to control panel
+- **Default Credentials**: test@liferay.com/test, admin@liferay.com/admin detection
+- **Tunnel-Web Servlet**: RCE via Java deserialization (CVE-2020-7961)
+- **WebDAV Exposure**: Public WebDAV access, guest folder enumeration
+- **Config Disclosure**: portal-ext.properties, osgi/configs exposure
+- **GraphQL/Headless APIs**: Introspection enabled, unauthenticated API access
+- **Document Library**: Directory listing, file enumeration
+- **Axis Web Services**: SOAP service exposure, XXE potential (CVE-2019-16891)
+- **Combo Servlet**: Path traversal via themePath parameter
+- **Known CVEs**: 12+ CVEs including CVE-2020-7961 (RCE), CVE-2024-25604 (SQLi), CVE-2024-26271 (path traversal), CVE-2023-42799 (RCE), CVE-2023-42572 (auth bypass)
+
 ### Firebase Authentication Bypass (NEW)
 Detects Firebase misconfigurations:
 - **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI

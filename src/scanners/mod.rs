@@ -107,6 +107,7 @@ pub mod nextjs_security;
 pub mod sveltekit_security;
 pub mod react_security;
 pub mod django_security;
+pub mod liferay_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -197,6 +198,7 @@ pub use nextjs_security::NextJsSecurityScanner;
 pub use sveltekit_security::SvelteKitSecurityScanner;
 pub use react_security::ReactSecurityScanner;
 pub use django_security::DjangoSecurityScanner;
+pub use liferay_security::LiferaySecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -286,6 +288,7 @@ pub struct ScanEngine {
     pub sveltekit_security_scanner: SvelteKitSecurityScanner,
     pub react_security_scanner: ReactSecurityScanner,
     pub django_security_scanner: DjangoSecurityScanner,
+    pub liferay_security_scanner: LiferaySecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -464,6 +467,7 @@ impl ScanEngine {
             sveltekit_security_scanner: SvelteKitSecurityScanner::new(Arc::clone(&http_client)),
             react_security_scanner: ReactSecurityScanner::new(Arc::clone(&http_client)),
             django_security_scanner: DjangoSecurityScanner::new(Arc::clone(&http_client)),
+            liferay_security_scanner: LiferaySecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -1510,6 +1514,15 @@ impl ScanEngine {
         all_vulnerabilities.extend(django_vulns);
         total_tests += django_tests as u64;
         queue.increment_tests(scan_id.clone(), django_tests as u64).await?;
+
+        // Liferay Security Scanner (Personal+ license)
+        info!("[Liferay] Advanced Liferay security scanning");
+        let (liferay_vulns, liferay_tests) = self.liferay_security_scanner
+            .scan(&target, &config)
+            .await?;
+        all_vulnerabilities.extend(liferay_vulns);
+        total_tests += liferay_tests as u64;
+        queue.increment_tests(scan_id.clone(), liferay_tests as u64).await?;
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
