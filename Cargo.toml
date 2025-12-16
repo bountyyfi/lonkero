@@ -222,7 +222,7 @@ hex = "0.4"
 dirs = "5.0"
 
 # Secure credential storage (OS keychain)
-keyring = "3.7"
+keyring = "3.6.3"
 
 [profile.release]
 opt-level = 3
