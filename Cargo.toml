@@ -92,7 +92,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9"
 
 # Headless browser for JavaScript-rendered pages (SPA form detection)
-chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
+headless_chrome = "1.0"
 
 # Base64
 base64 = "0.22.1"
