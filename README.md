@@ -183,7 +183,7 @@ Only runs relevant tests based on detected stack:
 - Open redirect
 - Information disclosure
 
-### Phase 8: Cloud Security (Ultra Mode)
+### Phase 8: Cloud Security
 - Cloud storage misconfigurations
 - Container security
 - API Gateway security
@@ -319,7 +319,7 @@ lonkero scan https://example.com -o results.xml -f junit
 
 ```bash
 lonkero scan https://example.com --mode fast
-lonkero scan https://example.com --mode thorough --ultra
+lonkero scan https://example.com --mode thorough
 ```
 
 ## Configuration
@@ -526,7 +526,6 @@ lonkero license activate <KEY>         # Activate license
 | `--only` | Only run specific modules (comma-separated) |
 | `--proxy` | Proxy URL (http://host:port) |
 | `--insecure` | Disable TLS certificate verification |
-| `--ultra` | Enable ultra mode (more thorough) |
 
 ### Global Options
 
