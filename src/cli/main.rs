@@ -1876,11 +1876,9 @@ async fn execute_standalone_scan(
     // HTTP Parameter Pollution
     if has_real_params && !is_static_site {
         info!("  - Testing HTTP Parameter Pollution");
-        for (param_name, _) in &test_params {
-            let (vulns, tests) = engine.hpp_scanner.scan_parameter(target, param_name, scan_config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+        let (vulns, tests) = engine.hpp_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     }
 
     // WAF Bypass Testing
