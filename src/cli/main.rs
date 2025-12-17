@@ -1350,10 +1350,16 @@ async fn execute_standalone_scan(
         info!("  [OK] Found {} parameters to test (URL + discovered forms)", test_params.len());
     }
 
+    // Detect if this is a GraphQL-only backend (Vue/Nuxt + GraphQL)
+    // GraphQL apps don't use traditional form POST - they use GraphQL mutations
+    let is_graphql_only = intercepted_endpoints.iter().all(|ep| ep.to_lowercase().contains("graphql"))
+        && !intercepted_endpoints.is_empty();
+
     // Only run parameter injection tests if we have REAL parameters to test
     if has_real_params {
         // FIRST: Test discovered forms with POST (full form body)
-        if !discovered_forms.is_empty() {
+        // SKIP for GraphQL backends - forms submit via GraphQL mutations, not POST
+        if !discovered_forms.is_empty() && !is_graphql_only {
             info!("  - Testing {} discovered forms with POST", discovered_forms.len());
 
             // Log all discovered API endpoints for debugging
@@ -1460,11 +1466,9 @@ async fn execute_standalone_scan(
                     }
                 }
             }
+        } else if is_graphql_only && !discovered_forms.is_empty() {
+            info!("  - Skipping {} form POST tests (GraphQL backend uses mutations)", discovered_forms.len());
         }
-
-        // Detect if this is a GraphQL-only backend (Vue/Nuxt + GraphQL)
-        let is_graphql_only = intercepted_endpoints.iter().all(|ep| ep.to_lowercase().contains("graphql"))
-            && !intercepted_endpoints.is_empty();
 
         // THEN: Test URL parameters with GET (original behavior)
         // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
