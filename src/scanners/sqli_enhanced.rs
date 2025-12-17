@@ -178,7 +178,7 @@ impl EnhancedSqliScanner {
         url: &str,
         body_param: &str,
         existing_body: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("Testing POST parameter '{}' for SQL injection", body_param);
 
@@ -307,7 +307,7 @@ impl EnhancedSqliScanner {
         &self,
         url: &str,
         param: &str,
-        baseline: &HttpResponse,
+        _baseline: &HttpResponse,
     ) -> InjectionContext {
         // Check if parameter name suggests context
         let param_lower = param.to_lowercase();
@@ -760,7 +760,7 @@ impl EnhancedSqliScanner {
         param: &str,
         baseline: &HttpResponse,
         db_type: &DatabaseType,
-        context: &InjectionContext,
+        _context: &InjectionContext,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         debug!("Testing UNION-based SQLi");
@@ -978,7 +978,7 @@ impl EnhancedSqliScanner {
         base_url: &str,
         parameter: &str,
         db_type: &DatabaseType,
-        context: &InjectionContext,
+        _context: &InjectionContext,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         debug!("Testing time-based blind SQLi");

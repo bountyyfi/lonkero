@@ -83,6 +83,9 @@ impl ReportEngine {
                 soc2: HashMap::new(),
                 iso27001: HashMap::new(),
                 gdpr: HashMap::new(),
+                nist_csf: HashMap::new(),
+                dora: HashMap::new(),
+                nis2: HashMap::new(),
             }
         };
         let risk_assessment = self.generate_risk_assessment(&scan_results.vulnerabilities);
@@ -171,8 +174,11 @@ impl ReportEngine {
             pci_dss: ComplianceMapper::map_to_pci_dss(vulnerabilities),
             hipaa: ComplianceMapper::map_to_hipaa(vulnerabilities),
             soc2: ComplianceMapper::map_to_soc2(vulnerabilities),
-            iso27001: HashMap::new(),
-            gdpr: HashMap::new(),
+            iso27001: ComplianceMapper::map_to_iso27001(vulnerabilities),
+            gdpr: ComplianceMapper::map_to_gdpr(vulnerabilities),
+            nist_csf: ComplianceMapper::map_to_nist_csf(vulnerabilities),
+            dora: ComplianceMapper::map_to_dora(vulnerabilities),
+            nis2: ComplianceMapper::map_to_nis2(vulnerabilities),
         }
     }
 

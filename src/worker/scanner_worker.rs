@@ -362,6 +362,7 @@ impl ScannerWorker {
                 &hardware_id,
                 None,
                 Some(env!("CARGO_PKG_VERSION")),
+                vec![],
             ).await {
                 Ok(_token) => {
                     info!("Scan authorized for worker job: {}", job.job_id);
@@ -445,6 +446,7 @@ impl ScannerWorker {
                 match crate::signing::sign_results(
                     &results_hash,
                     &token,
+                    vec![],
                     Some(crate::signing::ScanMetadata {
                         targets_count: Some(1),
                         scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),

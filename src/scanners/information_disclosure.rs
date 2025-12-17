@@ -230,19 +230,21 @@ impl InformationDisclosureScanner {
     /// Test for server information disclosure
     async fn test_server_disclosure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 1;
+        let mut tests_run = 1;
 
         info!("Testing for server information disclosure");
 
+        // Test 1: Check main URL headers
         match self.http_client.get(url).await {
             Ok(response) => {
                 if let Some(evidence) = self.detect_server_disclosure(&response.headers) {
                     info!("Server information disclosed in headers: {}", evidence);
                     vulnerabilities.push(self.create_vulnerability(
                         url,
-                        "Server Information Disclosure",
+                        "Server Version Disclosure",
                         "",
-                        "Server headers reveal version information",
+                        "Server headers reveal version information. This helps attackers identify \
+                        known vulnerabilities for specific server versions.",
                         &evidence,
                         Severity::Low,
                         "CWE-200",
@@ -252,17 +254,15 @@ impl InformationDisclosureScanner {
                 // Check for debug mode
                 if self.detect_debug_mode(&response.body, &response.headers) {
                     info!("Debug mode enabled");
-                    if vulnerabilities.is_empty() {
-                        vulnerabilities.push(self.create_vulnerability(
-                            url,
-                            "Debug Mode Enabled",
-                            "",
-                            "Application is running in debug mode",
-                            "Debug information exposed in response",
-                            Severity::Medium,
-                            "CWE-215",
-                        ));
-                    }
+                    vulnerabilities.push(self.create_vulnerability(
+                        url,
+                        "Debug Mode Enabled",
+                        "",
+                        "Application is running in debug mode",
+                        "Debug information exposed in response",
+                        Severity::Medium,
+                        "CWE-215",
+                    ));
                 }
             }
             Err(e) => {
@@ -270,7 +270,124 @@ impl InformationDisclosureScanner {
             }
         }
 
+        // Test 2: Check debug endpoints that might reveal server version
+        let base_url = self.extract_base_url(url);
+        let debug_endpoints = vec![
+            "/server-status",           // Apache
+            "/server-info",             // Apache
+            "/nginx_status",            // Nginx
+            "/status",                  // Various
+            "/.well-known/version",     // Custom
+            "/version",                 // API version endpoint
+            "/health",                  // Health check often reveals version
+            "/actuator/info",           // Spring Boot
+            "/actuator/health",         // Spring Boot
+            "/api/version",             // API version
+            "/api/v1/version",          // API version
+            "/__version__",             // Python apps
+        ];
+
+        for endpoint in debug_endpoints {
+            tests_run += 1;
+            let test_url = format!("{}{}", base_url, endpoint);
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if response.status_code == 200 {
+                        // Check headers for version info
+                        if let Some(evidence) = self.detect_server_disclosure(&response.headers) {
+                            // Don't duplicate if we already found main header disclosure
+                            if !vulnerabilities.iter().any(|v| v.vuln_type == "Server Version Disclosure") {
+                                info!("Server version disclosed via debug endpoint: {}", endpoint);
+                                vulnerabilities.push(self.create_vulnerability(
+                                    &test_url,
+                                    "Server Version Disclosure",
+                                    endpoint,
+                                    &format!("Debug endpoint {} exposes server version information", endpoint),
+                                    &evidence,
+                                    Severity::Low,
+                                    "CWE-200",
+                                ));
+                            }
+                        }
+
+                        // Check body for version patterns
+                        if let Some(body_evidence) = self.detect_version_in_body(&response.body) {
+                            info!("Server version found in debug endpoint body: {}", endpoint);
+                            vulnerabilities.push(self.create_vulnerability(
+                                &test_url,
+                                "Server Version Disclosure - Debug Endpoint",
+                                endpoint,
+                                &format!("Debug endpoint {} exposes detailed version/configuration information", endpoint),
+                                &body_evidence,
+                                Severity::Medium,
+                                "CWE-200",
+                            ));
+                            break; // Found detailed disclosure, no need to continue
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("Debug endpoint {} check failed: {}", endpoint, e);
+                }
+            }
+        }
+
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Detect version information in response body
+    fn detect_version_in_body(&self, body: &str) -> Option<String> {
+        use regex::Regex;
+
+        let mut findings = Vec::new();
+
+        // Common server version patterns
+        let version_patterns = vec![
+            (r"nginx/(\d+\.\d+\.\d+)", "nginx"),
+            (r"Apache/(\d+\.\d+\.\d+)", "Apache"),
+            (r"PHP/(\d+\.\d+\.\d+)", "PHP"),
+            (r"Python/(\d+\.\d+\.\d+)", "Python"),
+            (r"Node\.js v?(\d+\.\d+\.\d+)", "Node.js"),
+            (r"OpenSSL/(\d+\.\d+\.\d+[a-z]?)", "OpenSSL"),
+            (r"Tomcat/(\d+\.\d+\.\d+)", "Tomcat"),
+            (r"JBoss[^0-9]*(\d+\.\d+\.\d+)", "JBoss"),
+            (r"IIS/(\d+\.\d+)", "IIS"),
+            (r"Express/(\d+\.\d+\.\d+)", "Express"),
+            (r"Rails/(\d+\.\d+\.\d+)", "Rails"),
+            (r"Django/(\d+\.\d+\.\d+)", "Django"),
+            (r"Spring Boot[^0-9]*(\d+\.\d+\.\d+)", "Spring Boot"),
+            (r"Laravel/(\d+\.\d+\.\d+)", "Laravel"),
+            (r#""version"\s*:\s*"([^"]+)""#, "Application"),
+            (r#""server"\s*:\s*"([^"]+)""#, "Server"),
+            (r#""build"\s*:\s*"([^"]+)""#, "Build"),
+        ];
+
+        for (pattern, name) in version_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                if let Some(cap) = re.captures(body) {
+                    if let Some(version) = cap.get(1) {
+                        findings.push(format!("{}: {}", name, version.as_str()));
+                    }
+                }
+            }
+        }
+
+        // Check for Spring Boot Actuator info
+        if body.contains("\"app\"") && body.contains("\"version\"") {
+            findings.push("Spring Boot Actuator info endpoint exposed".to_string());
+        }
+
+        // Check for server status pages
+        if body.contains("Server Version:") || body.contains("Server Built:") {
+            findings.push("Server status page exposed".to_string());
+        }
+
+        if findings.is_empty() {
+            None
+        } else {
+            Some(format!("Version information found:\n  {}", findings.join("\n  ")))
+        }
     }
 
     /// Detect sensitive content in file

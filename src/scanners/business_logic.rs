@@ -47,18 +47,49 @@ impl BusinessLogicScanner {
         tests_run += tests;
 
         // Test workflow bypass
-        if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_workflow_bypass(url).await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-        }
+        let (vulns, tests) = self.test_workflow_bypass(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
 
         // Test parameter tampering
-        if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_parameter_tampering(url).await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-        }
+        let (vulns, tests) = self.test_parameter_tampering(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
+        // Advanced: Race condition testing (TOCTOU)
+        let (vulns, tests) = self.test_race_conditions(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
+        // Advanced: Price manipulation
+        let (vulns, tests) = self.test_price_manipulation(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
+        // Advanced: Quantity tampering
+        let (vulns, tests) = self.test_quantity_tampering(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
+        // Advanced: Coupon/voucher abuse
+        let (vulns, tests) = self.test_coupon_abuse(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
+        // Advanced: Double-spend / replay attacks
+        let (vulns, tests) = self.test_double_spend(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
+        // Advanced: Integer overflow/underflow
+        let (vulns, tests) = self.test_integer_overflow(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
+        // Advanced: Time-based attacks
+        let (vulns, tests) = self.test_time_based_attacks(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
 
         Ok((vulnerabilities, tests_run))
     }
@@ -202,6 +233,652 @@ impl BusinessLogicScanner {
         }
 
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for race conditions (TOCTOU attacks)
+    async fn test_race_conditions(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 3;
+
+        info!("Testing race condition vulnerabilities (TOCTOU)");
+
+        // Common endpoints vulnerable to race conditions
+        let race_endpoints = vec![
+            ("checkout", "order_id=1"),
+            ("transfer", "amount=100"),
+            ("redeem", "code=DISCOUNT10"),
+            ("withdraw", "amount=50"),
+            ("apply-coupon", "coupon=SAVE20"),
+        ];
+
+        for (endpoint, params) in &race_endpoints {
+            let test_url = format!("{}/{}", url.trim_end_matches('/'), endpoint);
+
+            // Send concurrent requests to detect race conditions
+            let mut handles = Vec::new();
+
+            for _ in 0..5 {
+                let client = Arc::clone(&self.http_client);
+                let url_clone = test_url.clone();
+                let params_clone = params.to_string();
+
+                let handle = tokio::spawn(async move {
+                    let headers = vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())];
+                    client.post_with_headers(&url_clone, &params_clone, headers).await
+                });
+                handles.push(handle);
+            }
+
+            // Wait for all requests
+            let mut success_count = 0;
+            let mut responses = Vec::new();
+
+            for handle in handles {
+                if let Ok(result) = handle.await {
+                    if let Ok(response) = result {
+                        responses.push(response.clone());
+                        if self.detect_successful_transaction(&response.body) {
+                            success_count += 1;
+                        }
+                    }
+                }
+            }
+
+            // If multiple requests succeeded, race condition exists
+            if success_count > 1 {
+                info!("Race condition detected at {}!", test_url);
+                vulnerabilities.push(self.create_vulnerability(
+                    &test_url,
+                    "Race Condition (TOCTOU)",
+                    &format!("5 concurrent requests with {}", params),
+                    &format!(
+                        "Race condition vulnerability detected. {} out of 5 concurrent requests succeeded. \
+                         This can lead to double-spending, inventory manipulation, or unauthorized access.",
+                        success_count
+                    ),
+                    &format!("{} successful transactions from 5 concurrent requests", success_count),
+                    Severity::Critical,
+                    "CWE-362",
+                ));
+                break;
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for price manipulation
+    async fn test_price_manipulation(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 8;
+
+        info!("Testing price manipulation vulnerabilities");
+
+        let price_tests = vec![
+            ("price", "0.01"),
+            ("price", "0"),
+            ("unit_price", "-1"),
+            ("total", "0.01"),
+            ("total_amount", "0"),
+            ("item_price", "0.001"),
+            ("subtotal", "0"),
+            ("final_price", "1"),
+        ];
+
+        for (param, value) in &price_tests {
+            // Test via GET
+            let test_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, value)
+            } else {
+                format!("{}?{}={}", url, param, value)
+            };
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if self.detect_price_manipulation(&response.body, param, value) {
+                        info!("Price manipulation successful: {}={}", param, value);
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "Price Manipulation",
+                            &format!("{}={}", param, value),
+                            &format!(
+                                "Server-side price validation is missing. The '{}' parameter can be \
+                                 manipulated to set arbitrary prices, potentially allowing free purchases.",
+                                param
+                            ),
+                            &format!("Successfully set {} to {}", param, value),
+                            Severity::Critical,
+                            "CWE-472",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => debug!("Request failed: {}", e),
+            }
+
+            // Test via POST
+            let checkout_url = format!("{}/checkout", url.trim_end_matches('/'));
+            let post_data = format!("{}={}&product_id=1", param, value);
+
+            match self.http_client.post_with_headers(
+                &checkout_url,
+                &post_data,
+                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
+            ).await {
+                Ok(response) => {
+                    if self.detect_price_manipulation(&response.body, param, value) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            &checkout_url,
+                            "Price Manipulation (POST)",
+                            &post_data,
+                            "Checkout endpoint accepts manipulated prices via POST request",
+                            &format!("Successfully set {} to {} via POST", param, value),
+                            Severity::Critical,
+                            "CWE-472",
+                        ));
+                        break;
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for quantity tampering
+    async fn test_quantity_tampering(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 6;
+
+        info!("Testing quantity tampering vulnerabilities");
+
+        let quantity_tests = vec![
+            ("quantity", "0"),
+            ("qty", "-1"),
+            ("count", "999999"),
+            ("amount", "0.0001"),
+            ("items", "-10"),
+            ("num", "2147483647"),  // Max int
+        ];
+
+        for (param, value) in &quantity_tests {
+            let test_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, value)
+            } else {
+                format!("{}?{}={}", url, param, value)
+            };
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if self.detect_quantity_tampering(&response.body, param, value) {
+                        let severity = if value.starts_with('-') || *value == "0" {
+                            Severity::High
+                        } else {
+                            Severity::Medium
+                        };
+
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "Quantity Tampering",
+                            &format!("{}={}", param, value),
+                            &format!(
+                                "Quantity validation is insufficient. Setting {}={} was accepted, \
+                                 which could lead to inventory manipulation or financial loss.",
+                                param, value
+                            ),
+                            &format!("Successfully set {} to {}", param, value),
+                            severity,
+                            "CWE-1284",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => debug!("Request failed: {}", e),
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for coupon/voucher abuse
+    async fn test_coupon_abuse(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 5;
+
+        info!("Testing coupon/voucher abuse vulnerabilities");
+
+        let coupon_endpoints = vec![
+            format!("{}/apply-coupon", url.trim_end_matches('/')),
+            format!("{}/discount", url.trim_end_matches('/')),
+            format!("{}/voucher", url.trim_end_matches('/')),
+            format!("{}/promo", url.trim_end_matches('/')),
+        ];
+
+        let coupon_tests = vec![
+            ("code", "TEST100"),
+            ("coupon", "' OR '1'='1"),  // SQL injection in coupon
+            ("discount_code", "%00"),    // Null byte injection
+            ("promo_code", "../../etc/passwd"),  // Path traversal
+            ("voucher", "-1"),           // Negative value
+        ];
+
+        for endpoint in &coupon_endpoints {
+            for (param, value) in &coupon_tests {
+                let post_data = format!("{}={}", param, value);
+
+                match self.http_client.post_with_headers(
+                    endpoint,
+                    &post_data,
+                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
+                ).await {
+                    Ok(response) => {
+                        // Check for coupon bypass
+                        if self.detect_coupon_bypass(&response.body, value) {
+                            vulnerabilities.push(self.create_vulnerability(
+                                endpoint,
+                                "Coupon/Voucher Abuse",
+                                &format!("{}={}", param, value),
+                                "Coupon validation can be bypassed using malformed input or injection techniques",
+                                &format!("Coupon bypass detected with: {}", value),
+                                Severity::High,
+                                "CWE-20",
+                            ));
+                            break;
+                        }
+
+                        // Check if same coupon can be applied multiple times
+                        let second_response = self.http_client.post_with_headers(
+                            endpoint,
+                            &post_data,
+                            vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
+                        ).await;
+
+                        if let Ok(second_resp) = second_response {
+                            if self.detect_coupon_reuse(&response.body, &second_resp.body) {
+                                vulnerabilities.push(self.create_vulnerability(
+                                    endpoint,
+                                    "Coupon Reuse Vulnerability",
+                                    &format!("{}={}", param, value),
+                                    "Same coupon code can be applied multiple times to stack discounts",
+                                    "Coupon applied successfully multiple times",
+                                    Severity::High,
+                                    "CWE-837",
+                                ));
+                            }
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for double-spend / replay attacks
+    async fn test_double_spend(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 3;
+
+        info!("Testing double-spend / replay attack vulnerabilities");
+
+        let transaction_endpoints = vec![
+            format!("{}/transfer", url.trim_end_matches('/')),
+            format!("{}/payment", url.trim_end_matches('/')),
+            format!("{}/withdraw", url.trim_end_matches('/')),
+            format!("{}/send", url.trim_end_matches('/')),
+        ];
+
+        let transaction_data = "amount=100&to=attacker&transaction_id=TX123456";
+
+        for endpoint in &transaction_endpoints {
+            let headers = vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())];
+
+            // First request
+            let first_response = self.http_client.post_with_headers(
+                &endpoint,
+                transaction_data,
+                headers.clone()
+            ).await;
+
+            if let Ok(first_resp) = first_response {
+                // Replay the same request
+                let second_response = self.http_client.post_with_headers(
+                    &endpoint,
+                    transaction_data,
+                    headers.clone()
+                ).await;
+
+                if let Ok(second_resp) = second_response {
+                    // Check if both transactions succeeded
+                    let first_success = self.detect_successful_transaction(&first_resp.body);
+                    let second_success = self.detect_successful_transaction(&second_resp.body);
+
+                    if first_success && second_success {
+                        vulnerabilities.push(self.create_vulnerability(
+                            &endpoint,
+                            "Double-Spend / Replay Attack",
+                            transaction_data,
+                            &format!(
+                                "Transaction replay protection is missing. The same transaction \
+                                 can be submitted multiple times, potentially leading to double-spending \
+                                 or duplicated operations."
+                            ),
+                            "Same transaction accepted twice",
+                            Severity::Critical,
+                            "CWE-294",
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for integer overflow/underflow
+    async fn test_integer_overflow(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 5;
+
+        info!("Testing integer overflow/underflow vulnerabilities");
+
+        let overflow_tests = vec![
+            ("amount", "2147483647"),   // Max int32
+            ("amount", "2147483648"),   // Max int32 + 1
+            ("quantity", "9223372036854775807"),  // Max int64
+            ("price", "999999999999999.99"),
+            ("balance", "-9223372036854775808"),  // Min int64
+        ];
+
+        for (param, value) in &overflow_tests {
+            let test_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, value)
+            } else {
+                format!("{}?{}={}", url, param, value)
+            };
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if self.detect_integer_overflow(&response.body, param) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "Integer Overflow/Underflow",
+                            &format!("{}={}", param, value),
+                            &format!(
+                                "Integer overflow/underflow vulnerability detected. Large or boundary \
+                                 values for '{}' are not properly validated, which could lead to \
+                                 incorrect calculations or security bypasses.",
+                                param
+                            ),
+                            &format!("Overflow value {} accepted for {}", value, param),
+                            Severity::High,
+                            "CWE-190",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => debug!("Request failed: {}", e),
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for time-based attacks
+    async fn test_time_based_attacks(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 4;
+
+        info!("Testing time-based attack vulnerabilities");
+
+        // Test timestamp manipulation
+        let timestamp_tests = vec![
+            ("timestamp", "0"),
+            ("date", "2099-12-31"),
+            ("expires", "9999999999"),
+            ("valid_until", "2000-01-01"),
+            ("created_at", "1970-01-01"),
+        ];
+
+        for (param, value) in &timestamp_tests {
+            let test_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, value)
+            } else {
+                format!("{}?{}={}", url, param, value)
+            };
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if self.detect_timestamp_manipulation(&response.body, param) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "Time-Based Attack",
+                            &format!("{}={}", param, value),
+                            &format!(
+                                "Timestamp validation is insufficient. The '{}' parameter can be \
+                                 manipulated to bypass time-based restrictions, extend validity periods, \
+                                 or access expired resources.",
+                                param
+                            ),
+                            &format!("Timestamp {} accepted for {}", value, param),
+                            Severity::Medium,
+                            "CWE-367",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => debug!("Request failed: {}", e),
+            }
+        }
+
+        // Test for expired token reuse
+        let token_endpoints = vec![
+            format!("{}/verify", url.trim_end_matches('/')),
+            format!("{}/validate", url.trim_end_matches('/')),
+        ];
+
+        let expired_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjB9.invalid";
+
+        for endpoint in &token_endpoints {
+            let test_url = format!("{}?token={}", endpoint, expired_token);
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    if self.detect_token_accepted(&response.body) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            &endpoint,
+                            "Expired Token Acceptance",
+                            &format!("token={}", expired_token),
+                            "Server accepts expired or invalid tokens without proper validation",
+                            "Expired token was accepted",
+                            Severity::High,
+                            "CWE-613",
+                        ));
+                        break;
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Detect successful transaction
+    fn detect_successful_transaction(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        let success_indicators = vec![
+            "success",
+            "completed",
+            "confirmed",
+            "approved",
+            "processed",
+            "accepted",
+            "transaction_id",
+            "order_id",
+            "reference",
+            "\"status\":\"ok\"",
+            "\"status\":\"success\"",
+        ];
+
+        for indicator in success_indicators {
+            if body_lower.contains(indicator) && !body_lower.contains("error") && !body_lower.contains("failed") {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Detect price manipulation success
+    fn detect_price_manipulation(&self, body: &str, param: &str, value: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check if manipulated price appears in response
+        if body_lower.contains(&format!("\"{}\":{}", param, value)) ||
+           body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) ||
+           body_lower.contains(&format!("{}={}", param, value)) {
+            return true;
+        }
+
+        // Check for success without price validation error
+        let no_error = !body_lower.contains("invalid price") &&
+            !body_lower.contains("price error") &&
+            !body_lower.contains("validation failed");
+
+        let success = body_lower.contains("success") ||
+            body_lower.contains("confirmed") ||
+            body_lower.contains("order placed");
+
+        no_error && success
+    }
+
+    /// Detect quantity tampering success
+    fn detect_quantity_tampering(&self, body: &str, param: &str, value: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check if tampered quantity appears in response
+        if body_lower.contains(&format!("\"{}\":{}", param, value)) ||
+           body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) {
+            return true;
+        }
+
+        // Check for acceptance without validation error
+        let no_error = !body_lower.contains("invalid quantity") &&
+            !body_lower.contains("quantity error") &&
+            !body_lower.contains("out of range");
+
+        let success = body_lower.contains("added") ||
+            body_lower.contains("updated") ||
+            body_lower.contains("success");
+
+        no_error && success
+    }
+
+    /// Detect coupon bypass
+    fn detect_coupon_bypass(&self, body: &str, value: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check for SQL injection success
+        if value.contains("'") && (body_lower.contains("sql") || body_lower.contains("syntax")) {
+            return true;
+        }
+
+        // Check for path traversal success
+        if value.contains("../") && (body_lower.contains("root:") || body_lower.contains("etc/passwd")) {
+            return true;
+        }
+
+        // Check for coupon applied successfully
+        (body_lower.contains("discount applied") ||
+         body_lower.contains("coupon valid") ||
+         body_lower.contains("savings")) &&
+        !body_lower.contains("invalid") &&
+        !body_lower.contains("expired")
+    }
+
+    /// Detect coupon reuse vulnerability
+    fn detect_coupon_reuse(&self, first_body: &str, second_body: &str) -> bool {
+        let first_lower = first_body.to_lowercase();
+        let second_lower = second_body.to_lowercase();
+
+        // Both requests show discount applied
+        let first_success = first_lower.contains("applied") || first_lower.contains("discount");
+        let second_success = second_lower.contains("applied") || second_lower.contains("discount");
+
+        // Second doesn't show "already used" error
+        let no_reuse_error = !second_lower.contains("already used") &&
+            !second_lower.contains("already applied") &&
+            !second_lower.contains("one time only");
+
+        first_success && second_success && no_reuse_error
+    }
+
+    /// Detect integer overflow
+    fn detect_integer_overflow(&self, body: &str, param: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check for overflow indicators
+        let overflow_indicators = vec![
+            "negative",
+            "-2147483648",
+            "-9223372036854775808",
+            "infinity",
+            "nan",
+            "overflow",
+        ];
+
+        for indicator in overflow_indicators {
+            if body_lower.contains(indicator) {
+                return true;
+            }
+        }
+
+        // Check if large value was accepted
+        let accepted = body_lower.contains("success") ||
+            body_lower.contains("accepted") ||
+            body_lower.contains(&format!("\"{}\":", param));
+
+        let no_error = !body_lower.contains("error") &&
+            !body_lower.contains("invalid") &&
+            !body_lower.contains("too large");
+
+        accepted && no_error
+    }
+
+    /// Detect timestamp manipulation success
+    fn detect_timestamp_manipulation(&self, body: &str, param: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check if timestamp was accepted
+        let no_error = !body_lower.contains("invalid date") &&
+            !body_lower.contains("timestamp error") &&
+            !body_lower.contains("date format");
+
+        let accepted = body_lower.contains("success") ||
+            body_lower.contains(&format!("\"{}\":", param)) ||
+            body_lower.contains("valid");
+
+        no_error && accepted
+    }
+
+    /// Detect if expired token was accepted
+    fn detect_token_accepted(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        let accepted = body_lower.contains("valid") ||
+            body_lower.contains("success") ||
+            body_lower.contains("authenticated");
+
+        let no_error = !body_lower.contains("expired") &&
+            !body_lower.contains("invalid token") &&
+            !body_lower.contains("token error");
+
+        accepted && no_error
     }
 
     /// Detect if negative value was accepted

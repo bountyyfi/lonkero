@@ -90,6 +90,31 @@ impl AuthBypassScanner {
             self.check_nextjs_middleware_bypass(&response, &bypass_url, &original_path, &mut vulnerabilities);
         }
 
+        // Test 10: SSO redirect bypass - accessing signup page when SSO is forced
+        tests_run += 1;
+        let sso_bypass_results = self.test_sso_redirect_bypass(url).await;
+        vulnerabilities.extend(sso_bypass_results);
+
+        // Test 11: Jenkins anonymous access
+        tests_run += 1;
+        let jenkins_results = self.test_jenkins_anonymous_access(url).await;
+        vulnerabilities.extend(jenkins_results);
+
+        // Test 12: WordPress xmlrpc.php brute force
+        tests_run += 1;
+        let wordpress_results = self.test_wordpress_xmlrpc(url).await;
+        vulnerabilities.extend(wordpress_results);
+
+        // Test 13: Unauthenticated page access (pages accessible without login)
+        tests_run += 1;
+        let unauth_results = self.test_unauthenticated_page_access(url).await;
+        vulnerabilities.extend(unauth_results);
+
+        // Test 14: HTTP DEBUG/TRACE method server version disclosure
+        tests_run += 1;
+        let debug_method_results = self.test_http_debug_method(url).await;
+        vulnerabilities.extend(debug_method_results);
+
         info!(
             "[SUCCESS] [AuthBypass] Completed {} tests, found {} issues",
             tests_run,
@@ -426,6 +451,7 @@ impl AuthBypassScanner {
     /// This exploits a known issue where Next.js middleware can be bypassed
     /// by prefixing protected paths with /_next/
     /// Example: /dashboard (protected) -> /_next/dashboard (bypassed)
+    /// Example: /kirjaudu (protected) -> /_next/kirjaudu (bypassed)
     async fn test_nextjs_middleware_bypass(&self, url: &str) -> Vec<(String, crate::http_client::HttpResponse, String)> {
         let mut results = Vec::new();
 
@@ -436,31 +462,30 @@ impl AuthBypassScanner {
         };
 
         let base_url = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+        let current_path = parsed.path();
 
-        // Protected paths that are commonly targeted
-        let protected_paths = vec![
-            "/admin",
-            "/dashboard",
-            "/api/admin",
-            "/api/users",
-            "/settings",
-            "/profile",
-            "/account",
-            "/internal",
-            "/manage",
-            "/panel",
-        ];
+        // DYNAMIC: Start with the actual path the user provided
+        let mut paths_to_test: Vec<String> = Vec::new();
 
-        // Next.js bypass prefixes
+        // Always test the path from the URL first (most important)
+        if !current_path.is_empty() && current_path != "/" {
+            paths_to_test.push(current_path.to_string());
+        }
+
+        // Next.js bypass prefixes - all known bypass vectors
         let bypass_prefixes = vec![
             "/_next",
             "/_next/static",
             "/_next/image",
             "/_next/data",
+            "/_next/static/chunks",
+            "/_next/static/css",
+            "/_next/static/media",
         ];
 
-        for path in &protected_paths {
-            // First, check if the original path is protected (returns 401/403/redirect)
+        // Test the provided path first with all bypass prefixes
+        for path in &paths_to_test {
+            // First check if original path requires auth
             let original_url = format!("{}{}", base_url, path);
 
             let original_response = match self.http_client.get(&original_url).await {
@@ -468,21 +493,26 @@ impl AuthBypassScanner {
                 Err(_) => continue,
             };
 
-            // Skip if original path is publicly accessible (no protection to bypass)
-            if original_response.status_code == 200 {
+            // If original returns 401/403/302 (protected), try bypass
+            let is_protected = original_response.status_code == 401
+                || original_response.status_code == 403
+                || original_response.status_code == 302
+                || original_response.status_code == 307;
+
+            if !is_protected {
                 continue;
             }
 
-            // Try bypass with /_next/ prefix
+            // Try all bypass prefixes
             for prefix in &bypass_prefixes {
                 let bypass_url = format!("{}{}{}", base_url, prefix, path);
 
                 match self.http_client.get(&bypass_url).await {
                     Ok(response) => {
-                        // Only report if bypass worked (200 vs original 401/403)
-                        if response.status_code == 200 && original_response.status_code != 200 {
+                        // Bypass successful if we get 200 where we got 401/403/302 before
+                        if response.status_code == 200 {
                             results.push((bypass_url, response, path.to_string()));
-                            break; // Found a bypass, no need to try other prefixes
+                            break;
                         }
                     }
                     Err(_) => continue,
@@ -490,7 +520,101 @@ impl AuthBypassScanner {
             }
         }
 
+        // Also discover and test links from the page
+        if let Ok(page_response) = self.http_client.get(url).await {
+            let discovered_paths = self.extract_paths_from_html(&page_response.body);
+
+            for path in discovered_paths {
+                // Skip already tested paths
+                if paths_to_test.contains(&path) {
+                    continue;
+                }
+
+                // Skip static assets
+                if path.contains(".js") || path.contains(".css") || path.contains(".png")
+                   || path.contains(".jpg") || path.contains(".svg") || path.contains(".ico") {
+                    continue;
+                }
+
+                let original_url = format!("{}{}", base_url, path);
+
+                let original_response = match self.http_client.get(&original_url).await {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+
+                let is_protected = original_response.status_code == 401
+                    || original_response.status_code == 403
+                    || original_response.status_code == 302
+                    || original_response.status_code == 307;
+
+                if !is_protected {
+                    continue;
+                }
+
+                for prefix in &bypass_prefixes {
+                    let bypass_url = format!("{}{}{}", base_url, prefix, path);
+
+                    match self.http_client.get(&bypass_url).await {
+                        Ok(response) => {
+                            if response.status_code == 200 {
+                                results.push((bypass_url, response, path.to_string()));
+                                break;
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+        }
+
         results
+    }
+
+    /// Extract paths from HTML content for dynamic testing
+    fn extract_paths_from_html(&self, html: &str) -> Vec<String> {
+        let mut paths = Vec::new();
+
+        // Extract href paths
+        let href_re = regex::Regex::new(r#"href=["'](/[^"']*?)["']"#).ok();
+        if let Some(re) = href_re {
+            for caps in re.captures_iter(html) {
+                if let Some(path) = caps.get(1) {
+                    let p = path.as_str().to_string();
+                    if !paths.contains(&p) {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+
+        // Extract action paths from forms
+        let action_re = regex::Regex::new(r#"action=["'](/[^"']*?)["']"#).ok();
+        if let Some(re) = action_re {
+            for caps in re.captures_iter(html) {
+                if let Some(path) = caps.get(1) {
+                    let p = path.as_str().to_string();
+                    if !paths.contains(&p) {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+
+        // Extract Next.js Link paths (common in Next.js apps)
+        let next_link_re = regex::Regex::new(r#"<Link[^>]*href=["'](/[^"']*?)["']"#).ok();
+        if let Some(re) = next_link_re {
+            for caps in re.captures_iter(html) {
+                if let Some(path) = caps.get(1) {
+                    let p = path.as_str().to_string();
+                    if !paths.contains(&p) {
+                        paths.push(p);
+                    }
+                }
+            }
+        }
+
+        paths
     }
 
     /// Check Next.js middleware bypass results
@@ -849,6 +973,568 @@ References:
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
         }
+    }
+
+    /// Test SSO redirect bypass - check if signup/register pages are accessible when SSO is enforced
+    async fn test_sso_redirect_bypass(&self, url: &str) -> Vec<Vulnerability> {
+        let mut vulnerabilities = Vec::new();
+
+        let parsed = match url::Url::parse(url) {
+            Ok(u) => u,
+            Err(_) => return vulnerabilities,
+        };
+
+        let base_url = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+
+        // First, check if the main page redirects to SSO
+        let main_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return vulnerabilities,
+        };
+
+        // Check if site forces SSO redirect
+        let is_sso_site = main_response.status_code == 302 || main_response.status_code == 307;
+        let sso_indicators = vec!["sso", "saml", "oauth", "login.microsoftonline", "okta", "auth0",
+                                   "onelogin", "pingidentity", "keycloak", "adfs"];
+
+        let has_sso_redirect = is_sso_site && main_response.headers.get("location")
+            .map(|loc| sso_indicators.iter().any(|s| loc.to_lowercase().contains(s)))
+            .unwrap_or(false);
+
+        if !has_sso_redirect && !main_response.body.to_lowercase().contains("sso") {
+            return vulnerabilities;
+        }
+
+        // Test signup/register pages that might bypass SSO
+        let bypass_paths = vec![
+            "/signup", "/sign-up", "/register", "/registration", "/create-account",
+            "/new-account", "/join", "/enroll", "/subscribe",
+            "/rekisteroidy", "/rekisteröidy",  // Finnish
+            "/registrieren", "/anmelden",       // German
+            "/inscription", "/inscrire",        // French
+        ];
+
+        // Test with different methods: GET, POST, different headers
+        for path in bypass_paths {
+            let test_url = format!("{}{}", base_url, path);
+
+            // Test 1: Direct GET request
+            if let Ok(response) = self.http_client.get(&test_url).await {
+                if response.status_code == 200 {
+                    let body_lower = response.body.to_lowercase();
+                    // Check if it's actually a signup form
+                    if body_lower.contains("email") && (body_lower.contains("password") || body_lower.contains("register")) {
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("sso_bypass_{}", uuid::Uuid::new_v4().to_string()),
+                            vuln_type: "SSO Redirect Bypass - Signup Page Accessible".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::High,
+                            category: "Authentication".to_string(),
+                            url: test_url.clone(),
+                            parameter: None,
+                            payload: path.to_string(),
+                            description: format!(
+                                "The application enforces SSO login but the signup page at '{}' is directly accessible. \
+                                This allows attackers to create local accounts bypassing SSO authentication, \
+                                potentially gaining unauthorized access to the application.",
+                                path
+                            ),
+                            evidence: Some(format!(
+                                "Main page redirects to SSO but {} returns HTTP 200 with signup form",
+                                test_url
+                            )),
+                            cwe: "CWE-287".to_string(),
+                            cvss: 8.1,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Disable local signup when SSO is enforced\n\
+                                          2. Remove or protect signup endpoints\n\
+                                          3. Configure middleware to block signup routes\n\
+                                          4. Implement account provisioning only via SSO/SCIM".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                        break;
+                    }
+                }
+            }
+
+            // Test 2: POST request might bypass redirect
+            if let Ok(response) = self.http_client.post(&test_url, String::new()).await {
+                if response.status_code == 200 || response.status_code == 422 {
+                    let body_lower = response.body.to_lowercase();
+                    if body_lower.contains("email") || body_lower.contains("validation") || body_lower.contains("required") {
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("sso_bypass_post_{}", uuid::Uuid::new_v4().to_string()),
+                            vuln_type: "SSO Redirect Bypass - Signup via POST".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::Medium,
+                            category: "Authentication".to_string(),
+                            url: test_url.clone(),
+                            parameter: None,
+                            payload: format!("POST {}", path),
+                            description: format!(
+                                "The signup endpoint '{}' accepts POST requests even though SSO is enforced. \
+                                Attackers can potentially create accounts by sending direct POST requests.",
+                                path
+                            ),
+                            evidence: Some("POST request to signup endpoint returns form validation response".to_string()),
+                            cwe: "CWE-287".to_string(),
+                            cvss: 7.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Block all HTTP methods on signup endpoints when SSO is enforced".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
+        vulnerabilities
+    }
+
+    /// Test Jenkins anonymous read access
+    async fn test_jenkins_anonymous_access(&self, url: &str) -> Vec<Vulnerability> {
+        let mut vulnerabilities = Vec::new();
+
+        let parsed = match url::Url::parse(url) {
+            Ok(u) => u,
+            Err(_) => return vulnerabilities,
+        };
+
+        let base_url = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+
+        // Jenkins detection and anonymous access paths
+        let jenkins_paths = vec![
+            ("/api/json", "Jenkins API - exposes jobs, builds, and configuration"),
+            ("/api/json?tree=jobs[name,url,lastBuild[number,result]]", "Jenkins jobs listing"),
+            ("/api/json?depth=2", "Jenkins deep API - exposes secrets"),
+            ("/script", "Jenkins Script Console - RCE if accessible"),
+            ("/scriptText", "Jenkins Script API"),
+            ("/computer/api/json", "Jenkins nodes/agents info"),
+            ("/credentials", "Jenkins credentials page"),
+            ("/credentials/store/system/domain/_/api/json", "Jenkins credentials API"),
+            ("/manage", "Jenkins management page"),
+            ("/configureSecurity", "Jenkins security configuration"),
+            ("/securityRealm", "Jenkins authentication settings"),
+            ("/asynchPeople/api/json", "Jenkins users list"),
+            ("/view/all/builds", "Jenkins build history"),
+            ("/pluginManager/api/json?depth=1", "Jenkins plugins list"),
+            ("/systemInfo", "Jenkins system information"),
+            ("/env-vars.html", "Jenkins environment variables"),
+        ];
+
+        // First check if this is a Jenkins instance
+        let main_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return vulnerabilities,
+        };
+
+        let is_jenkins = main_response.headers.get("x-jenkins").is_some() ||
+                         main_response.headers.get("x-jenkins-session").is_some() ||
+                         main_response.body.contains("Jenkins") ||
+                         main_response.body.contains("hudson");
+
+        if !is_jenkins {
+            // Also try /api/json to detect Jenkins
+            if let Ok(api_response) = self.http_client.get(&format!("{}/api/json", base_url)).await {
+                if !api_response.body.contains("_class") || !api_response.body.contains("hudson") {
+                    return vulnerabilities;
+                }
+            } else {
+                return vulnerabilities;
+            }
+        }
+
+        // Test each Jenkins path for anonymous access
+        for (path, description) in jenkins_paths {
+            let test_url = format!("{}{}", base_url, path);
+
+            if let Ok(response) = self.http_client.get(&test_url).await {
+                if response.status_code == 200 {
+                    let body_lower = response.body.to_lowercase();
+
+                    // Check if we got actual data (not login page)
+                    let has_data = response.body.contains("_class") ||
+                                   response.body.contains("\"name\"") ||
+                                   response.body.contains("\"jobs\"") ||
+                                   body_lower.contains("credentials") ||
+                                   body_lower.contains("script console");
+
+                    let is_login_page = body_lower.contains("login") &&
+                                        body_lower.contains("password");
+
+                    if has_data && !is_login_page {
+                        let severity = if path.contains("script") || path.contains("credentials") {
+                            Severity::Critical
+                        } else if path.contains("api/json") {
+                            Severity::High
+                        } else {
+                            Severity::Medium
+                        };
+
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("jenkins_anon_{}", uuid::Uuid::new_v4().to_string()),
+                            vuln_type: "Jenkins Anonymous Access".to_string(),
+                            severity: severity.clone(),
+                            confidence: Confidence::High,
+                            category: "Access Control".to_string(),
+                            url: test_url.clone(),
+                            parameter: None,
+                            payload: path.to_string(),
+                            description: format!(
+                                "Jenkins allows anonymous read access to: {}\n\
+                                {}",
+                                path, description
+                            ),
+                            evidence: Some(format!(
+                                "HTTP 200 returned with data. Response preview: {}...",
+                                &response.body.chars().take(200).collect::<String>()
+                            )),
+                            cwe: "CWE-284".to_string(),
+                            cvss: if severity == Severity::Critical { 9.8 } else { 7.5 },
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Go to Manage Jenkins → Configure Global Security\n\
+                                          2. Enable security if disabled\n\
+                                          3. Under Authorization, select 'Matrix-based security' or 'Role-Based Strategy'\n\
+                                          4. Remove Anonymous user read permissions\n\
+                                          5. Ensure only authenticated users have access\n\
+                                          6. Review and restrict script console access\n\
+                                          7. Secure credentials plugin".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                    }
+                }
+            }
+        }
+
+        vulnerabilities
+    }
+
+    /// Test WordPress xmlrpc.php for brute force vulnerability
+    async fn test_wordpress_xmlrpc(&self, url: &str) -> Vec<Vulnerability> {
+        let mut vulnerabilities = Vec::new();
+
+        let parsed = match url::Url::parse(url) {
+            Ok(u) => u,
+            Err(_) => return vulnerabilities,
+        };
+
+        let base_url = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+        let xmlrpc_url = format!("{}/xmlrpc.php", base_url);
+
+        // Test if xmlrpc.php exists and accepts requests
+        if let Ok(response) = self.http_client.post(&xmlrpc_url,
+            r#"<?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName></methodCall>"#.to_string()
+        ).await {
+            if response.status_code == 200 && response.body.contains("methodResponse") {
+                // xmlrpc.php is enabled and responding
+
+                // Check if multicall is enabled (allows amplified brute force)
+                let multicall_test = r#"<?xml version="1.0"?>
+<methodCall>
+<methodName>system.multicall</methodName>
+<params><param><value><array><data>
+<value><struct>
+<member><name>methodName</name><value><string>wp.getUsersBlogs</string></value></member>
+<member><name>params</name><value><array><data>
+<value><string>test</string></value>
+<value><string>test</string></value>
+</data></array></value></member>
+</struct></value>
+</data></array></value></param></params>
+</methodCall>"#;
+
+                if let Ok(multicall_response) = self.http_client.post(&xmlrpc_url, multicall_test.to_string()).await {
+                    let has_multicall = multicall_response.body.contains("methodResponse") &&
+                                        !multicall_response.body.contains("faultCode");
+
+                    if has_multicall {
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("wp_xmlrpc_{}", uuid::Uuid::new_v4().to_string()),
+                            vuln_type: "WordPress XML-RPC Brute Force Amplification".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::High,
+                            category: "Authentication".to_string(),
+                            url: xmlrpc_url.clone(),
+                            parameter: None,
+                            payload: "system.multicall with wp.getUsersBlogs".to_string(),
+                            description: "WordPress xmlrpc.php is enabled with system.multicall support. \
+                                This allows attackers to perform amplified brute force attacks by testing \
+                                hundreds of password combinations in a single HTTP request, bypassing \
+                                rate limiting and login lockout plugins.".to_string(),
+                            evidence: Some(format!(
+                                "xmlrpc.php responds to multicall requests. This enables:\n\
+                                - Testing 500+ passwords per HTTP request\n\
+                                - Bypassing wp-login.php rate limiting\n\
+                                - Bypassing login lockout plugins\n\
+                                - Fast credential stuffing attacks\n\n\
+                                Response: {}...",
+                                &multicall_response.body.chars().take(200).collect::<String>()
+                            )),
+                            cwe: "CWE-307".to_string(),
+                            cvss: 7.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Disable XML-RPC completely if not needed:\n\
+                                          Add to .htaccess:\n\
+                                          <Files xmlrpc.php>\n\
+                                          Order Deny,Allow\n\
+                                          Deny from all\n\
+                                          </Files>\n\n\
+                                          2. Or use a security plugin to disable XML-RPC:\n\
+                                          - Wordfence\n\
+                                          - Disable XML-RPC plugin\n\
+                                          - iThemes Security\n\n\
+                                          3. Or disable multicall specifically:\n\
+                                          add_filter('xmlrpc_methods', function($methods) {\n\
+                                              unset($methods['system.multicall']);\n\
+                                              return $methods;\n\
+                                          });".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                    } else {
+                        // xmlrpc enabled but multicall might be disabled
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("wp_xmlrpc_enabled_{}", uuid::Uuid::new_v4().to_string()),
+                            vuln_type: "WordPress XML-RPC Enabled".to_string(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::High,
+                            category: "Authentication".to_string(),
+                            url: xmlrpc_url.clone(),
+                            parameter: None,
+                            payload: "system.listMethods".to_string(),
+                            description: "WordPress xmlrpc.php is enabled. While multicall may be disabled, \
+                                XML-RPC still allows brute force attempts and should be disabled if not needed.".to_string(),
+                            evidence: Some("xmlrpc.php returns valid methodResponse".to_string()),
+                            cwe: "CWE-307".to_string(),
+                            cvss: 5.3,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Disable XML-RPC if not needed for Jetpack or mobile apps".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                    }
+                }
+            }
+        }
+
+        vulnerabilities
+    }
+
+    /// Test for pages accessible without authentication
+    async fn test_unauthenticated_page_access(&self, url: &str) -> Vec<Vulnerability> {
+        let mut vulnerabilities = Vec::new();
+
+        let parsed = match url::Url::parse(url) {
+            Ok(u) => u,
+            Err(_) => return vulnerabilities,
+        };
+
+        let base_url = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+
+        // Common protected paths that should require login
+        let protected_paths = vec![
+            "/admin", "/dashboard", "/panel", "/portal", "/manage",
+            "/settings", "/config", "/configuration", "/users", "/accounts",
+            "/profile", "/my-account", "/account", "/user",
+            "/internal", "/private", "/secure", "/protected",
+            "/api/users", "/api/admin", "/api/config", "/api/settings",
+            "/backend", "/control", "/cms", "/manager",
+            "/hallinta", "/asetukset",  // Finnish
+            "/verwaltung", "/einstellungen",  // German
+        ];
+
+        // First get main page to check if site has authentication
+        let main_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return vulnerabilities,
+        };
+
+        let main_has_login = main_response.body.to_lowercase().contains("login") ||
+                             main_response.body.to_lowercase().contains("sign in");
+
+        if !main_has_login {
+            return vulnerabilities;
+        }
+
+        for path in protected_paths {
+            let test_url = format!("{}{}", base_url, path);
+
+            if let Ok(response) = self.http_client.get(&test_url).await {
+                if response.status_code == 200 {
+                    let body_lower = response.body.to_lowercase();
+
+                    // Check if we got actual protected content (not login redirect)
+                    let has_protected_content =
+                        (body_lower.contains("user") && body_lower.contains("email")) ||
+                        body_lower.contains("settings") ||
+                        body_lower.contains("configuration") ||
+                        body_lower.contains("dashboard") ||
+                        body_lower.contains("admin panel") ||
+                        body_lower.contains("management");
+
+                    let is_login_page = body_lower.contains("login") &&
+                                        body_lower.contains("password") &&
+                                        body_lower.contains("form");
+
+                    if has_protected_content && !is_login_page && response.body.len() > 500 {
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("unauth_access_{}", uuid::Uuid::new_v4().to_string()),
+                            vuln_type: "Unauthenticated Access to Protected Page".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::Medium,
+                            category: "Access Control".to_string(),
+                            url: test_url.clone(),
+                            parameter: None,
+                            payload: path.to_string(),
+                            description: format!(
+                                "The protected page '{}' is accessible without authentication. \
+                                This may expose sensitive functionality or data to unauthenticated users.",
+                                path
+                            ),
+                            evidence: Some(format!(
+                                "HTTP 200 returned with content ({} bytes). Site has login functionality but this page is accessible.",
+                                response.body.len()
+                            )),
+                            cwe: "CWE-284".to_string(),
+                            cvss: 7.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Implement authentication middleware for all protected routes\n\
+                                          2. Ensure server-side authentication checks on every request\n\
+                                          3. Don't rely only on client-side route protection\n\
+                                          4. Review and test all endpoints for proper access control".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                    }
+                }
+            }
+        }
+
+        vulnerabilities
+    }
+
+    /// Test HTTP DEBUG/TRACE methods for server version disclosure
+    async fn test_http_debug_method(&self, _url: &str) -> Vec<Vulnerability> {
+        let vulnerabilities = Vec::new();
+
+        // NOTE: HttpClient doesn't have a generic request() method that supports arbitrary HTTP methods.
+        // This test would require HttpClient to support methods like DEBUG, TRACE, TRACK, OPTIONS.
+        // Commenting out until HttpClient is enhanced with a generic request method.
+
+        // Test DEBUG method - some servers respond with version info
+        // let methods_to_test = vec!["DEBUG", "TRACE", "TRACK", "OPTIONS"];
+        //
+        // for method in methods_to_test {
+        //     if let Ok(response) = self.http_client.request(method, url, None, None).await {
+        //         // Check headers for version disclosure
+        //         let mut version_info = Vec::new();
+        //
+        //         for (key, value) in &response.headers {
+        //             let key_lower = key.to_lowercase();
+        //             let value_lower = value.to_lowercase();
+        //
+        //             // Server version in headers
+        //             if key_lower == "server" && (value.contains("/") || value.chars().any(|c| c.is_numeric())) {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //
+        //             // X-Powered-By header
+        //             if key_lower == "x-powered-by" {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //
+        //             // X-AspNet-Version
+        //             if key_lower.contains("aspnet") || key_lower.contains("asp-net") {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //
+        //             // X-Debug headers
+        //             if key_lower.contains("debug") || key_lower.contains("version") {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //         }
+        //
+        //         // Check body for version info (TRACE/DEBUG might reflect this)
+        //         let body_version_patterns = vec![
+        //             (r"nginx/(\d+\.\d+\.\d+)", "nginx"),
+        //             (r"Apache/(\d+\.\d+\.\d+)", "Apache"),
+        //             (r"PHP/(\d+\.\d+\.\d+)", "PHP"),
+        //             (r"Server:\s*([^\r\n]+)", "Server"),
+        //         ];
+        //
+        //         for (pattern, name) in body_version_patterns {
+        //             if let Ok(re) = regex::Regex::new(pattern) {
+        //                 if let Some(cap) = re.captures(&response.body) {
+        //                     if let Some(version) = cap.get(1) {
+        //                         version_info.push(format!("{}: {}", name, version.as_str()));
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //
+        //         if !version_info.is_empty() {
+        //             let severity = if method == "DEBUG" || method == "TRACE" {
+        //                 Severity::Medium
+        //             } else {
+        //                 Severity::Low
+        //             };
+        //
+        //             vulnerabilities.push(Vulnerability {
+        //                 id: format!("http_debug_{}", uuid::Uuid::new_v4().to_string()),
+        //                 vuln_type: format!("Server Version Disclosure via HTTP {} Method", method),
+        //                 severity,
+        //                 confidence: Confidence::High,
+        //                 category: "Information Disclosure".to_string(),
+        //                 url: url.to_string(),
+        //                 parameter: None,
+        //                 payload: format!("{} request", method),
+        //                 description: format!(
+        //                     "HTTP {} method reveals server version information. This helps attackers \
+        //                     identify known vulnerabilities for specific server versions.\n\n\
+        //                     Disclosed information:\n{}",
+        //                     method,
+        //                     version_info.join("\n")
+        //                 ),
+        //                 evidence: Some(format!(
+        //                     "HTTP {} returned:\n{}\n\nStatus: {}",
+        //                     method,
+        //                     version_info.join("\n"),
+        //                     response.status_code
+        //                 )),
+        //                 cwe: "CWE-200".to_string(),
+        //                 cvss: if method == "TRACE" { 5.3 } else { 3.7 },
+        //                 verified: true,
+        //                 false_positive: false,
+        //                 remediation: format!(
+        //                     "1. Disable {} method in web server config:\n\n\
+        //                     For Nginx:\n\
+        //                     if ($request_method ~* ^(DEBUG|TRACE|TRACK)$) {{\n\
+        //                         return 405;\n\
+        //                     }}\n\n\
+        //                     For Apache:\n\
+        //                     TraceEnable off\n\
+        //                     RewriteEngine On\n\
+        //                     RewriteCond %{{REQUEST_METHOD}} ^(TRACE|TRACK|DEBUG)\n\
+        //                     RewriteRule .* - [F]\n\n\
+        //                     2. Remove Server version from headers:\n\
+        //                     Nginx: server_tokens off;\n\
+        //                     Apache: ServerTokens Prod\n\
+        //                             ServerSignature Off",
+        //                     method
+        //                 ),
+        //                 discovered_at: chrono::Utc::now().to_rfc3339(),
+        //             });
+        //
+        //             break; // Found disclosure, no need to test more methods
+        //         }
+        //     }
+        // }
+
+        vulnerabilities
     }
 }
 

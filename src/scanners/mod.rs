@@ -92,8 +92,22 @@ pub mod cve_2025_55183;
 pub mod cve_2025_55184;
 pub mod azure_apim;
 pub mod redos;
+pub mod http_parameter_pollution;
+pub mod waf_bypass;
+pub mod merlin;
 pub mod tomcat_misconfig;
 pub mod varnish_misconfig;
+pub mod js_sensitive_info;
+pub mod rate_limiting;
+pub mod wordpress_security;
+pub mod drupal_security;
+pub mod laravel_security;
+pub mod express_security;
+pub mod nextjs_security;
+pub mod sveltekit_security;
+pub mod react_security;
+pub mod django_security;
+pub mod liferay_security;
 
 // Cloud security scanners
 pub mod cloud;
@@ -169,8 +183,22 @@ pub use cve_2025_55183::Cve202555183Scanner;
 pub use cve_2025_55184::Cve202555184Scanner;
 pub use azure_apim::AzureApimScanner;
 pub use redos::RedosScanner;
+pub use http_parameter_pollution::HttpParameterPollutionScanner;
+pub use waf_bypass::WafBypassScanner;
+pub use merlin::MerlinScanner;
 pub use tomcat_misconfig::TomcatMisconfigScanner;
 pub use varnish_misconfig::VarnishMisconfigScanner;
+pub use js_sensitive_info::JsSensitiveInfoScanner;
+pub use rate_limiting::RateLimitingScanner;
+pub use wordpress_security::WordPressSecurityScanner;
+pub use drupal_security::DrupalSecurityScanner;
+pub use laravel_security::LaravelSecurityScanner;
+pub use express_security::ExpressSecurityScanner;
+pub use nextjs_security::NextJsSecurityScanner;
+pub use sveltekit_security::SvelteKitSecurityScanner;
+pub use react_security::ReactSecurityScanner;
+pub use django_security::DjangoSecurityScanner;
+pub use liferay_security::LiferaySecurityScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -245,8 +273,22 @@ pub struct ScanEngine {
     pub cve_2025_55184_scanner: Cve202555184Scanner,
     pub azure_apim_scanner: AzureApimScanner,
     pub redos_scanner: RedosScanner,
+    pub hpp_scanner: HttpParameterPollutionScanner,
+    pub waf_bypass_scanner: WafBypassScanner,
+    pub merlin_scanner: MerlinScanner,
     pub tomcat_misconfig_scanner: TomcatMisconfigScanner,
     pub varnish_misconfig_scanner: VarnishMisconfigScanner,
+    pub js_sensitive_info_scanner: JsSensitiveInfoScanner,
+    pub rate_limiting_scanner: RateLimitingScanner,
+    pub wordpress_security_scanner: WordPressSecurityScanner,
+    pub drupal_security_scanner: DrupalSecurityScanner,
+    pub laravel_security_scanner: LaravelSecurityScanner,
+    pub express_security_scanner: ExpressSecurityScanner,
+    pub nextjs_security_scanner: NextJsSecurityScanner,
+    pub sveltekit_security_scanner: SvelteKitSecurityScanner,
+    pub react_security_scanner: ReactSecurityScanner,
+    pub django_security_scanner: DjangoSecurityScanner,
+    pub liferay_security_scanner: LiferaySecurityScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -410,8 +452,22 @@ impl ScanEngine {
             cve_2025_55184_scanner: Cve202555184Scanner::new(Arc::clone(&http_client)),
             azure_apim_scanner: AzureApimScanner::new(Arc::clone(&http_client)),
             redos_scanner: RedosScanner::new(Arc::clone(&http_client)),
+            hpp_scanner: HttpParameterPollutionScanner::new(Arc::clone(&http_client)),
+            waf_bypass_scanner: WafBypassScanner::new(Arc::clone(&http_client)),
+            merlin_scanner: MerlinScanner::new(Arc::clone(&http_client)),
             tomcat_misconfig_scanner: TomcatMisconfigScanner::new(Arc::clone(&http_client)),
             varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
+            js_sensitive_info_scanner: JsSensitiveInfoScanner::new(Arc::clone(&http_client)),
+            rate_limiting_scanner: RateLimitingScanner::new(Arc::clone(&http_client)),
+            wordpress_security_scanner: WordPressSecurityScanner::new(Arc::clone(&http_client)),
+            drupal_security_scanner: DrupalSecurityScanner::new(Arc::clone(&http_client)),
+            laravel_security_scanner: LaravelSecurityScanner::new(Arc::clone(&http_client)),
+            express_security_scanner: ExpressSecurityScanner::new(Arc::clone(&http_client)),
+            nextjs_security_scanner: NextJsSecurityScanner::new(Arc::clone(&http_client)),
+            sveltekit_security_scanner: SvelteKitSecurityScanner::new(Arc::clone(&http_client)),
+            react_security_scanner: ReactSecurityScanner::new(Arc::clone(&http_client)),
+            django_security_scanner: DjangoSecurityScanner::new(Arc::clone(&http_client)),
+            liferay_security_scanner: LiferaySecurityScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,
@@ -446,6 +502,9 @@ impl ScanEngine {
         let scan_token = crate::signing::get_scan_token()
             .ok_or_else(|| anyhow::anyhow!("No valid scan token. Re-authorize to continue."))?
             .clone();
+
+        // Track which modules are actually used (for server validation during signing)
+        let mut modules_used: Vec<String> = Vec::new();
 
         // Runtime state verification (anti-tampering)
         if !crate::license::verify_rt_state() {
@@ -818,10 +877,12 @@ impl ScanEngine {
 
             // Sign even early-terminated results
             // STRICT MODE: Server signature required
+            // Note: modules_used is empty for early termination
             if let Ok(results_hash) = crate::signing::hash_results(&results) {
                 match crate::signing::sign_results(
                     &results_hash,
                     &scan_token,
+                    vec![], // No modules used in early termination
                     Some(crate::signing::ScanMetadata {
                         targets_count: Some(1),
                         scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -841,8 +902,9 @@ impl ScanEngine {
             return Ok(results);
         }
 
-        // Security Headers Check (scans base URL)
+        // Security Headers Check (Free tier)
         info!("Checking security headers");
+        modules_used.push(crate::modules::ids::free::SECURITY_HEADERS.to_string());
         let (header_vulns, header_tests) = self.security_headers_scanner
             .scan(&target, &config)
             .await?;
@@ -850,8 +912,9 @@ impl ScanEngine {
         total_tests += header_tests as u64;
         queue.increment_tests(scan_id.clone(), header_tests as u64).await?;
 
-        // CORS Configuration Check (scans base URL)
+        // CORS Configuration Check (Free tier)
         info!("Checking CORS configuration");
+        modules_used.push(crate::modules::ids::free::CORS_BASIC.to_string());
         let (cors_vulns, cors_tests) = self.cors_scanner
             .scan(&target, &config)
             .await?;
@@ -859,143 +922,189 @@ impl ScanEngine {
         total_tests += cors_tests as u64;
         queue.increment_tests(scan_id.clone(), cors_tests as u64).await?;
 
-        // CSRF Protection Check (scans base URL)
-        info!("Checking CSRF protection");
-        let (csrf_vulns, csrf_tests) = self.csrf_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(csrf_vulns);
-        total_tests += csrf_tests as u64;
-        queue.increment_tests(scan_id.clone(), csrf_tests as u64).await?;
+        // CSRF Protection Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::CSRF_SCANNER) {
+            info!("Checking CSRF protection");
+            modules_used.push(crate::modules::ids::advanced_scanning::CSRF_SCANNER.to_string());
+            let (csrf_vulns, csrf_tests) = self.csrf_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(csrf_vulns);
+            total_tests += csrf_tests as u64;
+            queue.increment_tests(scan_id.clone(), csrf_tests as u64).await?;
+        }
 
-        // GraphQL API Security Check (scans base URL)
-        info!("Checking GraphQL API security");
-        let (graphql_vulns, graphql_tests) = self.graphql_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(graphql_vulns);
-        total_tests += graphql_tests as u64;
-        queue.increment_tests(scan_id.clone(), graphql_tests as u64).await?;
+        // GraphQL API Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER) {
+            info!("Checking GraphQL API security");
+            modules_used.push(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER.to_string());
+            let (graphql_vulns, graphql_tests) = self.graphql_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(graphql_vulns);
+            total_tests += graphql_tests as u64;
+            queue.increment_tests(scan_id.clone(), graphql_tests as u64).await?;
+        }
 
-        // OAuth 2.0 Security Check (scans base URL)
-        info!("Checking OAuth 2.0 security");
-        let (oauth_vulns, oauth_tests) = self.oauth_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(oauth_vulns);
-        total_tests += oauth_tests as u64;
-        queue.increment_tests(scan_id.clone(), oauth_tests as u64).await?;
+        // OAuth 2.0 Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::OAUTH_SCANNER) {
+            info!("Checking OAuth 2.0 security");
+            modules_used.push(crate::modules::ids::advanced_scanning::OAUTH_SCANNER.to_string());
+            let (oauth_vulns, oauth_tests) = self.oauth_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(oauth_vulns);
+            total_tests += oauth_tests as u64;
+            queue.increment_tests(scan_id.clone(), oauth_tests as u64).await?;
+        }
 
-        // SAML Security Check (scans base URL)
-        info!("Checking SAML security");
-        let (saml_vulns, saml_tests) = self.saml_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(saml_vulns);
-        total_tests += saml_tests as u64;
-        queue.increment_tests(scan_id.clone(), saml_tests as u64).await?;
+        // SAML Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SAML_SCANNER) {
+            info!("Checking SAML security");
+            modules_used.push(crate::modules::ids::advanced_scanning::SAML_SCANNER.to_string());
+            let (saml_vulns, saml_tests) = self.saml_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(saml_vulns);
+            total_tests += saml_tests as u64;
+            queue.increment_tests(scan_id.clone(), saml_tests as u64).await?;
+        }
 
-        // WebSocket Security Check (scans base URL)
-        info!("Checking WebSocket security");
-        let (websocket_vulns, websocket_tests) = self.websocket_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(websocket_vulns);
-        total_tests += websocket_tests as u64;
-        queue.increment_tests(scan_id.clone(), websocket_tests as u64).await?;
+        // WebSocket Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::WEBSOCKET_SCANNER) {
+            info!("Checking WebSocket security");
+            modules_used.push(crate::modules::ids::advanced_scanning::WEBSOCKET_SCANNER.to_string());
+            let (websocket_vulns, websocket_tests) = self.websocket_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(websocket_vulns);
+            total_tests += websocket_tests as u64;
+            queue.increment_tests(scan_id.clone(), websocket_tests as u64).await?;
+        }
 
-        // gRPC Security Check (scans base URL)
-        info!("Checking gRPC security");
-        let (grpc_vulns, grpc_tests) = self.grpc_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(grpc_vulns);
-        total_tests += grpc_tests as u64;
-        queue.increment_tests(scan_id.clone(), grpc_tests as u64).await?;
+        // gRPC Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::GRPC_SCANNER) {
+            info!("Checking gRPC security");
+            modules_used.push(crate::modules::ids::advanced_scanning::GRPC_SCANNER.to_string());
+            let (grpc_vulns, grpc_tests) = self.grpc_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(grpc_vulns);
+            total_tests += grpc_tests as u64;
+            queue.increment_tests(scan_id.clone(), grpc_tests as u64).await?;
+        }
 
-        // Authentication Bypass Check (scans base URL)
-        info!("Checking authentication bypass");
-        let (auth_bypass_vulns, auth_bypass_tests) = self.auth_bypass_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(auth_bypass_vulns);
-        total_tests += auth_bypass_tests as u64;
-        queue.increment_tests(scan_id.clone(), auth_bypass_tests as u64).await?;
+        // Authentication Bypass Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::AUTH_BYPASS) {
+            info!("Checking authentication bypass");
+            modules_used.push(crate::modules::ids::advanced_scanning::AUTH_BYPASS.to_string());
+            let (auth_bypass_vulns, auth_bypass_tests) = self.auth_bypass_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(auth_bypass_vulns);
+            total_tests += auth_bypass_tests as u64;
+            queue.increment_tests(scan_id.clone(), auth_bypass_tests as u64).await?;
+        }
 
-        // Session Management Security Check (scans base URL)
-        info!("Checking session management security");
-        let (session_vulns, session_tests) = self.session_management_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(session_vulns);
-        total_tests += session_tests as u64;
-        queue.increment_tests(scan_id.clone(), session_tests as u64).await?;
+        // Session Management Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SESSION_MANAGEMENT) {
+            info!("Checking session management security");
+            modules_used.push(crate::modules::ids::advanced_scanning::SESSION_MANAGEMENT.to_string());
+            let (session_vulns, session_tests) = self.session_management_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(session_vulns);
+            total_tests += session_tests as u64;
+            queue.increment_tests(scan_id.clone(), session_tests as u64).await?;
+        }
 
-        // MFA Security Check (scans base URL)
-        info!("Checking MFA security");
-        let (mfa_vulns, mfa_tests) = self.mfa_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(mfa_vulns);
-        total_tests += mfa_tests as u64;
-        queue.increment_tests(scan_id.clone(), mfa_tests as u64).await?;
+        // MFA Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::MFA_SCANNER) {
+            info!("Checking MFA security");
+            modules_used.push(crate::modules::ids::advanced_scanning::MFA_SCANNER.to_string());
+            let (mfa_vulns, mfa_tests) = self.mfa_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(mfa_vulns);
+            total_tests += mfa_tests as u64;
+            queue.increment_tests(scan_id.clone(), mfa_tests as u64).await?;
+        }
 
-        // IDOR Security Check (scans base URL)
-        info!("Checking for IDOR vulnerabilities");
-        let (idor_vulns, idor_tests) = self.idor_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(idor_vulns);
-        total_tests += idor_tests as u64;
-        queue.increment_tests(scan_id.clone(), idor_tests as u64).await?;
+        // IDOR Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::IDOR_SCANNER) {
+            info!("Checking for IDOR vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::IDOR_SCANNER.to_string());
+            let (idor_vulns, idor_tests) = self.idor_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(idor_vulns);
+            total_tests += idor_tests as u64;
+            queue.increment_tests(scan_id.clone(), idor_tests as u64).await?;
+        }
 
-        // BOLA (Broken Object Level Authorization) Check (scans base URL)
-        info!("Checking for BOLA vulnerabilities");
-        let (bola_vulns, bola_tests) = self.bola_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(bola_vulns);
-        total_tests += bola_tests as u64;
-        queue.increment_tests(scan_id.clone(), bola_tests as u64).await?;
+        // BOLA Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::BOLA_SCANNER) {
+            info!("Checking for BOLA vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::BOLA_SCANNER.to_string());
+            let (bola_vulns, bola_tests) = self.bola_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(bola_vulns);
+            total_tests += bola_tests as u64;
+            queue.increment_tests(scan_id.clone(), bola_tests as u64).await?;
+        }
 
-        // Authentication Manager Security Check (scans base URL)
-        info!("Checking authentication management security");
-        let (auth_mgr_vulns, auth_mgr_tests) = self.auth_manager_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(auth_mgr_vulns);
-        total_tests += auth_mgr_tests as u64;
-        queue.increment_tests(scan_id.clone(), auth_mgr_tests as u64).await?;
+        // Authentication Manager Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::AUTH_MANAGER) {
+            info!("Checking authentication management security");
+            modules_used.push(crate::modules::ids::advanced_scanning::AUTH_MANAGER.to_string());
+            let (auth_mgr_vulns, auth_mgr_tests) = self.auth_manager_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(auth_mgr_vulns);
+            total_tests += auth_mgr_tests as u64;
+            queue.increment_tests(scan_id.clone(), auth_mgr_tests as u64).await?;
+        }
 
-        // LDAP Injection Security Check (scans base URL)
-        info!("Checking for LDAP injection vulnerabilities");
-        let (ldap_vulns, ldap_tests) = self.ldap_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(ldap_vulns);
-        total_tests += ldap_tests as u64;
-        queue.increment_tests(scan_id.clone(), ldap_tests as u64).await?;
+        // LDAP Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::LDAP_INJECTION) {
+            info!("Checking for LDAP injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::LDAP_INJECTION.to_string());
+            let (ldap_vulns, ldap_tests) = self.ldap_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(ldap_vulns);
+            total_tests += ldap_tests as u64;
+            queue.increment_tests(scan_id.clone(), ldap_tests as u64).await?;
+        }
 
-        // File Upload Security Check (scans base URL)
-        info!("Checking file upload security");
-        let (upload_vulns, upload_tests) = self.file_upload_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(upload_vulns);
-        total_tests += upload_tests as u64;
-        queue.increment_tests(scan_id.clone(), upload_tests as u64).await?;
+        // File Upload Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::FILE_UPLOAD) {
+            info!("Checking file upload security");
+            modules_used.push(crate::modules::ids::advanced_scanning::FILE_UPLOAD.to_string());
+            let (upload_vulns, upload_tests) = self.file_upload_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(upload_vulns);
+            total_tests += upload_tests as u64;
+            queue.increment_tests(scan_id.clone(), upload_tests as u64).await?;
+        }
 
-        // Open Redirect Security Check (scans base URL)
-        info!("Checking for open redirect vulnerabilities");
-        let (redirect_vulns, redirect_tests) = self.open_redirect_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(redirect_vulns);
-        total_tests += redirect_tests as u64;
-        queue.increment_tests(scan_id.clone(), redirect_tests as u64).await?;
+        // Open Redirect Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::OPEN_REDIRECT) {
+            info!("Checking for open redirect vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::OPEN_REDIRECT.to_string());
+            let (redirect_vulns, redirect_tests) = self.open_redirect_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(redirect_vulns);
+            total_tests += redirect_tests as u64;
+            queue.increment_tests(scan_id.clone(), redirect_tests as u64).await?;
+        }
 
-        // Clickjacking Protection Check (scans base URL)
+        // Clickjacking Protection Check (Free tier)
         info!("Checking clickjacking protection");
+        modules_used.push(crate::modules::ids::free::CLICKJACKING.to_string());
         let (clickjack_vulns, clickjack_tests) = self.clickjacking_scanner
             .scan(&target, &config)
             .await?;
@@ -1003,125 +1112,165 @@ impl ScanEngine {
         total_tests += clickjack_tests as u64;
         queue.increment_tests(scan_id.clone(), clickjack_tests as u64).await?;
 
-        // CRLF Injection Security Check (scans base URL)
-        info!("Checking for CRLF injection vulnerabilities");
-        let (crlf_vulns, crlf_tests) = self.crlf_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(crlf_vulns);
-        total_tests += crlf_tests as u64;
-        queue.increment_tests(scan_id.clone(), crlf_tests as u64).await?;
+        // CRLF Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::CRLF_INJECTION) {
+            info!("Checking for CRLF injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::CRLF_INJECTION.to_string());
+            let (crlf_vulns, crlf_tests) = self.crlf_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(crlf_vulns);
+            total_tests += crlf_tests as u64;
+            queue.increment_tests(scan_id.clone(), crlf_tests as u64).await?;
+        }
 
-        // Email Header Injection Security Check (scans base URL)
-        info!("Checking for email header injection vulnerabilities");
-        let (email_header_vulns, email_header_tests) = self.email_header_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(email_header_vulns);
-        total_tests += email_header_tests as u64;
-        queue.increment_tests(scan_id.clone(), email_header_tests as u64).await?;
+        // Email Header Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::EMAIL_HEADER_INJECTION) {
+            info!("Checking for email header injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::EMAIL_HEADER_INJECTION.to_string());
+            let (email_header_vulns, email_header_tests) = self.email_header_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(email_header_vulns);
+            total_tests += email_header_tests as u64;
+            queue.increment_tests(scan_id.clone(), email_header_tests as u64).await?;
+        }
 
-        // Template Injection Security Check (scans base URL)
-        info!("Checking for template injection (SSTI) vulnerabilities");
-        let (ssti_vulns, ssti_tests) = self.template_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(ssti_vulns);
-        total_tests += ssti_tests as u64;
-        queue.increment_tests(scan_id.clone(), ssti_tests as u64).await?;
+        // Template Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SSTI_SCANNER) {
+            info!("Checking for template injection (SSTI) vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::SSTI_SCANNER.to_string());
+            let (ssti_vulns, ssti_tests) = self.template_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(ssti_vulns);
+            total_tests += ssti_tests as u64;
+            queue.increment_tests(scan_id.clone(), ssti_tests as u64).await?;
+        }
 
-        // Deserialization Security Check (scans base URL)
-        info!("Checking for insecure deserialization vulnerabilities");
-        let (deser_vulns, deser_tests) = self.deserialization_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(deser_vulns);
-        total_tests += deser_tests as u64;
-        queue.increment_tests(scan_id.clone(), deser_tests as u64).await?;
+        // Deserialization Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::DESERIALIZATION) {
+            info!("Checking for insecure deserialization vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::DESERIALIZATION.to_string());
+            let (deser_vulns, deser_tests) = self.deserialization_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(deser_vulns);
+            total_tests += deser_tests as u64;
+            queue.increment_tests(scan_id.clone(), deser_tests as u64).await?;
+        }
 
-        // Prototype Pollution Security Check (scans base URL)
-        info!("Checking for prototype pollution vulnerabilities");
-        let (pp_vulns, pp_tests) = self.prototype_pollution_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(pp_vulns);
-        total_tests += pp_tests as u64;
-        queue.increment_tests(scan_id.clone(), pp_tests as u64).await?;
+        // Prototype Pollution Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::PROTOTYPE_POLLUTION) {
+            info!("Checking for prototype pollution vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::PROTOTYPE_POLLUTION.to_string());
+            let (pp_vulns, pp_tests) = self.prototype_pollution_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(pp_vulns);
+            total_tests += pp_tests as u64;
+            queue.increment_tests(scan_id.clone(), pp_tests as u64).await?;
+        }
 
-        // API Security Check (scans base URL)
-        info!("Checking API security");
-        let (api_vulns, api_tests) = self.api_security_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(api_vulns);
-        total_tests += api_tests as u64;
-        queue.increment_tests(scan_id.clone(), api_tests as u64).await?;
+        // API Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::API_SECURITY) {
+            info!("Checking API security");
+            modules_used.push(crate::modules::ids::advanced_scanning::API_SECURITY.to_string());
+            let (api_vulns, api_tests) = self.api_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(api_vulns);
+            total_tests += api_tests as u64;
+            queue.increment_tests(scan_id.clone(), api_tests as u64).await?;
+        }
 
-        // HTTP Request Smuggling Security Check (scans base URL)
-        info!("Checking for HTTP request smuggling vulnerabilities");
-        let (smuggling_vulns, smuggling_tests) = self.http_smuggling_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(smuggling_vulns);
-        total_tests += smuggling_tests as u64;
-        queue.increment_tests(scan_id.clone(), smuggling_tests as u64).await?;
+        // HTTP Request Smuggling Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::HTTP_SMUGGLING) {
+            info!("Checking for HTTP request smuggling vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::HTTP_SMUGGLING.to_string());
+            let (smuggling_vulns, smuggling_tests) = self.http_smuggling_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(smuggling_vulns);
+            total_tests += smuggling_tests as u64;
+            queue.increment_tests(scan_id.clone(), smuggling_tests as u64).await?;
+        }
 
-        // XML Injection Security Check (scans base URL)
-        info!("Checking for XML injection vulnerabilities");
-        let (xml_vulns, xml_tests) = self.xml_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(xml_vulns);
-        total_tests += xml_tests as u64;
-        queue.increment_tests(scan_id.clone(), xml_tests as u64).await?;
+        // XML Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XML_INJECTION) {
+            info!("Checking for XML injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::XML_INJECTION.to_string());
+            let (xml_vulns, xml_tests) = self.xml_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(xml_vulns);
+            total_tests += xml_tests as u64;
+            queue.increment_tests(scan_id.clone(), xml_tests as u64).await?;
+        }
 
-        // XPath Injection Security Check (scans base URL)
-        info!("Checking for XPath injection vulnerabilities");
-        let (xpath_vulns, xpath_tests) = self.xpath_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(xpath_vulns);
-        total_tests += xpath_tests as u64;
-        queue.increment_tests(scan_id.clone(), xpath_tests as u64).await?;
+        // XPath Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XPATH_INJECTION) {
+            info!("Checking for XPath injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::XPATH_INJECTION.to_string());
+            let (xpath_vulns, xpath_tests) = self.xpath_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(xpath_vulns);
+            total_tests += xpath_tests as u64;
+            queue.increment_tests(scan_id.clone(), xpath_tests as u64).await?;
+        }
 
-        // Code Injection Security Check (scans base URL)
-        info!("Checking for code injection vulnerabilities");
-        let (code_vulns, code_tests) = self.code_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(code_vulns);
-        total_tests += code_tests as u64;
-        queue.increment_tests(scan_id.clone(), code_tests as u64).await?;
+        // Code Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::CODE_INJECTION) {
+            info!("Checking for code injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::CODE_INJECTION.to_string());
+            let (code_vulns, code_tests) = self.code_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(code_vulns);
+            total_tests += code_tests as u64;
+            queue.increment_tests(scan_id.clone(), code_tests as u64).await?;
+        }
 
-        // SSI Injection Security Check (scans base URL)
-        info!("Checking for SSI injection vulnerabilities");
-        let (ssi_vulns, ssi_tests) = self.ssi_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(ssi_vulns);
-        total_tests += ssi_tests as u64;
-        queue.increment_tests(scan_id.clone(), ssi_tests as u64).await?;
+        // SSI Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SSI_INJECTION) {
+            info!("Checking for SSI injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::SSI_INJECTION.to_string());
+            let (ssi_vulns, ssi_tests) = self.ssi_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(ssi_vulns);
+            total_tests += ssi_tests as u64;
+            queue.increment_tests(scan_id.clone(), ssi_tests as u64).await?;
+        }
 
-        // Race Condition Security Check (scans base URL)
-        info!("Checking for race condition vulnerabilities");
-        let (race_vulns, race_tests) = self.race_condition_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(race_vulns);
-        total_tests += race_tests as u64;
-        queue.increment_tests(scan_id.clone(), race_tests as u64).await?;
+        // Race Condition Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::RACE_CONDITION) {
+            info!("Checking for race condition vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::RACE_CONDITION.to_string());
+            let (race_vulns, race_tests) = self.race_condition_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(race_vulns);
+            total_tests += race_tests as u64;
+            queue.increment_tests(scan_id.clone(), race_tests as u64).await?;
+        }
 
-        // Mass Assignment Security Check (scans base URL)
-        info!("Checking for mass assignment vulnerabilities");
-        let (ma_vulns, ma_tests) = self.mass_assignment_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(ma_vulns);
-        total_tests += ma_tests as u64;
-        queue.increment_tests(scan_id.clone(), ma_tests as u64).await?;
+        // Mass Assignment Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::MASS_ASSIGNMENT) {
+            info!("Checking for mass assignment vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::MASS_ASSIGNMENT.to_string());
+            let (ma_vulns, ma_tests) = self.mass_assignment_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(ma_vulns);
+            total_tests += ma_tests as u64;
+            queue.increment_tests(scan_id.clone(), ma_tests as u64).await?;
+        }
 
-        // Information Disclosure Security Check (scans base URL)
+        // Information Disclosure Security Check (Free tier)
         info!("Checking for information disclosure vulnerabilities");
+        modules_used.push(crate::modules::ids::free::INFO_DISCLOSURE_BASIC.to_string());
         let (info_vulns, info_tests) = self.information_disclosure_scanner
             .scan(&target, &config)
             .await?;
@@ -1129,95 +1278,125 @@ impl ScanEngine {
         total_tests += info_tests as u64;
         queue.increment_tests(scan_id.clone(), info_tests as u64).await?;
 
-        // Host Header Injection Security Check (scans base URL)
-        info!("Checking for host header injection vulnerabilities");
-        let (hhi_vulns, hhi_tests) = self.host_header_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(hhi_vulns);
-        total_tests += hhi_tests as u64;
-        queue.increment_tests(scan_id.clone(), hhi_tests as u64).await?;
+        // Host Header Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::HOST_HEADER_INJECTION) {
+            info!("Checking for host header injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::HOST_HEADER_INJECTION.to_string());
+            let (hhi_vulns, hhi_tests) = self.host_header_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(hhi_vulns);
+            total_tests += hhi_tests as u64;
+            queue.increment_tests(scan_id.clone(), hhi_tests as u64).await?;
+        }
 
-        // Cache Poisoning Security Check (scans base URL)
-        info!("Checking for cache poisoning vulnerabilities");
-        let (cp_vulns, cp_tests) = self.cache_poisoning_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(cp_vulns);
-        total_tests += cp_tests as u64;
-        queue.increment_tests(scan_id.clone(), cp_tests as u64).await?;
+        // Cache Poisoning Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::CACHE_POISONING) {
+            info!("Checking for cache poisoning vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::CACHE_POISONING.to_string());
+            let (cp_vulns, cp_tests) = self.cache_poisoning_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(cp_vulns);
+            total_tests += cp_tests as u64;
+            queue.increment_tests(scan_id.clone(), cp_tests as u64).await?;
+        }
 
-        // Business Logic Security Check (scans base URL)
-        info!("Checking for business logic vulnerabilities");
-        let (bl_vulns, bl_tests) = self.business_logic_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(bl_vulns);
-        total_tests += bl_tests as u64;
-        queue.increment_tests(scan_id.clone(), bl_tests as u64).await?;
+        // Business Logic Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::BUSINESS_LOGIC) {
+            info!("Checking for business logic vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::BUSINESS_LOGIC.to_string());
+            let (bl_vulns, bl_tests) = self.business_logic_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(bl_vulns);
+            total_tests += bl_tests as u64;
+            queue.increment_tests(scan_id.clone(), bl_tests as u64).await?;
+        }
 
-        // JWT Vulnerabilities Security Check (scans base URL)
-        info!("Checking for JWT vulnerabilities");
-        let (jwt_vulns, jwt_tests) = self.jwt_vulnerabilities_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(jwt_vulns);
-        total_tests += jwt_tests as u64;
-        queue.increment_tests(scan_id.clone(), jwt_tests as u64).await?;
+        // JWT Vulnerabilities Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::JWT_SCANNER) {
+            info!("Checking for JWT vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::JWT_SCANNER.to_string());
+            let (jwt_vulns, jwt_tests) = self.jwt_vulnerabilities_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(jwt_vulns);
+            total_tests += jwt_tests as u64;
+            queue.increment_tests(scan_id.clone(), jwt_tests as u64).await?;
+        }
 
-        // GraphQL Security Check (scans base URL)
-        info!("Checking for GraphQL security issues");
-        let (gql_vulns, gql_tests) = self.graphql_security_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(gql_vulns);
-        total_tests += gql_tests as u64;
-        queue.increment_tests(scan_id.clone(), gql_tests as u64).await?;
+        // GraphQL Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER) {
+            info!("Checking for GraphQL security issues");
+            modules_used.push(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER.to_string());
+            let (gql_vulns, gql_tests) = self.graphql_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(gql_vulns);
+            total_tests += gql_tests as u64;
+            queue.increment_tests(scan_id.clone(), gql_tests as u64).await?;
+        }
 
-        // NoSQL Injection Security Check (scans base URL)
-        info!("Checking for NoSQL injection vulnerabilities");
-        let (nosql_vulns, nosql_tests) = self.nosql_injection_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(nosql_vulns);
-        total_tests += nosql_tests as u64;
-        queue.increment_tests(scan_id.clone(), nosql_tests as u64).await?;
+        // NoSQL Injection Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::NOSQL_SCANNER) {
+            info!("Checking for NoSQL injection vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::NOSQL_SCANNER.to_string());
+            let (nosql_vulns, nosql_tests) = self.nosql_injection_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(nosql_vulns);
+            total_tests += nosql_tests as u64;
+            queue.increment_tests(scan_id.clone(), nosql_tests as u64).await?;
+        }
 
-        // File Upload Vulnerabilities Security Check (scans base URL)
-        info!("Checking for file upload vulnerabilities");
-        let (upload_vulns, upload_tests) = self.file_upload_vulnerabilities_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(upload_vulns);
-        total_tests += upload_tests as u64;
-        queue.increment_tests(scan_id.clone(), upload_tests as u64).await?;
+        // File Upload Vulnerabilities Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::FILE_UPLOAD) {
+            info!("Checking for file upload vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::FILE_UPLOAD.to_string());
+            let (upload_vulns, upload_tests) = self.file_upload_vulnerabilities_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(upload_vulns);
+            total_tests += upload_tests as u64;
+            queue.increment_tests(scan_id.clone(), upload_tests as u64).await?;
+        }
 
-        // CORS Misconfiguration Security Check (scans base URL)
-        info!("Checking for CORS misconfiguration");
-        let (cors_misc_vulns, cors_misc_tests) = self.cors_misconfiguration_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(cors_misc_vulns);
-        total_tests += cors_misc_tests as u64;
-        queue.increment_tests(scan_id.clone(), cors_misc_tests as u64).await?;
+        // CORS Misconfiguration Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::CORS_MISCONFIG) {
+            info!("Checking for CORS misconfiguration");
+            modules_used.push(crate::modules::ids::advanced_scanning::CORS_MISCONFIG.to_string());
+            let (cors_misc_vulns, cors_misc_tests) = self.cors_misconfiguration_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(cors_misc_vulns);
+            total_tests += cors_misc_tests as u64;
+            queue.increment_tests(scan_id.clone(), cors_misc_tests as u64).await?;
+        }
 
-        // Cloud Storage Security Check (scans base URL)
-        info!("Checking for cloud storage misconfigurations");
-        let (cloud_vulns, cloud_tests) = self.cloud_storage_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(cloud_vulns);
-        total_tests += cloud_tests as u64;
-        queue.increment_tests(scan_id.clone(), cloud_tests as u64).await?;
+        // Cloud Storage Security Check (Team+)
+        if scan_token.is_module_authorized(crate::modules::ids::cloud_scanning::CLOUD_STORAGE) {
+            info!("Checking for cloud storage misconfigurations");
+            modules_used.push(crate::modules::ids::cloud_scanning::CLOUD_STORAGE.to_string());
+            let (cloud_vulns, cloud_tests) = self.cloud_storage_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(cloud_vulns);
+            total_tests += cloud_tests as u64;
+            queue.increment_tests(scan_id.clone(), cloud_tests as u64).await?;
+        }
 
-        // Framework Vulnerabilities Security Check (scans base URL)
-        info!("Checking for framework-specific vulnerabilities");
-        let (framework_vulns, framework_tests) = self.framework_vulnerabilities_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(framework_vulns);
-        total_tests += framework_tests as u64;
-        queue.increment_tests(scan_id.clone(), framework_tests as u64).await?;
+        // Framework Vulnerabilities Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::FRAMEWORK_VULNS) {
+            info!("Checking for framework-specific vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::FRAMEWORK_VULNS.to_string());
+            let (framework_vulns, framework_tests) = self.framework_vulnerabilities_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(framework_vulns);
+            total_tests += framework_tests as u64;
+            queue.increment_tests(scan_id.clone(), framework_tests as u64).await?;
+        }
 
         // JavaScript Mining Security Check (results from Phase 0)
         info!("[JS-Miner] Adding {} vulnerabilities found during reconnaissance", js_miner_vulns.len());
@@ -1225,122 +1404,347 @@ impl ScanEngine {
         total_tests += js_miner_tests as u64;
         queue.increment_tests(scan_id.clone(), js_miner_tests as u64).await?;
 
-        // Sensitive Data Exposure Check (scans base URL)
-        info!("Checking for sensitive data exposure");
-        let (sensitive_vulns, sensitive_tests) = self.sensitive_data_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(sensitive_vulns);
-        total_tests += sensitive_tests as u64;
-        queue.increment_tests(scan_id.clone(), sensitive_tests as u64).await?;
+        // Sensitive Data Exposure Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SENSITIVE_DATA) {
+            info!("Checking for sensitive data exposure");
+            modules_used.push(crate::modules::ids::advanced_scanning::SENSITIVE_DATA.to_string());
+            let (sensitive_vulns, sensitive_tests) = self.sensitive_data_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(sensitive_vulns);
+            total_tests += sensitive_tests as u64;
+            queue.increment_tests(scan_id.clone(), sensitive_tests as u64).await?;
+        }
 
-        // Advanced API Fuzzing (REST/GraphQL/gRPC)
-        info!("Running advanced API fuzzing");
-        let (api_fuzz_vulns, api_fuzz_tests) = self.api_fuzzer_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(api_fuzz_vulns);
-        total_tests += api_fuzz_tests as u64;
-        queue.increment_tests(scan_id.clone(), api_fuzz_tests as u64).await?;
+        // Advanced API Fuzzing (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::API_FUZZER) {
+            info!("Running advanced API fuzzing");
+            modules_used.push(crate::modules::ids::advanced_scanning::API_FUZZER.to_string());
+            let (api_fuzz_vulns, api_fuzz_tests) = self.api_fuzzer_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(api_fuzz_vulns);
+            total_tests += api_fuzz_tests as u64;
+            queue.increment_tests(scan_id.clone(), api_fuzz_tests as u64).await?;
+        }
 
-        // API Gateway Security Check (scans base URL)
-        info!("Checking API Gateway security");
-        let (apigw_vulns, apigw_tests) = self.api_gateway_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(apigw_vulns);
-        total_tests += apigw_tests as u64;
-        queue.increment_tests(scan_id.clone(), apigw_tests as u64).await?;
+        // API Gateway Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::API_GATEWAY) {
+            info!("Checking API Gateway security");
+            modules_used.push(crate::modules::ids::advanced_scanning::API_GATEWAY.to_string());
+            let (apigw_vulns, apigw_tests) = self.api_gateway_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(apigw_vulns);
+            total_tests += apigw_tests as u64;
+            queue.increment_tests(scan_id.clone(), apigw_tests as u64).await?;
+        }
 
-        // Cloud Security Check (scans base URL)
-        info!("Checking cloud security vulnerabilities");
-        let (cloud_sec_vulns, cloud_sec_tests) = self.cloud_security_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(cloud_sec_vulns);
-        total_tests += cloud_sec_tests as u64;
-        queue.increment_tests(scan_id.clone(), cloud_sec_tests as u64).await?;
+        // Cloud Security Check (Team+)
+        if scan_token.is_module_authorized(crate::modules::ids::cloud_scanning::CLOUD_SECURITY) {
+            info!("Checking cloud security vulnerabilities");
+            modules_used.push(crate::modules::ids::cloud_scanning::CLOUD_SECURITY.to_string());
+            let (cloud_sec_vulns, cloud_sec_tests) = self.cloud_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(cloud_sec_vulns);
+            total_tests += cloud_sec_tests as u64;
+            queue.increment_tests(scan_id.clone(), cloud_sec_tests as u64).await?;
+        }
 
-        // Container Security Check (scans base URL)
-        info!("Checking container security");
-        let (container_vulns, container_tests) = self.container_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(container_vulns);
-        total_tests += container_tests as u64;
-        queue.increment_tests(scan_id.clone(), container_tests as u64).await?;
+        // Container Security Check (Team+)
+        if scan_token.is_module_authorized(crate::modules::ids::cloud_scanning::CONTAINER_SCANNER) {
+            info!("Checking container security");
+            modules_used.push(crate::modules::ids::cloud_scanning::CONTAINER_SCANNER.to_string());
+            let (container_vulns, container_tests) = self.container_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(container_vulns);
+            total_tests += container_tests as u64;
+            queue.increment_tests(scan_id.clone(), container_tests as u64).await?;
+        }
 
-        // WebAuthn/FIDO2 Security Check (scans base URL)
-        info!("Checking WebAuthn/FIDO2 security");
-        let (webauthn_vulns, webauthn_tests) = self.webauthn_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(webauthn_vulns);
-        total_tests += webauthn_tests as u64;
-        queue.increment_tests(scan_id.clone(), webauthn_tests as u64).await?;
+        // WebAuthn/FIDO2 Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::WEBAUTHN_SCANNER) {
+            info!("Checking WebAuthn/FIDO2 security");
+            modules_used.push(crate::modules::ids::advanced_scanning::WEBAUTHN_SCANNER.to_string());
+            let (webauthn_vulns, webauthn_tests) = self.webauthn_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(webauthn_vulns);
+            total_tests += webauthn_tests as u64;
+            queue.increment_tests(scan_id.clone(), webauthn_tests as u64).await?;
+        }
 
-        // HTTP/3 & QUIC Security Check (scans base URL)
-        info!("Checking HTTP/3 and QUIC security");
-        let (http3_vulns, http3_tests) = self.http3_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(http3_vulns);
-        total_tests += http3_tests as u64;
-        queue.increment_tests(scan_id.clone(), http3_tests as u64).await?;
+        // HTTP/3 & QUIC Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::HTTP3_SCANNER) {
+            info!("Checking HTTP/3 and QUIC security");
+            modules_used.push(crate::modules::ids::advanced_scanning::HTTP3_SCANNER.to_string());
+            let (http3_vulns, http3_tests) = self.http3_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(http3_vulns);
+            total_tests += http3_tests as u64;
+            queue.increment_tests(scan_id.clone(), http3_tests as u64).await?;
+        }
 
-        // Advanced SSTI Security Check (scans base URL)
-        info!("Checking advanced SSTI vulnerabilities");
-        let (ssti_adv_vulns, ssti_adv_tests) = self.ssti_advanced_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(ssti_adv_vulns);
-        total_tests += ssti_adv_tests as u64;
-        queue.increment_tests(scan_id.clone(), ssti_adv_tests as u64).await?;
+        // Advanced SSTI Security Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SSTI_ADVANCED) {
+            info!("Checking advanced SSTI vulnerabilities");
+            modules_used.push(crate::modules::ids::advanced_scanning::SSTI_ADVANCED.to_string());
+            let (ssti_adv_vulns, ssti_adv_tests) = self.ssti_advanced_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(ssti_adv_vulns);
+            total_tests += ssti_adv_tests as u64;
+            queue.increment_tests(scan_id.clone(), ssti_adv_tests as u64).await?;
+        }
 
-        // CVE-2025-55182: React Server Components RCE (React2Shell)
-        info!("Checking for CVE-2025-55182 (React2Shell RCE)");
-        let (cve_55182_vulns, cve_55182_tests) = self.cve_2025_55182_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(cve_55182_vulns);
-        total_tests += cve_55182_tests as u64;
-        queue.increment_tests(scan_id.clone(), cve_55182_tests as u64).await?;
+        // CVE-2025-55182: React Server Components RCE (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::cve_scanners::CVE_2025_55182) {
+            info!("Checking for CVE-2025-55182 (React2Shell RCE)");
+            modules_used.push(crate::modules::ids::cve_scanners::CVE_2025_55182.to_string());
+            let (cve_55182_vulns, cve_55182_tests) = self.cve_2025_55182_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(cve_55182_vulns);
+            total_tests += cve_55182_tests as u64;
+            queue.increment_tests(scan_id.clone(), cve_55182_tests as u64).await?;
+        }
 
-        // CVE-2025-55183: React Server Components Source Code Exposure
-        info!("Checking for CVE-2025-55183 (RSC Source Code Exposure)");
-        let (cve_55183_vulns, cve_55183_tests) = self.cve_2025_55183_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(cve_55183_vulns);
-        total_tests += cve_55183_tests as u64;
-        queue.increment_tests(scan_id.clone(), cve_55183_tests as u64).await?;
+        // CVE-2025-55183: React Server Components Source Code Exposure (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::cve_scanners::CVE_2025_55183) {
+            info!("Checking for CVE-2025-55183 (RSC Source Code Exposure)");
+            modules_used.push(crate::modules::ids::cve_scanners::CVE_2025_55183.to_string());
+            let (cve_55183_vulns, cve_55183_tests) = self.cve_2025_55183_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(cve_55183_vulns);
+            total_tests += cve_55183_tests as u64;
+            queue.increment_tests(scan_id.clone(), cve_55183_tests as u64).await?;
+        }
 
-        // CVE-2025-55184: React Server Components Denial of Service
-        info!("Checking for CVE-2025-55184 (RSC DoS)");
-        let (cve_55184_vulns, cve_55184_tests) = self.cve_2025_55184_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(cve_55184_vulns);
-        total_tests += cve_55184_tests as u64;
-        queue.increment_tests(scan_id.clone(), cve_55184_tests as u64).await?;
+        // CVE-2025-55184: React Server Components DoS (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::cve_scanners::CVE_2025_55184) {
+            info!("Checking for CVE-2025-55184 (RSC DoS)");
+            modules_used.push(crate::modules::ids::cve_scanners::CVE_2025_55184.to_string());
+            let (cve_55184_vulns, cve_55184_tests) = self.cve_2025_55184_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(cve_55184_vulns);
+            total_tests += cve_55184_tests as u64;
+            queue.increment_tests(scan_id.clone(), cve_55184_tests as u64).await?;
+        }
 
-        // Tomcat Misconfiguration Check (stack traces, manager exposure, etc.)
-        info!("Checking for Tomcat misconfigurations");
-        let (tomcat_vulns, tomcat_tests) = self.tomcat_misconfig_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(tomcat_vulns);
-        total_tests += tomcat_tests as u64;
-        queue.increment_tests(scan_id.clone(), tomcat_tests as u64).await?;
+        // HTTP Parameter Pollution (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::HPP_SCANNER) {
+            info!("[HPP] Testing for HTTP Parameter Pollution");
+            modules_used.push(crate::modules::ids::advanced_scanning::HPP_SCANNER.to_string());
+            let (hpp_vulns, hpp_tests) = self.hpp_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(hpp_vulns);
+            total_tests += hpp_tests as u64;
+            queue.increment_tests(scan_id.clone(), hpp_tests as u64).await?;
+        }
 
-        // Varnish Cache Misconfiguration Check (unauthenticated purge, etc.)
-        info!("Checking for Varnish cache misconfigurations");
-        let (varnish_vulns, varnish_tests) = self.varnish_misconfig_scanner
-            .scan(&target, &config)
-            .await?;
-        all_vulnerabilities.extend(varnish_vulns);
-        total_tests += varnish_tests as u64;
-        queue.increment_tests(scan_id.clone(), varnish_tests as u64).await?;
+        // WAF Bypass Testing (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::WAF_BYPASS) {
+            info!("[WAF-Bypass] Testing advanced WAF bypass techniques");
+            modules_used.push(crate::modules::ids::advanced_scanning::WAF_BYPASS.to_string());
+            let (waf_vulns, waf_tests) = self.waf_bypass_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(waf_vulns);
+            total_tests += waf_tests as u64;
+            queue.increment_tests(scan_id.clone(), waf_tests as u64).await?;
+        }
+
+        // Merlin - JavaScript Library Vulnerability Detection (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::MERLIN_SCANNER) {
+            info!("[Merlin] Scanning for vulnerable JavaScript libraries");
+            modules_used.push(crate::modules::ids::advanced_scanning::MERLIN_SCANNER.to_string());
+            let (merlin_vulns, merlin_tests) = self.merlin_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(merlin_vulns);
+            total_tests += merlin_tests as u64;
+            queue.increment_tests(scan_id.clone(), merlin_tests as u64).await?;
+        }
+
+        // Tomcat Misconfiguration Scanner (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::TOMCAT_MISCONFIG) {
+            info!("[Tomcat] Checking for Apache Tomcat misconfigurations");
+            modules_used.push(crate::modules::ids::advanced_scanning::TOMCAT_MISCONFIG.to_string());
+            let (tomcat_vulns, tomcat_tests) = self.tomcat_misconfig_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(tomcat_vulns);
+            total_tests += tomcat_tests as u64;
+            queue.increment_tests(scan_id.clone(), tomcat_tests as u64).await?;
+        }
+
+        // Varnish Misconfiguration Scanner (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::VARNISH_MISCONFIG) {
+            info!("[Varnish] Checking for Varnish cache misconfigurations");
+            modules_used.push(crate::modules::ids::advanced_scanning::VARNISH_MISCONFIG.to_string());
+            let (varnish_vulns, varnish_tests) = self.varnish_misconfig_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(varnish_vulns);
+            total_tests += varnish_tests as u64;
+            queue.increment_tests(scan_id.clone(), varnish_tests as u64).await?;
+        }
+
+        // JavaScript Sensitive Information Leakage Scanner (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::JS_SENSITIVE_INFO) {
+            info!("[JS-Sensitive] Scanning JavaScript for sensitive information leakage");
+            modules_used.push(crate::modules::ids::advanced_scanning::JS_SENSITIVE_INFO.to_string());
+            let (js_sensitive_vulns, js_sensitive_tests) = self.js_sensitive_info_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(js_sensitive_vulns);
+            total_tests += js_sensitive_tests as u64;
+            queue.increment_tests(scan_id.clone(), js_sensitive_tests as u64).await?;
+        }
+
+        // Rate Limiting Scanner (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::RATE_LIMITING) {
+            info!("[RateLimit] Testing for insufficient rate limiting on authentication endpoints");
+            modules_used.push(crate::modules::ids::advanced_scanning::RATE_LIMITING.to_string());
+            let (rate_limit_vulns, rate_limit_tests) = self.rate_limiting_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(rate_limit_vulns);
+            total_tests += rate_limit_tests as u64;
+            queue.increment_tests(scan_id.clone(), rate_limit_tests as u64).await?;
+        }
+
+        // WordPress Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::WORDPRESS_SCANNER) {
+            info!("[WordPress] Advanced WordPress security scanning");
+            modules_used.push(crate::modules::ids::cms_security::WORDPRESS_SCANNER.to_string());
+            let (wordpress_vulns, wordpress_tests) = self.wordpress_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(wordpress_vulns);
+            total_tests += wordpress_tests as u64;
+            queue.increment_tests(scan_id.clone(), wordpress_tests as u64).await?;
+        } else {
+            debug!("[WordPress] Module not authorized - skipping");
+        }
+
+        // Drupal Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DRUPAL_SCANNER) {
+            info!("[Drupal] Advanced Drupal security scanning");
+            modules_used.push(crate::modules::ids::cms_security::DRUPAL_SCANNER.to_string());
+            let (drupal_vulns, drupal_tests) = self.drupal_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(drupal_vulns);
+            total_tests += drupal_tests as u64;
+            queue.increment_tests(scan_id.clone(), drupal_tests as u64).await?;
+        } else {
+            debug!("[Drupal] Module not authorized - skipping");
+        }
+
+        // Laravel Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LARAVEL_SCANNER) {
+            info!("[Laravel] Advanced Laravel security scanning");
+            modules_used.push(crate::modules::ids::cms_security::LARAVEL_SCANNER.to_string());
+            let (laravel_vulns, laravel_tests) = self.laravel_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(laravel_vulns);
+            total_tests += laravel_tests as u64;
+            queue.increment_tests(scan_id.clone(), laravel_tests as u64).await?;
+        } else {
+            debug!("[Laravel] Module not authorized - skipping");
+        }
+
+        // Express.js Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::EXPRESS_SCANNER) {
+            info!("[Express] Advanced Express.js/Node.js security scanning");
+            modules_used.push(crate::modules::ids::cms_security::EXPRESS_SCANNER.to_string());
+            let (express_vulns, express_tests) = self.express_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(express_vulns);
+            total_tests += express_tests as u64;
+            queue.increment_tests(scan_id.clone(), express_tests as u64).await?;
+        } else {
+            debug!("[Express] Module not authorized - skipping");
+        }
+
+        // Next.js Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::NEXTJS_SCANNER) {
+            info!("[Next.js] Advanced Next.js security scanning");
+            modules_used.push(crate::modules::ids::cms_security::NEXTJS_SCANNER.to_string());
+            let (nextjs_vulns, nextjs_tests) = self.nextjs_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(nextjs_vulns);
+            total_tests += nextjs_tests as u64;
+            queue.increment_tests(scan_id.clone(), nextjs_tests as u64).await?;
+        } else {
+            debug!("[Next.js] Module not authorized - skipping");
+        }
+
+        // SvelteKit Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::SVELTEKIT_SCANNER) {
+            info!("[SvelteKit] Advanced SvelteKit security scanning");
+            modules_used.push(crate::modules::ids::cms_security::SVELTEKIT_SCANNER.to_string());
+            let (sveltekit_vulns, sveltekit_tests) = self.sveltekit_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(sveltekit_vulns);
+            total_tests += sveltekit_tests as u64;
+            queue.increment_tests(scan_id.clone(), sveltekit_tests as u64).await?;
+        } else {
+            debug!("[SvelteKit] Module not authorized - skipping");
+        }
+
+        // React Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::REACT_SCANNER) {
+            info!("[React] Advanced React security scanning");
+            modules_used.push(crate::modules::ids::cms_security::REACT_SCANNER.to_string());
+            let (react_vulns, react_tests) = self.react_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(react_vulns);
+            total_tests += react_tests as u64;
+            queue.increment_tests(scan_id.clone(), react_tests as u64).await?;
+        } else {
+            debug!("[React] Module not authorized - skipping");
+        }
+
+        // Django Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DJANGO_SCANNER) {
+            info!("[Django] Advanced Django security scanning");
+            modules_used.push(crate::modules::ids::cms_security::DJANGO_SCANNER.to_string());
+            let (django_vulns, django_tests) = self.django_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(django_vulns);
+            total_tests += django_tests as u64;
+            queue.increment_tests(scan_id.clone(), django_tests as u64).await?;
+        } else {
+            debug!("[Django] Module not authorized - skipping");
+        }
+
+        // Liferay Security Scanner (Personal+ license)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LIFERAY_SCANNER) {
+            info!("[Liferay] Advanced Liferay security scanning");
+            modules_used.push(crate::modules::ids::cms_security::LIFERAY_SCANNER.to_string());
+            let (liferay_vulns, liferay_tests) = self.liferay_security_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(liferay_vulns);
+            total_tests += liferay_tests as u64;
+            queue.increment_tests(scan_id.clone(), liferay_tests as u64).await?;
+        } else {
+            debug!("[Liferay] Module not authorized - skipping");
+        }
 
         // Phase 2: Crawler (if enabled)
         if config.enable_crawler {
@@ -1426,9 +1830,11 @@ impl ScanEngine {
         let results_hash = crate::signing::hash_results(&results)
             .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
 
+        info!("[Signing] Signing results with {} modules used", modules_used.len());
         match crate::signing::sign_results(
             &results_hash,
             &scan_token,
+            modules_used,
             Some(crate::signing::ScanMetadata {
                 targets_count: Some(1),
                 scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),

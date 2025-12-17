@@ -15,6 +15,7 @@ pub mod circuit_breaker;
 pub mod config;
 pub mod crawler;
 pub mod headless_crawler;
+pub mod auth_context;
 pub mod database;
 pub mod dns_cache;
 pub mod framework_detector;
@@ -80,3 +81,6 @@ pub mod license;
 
 // Quantum-safe signing and scan authorization module
 pub mod signing;
+
+// Module IDs for server-side authorization
+pub mod modules;

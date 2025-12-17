@@ -435,8 +435,8 @@ impl SslScanner {
     /// Check for known SSL/TLS vulnerabilities
     async fn check_vulnerabilities(
         &self,
-        _hostname: &str,
-        _port: u16,
+        hostname: &str,
+        port: u16,
         protocols: &ProtocolSupport,
         cipher_suites: &[CipherSuite],
     ) -> Result<Vec<SslVulnerability>> {
@@ -447,7 +447,7 @@ impl SslScanner {
             vulnerabilities.push(SslVulnerability {
                 name: "POODLE".to_string(),
                 severity: "HIGH".to_string(),
-                description: "SSLv3 is vulnerable to POODLE attack".to_string(),
+                description: "SSLv3 is vulnerable to POODLE attack. Attackers can decrypt SSL traffic.".to_string(),
                 affected_versions: vec!["SSLv3".to_string()],
                 cve_ids: vec!["CVE-2014-3566".to_string()],
             });
@@ -467,13 +467,167 @@ impl SslScanner {
             }
         }
 
-        // Check for weak ciphers (RC4, DES, 3DES)
+        // Check for CRIME (compression enabled)
+        if self.check_compression_enabled(hostname, port).await {
+            vulnerabilities.push(SslVulnerability {
+                name: "CRIME".to_string(),
+                severity: "HIGH".to_string(),
+                description: "TLS compression is enabled, vulnerable to CRIME attack".to_string(),
+                affected_versions: vec!["TLSv1.0".to_string(), "TLSv1.1".to_string(), "TLSv1.2".to_string()],
+                cve_ids: vec!["CVE-2012-4929".to_string()],
+            });
+        }
+
+        // Check for BREACH (HTTP compression on HTTPS)
+        if self.check_http_compression(hostname, port).await {
+            vulnerabilities.push(SslVulnerability {
+                name: "BREACH".to_string(),
+                severity: "MEDIUM".to_string(),
+                description: "HTTP compression over HTTPS is enabled, vulnerable to BREACH attack".to_string(),
+                affected_versions: vec!["HTTP/1.1".to_string(), "HTTP/2".to_string()],
+                cve_ids: vec!["CVE-2013-3587".to_string()],
+            });
+        }
+
+        // Check for FREAK (export ciphers)
+        let has_export = cipher_suites.iter().any(|c| {
+            c.name.contains("EXPORT") || c.name.contains("EXP") || c.encryption.contains("40") || c.encryption.contains("56")
+        });
+        if has_export {
+            vulnerabilities.push(SslVulnerability {
+                name: "FREAK".to_string(),
+                severity: "HIGH".to_string(),
+                description: "Export-grade ciphers enabled, vulnerable to FREAK attack".to_string(),
+                affected_versions: vec!["All TLS versions".to_string()],
+                cve_ids: vec!["CVE-2015-0204".to_string()],
+            });
+        }
+
+        // Check for LOGJAM (512-bit DH)
+        let has_weak_dh = cipher_suites.iter().any(|c| {
+            c.key_exchange.contains("DH") && !c.key_exchange.contains("ECDH")
+        });
+        if has_weak_dh {
+            vulnerabilities.push(SslVulnerability {
+                name: "LOGJAM".to_string(),
+                severity: "HIGH".to_string(),
+                description: "Weak Diffie-Hellman parameters detected, vulnerable to LOGJAM attack".to_string(),
+                affected_versions: vec!["All TLS versions with DHE".to_string()],
+                cve_ids: vec!["CVE-2015-4000".to_string()],
+            });
+        }
+
+        // Check for DROWN (SSLv2)
+        if protocols.ssl_v2 {
+            vulnerabilities.push(SslVulnerability {
+                name: "DROWN".to_string(),
+                severity: "CRITICAL".to_string(),
+                description: "SSLv2 enabled, vulnerable to DROWN attack. Allows decryption of modern TLS traffic.".to_string(),
+                affected_versions: vec!["SSLv2".to_string()],
+                cve_ids: vec!["CVE-2016-0800".to_string()],
+            });
+        }
+
+        // Check for Sweet32 (64-bit block ciphers like 3DES)
+        let has_64bit_block = cipher_suites.iter().any(|c| {
+            c.encryption.contains("3DES") || c.encryption.contains("DES") || c.encryption.contains("IDEA")
+        });
+        if has_64bit_block {
+            vulnerabilities.push(SslVulnerability {
+                name: "Sweet32".to_string(),
+                severity: "MEDIUM".to_string(),
+                description: "64-bit block ciphers (3DES) enabled, vulnerable to Sweet32 birthday attack".to_string(),
+                affected_versions: vec!["All TLS versions with 3DES".to_string()],
+                cve_ids: vec!["CVE-2016-2183".to_string()],
+            });
+        }
+
+        // Check for RC4 (NOMORE attack)
+        let has_rc4 = cipher_suites.iter().any(|c| c.encryption.contains("RC4"));
+        if has_rc4 {
+            vulnerabilities.push(SslVulnerability {
+                name: "RC4 NOMORE".to_string(),
+                severity: "HIGH".to_string(),
+                description: "RC4 cipher enabled, vulnerable to multiple attacks including NOMORE".to_string(),
+                affected_versions: vec!["All TLS versions with RC4".to_string()],
+                cve_ids: vec!["CVE-2015-2808".to_string(), "CVE-2013-2566".to_string()],
+            });
+        }
+
+        // Check for ROBOT (Bleichenbacher attack variant)
+        if self.check_robot_vulnerability(hostname, port).await {
+            vulnerabilities.push(SslVulnerability {
+                name: "ROBOT".to_string(),
+                severity: "CRITICAL".to_string(),
+                description: "Server vulnerable to ROBOT attack (Return Of Bleichenbacher's Oracle Threat)".to_string(),
+                affected_versions: vec!["TLS with RSA key exchange".to_string()],
+                cve_ids: vec!["CVE-2017-13099".to_string()],
+            });
+        }
+
+        // Check for Zombie POODLE / GOLDENDOODLE
+        if protocols.tls_v1_2 {
+            let has_cbc = cipher_suites.iter().any(|c| c.encryption.contains("CBC"));
+            if has_cbc {
+                vulnerabilities.push(SslVulnerability {
+                    name: "Zombie POODLE / GOLDENDOODLE".to_string(),
+                    severity: "MEDIUM".to_string(),
+                    description: "TLS 1.2 with CBC ciphers may be vulnerable to padding oracle attacks".to_string(),
+                    affected_versions: vec!["TLSv1.2 with CBC".to_string()],
+                    cve_ids: vec!["CVE-2019-1559".to_string()],
+                });
+            }
+        }
+
+        // Check for 0-RTT replay attacks (TLS 1.3)
+        if protocols.tls_v1_3 {
+            vulnerabilities.push(SslVulnerability {
+                name: "TLS 1.3 0-RTT Replay Risk".to_string(),
+                severity: "LOW".to_string(),
+                description: "TLS 1.3 0-RTT early data may be vulnerable to replay attacks. Ensure application-layer protection.".to_string(),
+                affected_versions: vec!["TLSv1.3".to_string()],
+                cve_ids: Vec::new(),
+            });
+        }
+
+        // Check for weak ciphers (RC4, DES, 3DES, NULL, ANON)
         for cipher in cipher_suites {
             if cipher.is_weak {
                 vulnerabilities.push(SslVulnerability {
                     name: format!("Weak Cipher: {}", cipher.name),
                     severity: "MEDIUM".to_string(),
-                    description: "Weak or deprecated cipher suite detected".to_string(),
+                    description: format!(
+                        "Weak or deprecated cipher suite detected: {} ({})",
+                        cipher.name, cipher.encryption
+                    ),
+                    affected_versions: Vec::new(),
+                    cve_ids: Vec::new(),
+                });
+            }
+
+            // Check for anonymous ciphers (no authentication)
+            if cipher.authentication == "ANON" || cipher.name.contains("_anon_") {
+                vulnerabilities.push(SslVulnerability {
+                    name: "Anonymous Cipher Suite".to_string(),
+                    severity: "CRITICAL".to_string(),
+                    description: format!(
+                        "Anonymous cipher suite enables MitM attacks: {}",
+                        cipher.name
+                    ),
+                    affected_versions: Vec::new(),
+                    cve_ids: Vec::new(),
+                });
+            }
+
+            // Check for NULL ciphers (no encryption)
+            if cipher.encryption == "NULL" || cipher.name.contains("_NULL_") {
+                vulnerabilities.push(SslVulnerability {
+                    name: "NULL Cipher Suite".to_string(),
+                    severity: "CRITICAL".to_string(),
+                    description: format!(
+                        "NULL cipher suite provides no encryption: {}",
+                        cipher.name
+                    ),
                     affected_versions: Vec::new(),
                     cve_ids: Vec::new(),
                 });
@@ -481,6 +635,55 @@ impl SslScanner {
         }
 
         Ok(vulnerabilities)
+    }
+
+    /// Check if TLS compression is enabled (CRIME vulnerability)
+    async fn check_compression_enabled(&self, _hostname: &str, _port: u16) -> bool {
+        // In production, this would test actual TLS compression
+        // For now, return false (safe default)
+        false
+    }
+
+    /// Check if HTTP compression is enabled over HTTPS (BREACH vulnerability)
+    async fn check_http_compression(&self, hostname: &str, port: u16) -> bool {
+        use reqwest::Client;
+
+        let url = format!("https://{}:{}", hostname, port);
+        let client = match Client::builder()
+            .danger_accept_invalid_certs(true)
+            .timeout(Duration::from_millis(self.config.timeout_ms))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        match client
+            .get(&url)
+            .header("Accept-Encoding", "gzip, deflate, br")
+            .send()
+            .await
+        {
+            Ok(response) => {
+                response
+                    .headers()
+                    .get("Content-Encoding")
+                    .map(|v| {
+                        let val = v.to_str().unwrap_or("");
+                        val.contains("gzip") || val.contains("deflate") || val.contains("br")
+                    })
+                    .unwrap_or(false)
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Check for ROBOT vulnerability (Bleichenbacher attack)
+    async fn check_robot_vulnerability(&self, _hostname: &str, _port: u16) -> bool {
+        // ROBOT check requires sending malformed RSA-encrypted premaster secrets
+        // This is a complex test that should be done with specialized tools
+        // Return false for now (would need actual implementation)
+        false
     }
 
     /// Generate issues list

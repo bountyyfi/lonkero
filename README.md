@@ -82,6 +82,175 @@ Completely rewritten injection scanners with **programmatic payload generation**
 - Cache poisoning vectors (X-Forwarded-Host, X-Original-URL)
 - Dangerous HTTP methods detection via OPTIONS
 
+### Merlin - JavaScript Library Vulnerability Scanner
+New **Merlin** module detects vulnerable third-party JavaScript libraries:
+- **100+ libraries** with known CVEs (jQuery, Angular, Vue, React, Lodash, Moment, etc.)
+- Detects versions from CDN URLs and JavaScript file content
+- Checks against CVE database with severity ratings
+- Reports exact vulnerable version and remediation (upgrade path)
+
+### Advanced WAF Bypass Testing
+12 bypass technique categories:
+- Encoding bypasses (URL, Unicode, HTML entities)
+- Protocol-level tricks (chunked encoding, HTTP method override)
+- Header injection and smuggling techniques
+- JSON/XML payload format manipulation
+
+### HTTP Parameter Pollution Scanner
+Detects HPP vulnerabilities across different server behaviors.
+
+### Enhanced Compliance Mapping
+Now maps findings to **6 compliance frameworks**:
+- OWASP Top 10, PCI-DSS, HIPAA, ISO 27001, GDPR
+- **NEW**: DORA (EU Digital Operational Resilience Act)
+- **NEW**: NIS2 (EU Network and Information Security Directive)
+
+### JavaScript Sensitive Information Scanner (NEW)
+Deep analysis of JavaScript files for leaked secrets and sensitive data:
+
+**API Keys & Tokens**
+- Mapbox tokens (pk.eyJ/sk.eyJ) with billing abuse impact analysis (~$200K for 100M requests)
+- OpenAI, Twilio, SendGrid, Mailgun API keys
+- AWS, GCP, Azure credentials
+- Stripe, PayPal, Square payment keys
+- NPM, PyPI, RubyGems package tokens
+
+**Internal Information**
+- Employee email lists and corporate email patterns
+- Jira tickets and project references
+- Internal URLs (staging, dev, admin)
+- Active Directory/LDAP references
+- Organization chart and hierarchy data
+
+**Development Artifacts**
+- Debug endpoints and admin panels
+- Source maps exposing original code
+- TODO/FIXME comments with security context
+- Hardcoded passwords and secrets
+
+### Rate Limiting Scanner (NEW)
+Tests authentication endpoints for missing or insufficient rate limiting:
+- Signup endpoint brute force testing
+- Login endpoint rate limit detection
+- Password reset abuse potential
+- OTP/2FA code brute force
+- Generates unique test data per request to avoid caching
+
+### CMS Security Scanners (Personal+ License)
+
+**WordPress Security Scanner**
+- **User Enumeration**: Author parameter, REST API, login error messages
+- **XML-RPC Attacks**: Multicall brute force amplification, pingback SSRF
+- **Plugin Vulnerabilities**: 18+ known vulnerable plugins with CVEs
+- **Configuration Exposure**: wp-config.php backups, debug.log, error_log
+- **Version Disclosure**: Generator meta, readme.html, feed links
+- **Sensitive Files**: .htaccess, backup archives, installation scripts
+
+**Drupal Security Scanner**
+- **Drupalgeddon Detection**: CVE-2014-3704, CVE-2018-7600, CVE-2018-7602
+- **User Enumeration**: User paths, JSON API, password reset timing
+- **Module Vulnerabilities**: 15+ vulnerable contributed modules
+- **Configuration Exposure**: settings.php backups, status report
+- **Update/Install Scripts**: update.php, install.php exposure
+- **API Security**: REST/JSON API exposure, cron.php without key
+
+**Laravel Security Scanner**
+- **Ignition RCE**: CVE-2021-3129 remote code execution detection
+- **Debug Mode**: APP_DEBUG=true with environment variable exposure
+- **Admin Panels**: Telescope, Horizon, Nova, Pulse exposure detection
+- **Environment Files**: .env, .env.backup, .env.local exposure
+- **Storage/Logs**: Directory listing, laravel.log, session files
+- **Vendor Exposure**: PHPUnit RCE, composer.json/lock disclosure
+- **Configuration**: Cached config, .git, artisan script exposure
+- **API Security**: Unprotected routes, GraphQL playground
+- **Livewire**: Component vulnerabilities, CSRF misconfigurations
+- **Known CVEs**: Version-based vulnerability detection (7 CVEs)
+
+**Express.js Security Scanner**
+- **X-Powered-By Header**: Express framework disclosure detection
+- **Development Mode**: Stack trace exposure, NODE_ENV detection
+- **Security Headers**: Missing Helmet.js middleware detection
+- **API Documentation**: Swagger UI, GraphQL Playground, GraphiQL exposure
+- **Config Exposure**: package.json, .env, config files
+- **Source Maps**: JavaScript source map exposure (.js.map files)
+- **Process Manager**: PM2 dashboard and metrics exposure
+- **Prototype Pollution**: Request body and query parameter pollution
+- **CORS Issues**: Misconfigured CORS allowing credential theft
+- **Session Security**: Cookie flags, secure session configuration
+- **Debug Endpoints**: /debug, /metrics, /health with sensitive data
+- **Known CVEs**: 12+ CVEs covering Express, qs, mongoose, jsonwebtoken, lodash, axios, socket.io
+
+**Next.js Security Scanner**
+- **Middleware Bypass**: CVE-2025-29927, CVE-2024-39693, CVE-2024-34351 auth bypass detection
+- **_next/data Exposure**: Server-side props leaking sensitive data via JSON endpoints
+- **API Route Security**: Unprotected internal endpoints, CORS misconfigurations
+- **Environment Variables**: Server-side env vars exposed in client bundles
+- **Image Optimization SSRF**: CVE-2024-47831, CVE-2023-46298 internal network access
+- **Draft/Preview Mode**: Unauthenticated draft mode activation
+- **ISR Revalidation**: Exposed revalidation endpoints without auth
+- **Source Map Exposure**: Production source maps leaking original code
+- **Config File Exposure**: next.config.js, .env, package.json accessibility
+- **Server Actions**: CVE-2024-34351 Host header SSRF, cache poisoning
+- **Known CVEs**: 9+ CVEs with version-based detection (auth bypass, SSRF, path traversal)
+
+**SvelteKit Security Scanner**
+- **Load Data Exposure**: Server load function data leaking via __data.json endpoints
+- **Form Actions CSRF**: CVE-2024-23641, CVE-2023-29008 cross-site request forgery
+- **Hooks Bypass**: Authentication bypass via path manipulation in hooks
+- **+server.js Security**: Unprotected API endpoints, CORS misconfigurations
+- **Environment Variables**: $env/static/private exposure in client bundles
+- **Path Traversal**: CVE-2024-24563 static file serving vulnerability
+- **Open Redirect**: CVE-2024-29893, CVE-2023-29007 redirect vulnerabilities
+- **Prerender Leakage**: Cached user/auth data in prerendered pages
+- **Source Map/Config**: svelte.config.js, .env, package.json exposure
+- **Known CVEs**: 6 CVEs with version-based detection (CSRF, path traversal, XSS)
+
+**React Security Scanner**
+- **Dangerous Patterns**: dangerouslySetInnerHTML, innerHTML, eval with user input
+- **DevTools Exposure**: React/Redux/Apollo/React Query DevTools in production
+- **Environment Variables**: Server-side env vars exposed in bundles
+- **Source Map Exposure**: Production source maps leaking component code
+- **SSR Data Leakage**: __INITIAL_STATE__, __PRELOADED_STATE__ with secrets
+- **Build Artifacts**: .env, package.json, webpack.config.js exposure
+- **href/src XSS**: javascript: and data: URI injection via URL parameters
+- **Prototype Pollution**: __proto__ and constructor.prototype injection
+- **GraphQL Introspection**: Schema discovery on /graphql endpoints
+- **CORS Misconfig**: Permissive Access-Control-Allow-Origin headers
+- **Known CVEs**: 8 CVEs covering react, react-router, immer, semver, json5
+
+**Django Security Scanner**
+- **DEBUG Mode**: DEBUG=True detection via error pages and settings exposure
+- **Admin Interface**: /admin/ exposure, weak authentication, missing 2FA
+- **SECRET_KEY Exposure**: Hardcoded secrets in JavaScript bundles, settings files
+- **Security Settings**: Missing SECURE_SSL_REDIRECT, CSRF_COOKIE_SECURE, SESSION_COOKIE_SECURE
+- **Django Debug Toolbar**: Production exposure with SQL queries and request data
+- **Config File Exposure**: settings.py, .env, local_settings.py accessibility
+- **Django REST Framework**: Browsable API exposure, token disclosure, permission issues
+- **Static/Media Exposure**: STATIC_ROOT/MEDIA_ROOT directory listing
+- **Celery/Flower**: Flower dashboard exposure without authentication
+- **Known CVEs**: 13+ CVEs including CVE-2024-42005 (SQL injection), CVE-2024-45230 (DoS), CVE-2024-39330 (path traversal), CVE-2024-39614 (ReDoS), CVE-2024-38875 (DoS)
+
+**Liferay Security Scanner**
+- **JSON Web Services**: /api/jsonws exposure, unauthenticated API invocation
+- **Control Panel**: Admin interface exposure, guest access to control panel
+- **Default Credentials**: test@liferay.com/test, admin@liferay.com/admin detection
+- **Tunnel-Web Servlet**: RCE via Java deserialization (CVE-2020-7961)
+- **WebDAV Exposure**: Public WebDAV access, guest folder enumeration
+- **Config Disclosure**: portal-ext.properties, osgi/configs exposure
+- **GraphQL/Headless APIs**: Introspection enabled, unauthenticated API access
+- **Document Library**: Directory listing, file enumeration
+- **Axis Web Services**: SOAP service exposure, XXE potential (CVE-2019-16891)
+- **Combo Servlet**: Path traversal via themePath parameter
+- **Known CVEs**: 12+ CVEs including CVE-2020-7961 (RCE), CVE-2024-25604 (SQLi), CVE-2024-26271 (path traversal), CVE-2023-42799 (RCE), CVE-2023-42572 (auth bypass)
+
+### Firebase Authentication Bypass (NEW)
+Detects Firebase misconfigurations:
+- **Signup Bypass**: Detects when email/password signup is enabled despite login-only UI
+- **Anonymous Auth**: Unauthorized anonymous authentication
+- **Firestore Rules**: Insecure database security rules
+- **Storage Rules**: Public cloud storage access
+- **API Key Exposure**: Unrestricted Firebase API keys
+
 ### Expanded Technology Detection
 Lonkero now detects **80+ technologies** including:
 
@@ -132,7 +301,9 @@ Lonkero now detects **80+ technologies** including:
 
 ## Features
 
-- **66+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
+- **80+ Scanner Modules** - Comprehensive OWASP Top 10 coverage and beyond
+- **Merlin JS Scanner** - Detects 100+ vulnerable JavaScript libraries with CVE mapping
+- **CMS Security** - Advanced WordPress and Drupal vulnerability detection (Personal+ license)
 - **Technology-Aware** - Detects 80+ frameworks, CDNs, API gateways and runs relevant tests only
 - **High Performance** - Async Rust with HTTP/2 multiplexing, connection pooling
 - **Low False Positives** - Evidence-based detection with baseline comparison
@@ -272,7 +443,7 @@ Only runs relevant tests based on detected stack:
 
 ## Scanner Modules
 
-### Injection (14 modules)
+### Injection (16 modules)
 | Module | Description |
 |--------|-------------|
 | xss | Cross-Site Scripting (Reflected, Stored, DOM) |
@@ -289,30 +460,36 @@ Only runs relevant tests based on detected stack:
 | ldap | LDAP Injection |
 | code_injection | Code Injection (PHP, Python) |
 | email_header_injection | Email Header Injection |
+| http_parameter_pollution | HTTP Parameter Pollution |
+| waf_bypass | Advanced WAF Bypass Techniques |
 
-### Authentication (12 modules)
+### Authentication (14 modules)
 | Module | Description |
 |--------|-------------|
 | jwt | JWT Algorithm Confusion, Weak Secrets |
 | jwt_vulnerabilities | Comprehensive JWT Analysis |
+| jwt_analyzer | Deep JWT Security Analysis (alg:none, key confusion, claim tampering) |
 | oauth | OAuth 2.0 Vulnerabilities |
 | saml | SAML Security Issues |
 | auth_bypass | Authentication Bypass |
 | session_management | Session Security |
+| session_analyzer | Session Fixation, Prediction, Entropy Analysis |
 | mfa | MFA Bypass Detection |
 | idor | Insecure Direct Object References |
+| idor_analyzer | Advanced IDOR with UUID/Hash Pattern Detection |
 | bola | Broken Object Level Authorization |
 | advanced_auth | Advanced Authentication Testing |
-| auth_manager | Authentication Management Flaws |
 | webauthn | WebAuthn/FIDO2 Security |
 
-### Configuration (4 modules)
+### Configuration (6 modules)
 | Module | Description |
 |--------|-------------|
 | security_headers | Missing/Weak Security Headers |
 | cors | CORS Misconfiguration |
 | cors_misconfiguration | Advanced CORS Testing |
 | clickjacking | Clickjacking Protection |
+| tomcat_misconfig | Apache Tomcat Manager, Status, AJP Exposure |
+| varnish_misconfig | Varnish Cache Bypass, Debug Headers, Purge Access |
 
 ### API Security (5 modules)
 | Module | Description |
@@ -344,12 +521,13 @@ Only runs relevant tests based on detected stack:
 | cache_poisoning | Web Cache Poisoning |
 | prototype_pollution | Prototype Pollution |
 
-### Information Disclosure (3 modules)
+### Information Disclosure (4 modules)
 | Module | Description |
 |--------|-------------|
 | information_disclosure | Sensitive Information Leakage |
 | sensitive_data | Sensitive Data Exposure |
 | js_miner | JavaScript Secret Mining |
+| merlin | Vulnerable JavaScript Library Detection (100+ CVEs) |
 
 ### Specific CVE Checks (3 modules)
 | Module | CVE | Severity |
