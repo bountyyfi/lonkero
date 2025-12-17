@@ -1033,9 +1033,32 @@ async fn execute_standalone_scan(
     // If we detected a JS framework and static crawler found few/no forms, use headless browser
     let needs_headless = is_nodejs_stack && discovered_forms.is_empty();
     let mut headless_found_forms = false;
+    let mut intercepted_endpoints: Vec<String> = Vec::new();
     if needs_headless {
         info!("  - SPA detected with no forms found, trying headless browser...");
         let headless = HeadlessCrawler::new(30);
+
+        // First: Discover actual form submission endpoints via network interception
+        // This is crucial for React/Next.js apps where forms POST to /api/ routes
+        info!("  - Intercepting network requests to discover form endpoints...");
+        match headless.discover_form_endpoints(target).await {
+            Ok(endpoints) => {
+                if !endpoints.is_empty() {
+                    info!("[SUCCESS] Intercepted {} form submission endpoints:", endpoints.len());
+                    for ep in &endpoints {
+                        info!("    - {} {} ({})", ep.method, ep.url, ep.content_type.as_deref().unwrap_or("unknown"));
+                        intercepted_endpoints.push(ep.url.clone());
+                    }
+                } else {
+                    info!("  - No POST requests intercepted during form submission");
+                }
+            }
+            Err(e) => {
+                warn!("  - Network interception failed: {}", e);
+            }
+        }
+
+        // Second: Extract form field info
         match headless.extract_forms(target).await {
             Ok(forms) => {
                 if !forms.is_empty() {
@@ -1050,17 +1073,29 @@ async fn execute_standalone_scan(
                             .collect();
 
                         if !form_inputs.is_empty() {
-                            let action_url = if form.action.is_empty() {
+                            // Use intercepted endpoint if available, otherwise fall back to form.action
+                            let action_url = if !intercepted_endpoints.is_empty() {
+                                // Use first intercepted endpoint as the real form target
+                                intercepted_endpoints[0].clone()
+                            } else if form.action.is_empty() {
                                 target.to_string()
                             } else {
                                 form.action.clone()
                             };
                             let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
-                            discovered_forms.push((action_url, form_inputs));
-                            discovered_params.extend(param_names);
+                            discovered_forms.push((action_url.clone(), form_inputs.clone()));
+                            discovered_params.extend(param_names.clone());
+
+                            // Also add entries for other intercepted endpoints (if any)
+                            for ep in intercepted_endpoints.iter().skip(1) {
+                                discovered_forms.push((ep.clone(), form_inputs.clone()));
+                            }
                         }
                     }
                     info!("  - Found {} real form fields from rendered page", discovered_params.len());
+                    if !intercepted_endpoints.is_empty() {
+                        info!("  - Using intercepted API endpoint(s) instead of page URL");
+                    }
                 }
             }
             Err(e) => {
