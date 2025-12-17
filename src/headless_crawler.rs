@@ -549,7 +549,7 @@ impl HeadlessCrawler {
         tab.enable_request_interception(Arc::new(
             move |transport, session_id, intercepted: RequestPausedEvent| {
                 let request = &intercepted.params.request;
-                let method = request.method.as_deref().unwrap_or("GET");
+                let method = if request.method.is_empty() { "GET" } else { &request.method };
 
                 // Only capture POST/PUT/PATCH requests (form submissions)
                 if method == "POST" || method == "PUT" || method == "PATCH" {
@@ -563,8 +563,9 @@ impl HeadlessCrawler {
                             url,
                             method: method.to_string(),
                             post_data,
-                            content_type: request.headers.as_ref()
-                                .and_then(|h| h.get("Content-Type").or(h.get("content-type")))
+                            content_type: request.headers.0
+                                .get("Content-Type")
+                                .or_else(|| request.headers.0.get("content-type"))
                                 .map(|v| v.to_string()),
                         });
                     }
