@@ -1775,6 +1775,152 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
+    // ============================================================
+    // Framework-Specific Security Scanners
+    // ============================================================
+
+    // WordPress Security (only if WordPress detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("wordpress")) {
+        info!("  - Testing WordPress Security");
+        let (vulns, tests) = engine.wordpress_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Drupal Security (only if Drupal detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("drupal")) {
+        info!("  - Testing Drupal Security");
+        let (vulns, tests) = engine.drupal_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Laravel Security (only if Laravel detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("laravel")) {
+        info!("  - Testing Laravel Security");
+        let (vulns, tests) = engine.laravel_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Django Security (only if Django detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("django")) {
+        info!("  - Testing Django Security");
+        let (vulns, tests) = engine.django_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Express Security (only if Express detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("express")) {
+        info!("  - Testing Express.js Security");
+        let (vulns, tests) = engine.express_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Next.js Security (only if Next.js detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("next")) {
+        info!("  - Testing Next.js Security");
+        let (vulns, tests) = engine.nextjs_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // SvelteKit Security (only if SvelteKit detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("svelte")) {
+        info!("  - Testing SvelteKit Security");
+        let (vulns, tests) = engine.sveltekit_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // React Security (only if React detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("react")) {
+        info!("  - Testing React Security");
+        let (vulns, tests) = engine.react_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Liferay Security (only if Liferay detected)
+    if detected_technologies.iter().any(|t| t.to_lowercase().contains("liferay")) {
+        info!("  - Testing Liferay Security");
+        let (vulns, tests) = engine.liferay_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // ============================================================
+    // Server Misconfiguration Scanners
+    // ============================================================
+
+    // Tomcat Misconfiguration (only if Tomcat/Java detected)
+    if is_java_stack || detected_technologies.iter().any(|t| t.to_lowercase().contains("tomcat")) {
+        info!("  - Testing Tomcat Misconfigurations");
+        let (vulns, tests) = engine.tomcat_misconfig_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Varnish Misconfiguration (check for caching issues)
+    info!("  - Testing Varnish/Cache Misconfigurations");
+    let (vulns, tests) = engine.varnish_misconfig_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // ============================================================
+    // General Security Scanners
+    // ============================================================
+
+    // HTTP Parameter Pollution
+    if has_real_params && !is_static_site {
+        info!("  - Testing HTTP Parameter Pollution");
+        for (param_name, _) in &test_params {
+            let (vulns, tests) = engine.hpp_scanner.scan_parameter(target, param_name, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
+    // WAF Bypass Testing
+    info!("  - Testing WAF Bypass Techniques");
+    let (vulns, tests) = engine.waf_bypass_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Merlin Scanner (general security checks)
+    info!("  - Running Merlin Security Checks");
+    let (vulns, tests) = engine.merlin_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // JS Sensitive Info Scanner (for JavaScript sites)
+    if is_nodejs_stack {
+        info!("  - Scanning JavaScript for Sensitive Information");
+        let (vulns, tests) = engine.js_sensitive_info_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Rate Limiting Scanner
+    info!("  - Testing Rate Limiting");
+    let (vulns, tests) = engine.rate_limiting_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // HTTP/3 Scanner
+    info!("  - Testing HTTP/3 (QUIC) Security");
+    let (vulns, tests) = engine.http3_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
+    // Firebase Scanner
+    info!("  - Testing Firebase Security");
+    let (vulns, tests) = engine.firebase_scanner.scan(target, scan_config).await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
+
     // Phase 8: Cloud & Container (Thorough/Insane modes)
     if scan_config.enable_cloud_scanning() {
         info!("Phase 8: Cloud & Container security");
