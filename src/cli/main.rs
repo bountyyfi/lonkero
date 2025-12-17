@@ -946,6 +946,7 @@ async fn execute_standalone_scan(
     // Web crawling (if enabled) - STORE results for parameter discovery
     let mut discovered_params: Vec<String> = Vec::new();
     let mut discovered_forms: Vec<(String, Vec<lonkero_scanner::crawler::FormInput>)> = Vec::new(); // (action_url, form_inputs)
+    let mut is_spa_detected = false;  // SPA detection from crawler
 
     if scan_config.enable_crawler {
         info!("  - Running web crawler (depth: {})", scan_config.max_depth);
@@ -953,6 +954,7 @@ async fn execute_standalone_scan(
         match crawler.crawl(target).await {
             Ok(results) => {
                 info!("  - Discovered {} URLs, {} forms", results.crawled_urls.len(), results.forms.len());
+                is_spa_detected = results.is_spa;  // Capture SPA detection
 
                 // Extract parameters from discovered forms for XSS testing
                 for form in &results.forms {
@@ -1028,11 +1030,12 @@ async fn execute_standalone_scan(
     );
 
     // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
-    // If we detected a JS framework and static crawler found few/no forms, use headless browser
-    let needs_headless = is_nodejs_stack && discovered_forms.is_empty();
+    // Use headless if: (1) tech detection found JS framework, OR (2) crawler detected SPA pattern
+    // AND static crawler found few/no forms
+    let needs_headless = (is_nodejs_stack || is_spa_detected) && discovered_forms.is_empty();
     let mut intercepted_endpoints: Vec<String> = Vec::new();
     if needs_headless {
-        info!("  - SPA detected with no forms found, trying headless browser...");
+        info!("  - SPA detected with no forms found, using headless browser to discover real endpoints...");
         let headless = HeadlessCrawler::new(30);
 
         // First: Discover actual form submission endpoints via network interception

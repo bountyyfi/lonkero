@@ -75,6 +75,8 @@ pub struct CrawlResults {
     pub parameters: HashMap<String, HashSet<String>>, // endpoint -> parameter names
     pub api_endpoints: HashSet<String>,
     pub crawled_urls: HashSet<String>,
+    /// True if site appears to be a client-side rendered SPA (React/Vue/Angular/Nuxt)
+    pub is_spa: bool,
 }
 
 impl CrawlResults {
@@ -86,6 +88,7 @@ impl CrawlResults {
             parameters: HashMap::new(),
             api_endpoints: HashSet::new(),
             crawled_urls: HashSet::new(),
+            is_spa: false,
         }
     }
 
@@ -96,6 +99,7 @@ impl CrawlResults {
         self.scripts.extend(other.scripts);
         self.crawled_urls.extend(other.crawled_urls);
         self.api_endpoints.extend(other.api_endpoints);
+        self.is_spa = self.is_spa || other.is_spa;
 
         for (endpoint, params) in other.parameters {
             self.parameters.entry(endpoint).or_insert_with(HashSet::new).extend(params);
@@ -285,10 +289,11 @@ impl WebCrawler {
             results.links.len()
         );
 
-        // Warn if likely client-side rendered app (has scripts but no forms/links)
+        // Detect if likely client-side rendered app (has scripts but no forms/links)
         if results.forms.is_empty() && results.links.is_empty() && !results.scripts.is_empty() {
+            results.is_spa = true;
             info!("[WARNING] Site appears to be a client-side rendered app (React/Vue/Angular)");
-            info!("[WARNING] Forms and links are rendered by JavaScript - consider using headless browser mode");
+            info!("[WARNING] Forms and links are rendered by JavaScript - will use headless browser mode");
         }
 
         Ok(results)
