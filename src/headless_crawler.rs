@@ -6,7 +6,10 @@
 
 use crate::crawler::{DiscoveredForm, FormInput};
 use anyhow::{Context, Result};
+use headless_chrome::browser::tab::RequestPausedDecision;
+use headless_chrome::protocol::cdp::Fetch::{RequestPattern, RequestStage};
 use headless_chrome::{Browser, LaunchOptions};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -493,4 +496,219 @@ impl HeadlessCrawler {
 
         Ok(forms)
     }
+
+    /// Discover the actual API endpoint for SPA forms by intercepting network requests
+    /// This is crucial for React/Next.js apps where forms don't have HTML action attributes
+    /// but instead use fetch/axios to POST to API routes
+    pub async fn discover_form_endpoints(&self, url: &str) -> Result<Vec<DiscoveredEndpoint>> {
+        info!("[Headless] Discovering form endpoints via network interception: {}", url);
+
+        let url_owned = url.to_string();
+        let timeout = self.timeout;
+
+        let endpoints = tokio::task::spawn_blocking(move || {
+            Self::discover_endpoints_sync(&url_owned, timeout)
+        })
+        .await
+        .context("Form endpoint discovery task panicked")??;
+
+        info!("[Headless] Discovered {} potential form endpoints", endpoints.len());
+        Ok(endpoints)
+    }
+
+    /// Synchronous endpoint discovery with network interception
+    fn discover_endpoints_sync(url: &str, timeout: Duration) -> Result<Vec<DiscoveredEndpoint>> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch Chrome/Chromium")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+
+        // Store captured requests
+        let captured_requests: Arc<Mutex<Vec<CapturedRequest>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = Arc::clone(&captured_requests);
+
+        // Enable network interception - intercept all POST/PUT requests
+        let patterns = vec![
+            RequestPattern {
+                url_pattern: Some("*".to_string()),
+                resource_Type: None,
+                request_stage: Some(RequestStage::Request),
+            },
+        ];
+
+        tab.enable_fetch(Some(&patterns), None)
+            .context("Failed to enable fetch interception")?;
+
+        // Set up the request interceptor
+        tab.enable_request_interception(Arc::new(
+            move |transport, session_id, intercepted| {
+                let request = &intercepted.params.request;
+                let method = request.method.as_deref().unwrap_or("GET");
+
+                // Only capture POST/PUT/PATCH requests (form submissions)
+                if method == "POST" || method == "PUT" || method == "PATCH" {
+                    let url = request.url.clone();
+                    let post_data = request.post_data.clone();
+
+                    debug!("[Headless] Intercepted {} request to: {}", method, url);
+
+                    if let Ok(mut captured) = captured_clone.lock() {
+                        captured.push(CapturedRequest {
+                            url,
+                            method: method.to_string(),
+                            post_data,
+                            content_type: request.headers.as_ref()
+                                .and_then(|h| h.get("Content-Type").or(h.get("content-type")))
+                                .map(|v| v.to_string()),
+                        });
+                    }
+                }
+
+                // Continue the request (don't block it)
+                RequestPausedDecision::Continue(None)
+            },
+        ))?;
+
+        // Navigate to the page
+        tab.navigate_to(url).context("Failed to navigate")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
+        std::thread::sleep(Duration::from_secs(2));
+
+        // Find and try to submit forms with test data
+        let js_fill_and_submit = r#"
+            (function() {
+                const results = [];
+
+                // Find all forms and form-like containers
+                const forms = document.querySelectorAll('form, [class*="form"], [class*="contact"], [role="form"]');
+
+                forms.forEach((form, formIndex) => {
+                    // Fill inputs with test data
+                    form.querySelectorAll('input, textarea, select').forEach(el => {
+                        const type = el.type || el.tagName.toLowerCase();
+                        if (type === 'hidden' || type === 'submit' || type === 'button') return;
+
+                        // Fill with test values based on input type/name
+                        let testValue = 'test';
+                        const name = (el.name || el.id || '').toLowerCase();
+
+                        if (type === 'email' || name.includes('email')) {
+                            testValue = 'test@example.com';
+                        } else if (type === 'tel' || name.includes('phone')) {
+                            testValue = '+1234567890';
+                        } else if (name.includes('name')) {
+                            testValue = 'Test User';
+                        } else if (name.includes('message') || name.includes('comment') || type === 'textarea') {
+                            testValue = 'Test message';
+                        } else if (type === 'select') {
+                            // Select first non-empty option
+                            const opt = el.querySelector('option[value]:not([value=""])');
+                            if (opt) testValue = opt.value;
+                        } else if (type === 'checkbox' || type === 'radio') {
+                            el.checked = true;
+                            return;
+                        }
+
+                        el.value = testValue;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    });
+
+                    results.push({ formIndex, filled: true });
+                });
+
+                return JSON.stringify(results);
+            })()
+        "#;
+
+        let _ = tab.evaluate(js_fill_and_submit, true);
+
+        // Try to submit the first form
+        let js_submit = r#"
+            (function() {
+                // Try clicking submit buttons
+                const submitBtn = document.querySelector(
+                    'form button[type="submit"], form input[type="submit"], ' +
+                    'form button:not([type="button"]), ' +
+                    '[class*="form"] button[type="submit"], ' +
+                    '[class*="form"] button:not([type="button"]), ' +
+                    'button[class*="submit"], button[class*="send"]'
+                );
+
+                if (submitBtn) {
+                    submitBtn.click();
+                    return 'clicked_submit';
+                }
+
+                // Try form.submit()
+                const form = document.querySelector('form');
+                if (form) {
+                    // Create and dispatch submit event (allows JS handlers to run)
+                    const event = new Event('submit', { bubbles: true, cancelable: true });
+                    form.dispatchEvent(event);
+                    return 'dispatched_submit';
+                }
+
+                return 'no_form_found';
+            })()
+        "#;
+
+        let submit_result = tab.evaluate(js_submit, true);
+        debug!("[Headless] Submit result: {:?}", submit_result.ok().and_then(|r| r.value));
+
+        // Wait for any async requests to complete
+        std::thread::sleep(Duration::from_secs(3));
+
+        // Disable interception
+        let _ = tab.disable_fetch();
+
+        // Get captured requests
+        let endpoints = captured_requests.lock()
+            .map(|captured| {
+                captured.iter()
+                    .filter(|req| {
+                        // Filter to only include likely form submission endpoints
+                        let url_lower = req.url.to_lowercase();
+                        // Exclude tracking/analytics
+                        !url_lower.contains("analytics") &&
+                        !url_lower.contains("tracking") &&
+                        !url_lower.contains("pixel") &&
+                        !url_lower.contains("gtag") &&
+                        !url_lower.contains("facebook.com") &&
+                        !url_lower.contains("google-analytics")
+                    })
+                    .map(|req| DiscoveredEndpoint {
+                        url: req.url.clone(),
+                        method: req.method.clone(),
+                        content_type: req.content_type.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(endpoints)
+    }
+}
+
+/// Captured network request during form submission interception
+#[derive(Debug, Clone)]
+struct CapturedRequest {
+    url: String,
+    method: String,
+    post_data: Option<String>,
+    content_type: Option<String>,
+}
+
+/// Discovered form submission endpoint
+#[derive(Debug, Clone)]
+pub struct DiscoveredEndpoint {
+    pub url: String,
+    pub method: String,
+    pub content_type: Option<String>,
 }
