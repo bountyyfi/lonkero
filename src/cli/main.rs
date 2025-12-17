@@ -1462,35 +1462,34 @@ async fn execute_standalone_scan(
             }
         }
 
+        // Detect if this is a GraphQL-only backend (Vue/Nuxt + GraphQL)
+        let is_graphql_only = intercepted_endpoints.iter().all(|ep| ep.to_lowercase().contains("graphql"))
+            && !intercepted_endpoints.is_empty();
+
         // THEN: Test URL parameters with GET (original behavior)
-        info!("  - Testing XSS ({} parameters)", test_params.len());
-        for (param_name, _) in &test_params {
-            let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
+        // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
+        if !is_graphql_only {
+            info!("  - Testing XSS ({} parameters)", test_params.len());
+            for (param_name, _) in &test_params {
+                let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        } else {
+            info!("  - Skipping XSS (Vue/React auto-escapes, GraphQL backend has no SQL)");
         }
 
-        // Run SQLi scanner (skip for static sites)
-        if !is_static_site {
-            info!("  - Testing SQL Injection");
+        // Run SQLi scanner (skip for static sites and GraphQL-only backends)
+        // GraphQL uses typed queries - no SQL string interpolation
+        if !is_static_site && !is_graphql_only {
+            info!("  - Testing SQL Injection ({} parameters)", test_params.len());
             for (param_name, _) in &test_params {
-                // Standard error-based SQLi
                 let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
-
-                // Boolean-based Blind SQLi
-                info!("    Testing Boolean-based Blind SQLi on '{}'", param_name);
-                let (bool_vulns, bool_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
-                all_vulnerabilities.extend(bool_vulns);
-                total_tests += bool_tests as u64;
-
-                // UNION-based SQLi
-                info!("    Testing UNION-based SQLi on '{}'", param_name);
-                let (union_vulns, union_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
-                all_vulnerabilities.extend(union_vulns);
-                total_tests += union_tests as u64;
             }
+        } else if is_graphql_only {
+            info!("  - Skipping SQLi (GraphQL uses parameterized queries)");
         }
 
         // Run Command Injection scanner

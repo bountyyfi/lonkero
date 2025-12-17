@@ -178,10 +178,11 @@ impl EnhancedSqliScanner {
         url: &str,
         body_param: &str,
         existing_body: &str,
-        _config: &ScanConfig,
+        config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("Testing POST parameter '{}' for SQL injection", body_param);
 
+        let scan_mode = config.scan_mode.as_str();
         let baseline = match self.http_client.post(url, existing_body.to_string()).await {
             Ok(response) => response,
             Err(e) => {
@@ -200,7 +201,11 @@ impl EnhancedSqliScanner {
         let total_payloads = payloads.len();
 
         let mut vulnerabilities = Vec::new();
-        let concurrent_requests = 100;
+        let concurrent_requests = match scan_mode {
+            "insane" => 200,
+            "thorough" => 150,
+            _ => 100,
+        };
 
         let results = stream::iter(payloads)
             .map(|payload| {
@@ -454,7 +459,11 @@ impl EnhancedSqliScanner {
 
         let total_payloads = payloads.len();
         let mut vulnerabilities = Vec::new();
-        let concurrent_requests = 100;
+        let concurrent_requests = match config.scan_mode.as_str() {
+            "insane" => 200,
+            "thorough" => 150,
+            _ => 100,
+        };
 
         let results = stream::iter(payloads)
             .map(|payload| {

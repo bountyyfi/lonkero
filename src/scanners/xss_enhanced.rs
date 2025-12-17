@@ -88,7 +88,12 @@ impl EnhancedXssScanner {
         debug!("Testing {} XSS payloads with confirmation", total_payloads);
 
         let mut vulnerabilities = Vec::new();
-        let concurrent_requests = 50; // Reduced for mutation testing
+        // Use higher concurrency for faster scanning - adaptive based on mode
+        let concurrent_requests = match config.scan_mode.as_str() {
+            "insane" => 200,
+            "thorough" => 100,
+            _ => 50,
+        };
 
         // Phase 1: Initial detection
         let results = stream::iter(payloads.clone())
@@ -196,7 +201,11 @@ impl EnhancedXssScanner {
         let total_payloads = payloads.len();
 
         let mut vulnerabilities = Vec::new();
-        let concurrent_requests = 50;
+        let concurrent_requests = match config.scan_mode.as_str() {
+            "insane" => 200,
+            "thorough" => 100,
+            _ => 50,
+        };
 
         // Detect content type
         let is_json = content_type
