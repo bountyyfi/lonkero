@@ -872,7 +872,7 @@ fn get_dummy_value(field_name: &str) -> String {
 }
 
 /// Get value for a form input, using SELECT options if available
-fn get_form_input_value(input: &crate::crawler::FormInput) -> String {
+fn get_form_input_value(input: &lonkero_scanner::crawler::FormInput) -> String {
     // For SELECT elements with options, use first option
     if input.input_type.eq_ignore_ascii_case("select") {
         if let Some(options) = &input.options {
@@ -946,7 +946,7 @@ async fn execute_standalone_scan(
 
     // Web crawling (if enabled) - STORE results for parameter discovery
     let mut discovered_params: Vec<String> = Vec::new();
-    let mut discovered_forms: Vec<(String, Vec<crate::crawler::FormInput>)> = Vec::new(); // (action_url, form_inputs)
+    let mut discovered_forms: Vec<(String, Vec<lonkero_scanner::crawler::FormInput>)> = Vec::new(); // (action_url, form_inputs)
 
     if scan_config.enable_crawler {
         info!("  - Running web crawler (depth: {})", scan_config.max_depth);
@@ -957,7 +957,7 @@ async fn execute_standalone_scan(
 
                 // Extract parameters from discovered forms for XSS testing
                 for form in &results.forms {
-                    let form_inputs: Vec<crate::crawler::FormInput> = form.inputs.iter()
+                    let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
                         .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                        !input.input_type.eq_ignore_ascii_case("submit") &&
                                        !input.name.is_empty())
@@ -1041,7 +1041,7 @@ async fn execute_standalone_scan(
                     headless_found_forms = true;
                     info!("[SUCCESS] Headless browser found {} forms", forms.len());
                     for form in &forms {
-                        let form_inputs: Vec<crate::crawler::FormInput> = form.inputs.iter()
+                        let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
                             .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                            !input.input_type.eq_ignore_ascii_case("submit") &&
                                            !input.name.is_empty())
