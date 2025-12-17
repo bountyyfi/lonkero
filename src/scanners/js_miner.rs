@@ -1579,6 +1579,27 @@ impl JsMinerScanner {
             "cachebuster", "cache",
             "v", "ver", "version",
             "r", "referrer", "source",
+            // Apollo GraphQL internals
+            "apollo", "apolloClient", "apolloProvider", "apolloUtil",
+            "_apollo", "_apolloInitData", "apolloState",
+            // Sentry error tracking
+            "_sentrySpans", "_sentryTraceData", "sentryConfig",
+            // Vue.js internals
+            "ssrContext", "nuxt", "vuex", "vueRouter", "vueI18n",
+            "morph", "prefetch", "deep", "wrapper",
+            // Generic service/provider class names (not params)
+            "authService", "signatureService", "serviceGenerator",
+            "globalSettingsService", "extraServiceService",
+            // Crypto/algorithm names
+            "ed25519", "sha256", "sha512", "hmac", "aes",
+            // Common JS internals
+            "spectrum", "palette", "handleError", "transport",
+            "App", "Router", "Store", "Provider", "Context",
+            "mutation", "subscription", "resolver",
+            // dayjs/moment internals
+            "isDayjsObject", "isMoment", "localOffset",
+            // Generic framework noise
+            "_key", "_times", "defaultWidth", "shortRange",
         ];
         let name_lower = name.to_lowercase();
         for skip in skip_exact {
@@ -1602,7 +1623,14 @@ impl JsMinerScanner {
         // Skip common webpack/framework internal params
         let skip_patterns = [
             "webpack", "chunk", "module", "__", "$$", "_$", "$_",
-            "WEBPACK", "CHUNK", "MODULE", "next", "react", "redux",
+            "WEBPACK", "CHUNK", "MODULE",
+            // Framework name patterns (likely internal)
+            "Service", "Provider", "Factory", "Handler", "Manager",
+            "Controller", "Resolver", "Generator", "Util",
+            // Sentry patterns
+            "sentry", "Sentry", "_sentry",
+            // Apollo patterns
+            "Apollo", "_apollo",
         ];
         for pattern in skip_patterns {
             if name.contains(pattern) {

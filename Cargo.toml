@@ -29,19 +29,6 @@ path = "src/bin/scanner-worker.rs"
 name = "lonkero-agent"
 path = "src/bin/internal-agent.rs"
 
-# Cloud-specific scanners
-[[bin]]
-name = "lonkero-aws-ec2"
-path = "src/bin/aws-ec2-scanner.rs"
-
-[[bin]]
-name = "lonkero-aws-s3"
-path = "src/bin/aws-s3-scanner.rs"
-
-[[bin]]
-name = "lonkero-aws-rds"
-path = "src/bin/aws-rds-scanner.rs"
-
 [dependencies]
 # Async runtime
 tokio = { version = "1.48", features = ["full", "tracing"] }
@@ -193,32 +180,7 @@ lettre = { version = "0.11", default-features = false, features = ["tokio1-rustl
 # Excel/XLSX generation
 rust_xlsxwriter = "0.92.1"
 
-# AWS SDK for cloud security scanning
-aws-config = { version = "1.8.10", features = ["behavior-version-latest"] }
-aws-sdk-s3 = "1.112"
-aws-sdk-rds = "1.115"
-aws-sdk-lambda = "1.104"
-aws-sdk-iam = "1.97"
-aws-sdk-ec2 = "1.189"
-aws-sdk-apigateway = "1.92"
-aws-sdk-ecr = "1.99"
-aws-sdk-sts = "1.92"
-aws-sdk-cloudformation = "1.101"
-
-# Azure SDK for cloud security scanning
-# Updated azure_identity to latest stable 0.30.0 for security fixes
-# Note: azure_mgmt_* packages are at their latest (0.21.0) as of Nov 2025
-azure_identity = "0.30"
-azure_mgmt_compute = "0.21"
-azure_mgmt_network = "0.21"
-azure_mgmt_authorization = "0.21"
-azure_storage = "0.21"
-azure_storage_blobs = "0.21"
-
-# GCP (Optional - via REST API or google-cloud-rust)
-# Note: GCP support via REST API calls, no additional deps needed for now
-
-# Additional cloud and security dependencies
+# Additional security dependencies
 sha1 = "0.10"
 hex = "0.4"
 

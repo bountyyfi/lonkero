@@ -7,7 +7,7 @@
 use crate::crawler::{DiscoveredForm, FormInput};
 use anyhow::{Context, Result};
 use headless_chrome::browser::tab::RequestPausedDecision;
-use headless_chrome::protocol::cdp::Fetch::{RequestPattern, RequestStage};
+use headless_chrome::protocol::cdp::Fetch::{events::RequestPausedEvent, RequestPattern, RequestStage};
 use headless_chrome::{Browser, LaunchOptions};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -547,9 +547,9 @@ impl HeadlessCrawler {
 
         // Set up the request interceptor
         tab.enable_request_interception(Arc::new(
-            move |transport, session_id, intercepted| {
+            move |transport, session_id, intercepted: RequestPausedEvent| {
                 let request = &intercepted.params.request;
-                let method = request.method.as_deref().unwrap_or("GET");
+                let method = if request.method.is_empty() { "GET" } else { &request.method };
 
                 // Only capture POST/PUT/PATCH requests (form submissions)
                 if method == "POST" || method == "PUT" || method == "PATCH" {
@@ -563,9 +563,10 @@ impl HeadlessCrawler {
                             url,
                             method: method.to_string(),
                             post_data,
-                            content_type: request.headers.as_ref()
-                                .and_then(|h| h.get("Content-Type").or(h.get("content-type")))
-                                .map(|v| v.to_string()),
+                            content_type: request.headers.0.as_ref()
+                                .and_then(|h| h.get("Content-Type").or_else(|| h.get("content-type")))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
                         });
                     }
                 }

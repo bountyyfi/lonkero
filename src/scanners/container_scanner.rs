@@ -20,7 +20,6 @@
  */
 
 use crate::http_client::HttpClient;
-use crate::scanners::cloud::{AzureContainerScanner, AzureStorageScanner, AzureAksScanner};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use regex::Regex;
 use std::sync::Arc;
@@ -28,17 +27,11 @@ use tracing::{debug, info};
 
 pub struct ContainerScanner {
     http_client: Arc<HttpClient>,
-    azure_container_scanner: AzureContainerScanner,
-    azure_storage_scanner: AzureStorageScanner,
-    azure_aks_scanner: AzureAksScanner,
 }
 
 impl ContainerScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
         Self {
-            azure_container_scanner: AzureContainerScanner::new(Arc::clone(&http_client)),
-            azure_storage_scanner: AzureStorageScanner::new(Arc::clone(&http_client)),
-            azure_aks_scanner: AzureAksScanner::new(Arc::clone(&http_client)),
             http_client,
         }
     }
@@ -76,35 +69,7 @@ impl ContainerScanner {
             tests_run += tests;
         }
 
-        // Scan Azure container services if URL appears to be Azure-related
-        if self.is_azure_url(url) {
-            info!("Detected Azure infrastructure, running Azure-specific container scans");
-
-            let (vulns, tests) = self.azure_container_scanner.scan(url, config).await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-
-            let (vulns, tests) = self.azure_storage_scanner.scan(url, config).await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-
-            let (vulns, tests) = self.azure_aks_scanner.scan(url, config).await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-        }
-
         Ok((vulnerabilities, tests_run))
-    }
-
-    /// Check if URL appears to be Azure-related
-    fn is_azure_url(&self, url: &str) -> bool {
-        let url_lower = url.to_lowercase();
-        url_lower.contains("azure")
-            || url_lower.contains("azurecr.io")
-            || url_lower.contains("azurecontainer.io")
-            || url_lower.contains("azmk8s.io")
-            || url_lower.contains("blob.core.windows.net")
-            || url_lower.contains("azurewebsites.net")
     }
 
     /// Test for exposed Docker API

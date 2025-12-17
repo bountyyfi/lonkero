@@ -109,9 +109,6 @@ pub mod react_security;
 pub mod django_security;
 pub mod liferay_security;
 
-// Cloud security scanners
-pub mod cloud;
-
 // External security scanners
 pub mod external;
 
