@@ -325,11 +325,6 @@ cargo build --release
 
 # Install main CLI
 cargo install --path .
-
-# Install cloud scanners (optional)
-cargo install --path . --bin lonkero-aws-s3
-cargo install --path . --bin lonkero-aws-ec2
-cargo install --path . --bin lonkero-aws-rds
 ```
 
 ### Verify Installation
@@ -542,15 +537,13 @@ Only runs relevant tests based on detected stack:
 | tomcat_misconfig | Tomcat Stack Traces, Manager Exposure, AJP (Ghostcat) |
 | varnish_misconfig | Unauthenticated Cache Purge/Ban, Header Disclosure |
 
-### Cloud Security (6 modules)
+### Cloud & Container Security (4 modules)
 | Module | Description |
 |--------|-------------|
-| cloud_storage | S3, GCS, Azure Blob Misconfigurations |
-| cloud_security | General Cloud Security |
-| container | Container Security |
-| framework_vulnerabilities | Framework-Specific Vulnerabilities |
-| redos | Regular Expression Denial of Service |
-| xml_injection | XML Injection |
+| cloud_storage | S3, GCS, Azure Blob Misconfigurations (HTTP-based) |
+| cloud_security | General Cloud Security Checks |
+| container | Docker/Kubernetes Container Security |
+| api_gateway | API Gateway Security |
 
 ## Output Formats
 
@@ -642,77 +635,41 @@ lonkero scan https://example.com --basic-auth "username:password"
 lonkero scan https://example.com -H "X-API-Key: secret" -H "X-Tenant: acme"
 ```
 
-## Cloud Security Scanning
+## Cloud Storage Security
 
-### Automatic Cloud Storage Detection (NEW in v2.0)
+### Automatic Cloud Storage Detection
 
-Lonkero now automatically detects and scans cloud storage URLs during any scan:
+Lonkero automatically detects and scans cloud storage URLs found during scans:
 
 ```bash
-# Regular scan automatically detects S3, Azure, GCS URLs
+# Regular scan automatically detects S3, Azure, GCS URLs in JavaScript
 lonkero scan https://example.com
 
 # If JavaScript files reference cloud storage:
 # - https://bucket.s3.amazonaws.com/data.json
 # - https://account.blob.core.windows.net/container
+# - https://storage.googleapis.com/bucket/file
 # These are automatically scanned for misconfigurations!
 ```
 
-### AWS S3 Bucket Scanning
+### Direct Cloud Storage Scanning
 
-**1. Direct S3 URL Scan (auto-triggered)**
 ```bash
-# Scan S3 bucket directly - automatically detects region and runs 90+ checks
+# Scan S3 bucket directly (HTTP-based, no SDK required)
 lonkero scan https://bucket-name.s3.eu-north-1.amazonaws.com
 
-# Works with all S3 URL formats:
-lonkero scan https://bucket.s3.amazonaws.com
-lonkero scan https://s3.region.amazonaws.com/bucket
+# Scan Azure Blob Storage
+lonkero scan https://account.blob.core.windows.net/container
+
+# Scan Google Cloud Storage
+lonkero scan https://storage.googleapis.com/bucket
 ```
 
-**2. Advanced S3 Scanner (dedicated tool)**
-```bash
-# Public bucket scan (no credentials required)
-lonkero-aws-s3 --url https://bucket-name.s3.eu-north-1.amazonaws.com/
-
-# Scan multiple buckets
-lonkero-aws-s3 --url https://bucket1.s3.us-east-1.amazonaws.com/,https://bucket2.s3.eu-west-1.amazonaws.com/
-
-# Check for sensitive files (90+ patterns)
-lonkero-aws-s3 --url https://bucket.s3.region.amazonaws.com/ --check-objects
-```
-
-**3. Authenticated Scan (requires AWS credentials)**
-```bash
-# Set credentials
-export AWS_ACCESS_KEY_ID=AKIA...
-export AWS_SECRET_ACCESS_KEY=...
-
-# Scan your own buckets
-lonkero-aws-s3 --regions us-east-1,eu-west-1
-```
-
-**Sensitive Files Checked (90+ patterns)**:
-- Git: `.git/config`, `.git/HEAD`, `.github/workflows/deploy.yml`
-- Environment: `.env`, `.env.local`, `.env.production`, `.env.backup`
-- AWS Credentials: `.aws/credentials`, `.aws/config`, `credentials.json`
-- SSH Keys: `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.pem`
-- Databases: `backup.sql`, `database.sqlite`, `db.sql`
-- Backups: `backup.zip`, `backup.tar.gz`, `backup-YYYY-MM-DD.sql`
-- IaC: `terraform.tfstate`, `docker-compose.yml`, `kubernetes.yml`
-- CI/CD: `.travis.yml`, `.gitlab-ci.yml`, `.circleci/config.yml`
-
-### AWS EC2 Scanning
-
-```bash
-lonkero-aws-ec2 --region us-east-1
-```
-
-### AWS RDS Scanning
-
-```bash
-lonkero-aws-rds --region us-east-1
-```
+**Checks performed:**
+- Public read/write access
+- Directory listing enabled
+- Sensitive file exposure (.env, credentials, backups)
+- Misconfigured CORS policies
 
 ## CI/CD Integration
 

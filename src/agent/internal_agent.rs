@@ -162,7 +162,12 @@ impl InternalAgent {
         let key_pem = std::fs::read(&config.tls_key_path)
             .context("Failed to read client private key")?;
 
-        let identity = reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem)
+        // Combine cert and key into single PEM buffer for reqwest::Identity::from_pem
+        let mut combined_pem = cert_pem.clone();
+        combined_pem.push(b'\n');
+        combined_pem.extend_from_slice(&key_pem);
+
+        let identity = reqwest::Identity::from_pem(&combined_pem)
             .context("Failed to create identity from certificate and key")?;
 
         // Load CA certificate

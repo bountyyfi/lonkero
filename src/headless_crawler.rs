@@ -7,7 +7,7 @@
 use crate::crawler::{DiscoveredForm, FormInput};
 use anyhow::{Context, Result};
 use headless_chrome::browser::tab::RequestPausedDecision;
-use headless_chrome::protocol::cdp::Fetch::{RequestPattern, RequestStage};
+use headless_chrome::protocol::cdp::Fetch::{events::RequestPausedEvent, RequestPattern, RequestStage};
 use headless_chrome::{Browser, LaunchOptions};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -547,7 +547,7 @@ impl HeadlessCrawler {
 
         // Set up the request interceptor
         tab.enable_request_interception(Arc::new(
-            move |transport, session_id, intercepted| {
+            move |transport, session_id, intercepted: RequestPausedEvent| {
                 let request = &intercepted.params.request;
                 let method = request.method.as_deref().unwrap_or("GET");
 
