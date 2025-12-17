@@ -23,8 +23,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn, Level};
-use url;
-use tracing_subscriber::{fmt, EnvFilter};
 
 use lonkero_scanner::config::ScannerConfig;
 use lonkero_scanner::http_client::HttpClient;
@@ -1032,7 +1030,6 @@ async fn execute_standalone_scan(
     // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
     // If we detected a JS framework and static crawler found few/no forms, use headless browser
     let needs_headless = is_nodejs_stack && discovered_forms.is_empty();
-    let mut headless_found_forms = false;
     let mut intercepted_endpoints: Vec<String> = Vec::new();
     if needs_headless {
         info!("  - SPA detected with no forms found, trying headless browser...");
@@ -1062,7 +1059,6 @@ async fn execute_standalone_scan(
         match headless.extract_forms(target).await {
             Ok(forms) => {
                 if !forms.is_empty() {
-                    headless_found_forms = true;
                     info!("[SUCCESS] Headless browser found {} forms", forms.len());
                     for form in &forms {
                         let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
@@ -1358,14 +1354,18 @@ async fn execute_standalone_scan(
             }
         }
 
-        // Run Command Injection scanner (skip for static sites)
-        if !is_static_site {
+        // Run Command Injection scanner
+        // SKIP for Node.js stacks (Next.js, React, Vue, Angular) - they use JavaScript APIs, not shell commands
+        // Command injection is only relevant for PHP, Python CGI, or legacy systems that shell out
+        if !is_static_site && !is_nodejs_stack && (is_php_stack || is_python_stack || is_java_stack) {
             info!("  - Testing Command Injection");
             for (param_name, _) in &test_params {
                 let (vulns, tests) = engine.cmdi_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
             }
+        } else if !is_static_site && is_nodejs_stack {
+            info!("  - Skipping Command Injection (Node.js stacks don't execute shell commands)");
         }
 
         // Run Path Traversal scanner (skip for static sites)
