@@ -1186,17 +1186,24 @@ async fn execute_standalone_scan(
         if !discovered_forms.is_empty() {
             info!("  - Testing {} discovered forms with POST", discovered_forms.len());
 
-            // Find potential API endpoints for form submission from JS miner results
+            // Log all discovered API endpoints for debugging
+            if !js_miner_results.api_endpoints.is_empty() {
+                info!("    [JS-Miner] Discovered API endpoints:");
+                for ep in &js_miner_results.api_endpoints {
+                    info!("      - {}", ep);
+                }
+            }
+            if !js_miner_results.form_actions.is_empty() {
+                info!("    [JS-Miner] Discovered form actions:");
+                for ep in &js_miner_results.form_actions {
+                    info!("      - {}", ep);
+                }
+            }
+
+            // For SPA forms, test ALL discovered API endpoints (not just filtered ones)
+            // since React/Next.js forms can submit to any API route
             let form_api_endpoints: Vec<String> = js_miner_results.api_endpoints.iter()
                 .chain(js_miner_results.form_actions.iter())
-                .filter(|ep| {
-                    let ep_lower = ep.to_lowercase();
-                    ep_lower.contains("contact") || ep_lower.contains("submit") ||
-                    ep_lower.contains("form") || ep_lower.contains("send") ||
-                    ep_lower.contains("message") || ep_lower.contains("inquiry") ||
-                    ep_lower.contains("newsletter") || ep_lower.contains("signup") ||
-                    ep_lower.contains("/api/")
-                })
                 .cloned()
                 .collect();
 
@@ -1212,9 +1219,17 @@ async fn execute_standalone_scan(
 
                 // If form action is the page URL (React/SPA default), add discovered API endpoints
                 let parsed_target = url::Url::parse(target).ok();
-                let is_page_url = parsed_target.as_ref()
-                    .map(|t| action_url == target || action_url == &format!("{}/", t.as_str().trim_end_matches('/')))
-                    .unwrap_or(false);
+                let action_normalized = action_url.trim_end_matches('/');
+                let target_normalized = target.trim_end_matches('/');
+                let is_page_url = action_normalized == target_normalized ||
+                    parsed_target.as_ref()
+                        .map(|t| {
+                            let origin = t.origin().ascii_serialization();
+                            action_normalized == origin || action_normalized == &format!("{}/", origin)
+                        })
+                        .unwrap_or(false);
+
+                info!("    [DEBUG] action_url={}, target={}, is_page_url={}", action_url, target, is_page_url);
 
                 if is_page_url && !form_api_endpoints.is_empty() {
                     info!("    [SPA] Form action is page URL, also testing {} potential API endpoints", form_api_endpoints.len());
