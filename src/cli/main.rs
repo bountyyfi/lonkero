@@ -1038,36 +1038,21 @@ async fn execute_standalone_scan(
         info!("  - SPA detected with no forms found, using headless browser to discover real endpoints...");
         // Pass auth token to headless crawler for authenticated form discovery
         let headless = HeadlessCrawler::with_auth(30, scan_config.auth_token.clone());
+
+        // For authenticated scans, do full site crawl to discover all pages and forms
         if scan_config.auth_token.is_some() {
-            info!("  - Using authenticated headless session with provided token");
-        }
+            info!("  - Using authenticated headless session - performing full site crawl");
+            let max_pages = 50; // Limit pages for reasonable scan time
 
-        // First: Discover actual form submission endpoints via network interception
-        // This is crucial for React/Next.js apps where forms POST to /api/ routes
-        info!("  - Intercepting network requests to discover form endpoints...");
-        match headless.discover_form_endpoints(target).await {
-            Ok(endpoints) => {
-                if !endpoints.is_empty() {
-                    info!("[SUCCESS] Intercepted {} form submission endpoints:", endpoints.len());
-                    for ep in &endpoints {
-                        info!("    - {} {} ({})", ep.method, ep.url, ep.content_type.as_deref().unwrap_or("unknown"));
-                        intercepted_endpoints.push(ep.url.clone());
-                    }
-                } else {
-                    info!("  - No POST requests intercepted during form submission");
-                }
-            }
-            Err(e) => {
-                warn!("  - Network interception failed: {}", e);
-            }
-        }
+            match headless.crawl_authenticated_site(target, max_pages).await {
+                Ok(crawl_results) => {
+                    info!("[SUCCESS] Authenticated site crawl complete:");
+                    info!("    - Pages visited: {}", crawl_results.pages_visited.len());
+                    info!("    - Forms discovered: {}", crawl_results.forms.len());
+                    info!("    - API endpoints found: {}", crawl_results.api_endpoints.len());
 
-        // Second: Extract form field info
-        match headless.extract_forms(target).await {
-            Ok(forms) => {
-                if !forms.is_empty() {
-                    info!("[SUCCESS] Headless browser found {} forms", forms.len());
-                    for form in &forms {
+                    // Add all discovered forms
+                    for form in &crawl_results.forms {
                         let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
                             .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                            !input.input_type.eq_ignore_ascii_case("submit") &&
@@ -1076,33 +1061,95 @@ async fn execute_standalone_scan(
                             .collect();
 
                         if !form_inputs.is_empty() {
-                            // Use intercepted endpoint if available, otherwise fall back to form.action
-                            let action_url = if !intercepted_endpoints.is_empty() {
-                                // Use first intercepted endpoint as the real form target
-                                intercepted_endpoints[0].clone()
-                            } else if form.action.is_empty() {
-                                target.to_string()
+                            let action_url = if form.action.is_empty() {
+                                form.discovered_at.clone()
                             } else {
                                 form.action.clone()
                             };
                             let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
-                            discovered_forms.push((action_url.clone(), form_inputs.clone()));
-                            discovered_params.extend(param_names.clone());
-
-                            // Also add entries for other intercepted endpoints (if any)
-                            for ep in intercepted_endpoints.iter().skip(1) {
-                                discovered_forms.push((ep.clone(), form_inputs.clone()));
-                            }
+                            discovered_forms.push((action_url, form_inputs));
+                            discovered_params.extend(param_names);
                         }
                     }
-                    info!("  - Found {} real form fields from rendered page", discovered_params.len());
-                    if !intercepted_endpoints.is_empty() {
-                        info!("  - Using intercepted API endpoint(s) instead of page URL");
+
+                    // Add all discovered API endpoints
+                    for ep in &crawl_results.api_endpoints {
+                        info!("    - API: {} {}", ep.method, ep.url);
+                        intercepted_endpoints.push(ep.url.clone());
                     }
+
+                    info!("  - Total: {} forms with {} fields, {} API endpoints",
+                          discovered_forms.len(), discovered_params.len(), intercepted_endpoints.len());
+                }
+                Err(e) => {
+                    warn!("  - Full site crawl failed: {}", e);
+                    warn!("  - Falling back to single-page scan");
                 }
             }
-            Err(e) => {
-                warn!("  - Headless browser failed: {} (Chrome/Chromium may not be installed)", e);
+        } else {
+            // Non-authenticated: use single-page discovery (existing behavior)
+            // First: Discover actual form submission endpoints via network interception
+            // This is crucial for React/Next.js apps where forms POST to /api/ routes
+            info!("  - Intercepting network requests to discover form endpoints...");
+            match headless.discover_form_endpoints(target).await {
+                Ok(endpoints) => {
+                    if !endpoints.is_empty() {
+                        info!("[SUCCESS] Intercepted {} form submission endpoints:", endpoints.len());
+                        for ep in &endpoints {
+                            info!("    - {} {} ({})", ep.method, ep.url, ep.content_type.as_deref().unwrap_or("unknown"));
+                            intercepted_endpoints.push(ep.url.clone());
+                        }
+                    } else {
+                        info!("  - No POST requests intercepted during form submission");
+                    }
+                }
+                Err(e) => {
+                    warn!("  - Network interception failed: {}", e);
+                }
+            }
+
+            // Second: Extract form field info
+            match headless.extract_forms(target).await {
+                Ok(forms) => {
+                    if !forms.is_empty() {
+                        info!("[SUCCESS] Headless browser found {} forms", forms.len());
+                        for form in &forms {
+                            let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
+                                .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
+                                               !input.input_type.eq_ignore_ascii_case("submit") &&
+                                               !input.name.is_empty())
+                                .cloned()
+                                .collect();
+
+                            if !form_inputs.is_empty() {
+                                // Use intercepted endpoint if available, otherwise fall back to form.action
+                                let action_url = if !intercepted_endpoints.is_empty() {
+                                    // Use first intercepted endpoint as the real form target
+                                    intercepted_endpoints[0].clone()
+                                } else if form.action.is_empty() {
+                                    target.to_string()
+                                } else {
+                                    form.action.clone()
+                                };
+                                let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
+                                discovered_forms.push((action_url.clone(), form_inputs.clone()));
+                                discovered_params.extend(param_names.clone());
+
+                                // Also add entries for other intercepted endpoints (if any)
+                                for ep in intercepted_endpoints.iter().skip(1) {
+                                    discovered_forms.push((ep.clone(), form_inputs.clone()));
+                                }
+                            }
+                        }
+                        info!("  - Found {} real form fields from rendered page", discovered_params.len());
+                        if !intercepted_endpoints.is_empty() {
+                            info!("  - Using intercepted API endpoint(s) instead of page URL");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("  - Headless browser failed: {} (Chrome/Chromium may not be installed)", e);
+                }
             }
         }
     }
@@ -1172,6 +1219,91 @@ async fn execute_standalone_scan(
               js_miner_results.api_endpoints.len(),
               js_miner_results.graphql_endpoints.len(),
               js_param_count);
+    }
+
+    // ==========================================================================
+    // EARLY AUTH TESTING: Run auth-critical tests first while JWT token is fresh
+    // JWT tokens expire - we need to test auth endpoints before doing slow injection tests
+    // ==========================================================================
+    let mut auth_tests_done = false;
+    if scan_config.auth_token.is_some() {
+        info!("Phase 0.5: Early authentication testing (JWT token may expire)");
+
+        // JWT vulnerabilities - MUST run first while token is valid
+        info!("  - Testing JWT Security (priority: token freshness)");
+        if let Some(ref token) = scan_config.auth_token {
+            let (vulns, tests) = engine.jwt_scanner.scan_jwt(target, token, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+
+        // JWT Vulnerabilities Scanner (general JWT analysis)
+        info!("  - Testing JWT Vulnerabilities");
+        let (vulns, tests) = engine.jwt_vulnerabilities_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // GraphQL - often uses JWT for auth, test while token works
+        info!("  - Testing GraphQL Security (uses auth token)");
+        let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Advanced GraphQL
+        info!("  - Testing Advanced GraphQL Security");
+        let (vulns, tests) = engine.graphql_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Test discovered GraphQL endpoints from crawl/JS mining
+        let backend_graphql = "https://netlux-stage-backend.valmistumassa.fi/graphql";
+        for ep in &intercepted_endpoints {
+            if ep.to_lowercase().contains("graphql") && ep != backend_graphql {
+                info!("  - Testing discovered GraphQL endpoint: {}", ep);
+                let (vulns, tests) = engine.graphql_scanner.scan(ep, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+
+        // Also test intercepted backend GraphQL
+        if intercepted_endpoints.iter().any(|e| e.contains("graphql")) {
+            for ep in &intercepted_endpoints {
+                if ep.to_lowercase().contains("graphql") {
+                    info!("  - Testing intercepted GraphQL: {}", ep);
+                    let (vulns, tests) = engine.graphql_scanner.scan(ep, scan_config).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests as u64;
+                }
+            }
+        }
+
+        // API Security - often auth-dependent
+        info!("  - Testing API Security");
+        let (vulns, tests) = engine.api_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Auth Bypass - requires valid token to compare responses
+        info!("  - Testing Authentication Bypass");
+        let (vulns, tests) = engine.auth_bypass_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // IDOR - needs auth to test resource access
+        info!("  - Testing IDOR");
+        let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // BOLA
+        info!("  - Testing BOLA");
+        let (vulns, tests) = engine.bola_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        auth_tests_done = true;
+        info!("[SUCCESS] Early auth testing complete - token-dependent tests done");
     }
 
     // Phase 1: Parameter-based scanning
@@ -1330,35 +1462,34 @@ async fn execute_standalone_scan(
             }
         }
 
+        // Detect if this is a GraphQL-only backend (Vue/Nuxt + GraphQL)
+        let is_graphql_only = intercepted_endpoints.iter().all(|ep| ep.to_lowercase().contains("graphql"))
+            && !intercepted_endpoints.is_empty();
+
         // THEN: Test URL parameters with GET (original behavior)
-        info!("  - Testing XSS ({} parameters)", test_params.len());
-        for (param_name, _) in &test_params {
-            let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
+        // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
+        if !is_graphql_only {
+            info!("  - Testing XSS ({} parameters)", test_params.len());
+            for (param_name, _) in &test_params {
+                let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        } else {
+            info!("  - Skipping XSS (Vue/React auto-escapes, GraphQL backend has no SQL)");
         }
 
-        // Run SQLi scanner (skip for static sites)
-        if !is_static_site {
-            info!("  - Testing SQL Injection");
+        // Run SQLi scanner (skip for static sites and GraphQL-only backends)
+        // GraphQL uses typed queries - no SQL string interpolation
+        if !is_static_site && !is_graphql_only {
+            info!("  - Testing SQL Injection ({} parameters)", test_params.len());
             for (param_name, _) in &test_params {
-                // Standard error-based SQLi
                 let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
-
-                // Boolean-based Blind SQLi
-                info!("    Testing Boolean-based Blind SQLi on '{}'", param_name);
-                let (bool_vulns, bool_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
-                all_vulnerabilities.extend(bool_vulns);
-                total_tests += bool_tests as u64;
-
-                // UNION-based SQLi
-                info!("    Testing UNION-based SQLi on '{}'", param_name);
-                let (union_vulns, union_tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
-                all_vulnerabilities.extend(union_vulns);
-                total_tests += union_tests as u64;
             }
+        } else if is_graphql_only {
+            info!("  - Skipping SQLi (GraphQL uses parameterized queries)");
         }
 
         // Run Command Injection scanner
@@ -1439,21 +1570,44 @@ async fn execute_standalone_scan(
     // Phase 3: Authentication & Authorization
     info!("Phase 3: Authentication testing");
 
-    // JWT vulnerabilities (only if auth token is provided)
-    info!("  - Testing JWT Security");
-    if let Some(ref token) = scan_config.auth_token {
-        let (vulns, tests) = engine.jwt_scanner.scan_jwt(target, token, scan_config).await?;
+    // Skip tests already done in early auth phase
+    if !auth_tests_done {
+        // JWT vulnerabilities (only if auth token is provided)
+        info!("  - Testing JWT Security");
+        if let Some(ref token) = scan_config.auth_token {
+            let (vulns, tests) = engine.jwt_scanner.scan_jwt(target, token, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+
+        // JWT Vulnerabilities Scanner (general JWT analysis)
+        info!("  - Testing JWT Vulnerabilities");
+        let (vulns, tests) = engine.jwt_vulnerabilities_scanner.scan(target, scan_config).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
+
+        // Auth Bypass
+        info!("  - Testing Authentication Bypass");
+        let (vulns, tests) = engine.auth_bypass_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // IDOR
+        info!("  - Testing IDOR");
+        let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // BOLA (Broken Object Level Authorization)
+        info!("  - Testing BOLA");
+        let (vulns, tests) = engine.bola_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - JWT/Auth Bypass/IDOR/BOLA already tested in early auth phase");
     }
 
-    // JWT Vulnerabilities Scanner (general JWT analysis)
-    info!("  - Testing JWT Vulnerabilities");
-    let (vulns, tests) = engine.jwt_vulnerabilities_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // OAuth
+    // OAuth (not tested in early phase)
     info!("  - Testing OAuth Security");
     let (vulns, tests) = engine.oauth_scanner.scan(target, scan_config).await?;
     all_vulnerabilities.extend(vulns);
@@ -1462,24 +1616,6 @@ async fn execute_standalone_scan(
     // Session Management
     info!("  - Testing Session Management");
     let (vulns, tests) = engine.session_management_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // Auth Bypass
-    info!("  - Testing Authentication Bypass");
-    let (vulns, tests) = engine.auth_bypass_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // IDOR
-    info!("  - Testing IDOR");
-    let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // BOLA (Broken Object Level Authorization)
-    info!("  - Testing BOLA");
-    let (vulns, tests) = engine.bola_scanner.scan(target, scan_config).await?;
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
@@ -1516,23 +1652,28 @@ async fn execute_standalone_scan(
     // Phase 4: API Security
     info!("Phase 4: API security testing");
 
-    // GraphQL
-    info!("  - Testing GraphQL Security");
-    let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    // Skip GraphQL/API tests if already done in early auth phase
+    if !auth_tests_done {
+        // GraphQL
+        info!("  - Testing GraphQL Security");
+        let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
 
-    // GraphQL Security (advanced GraphQL testing)
-    info!("  - Testing Advanced GraphQL Security");
-    let (vulns, tests) = engine.graphql_security_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+        // GraphQL Security (advanced GraphQL testing)
+        info!("  - Testing Advanced GraphQL Security");
+        let (vulns, tests) = engine.graphql_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
 
-    // API Security
-    info!("  - Testing API Security");
-    let (vulns, tests) = engine.api_security_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+        // API Security
+        info!("  - Testing API Security");
+        let (vulns, tests) = engine.api_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - GraphQL/API Security already tested in early auth phase");
+    }
 
     // gRPC
     info!("  - Testing gRPC Security");

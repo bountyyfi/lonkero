@@ -381,7 +381,7 @@ impl JsMinerScanner {
                 for cap in regex.captures_iter(content) {
                     if let Some(url) = cap.get(1) {
                         let url_str = url.as_str().to_string();
-                        if !Self::is_documentation_url(&url_str) && url_str.len() > 5 {
+                        if !Self::is_documentation_url(&url_str) && url_str.len() > 5 && Self::is_valid_endpoint(&url_str) {
                             results.api_endpoints.insert(url_str);
                         }
                     }
@@ -975,7 +975,7 @@ impl JsMinerScanner {
                 for cap in regex.captures_iter(content) {
                     if let Some(action) = cap.get(1) {
                         let action_str = action.as_str().to_string();
-                        if !action_str.is_empty() && action_str != "#" {
+                        if !action_str.is_empty() && action_str != "#" && Self::is_valid_endpoint(&action_str) {
                             results.form_actions.insert(action_str);
                         }
                     }
@@ -1142,7 +1142,7 @@ impl JsMinerScanner {
         if let Some(endpoints) = self.scan_pattern(content, r#"['"`](/(?:api|v[0-9]+|graphql)[^'"`\s<>]{0,100})['"`]"#, "API Endpoint") {
             for endpoint in endpoints.into_iter().take(50) {
                 let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`');
-                if clean.len() > 3 && !clean.contains("..") {
+                if clean.len() > 3 && !clean.contains("..") && Self::is_valid_endpoint(clean) {
                     results.api_endpoints.insert(clean.to_string());
 
                     // Extract path parameters like :id or {id}
@@ -1154,7 +1154,7 @@ impl JsMinerScanner {
         // Extract full API URLs
         if let Some(urls) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*(?:api|v[0-9]+|graphql)[^\s"'<>]*"#, "API URL") {
             for url in urls.into_iter().take(20) {
-                if !Self::is_documentation_url(&url) {
+                if !Self::is_documentation_url(&url) && Self::is_valid_endpoint(&url) {
                     results.api_endpoints.insert(url.clone());
 
                     // Check for GraphQL
@@ -1178,7 +1178,7 @@ impl JsMinerScanner {
             for action in actions.into_iter().take(20) {
                 let clean = action.split(&['=', ':'][..]).last().unwrap_or(&action)
                     .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
-                if !clean.contains("consent") && !clean.contains("cookie") {
+                if !clean.contains("consent") && !clean.contains("cookie") && Self::is_valid_endpoint(clean) {
                     results.form_actions.insert(clean.to_string());
                 }
             }
@@ -1264,7 +1264,7 @@ impl JsMinerScanner {
             if let Some(endpoints) = self.scan_pattern(content, pattern, "Form Submit") {
                 for endpoint in endpoints.into_iter().take(10) {
                     let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
-                    if !clean.is_empty() && !clean.contains("consent") && clean.len() < 200 {
+                    if !clean.is_empty() && !clean.contains("consent") && clean.len() < 200 && Self::is_valid_endpoint(clean) {
                         results.form_actions.insert(clean.to_string());
                     }
                 }
@@ -1533,7 +1533,7 @@ impl JsMinerScanner {
                 for cap in re.captures_iter(content) {
                     if let Some(endpoint) = cap.get(1).or(cap.get(0)) {
                         let ep = endpoint.as_str().to_string();
-                        if ep.len() > 3 && ep.len() < 100 && !ep.contains("consent") && !ep.contains("cookie") {
+                        if ep.len() > 3 && ep.len() < 100 && !ep.contains("consent") && !ep.contains("cookie") && Self::is_valid_endpoint(&ep) {
                             results.form_actions.insert(ep);
                         }
                     }
@@ -1688,6 +1688,87 @@ impl JsMinerScanner {
         }
 
         false
+    }
+
+    /// Check if a discovered endpoint/form action is valid (not junk from minified code)
+    /// Returns true if the endpoint looks like a real API endpoint
+    fn is_valid_endpoint(endpoint: &str) -> bool {
+        let endpoint_trimmed = endpoint.trim();
+
+        // Too short or empty
+        if endpoint_trimmed.len() < 2 {
+            return false;
+        }
+
+        // HTTP headers (not endpoints)
+        let http_headers = [
+            "content-type", "content-length", "accept", "authorization",
+            "cache-control", "cookie", "host", "origin", "referer", "user-agent",
+            "x-sentry-rate-limits", "retry-after", "x-requested-with",
+            "x-csrf-token", "x-xsrf-token", "accept-encoding", "accept-language",
+        ];
+        let lower = endpoint_trimmed.to_lowercase();
+        for header in http_headers {
+            if lower == header || lower.starts_with("x-") && !lower.contains('/') {
+                return false;
+            }
+        }
+
+        // Array/Object methods (not endpoints)
+        let js_methods = [
+            "push", "pop", "shift", "unshift", "splice", "slice", "concat",
+            "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
+            "join", "split", "indexOf", "includes", "sort", "reverse", "fill",
+            "keys", "values", "entries", "toString", "valueOf", "hasOwnProperty",
+            "call", "apply", "bind", "then", "catch", "finally",
+        ];
+        for method in js_methods {
+            if endpoint_trimmed == method {
+                return false;
+            }
+        }
+
+        // Variable/constant names (not endpoints)
+        let var_patterns = [
+            "API_ENDPOINT", "BASE_URL", "API_URL", "BACKEND_URL", "SERVER_URL",
+            "fetchRequest", "httpRequest", "ajaxRequest", "apiCall",
+            "transaction", "subscription", "mutation", "resolver",
+        ];
+        for pattern in var_patterns {
+            if endpoint_trimmed == pattern || endpoint_trimmed.ends_with(':') {
+                return false;
+            }
+        }
+
+        // Minified code patterns
+        if endpoint_trimmed.starts_with('+') || endpoint_trimmed.starts_with('-') {
+            return false;
+        }
+        if endpoint_trimmed.contains("[") && !endpoint_trimmed.contains("/") {
+            return false;
+        }
+        if endpoint_trimmed.contains("this.") || endpoint_trimmed.contains("self.") {
+            return false;
+        }
+
+        // Should either start with / or be a full URL
+        let looks_like_path = endpoint_trimmed.starts_with('/')
+            || endpoint_trimmed.starts_with("http://")
+            || endpoint_trimmed.starts_with("https://")
+            || endpoint_trimmed.starts_with("//");
+
+        // If it doesn't look like a path and has special chars, reject it
+        if !looks_like_path {
+            // Allow simple words like "api", "graphql" but reject obvious junk
+            let has_special = endpoint_trimmed.chars().any(|c|
+                c == '+' || c == '=' || c == '[' || c == ']' || c == '{' || c == '}'
+            );
+            if has_special {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Extract path parameters from URL patterns
