@@ -563,10 +563,10 @@ impl HeadlessCrawler {
                             url,
                             method: method.to_string(),
                             post_data,
-                            content_type: request.headers.0
-                                .get("Content-Type")
-                                .or_else(|| request.headers.0.get("content-type"))
-                                .map(|v| v.to_string()),
+                            content_type: request.headers.0.as_ref()
+                                .and_then(|h| h.get("Content-Type").or_else(|| h.get("content-type")))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
                         });
                     }
                 }
