@@ -1523,19 +1523,38 @@ async fn execute_standalone_scan(
         }
 
         // Run SSRF scanner (skip for static sites - they can't make server requests)
+        // Only test parameters that could realistically accept URLs
         if !is_static_site {
-            info!("  - Testing SSRF");
-            for (param_name, _) in &test_params {
-                // Standard SSRF
-                let (vulns, tests) = engine.ssrf_scanner.scan_parameter(target, param_name, scan_config).await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
+            let ssrf_keywords = ["url", "link", "redirect", "callback", "webhook", "image", "img",
+                                 "src", "href", "file", "path", "endpoint", "uri", "dest", "target",
+                                 "fetch", "load", "proxy", "forward", "next", "return", "goto", "site"];
 
-                // Blind SSRF with OOB callback
-                info!("    Testing Blind SSRF on '{}'", param_name);
-                let (blind_vulns, blind_tests) = engine.ssrf_blind_scanner.scan_parameter(target, param_name, scan_config).await?;
-                all_vulnerabilities.extend(blind_vulns);
-                total_tests += blind_tests as u64;
+            let ssrf_params: Vec<_> = test_params.iter()
+                .filter(|(name, _)| {
+                    let name_lower = name.to_lowercase();
+                    // Include if param name contains URL-related keywords
+                    ssrf_keywords.iter().any(|kw| name_lower.contains(kw))
+                    // Or if the value looks like a URL
+                    || name_lower.starts_with("http")
+                })
+                .collect();
+
+            if !ssrf_params.is_empty() {
+                info!("  - Testing SSRF ({} URL-like params of {} total)", ssrf_params.len(), test_params.len());
+                for (param_name, _) in &ssrf_params {
+                    // Standard SSRF
+                    let (vulns, tests) = engine.ssrf_scanner.scan_parameter(target, param_name, scan_config).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests as u64;
+
+                    // Blind SSRF with OOB callback
+                    info!("    Testing Blind SSRF on '{}'", param_name);
+                    let (blind_vulns, blind_tests) = engine.ssrf_blind_scanner.scan_parameter(target, param_name, scan_config).await?;
+                    all_vulnerabilities.extend(blind_vulns);
+                    total_tests += blind_tests as u64;
+                }
+            } else {
+                info!("  - Skipping SSRF (no URL-like parameters found)");
             }
         }
     }
