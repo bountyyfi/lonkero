@@ -45,7 +45,7 @@ struct DjangoCVE {
     check_type: CVECheckType,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum CVECheckType {
     SQLInjection,
     XSS,
@@ -459,7 +459,8 @@ impl DjangoSecurityScanner {
                                         headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
                                         headers.insert("Referer".to_string(), login_url.clone());
 
-                                        if let Ok(login_resp) = self.http_client.post_with_headers(&login_url, &body, headers).await {
+                                        let headers_vec: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                                        if let Ok(login_resp) = self.http_client.post_with_headers(&login_url, &body, headers_vec).await {
                                             // Check for successful login (redirect to admin dashboard)
                                             if login_resp.status_code == 302 &&
                                                login_resp.headers.get("location").map(|l| !l.contains("login")).unwrap_or(false) {
@@ -471,7 +472,7 @@ impl DjangoSecurityScanner {
                             }
                         }
 
-                        if !issues.is_empty() || path == "/admin/" {
+                        if !issues.is_empty() || *path == "/admin/" {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("django_admin_exposure_{}", Self::generate_id()),
                                 vuln_type: "Django Admin Interface Exposed".to_string(),
@@ -903,7 +904,8 @@ impl DjangoSecurityScanner {
                 let mut cors_headers = HashMap::new();
                 cors_headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, cors_headers).await {
+                let headers_vec: Vec<(String, String)> = cors_headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "*" || acao == "https://evil.com" {
                             let has_creds = cors_resp.headers.get("access-control-allow-credentials")
@@ -1022,7 +1024,7 @@ impl DjangoSecurityScanner {
                 // Replace port in URL
                 let port_re = Regex::new(r":\d+").ok();
                 if let Some(re) = port_re {
-                    re.replace(base, path).to_string()
+                    re.replace(base, *path).to_string()
                 } else {
                     continue;
                 }

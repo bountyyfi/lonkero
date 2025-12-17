@@ -412,7 +412,7 @@ impl BusinessLogicScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     if self.detect_quantity_tampering(&response.body, param, value) {
-                        let severity = if value.starts_with('-') || value == "0" {
+                        let severity = if value.starts_with('-') || *value == "0" {
                             Severity::High
                         } else {
                             Severity::Medium

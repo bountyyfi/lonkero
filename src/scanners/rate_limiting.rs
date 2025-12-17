@@ -165,7 +165,7 @@ impl RateLimitingScanner {
                             endpoints.push(DetectedEndpoint {
                                 url,
                                 method: "POST".to_string(),
-                                endpoint_type,
+                                endpoint_type: endpoint_type.clone(),
                                 form_data: None,
                             });
                         }

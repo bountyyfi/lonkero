@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-use crate::config::ScanConfig;
+use crate::types::ScanConfig;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, Severity, Vulnerability};
 use std::sync::Arc;

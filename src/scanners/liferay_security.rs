@@ -255,7 +255,7 @@ impl LiferaySecurityScanner {
 
         // Check JSON Web Services API
         if let Ok(resp) = self.http_client.get(&format!("{}/api/jsonws", target)).await {
-            if resp.status == 200 && resp.body.contains("jsonws") {
+            if resp.status_code == 200 && resp.body.contains("jsonws") {
                 is_liferay = true;
             }
         }
@@ -301,7 +301,7 @@ impl LiferaySecurityScanner {
             let url = format!("{}{}", target, endpoint);
 
             if let Ok(resp) = self.http_client.get(&url).await {
-                if resp.status == 200 {
+                if resp.status_code == 200 {
                     // Check for API listing
                     let has_api_listing = resp.body.contains("className") ||
                                          resp.body.contains("methodName") ||
@@ -336,7 +336,7 @@ impl LiferaySecurityScanner {
         tests_run += 1;
         let invoke_url = format!("{}/api/jsonws/user/get-user-by-email-address/company-id/1/email-address/test@test.com", target);
         if let Ok(resp) = self.http_client.get(&invoke_url).await {
-            if resp.status == 200 && !resp.body.contains("Access denied") {
+            if resp.status_code == 200 && !resp.body.contains("Access denied") {
                 vulnerabilities.push(Vulnerability {
                     id: format!("liferay_jsonws_invoke_{}", uuid_simple()),
                     vuln_type: "Liferay JSONWS Unauthenticated Invocation".to_string(),
@@ -380,7 +380,7 @@ impl LiferaySecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&url).await {
                 // Accessible if not 403/404 and contains admin content
-                if resp.status == 200 || resp.status == 302 {
+                if resp.status_code == 200 || resp.status_code == 302 {
                     let has_admin_content = resp.body.contains("control_panel") ||
                                            resp.body.contains("server-admin") ||
                                            resp.body.contains("portlet-admin") ||
@@ -453,7 +453,11 @@ impl LiferaySecurityScanner {
                 form_data.push(("p_auth".to_string(), token.clone()));
             }
 
-            if let Ok(resp) = self.http_client.post(&form_action, &form_data).await {
+            let form_body = form_data.iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("&");
+            if let Ok(resp) = self.http_client.post(&form_action, form_body).await {
                 // Check for successful login (not redirected back to login, no error message)
                 let login_failed = resp.body.contains("Authentication failed") ||
                                   resp.body.contains("Your request failed") ||
@@ -461,7 +465,7 @@ impl LiferaySecurityScanner {
                                   resp.body.contains("Sign In") && resp.body.contains("error");
 
                 // Check for successful login indicators
-                let login_success = (resp.status == 302 && !resp.body.contains("/c/portal/login")) ||
+                let login_success = (resp.status_code == 302 && !resp.body.contains("/c/portal/login")) ||
                                    resp.body.contains("Sign Out") ||
                                    resp.body.contains("My Account") ||
                                    resp.body.contains("User Profile");
@@ -509,7 +513,7 @@ impl LiferaySecurityScanner {
             let url = format!("{}{}", target, path);
 
             if let Ok(resp) = self.http_client.get(&url).await {
-                if resp.status == 200 {
+                if resp.status_code == 200 {
                     let has_tunnel_content = resp.body.contains("TunnelServlet") ||
                                             resp.body.contains("axis") ||
                                             resp.body.contains("wsdl") ||
@@ -552,8 +556,9 @@ impl LiferaySecurityScanner {
         let webdav_url = format!("{}/webdav", target);
 
         // Try PROPFIND request
-        if let Ok(resp) = self.http_client.request("PROPFIND", &webdav_url, None, None).await {
-            if resp.status == 207 || resp.status == 200 {
+        // Note: Using GET instead of PROPFIND method which is not available
+        if let Ok(resp) = self.http_client.get(&webdav_url).await {
+            if resp.status_code == 207 || resp.status_code == 200 {
                 let has_webdav = resp.body.contains("multistatus") ||
                                 resp.body.contains("DAV:") ||
                                 resp.body.contains("propstat");
@@ -585,7 +590,7 @@ impl LiferaySecurityScanner {
         tests_run += 1;
         let guest_webdav = format!("{}/webdav/guest", target);
         if let Ok(resp) = self.http_client.get(&guest_webdav).await {
-            if resp.status == 200 && !resp.body.contains("Access denied") {
+            if resp.status_code == 200 && !resp.body.contains("Access denied") {
                 vulnerabilities.push(Vulnerability {
                     id: format!("liferay_webdav_guest_{}", uuid_simple()),
                     vuln_type: "Liferay Guest WebDAV Access".to_string(),
@@ -629,7 +634,7 @@ impl LiferaySecurityScanner {
             let url = format!("{}{}", target, path);
 
             if let Ok(resp) = self.http_client.get(&url).await {
-                if resp.status == 200 {
+                if resp.status_code == 200 {
                     let has_config_content = resp.body.contains("jdbc.") ||
                                             resp.body.contains("mail.") ||
                                             resp.body.contains("liferay.") ||
@@ -689,9 +694,10 @@ impl LiferaySecurityScanner {
 
             // Test introspection query
             let introspection_query = r#"{"query": "{ __schema { types { name } } }"}"#;
+            let query: serde_json::Value = serde_json::from_str(introspection_query).unwrap();
 
-            if let Ok(resp) = self.http_client.post_json(&url, introspection_query).await {
-                if resp.status == 200 && resp.body.contains("__schema") {
+            if let Ok(resp) = self.http_client.post_json(&url, &query).await {
+                if resp.status_code == 200 && resp.body.contains("__schema") {
                     vulnerabilities.push(Vulnerability {
                         id: format!("liferay_graphql_{}", uuid_simple()),
                         vuln_type: "Liferay GraphQL Introspection Enabled".to_string(),
@@ -736,7 +742,7 @@ impl LiferaySecurityScanner {
             let url = format!("{}{}", target, endpoint);
 
             if let Ok(resp) = self.http_client.get(&url).await {
-                if resp.status == 200 {
+                if resp.status_code == 200 {
                     let has_api_data = resp.body.contains("\"items\"") ||
                                       resp.body.contains("\"actions\"") ||
                                       resp.body.contains("\"id\":") ||
@@ -788,7 +794,7 @@ impl LiferaySecurityScanner {
             let url = format!("{}{}", target, path);
 
             if let Ok(resp) = self.http_client.get(&url).await {
-                if resp.status == 200 {
+                if resp.status_code == 200 {
                     // Check for directory listing
                     let has_listing = resp.body.contains("Index of") ||
                                      resp.body.contains("Parent Directory") ||
@@ -837,7 +843,7 @@ impl LiferaySecurityScanner {
             let url = format!("{}{}", target, path);
 
             if let Ok(resp) = self.http_client.get(&url).await {
-                if resp.status == 200 {
+                if resp.status_code == 200 {
                     let has_axis_content = resp.body.contains("wsdl") ||
                                           resp.body.contains("Service") ||
                                           resp.body.contains("axis") ||
@@ -881,7 +887,7 @@ impl LiferaySecurityScanner {
         let combo_url = format!("{}/combo?minifierType=js&themeId=classic_WAR_classictheme&themePath=/html/themes/classic/", target);
 
         if let Ok(resp) = self.http_client.get(&combo_url).await {
-            if resp.status == 200 {
+            if resp.status_code == 200 {
                 // Try path traversal
                 tests_run += 1;
                 let traversal_url = format!("{}/combo?minifierType=&themeId=1&themePath=/../../../../../etc/passwd", target);
@@ -933,7 +939,7 @@ impl LiferaySecurityScanner {
                     description: format!("{} - Affected versions: {}", cve.description, cve.affected_versions),
                     evidence: Some(format!("Detected Liferay version {} matches affected range {}", version, cve.affected_versions)),
                     cwe: "CWE-1035".to_string(),
-                    cvss: cve.cvss,
+                    cvss: cve.cvss as f32,
                     verified: false,
                     false_positive: false,
                     remediation: format!("Upgrade Liferay to a version not affected by {}. Check Liferay security advisories for patches.", cve.id),

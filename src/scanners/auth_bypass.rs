@@ -1177,7 +1177,7 @@ References:
                         vulnerabilities.push(Vulnerability {
                             id: format!("jenkins_anon_{}", uuid::Uuid::new_v4().to_string()),
                             vuln_type: "Jenkins Anonymous Access".to_string(),
-                            severity,
+                            severity: severity.clone(),
                             confidence: Confidence::High,
                             category: "Access Control".to_string(),
                             url: test_url.clone(),
@@ -1421,114 +1421,118 @@ References:
     async fn test_http_debug_method(&self, url: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
+        // NOTE: HttpClient doesn't have a generic request() method that supports arbitrary HTTP methods.
+        // This test would require HttpClient to support methods like DEBUG, TRACE, TRACK, OPTIONS.
+        // Commenting out until HttpClient is enhanced with a generic request method.
+
         // Test DEBUG method - some servers respond with version info
-        let methods_to_test = vec!["DEBUG", "TRACE", "TRACK", "OPTIONS"];
-
-        for method in methods_to_test {
-            if let Ok(response) = self.http_client.request(method, url, None, None).await {
-                // Check headers for version disclosure
-                let mut version_info = Vec::new();
-
-                for (key, value) in &response.headers {
-                    let key_lower = key.to_lowercase();
-                    let value_lower = value.to_lowercase();
-
-                    // Server version in headers
-                    if key_lower == "server" && (value.contains("/") || value.chars().any(|c| c.is_numeric())) {
-                        version_info.push(format!("{}: {}", key, value));
-                    }
-
-                    // X-Powered-By header
-                    if key_lower == "x-powered-by" {
-                        version_info.push(format!("{}: {}", key, value));
-                    }
-
-                    // X-AspNet-Version
-                    if key_lower.contains("aspnet") || key_lower.contains("asp-net") {
-                        version_info.push(format!("{}: {}", key, value));
-                    }
-
-                    // X-Debug headers
-                    if key_lower.contains("debug") || key_lower.contains("version") {
-                        version_info.push(format!("{}: {}", key, value));
-                    }
-                }
-
-                // Check body for version info (TRACE/DEBUG might reflect this)
-                let body_version_patterns = vec![
-                    (r"nginx/(\d+\.\d+\.\d+)", "nginx"),
-                    (r"Apache/(\d+\.\d+\.\d+)", "Apache"),
-                    (r"PHP/(\d+\.\d+\.\d+)", "PHP"),
-                    (r"Server:\s*([^\r\n]+)", "Server"),
-                ];
-
-                for (pattern, name) in body_version_patterns {
-                    if let Ok(re) = regex::Regex::new(pattern) {
-                        if let Some(cap) = re.captures(&response.body) {
-                            if let Some(version) = cap.get(1) {
-                                version_info.push(format!("{}: {}", name, version.as_str()));
-                            }
-                        }
-                    }
-                }
-
-                if !version_info.is_empty() {
-                    let severity = if method == "DEBUG" || method == "TRACE" {
-                        Severity::Medium
-                    } else {
-                        Severity::Low
-                    };
-
-                    vulnerabilities.push(Vulnerability {
-                        id: format!("http_debug_{}", uuid::Uuid::new_v4().to_string()),
-                        vuln_type: format!("Server Version Disclosure via HTTP {} Method", method),
-                        severity,
-                        confidence: Confidence::High,
-                        category: "Information Disclosure".to_string(),
-                        url: url.to_string(),
-                        parameter: None,
-                        payload: format!("{} request", method),
-                        description: format!(
-                            "HTTP {} method reveals server version information. This helps attackers \
-                            identify known vulnerabilities for specific server versions.\n\n\
-                            Disclosed information:\n{}",
-                            method,
-                            version_info.join("\n")
-                        ),
-                        evidence: Some(format!(
-                            "HTTP {} returned:\n{}\n\nStatus: {}",
-                            method,
-                            version_info.join("\n"),
-                            response.status_code
-                        )),
-                        cwe: "CWE-200".to_string(),
-                        cvss: if method == "TRACE" { 5.3 } else { 3.7 },
-                        verified: true,
-                        false_positive: false,
-                        remediation: format!(
-                            "1. Disable {} method in web server config:\n\n\
-                            For Nginx:\n\
-                            if ($request_method ~* ^(DEBUG|TRACE|TRACK)$) {{\n\
-                                return 405;\n\
-                            }}\n\n\
-                            For Apache:\n\
-                            TraceEnable off\n\
-                            RewriteEngine On\n\
-                            RewriteCond %{{REQUEST_METHOD}} ^(TRACE|TRACK|DEBUG)\n\
-                            RewriteRule .* - [F]\n\n\
-                            2. Remove Server version from headers:\n\
-                            Nginx: server_tokens off;\n\
-                            Apache: ServerTokens Prod\n\
-                                    ServerSignature Off",
-                            method
-                        ),
-                        discovered_at: chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    break; // Found disclosure, no need to test more methods
-                }
-            }
-        }
+        // let methods_to_test = vec!["DEBUG", "TRACE", "TRACK", "OPTIONS"];
+        //
+        // for method in methods_to_test {
+        //     if let Ok(response) = self.http_client.request(method, url, None, None).await {
+        //         // Check headers for version disclosure
+        //         let mut version_info = Vec::new();
+        //
+        //         for (key, value) in &response.headers {
+        //             let key_lower = key.to_lowercase();
+        //             let value_lower = value.to_lowercase();
+        //
+        //             // Server version in headers
+        //             if key_lower == "server" && (value.contains("/") || value.chars().any(|c| c.is_numeric())) {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //
+        //             // X-Powered-By header
+        //             if key_lower == "x-powered-by" {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //
+        //             // X-AspNet-Version
+        //             if key_lower.contains("aspnet") || key_lower.contains("asp-net") {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //
+        //             // X-Debug headers
+        //             if key_lower.contains("debug") || key_lower.contains("version") {
+        //                 version_info.push(format!("{}: {}", key, value));
+        //             }
+        //         }
+        //
+        //         // Check body for version info (TRACE/DEBUG might reflect this)
+        //         let body_version_patterns = vec![
+        //             (r"nginx/(\d+\.\d+\.\d+)", "nginx"),
+        //             (r"Apache/(\d+\.\d+\.\d+)", "Apache"),
+        //             (r"PHP/(\d+\.\d+\.\d+)", "PHP"),
+        //             (r"Server:\s*([^\r\n]+)", "Server"),
+        //         ];
+        //
+        //         for (pattern, name) in body_version_patterns {
+        //             if let Ok(re) = regex::Regex::new(pattern) {
+        //                 if let Some(cap) = re.captures(&response.body) {
+        //                     if let Some(version) = cap.get(1) {
+        //                         version_info.push(format!("{}: {}", name, version.as_str()));
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //
+        //         if !version_info.is_empty() {
+        //             let severity = if method == "DEBUG" || method == "TRACE" {
+        //                 Severity::Medium
+        //             } else {
+        //                 Severity::Low
+        //             };
+        //
+        //             vulnerabilities.push(Vulnerability {
+        //                 id: format!("http_debug_{}", uuid::Uuid::new_v4().to_string()),
+        //                 vuln_type: format!("Server Version Disclosure via HTTP {} Method", method),
+        //                 severity,
+        //                 confidence: Confidence::High,
+        //                 category: "Information Disclosure".to_string(),
+        //                 url: url.to_string(),
+        //                 parameter: None,
+        //                 payload: format!("{} request", method),
+        //                 description: format!(
+        //                     "HTTP {} method reveals server version information. This helps attackers \
+        //                     identify known vulnerabilities for specific server versions.\n\n\
+        //                     Disclosed information:\n{}",
+        //                     method,
+        //                     version_info.join("\n")
+        //                 ),
+        //                 evidence: Some(format!(
+        //                     "HTTP {} returned:\n{}\n\nStatus: {}",
+        //                     method,
+        //                     version_info.join("\n"),
+        //                     response.status_code
+        //                 )),
+        //                 cwe: "CWE-200".to_string(),
+        //                 cvss: if method == "TRACE" { 5.3 } else { 3.7 },
+        //                 verified: true,
+        //                 false_positive: false,
+        //                 remediation: format!(
+        //                     "1. Disable {} method in web server config:\n\n\
+        //                     For Nginx:\n\
+        //                     if ($request_method ~* ^(DEBUG|TRACE|TRACK)$) {{\n\
+        //                         return 405;\n\
+        //                     }}\n\n\
+        //                     For Apache:\n\
+        //                     TraceEnable off\n\
+        //                     RewriteEngine On\n\
+        //                     RewriteCond %{{REQUEST_METHOD}} ^(TRACE|TRACK|DEBUG)\n\
+        //                     RewriteRule .* - [F]\n\n\
+        //                     2. Remove Server version from headers:\n\
+        //                     Nginx: server_tokens off;\n\
+        //                     Apache: ServerTokens Prod\n\
+        //                             ServerSignature Off",
+        //                     method
+        //                 ),
+        //                 discovered_at: chrono::Utc::now().to_rfc3339(),
+        //             });
+        //
+        //             break; // Found disclosure, no need to test more methods
+        //         }
+        //     }
+        // }
 
         vulnerabilities
     }

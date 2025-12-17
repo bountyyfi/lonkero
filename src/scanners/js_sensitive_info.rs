@@ -932,7 +932,7 @@ impl JsSensitiveInfoScanner {
     }
 
     /// Group matches by category
-    fn group_matches(&self, matches: &[SensitiveMatch]) -> HashMap<String, Vec<&SensitiveMatch>> {
+    fn group_matches<'a>(&self, matches: &'a [SensitiveMatch]) -> HashMap<String, Vec<&'a SensitiveMatch>> {
         let mut grouped: HashMap<String, Vec<&SensitiveMatch>> = HashMap::new();
 
         for m in matches {

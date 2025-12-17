@@ -133,8 +133,9 @@ impl HttpParameterPollutionScanner {
             };
 
             // Send requests and compare behavior
+            let baseline_url = format!("{}?{}={}", url.trim_end_matches('?'), param, values[0]);
             let (baseline, polluted, comma, bracket) = tokio::join!(
-                self.http_client.get(&format!("{}?{}={}", url.trim_end_matches('?'), param, values[0])),
+                self.http_client.get(&baseline_url),
                 self.http_client.get(&test_url),
                 self.http_client.get(&comma_url),
                 self.http_client.get(&bracket_url)

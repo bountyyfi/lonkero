@@ -256,16 +256,15 @@ impl ExpressSecurityScanner {
         if let Ok(response) = self.http_client.get(url).await {
             // Check X-Powered-By header
             if let Some(powered_by) = response.headers.get("x-powered-by") {
-                if let Ok(value) = powered_by.to_str() {
-                    if value.to_lowercase().contains("express") {
-                        is_express = true;
-                        // Try to extract version
-                        if let Some(v) = Self::extract_express_version(value) {
-                            package_info = Some(PackageInfo {
-                                express_version: Some(v),
-                                ..Default::default()
-                            });
-                        }
+                let value = powered_by.as_str();
+                if value.to_lowercase().contains("express") {
+                    is_express = true;
+                    // Try to extract version
+                    if let Some(v) = Self::extract_express_version(value) {
+                        package_info = Some(PackageInfo {
+                            express_version: Some(v),
+                            ..Default::default()
+                        });
                     }
                 }
             }
@@ -309,10 +308,9 @@ impl ExpressSecurityScanner {
                 if response.status_code != 404 {
                     // Check response headers again
                     if let Some(powered_by) = response.headers.get("x-powered-by") {
-                        if let Ok(value) = powered_by.to_str() {
-                            if value.to_lowercase().contains("express") {
-                                is_express = true;
-                            }
+                        let value = powered_by.as_str();
+                        if value.to_lowercase().contains("express") {
+                            is_express = true;
                         }
                     }
                 }
@@ -340,41 +338,40 @@ impl ExpressSecurityScanner {
 
         if let Ok(response) = self.http_client.get(url).await {
             if let Some(powered_by) = response.headers.get("x-powered-by") {
-                if let Ok(value) = powered_by.to_str() {
-                    vulnerabilities.push(Vulnerability {
-                        id: format!("express_powered_by_{}", Self::generate_id()),
-                        vuln_type: "Server Technology Disclosure".to_string(),
-                        severity: Severity::Low,
-                        confidence: Confidence::High,
-                        category: "Information Disclosure".to_string(),
-                        url: url.to_string(),
-                        parameter: Some("X-Powered-By".to_string()),
-                        payload: value.to_string(),
-                        description: format!(
-                            "The X-Powered-By header reveals the server technology: '{}'\n\n\
-                            This information helps attackers:\n\
-                            - Identify specific framework vulnerabilities\n\
-                            - Target known Express.js exploits\n\
-                            - Fingerprint the technology stack",
-                            value
-                        ),
-                        evidence: Some(format!("X-Powered-By: {}", value)),
-                        cwe: "CWE-200".to_string(),
-                        cvss: 3.5,
-                        verified: true,
-                        false_positive: false,
-                        remediation: "Disable the X-Powered-By header using Helmet.js:\n\
-                                      ```javascript\n\
-                                      const helmet = require('helmet');\n\
-                                      app.use(helmet());\n\
-                                      ```\n\
-                                      Or manually:\n\
-                                      ```javascript\n\
-                                      app.disable('x-powered-by');\n\
-                                      ```".to_string(),
-                        discovered_at: chrono::Utc::now().to_rfc3339(),
-                    });
-                }
+                let value = powered_by.as_str();
+                vulnerabilities.push(Vulnerability {
+                    id: format!("express_powered_by_{}", Self::generate_id()),
+                    vuln_type: "Server Technology Disclosure".to_string(),
+                    severity: Severity::Low,
+                    confidence: Confidence::High,
+                    category: "Information Disclosure".to_string(),
+                    url: url.to_string(),
+                    parameter: Some("X-Powered-By".to_string()),
+                    payload: value.to_string(),
+                    description: format!(
+                        "The X-Powered-By header reveals the server technology: '{}'\n\n\
+                        This information helps attackers:\n\
+                        - Identify specific framework vulnerabilities\n\
+                        - Target known Express.js exploits\n\
+                        - Fingerprint the technology stack",
+                        value
+                    ),
+                    evidence: Some(format!("X-Powered-By: {}", value)),
+                    cwe: "CWE-200".to_string(),
+                    cvss: 3.5,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "Disable the X-Powered-By header using Helmet.js:\n\
+                                  ```javascript\n\
+                                  const helmet = require('helmet');\n\
+                                  app.use(helmet());\n\
+                                  ```\n\
+                                  Or manually:\n\
+                                  ```javascript\n\
+                                  app.disable('x-powered-by');\n\
+                                  ```".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                });
             }
         }
 
@@ -1046,74 +1043,78 @@ impl ExpressSecurityScanner {
             let mut headers = reqwest::header::HeaderMap::new();
             headers.insert("Origin", origin.parse().unwrap_or_else(|_| "https://test.com".parse().unwrap()));
 
+            // Convert HeaderMap to Vec for get_with_headers
+            let headers_vec: Vec<(String, String)> = headers.iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
             // Make request with Origin header
-            if let Ok(response) = self.http_client.get_with_headers(url, headers).await {
+            if let Ok(response) = self.http_client.get_with_headers(url, headers_vec).await {
                 if let Some(acao) = response.headers.get("access-control-allow-origin") {
-                    if let Ok(value) = acao.to_str() {
-                        let is_wildcard = value == "*";
-                        let reflects_origin = value == *origin;
-                        let allows_null = value == "null";
+                    let value = acao.as_str();
+                    let is_wildcard = value == "*";
+                    let reflects_origin = value == *origin;
+                    let allows_null = value == "null";
 
-                        // Check for credentials
-                        let allows_credentials = response.headers
-                            .get("access-control-allow-credentials")
-                            .map(|v| v.to_str().unwrap_or("") == "true")
-                            .unwrap_or(false);
+                    // Check for credentials
+                    let allows_credentials = response.headers
+                        .get("access-control-allow-credentials")
+                        .map(|v| v.as_str() == "true")
+                        .unwrap_or(false);
 
-                        if (is_wildcard && allows_credentials) ||
-                           (reflects_origin && *origin_type == "arbitrary") ||
-                           allows_null {
+                    if (is_wildcard && allows_credentials) ||
+                       (reflects_origin && *origin_type == "arbitrary") ||
+                       allows_null {
 
-                            let severity = if allows_credentials {
-                                Severity::High
-                            } else {
-                                Severity::Medium
-                            };
+                        let severity = if allows_credentials {
+                            Severity::High
+                        } else {
+                            Severity::Medium
+                        };
 
-                            vulnerabilities.push(Vulnerability {
-                                id: format!("express_cors_{}", Self::generate_id()),
-                                vuln_type: "CORS Misconfiguration".to_string(),
-                                severity,
-                                confidence: Confidence::High,
-                                category: "Security Misconfiguration".to_string(),
-                                url: url.to_string(),
-                                parameter: Some("Origin".to_string()),
-                                payload: origin.to_string(),
-                                description: format!(
-                                    "CORS is misconfigured allowing cross-origin requests.\n\n\
-                                    Origin tested: {}\n\
-                                    Access-Control-Allow-Origin: {}\n\
-                                    Access-Control-Allow-Credentials: {}\n\n\
-                                    This allows:\n\
-                                    - Cross-origin data theft\n\
-                                    - CSRF attacks\n\
-                                    - Session hijacking (if credentials allowed)",
-                                    origin, value, allows_credentials
-                                ),
-                                evidence: Some(format!(
-                                    "ACAO: {}\n\
-                                    Credentials: {}\n\
-                                    Type: {}",
-                                    value, allows_credentials, origin_type
-                                )),
-                                cwe: "CWE-942".to_string(),
-                                cvss: if allows_credentials { 8.0 } else { 5.5 },
-                                verified: true,
-                                false_positive: false,
-                                remediation: "Configure CORS properly:\n\
-                                              ```javascript\n\
-                                              const cors = require('cors');\n\
-                                              app.use(cors({\n\
-                                                origin: ['https://trusted-site.com'],\n\
-                                                credentials: true\n\
-                                              }));\n\
-                                              ```\n\
-                                              Never use wildcard (*) with credentials.".to_string(),
-                                discovered_at: chrono::Utc::now().to_rfc3339(),
-                            });
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("express_cors_{}", Self::generate_id()),
+                            vuln_type: "CORS Misconfiguration".to_string(),
+                            severity,
+                            confidence: Confidence::High,
+                            category: "Security Misconfiguration".to_string(),
+                            url: url.to_string(),
+                            parameter: Some("Origin".to_string()),
+                            payload: origin.to_string(),
+                            description: format!(
+                                "CORS is misconfigured allowing cross-origin requests.\n\n\
+                                Origin tested: {}\n\
+                                Access-Control-Allow-Origin: {}\n\
+                                Access-Control-Allow-Credentials: {}\n\n\
+                                This allows:\n\
+                                - Cross-origin data theft\n\
+                                - CSRF attacks\n\
+                                - Session hijacking (if credentials allowed)",
+                                origin, value, allows_credentials
+                            ),
+                            evidence: Some(format!(
+                                "ACAO: {}\n\
+                                Credentials: {}\n\
+                                Type: {}",
+                                value, allows_credentials, origin_type
+                            )),
+                            cwe: "CWE-942".to_string(),
+                            cvss: if allows_credentials { 8.0 } else { 5.5 },
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Configure CORS properly:\n\
+                                          ```javascript\n\
+                                          const cors = require('cors');\n\
+                                          app.use(cors({\n\
+                                            origin: ['https://trusted-site.com'],\n\
+                                            credentials: true\n\
+                                          }));\n\
+                                          ```\n\
+                                          Never use wildcard (*) with credentials.".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
 
-                            break;
-                        }
+                        break;
                     }
                 }
             }
@@ -1129,70 +1130,65 @@ impl ExpressSecurityScanner {
 
         if let Ok(response) = self.http_client.get(url).await {
             // Check Set-Cookie headers
-            let cookie_headers: Vec<_> = response.headers
-                .get_all("set-cookie")
-                .iter()
-                .collect();
+            // For HashMap, get returns Option<&String>
+            if let Some(cookie_value) = response.headers.get("set-cookie") {
+                let value = cookie_value.as_str();
+                let value_lower = value.to_lowercase();
 
-            for cookie in cookie_headers {
-                if let Ok(value) = cookie.to_str() {
-                    let value_lower = value.to_lowercase();
+                // Check for session cookie
+                let is_session = value.contains("connect.sid") ||
+                                value.contains("session") ||
+                                value.contains("sess");
 
-                    // Check for session cookie
-                    let is_session = value.contains("connect.sid") ||
-                                    value.contains("session") ||
-                                    value.contains("sess");
+                if is_session {
+                    let mut issues: Vec<&str> = Vec::new();
 
-                    if is_session {
-                        let mut issues: Vec<&str> = Vec::new();
+                    if !value_lower.contains("httponly") {
+                        issues.push("Missing HttpOnly flag");
+                    }
+                    if !value_lower.contains("secure") && url.starts_with("https") {
+                        issues.push("Missing Secure flag on HTTPS");
+                    }
+                    if !value_lower.contains("samesite") {
+                        issues.push("Missing SameSite attribute");
+                    }
 
-                        if !value_lower.contains("httponly") {
-                            issues.push("Missing HttpOnly flag");
-                        }
-                        if !value_lower.contains("secure") && url.starts_with("https") {
-                            issues.push("Missing Secure flag on HTTPS");
-                        }
-                        if !value_lower.contains("samesite") {
-                            issues.push("Missing SameSite attribute");
-                        }
-
-                        if !issues.is_empty() {
-                            vulnerabilities.push(Vulnerability {
-                                id: format!("express_session_cookie_{}", Self::generate_id()),
-                                vuln_type: "Insecure Session Cookie".to_string(),
-                                severity: Severity::Medium,
-                                confidence: Confidence::High,
-                                category: "Session Management".to_string(),
-                                url: url.to_string(),
-                                parameter: Some("Set-Cookie".to_string()),
-                                payload: value.to_string(),
-                                description: format!(
-                                    "Session cookie has security issues:\n\n{}\n\n\
-                                    These issues can lead to:\n\
-                                    - Session hijacking via XSS (missing HttpOnly)\n\
-                                    - Session theft over HTTP (missing Secure)\n\
-                                    - CSRF attacks (missing SameSite)",
-                                    issues.iter().map(|i| format!("- {}", i)).collect::<Vec<_>>().join("\n")
-                                ),
-                                evidence: Some(format!("Cookie: {}", value)),
-                                cwe: "CWE-614".to_string(),
-                                cvss: 5.5,
-                                verified: true,
-                                false_positive: false,
-                                remediation: "Configure express-session properly:\n\
-                                              ```javascript\n\
-                                              app.use(session({\n\
-                                                cookie: {\n\
-                                                  secure: true,\n\
-                                                  httpOnly: true,\n\
-                                                  sameSite: 'strict',\n\
-                                                  maxAge: 3600000\n\
-                                                }\n\
-                                              }));\n\
-                                              ```".to_string(),
-                                discovered_at: chrono::Utc::now().to_rfc3339(),
-                            });
-                        }
+                    if !issues.is_empty() {
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("express_session_cookie_{}", Self::generate_id()),
+                            vuln_type: "Insecure Session Cookie".to_string(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::High,
+                            category: "Session Management".to_string(),
+                            url: url.to_string(),
+                            parameter: Some("Set-Cookie".to_string()),
+                            payload: value.to_string(),
+                            description: format!(
+                                "Session cookie has security issues:\n\n{}\n\n\
+                                These issues can lead to:\n\
+                                - Session hijacking via XSS (missing HttpOnly)\n\
+                                - Session theft over HTTP (missing Secure)\n\
+                                - CSRF attacks (missing SameSite)",
+                                issues.iter().map(|i| format!("- {}", i)).collect::<Vec<_>>().join("\n")
+                            ),
+                            evidence: Some(format!("Cookie: {}", value)),
+                            cwe: "CWE-614".to_string(),
+                            cvss: 5.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Configure express-session properly:\n\
+                                          ```javascript\n\
+                                          app.use(session({\n\
+                                            cookie: {\n\
+                                              secure: true,\n\
+                                              httpOnly: true,\n\
+                                              sameSite: 'strict',\n\
+                                              maxAge: 3600000\n\
+                                            }\n\
+                                          }));\n\
+                                          ```".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
                     }
                 }
             }

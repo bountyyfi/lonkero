@@ -391,7 +391,11 @@ impl SvelteKitSecurityScanner {
             headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
             headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-            if let Ok(resp) = self.http_client.post_with_headers(&action_url, "test=value", headers.clone()).await {
+            let headers_vec: Vec<(String, String)> = headers.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            if let Ok(resp) = self.http_client.post_with_headers(&action_url, "test=value", headers_vec).await {
                 // CVE-2024-23641: Check if action accepts cross-origin requests
                 if resp.status_code == 200 || resp.status_code == 303 {
                     // Check if it's not a proper rejection
@@ -438,7 +442,11 @@ impl SvelteKitSecurityScanner {
             let mut bypass_headers = HashMap::new();
             bypass_headers.insert("Content-Type".to_string(), "text/plain".to_string());
 
-            if let Ok(resp) = self.http_client.post_with_headers(&action_url, "test=value", bypass_headers).await {
+            let bypass_headers_vec: Vec<(String, String)> = bypass_headers.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            if let Ok(resp) = self.http_client.post_with_headers(&action_url, "test=value", bypass_headers_vec).await {
                 if resp.status_code == 200 || resp.status_code == 303 {
                     vulnerabilities.push(Vulnerability {
                         id: format!("sveltekit_csrf_bypass_{}", Self::generate_id()),

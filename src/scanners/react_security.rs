@@ -763,8 +763,11 @@ impl ReactSecurityScanner {
                     let introspection_query = r#"{"query":"{ __schema { types { name } } }"}"#;
                     let mut headers = HashMap::new();
                     headers.insert("Content-Type".to_string(), "application/json".to_string());
+                    let headers_vec: Vec<(String, String)> = headers.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
 
-                    if let Ok(gql_resp) = self.http_client.post_with_headers(&api_url, introspection_query, headers).await {
+                    if let Ok(gql_resp) = self.http_client.post_with_headers(&api_url, introspection_query, headers_vec).await {
                         if gql_resp.body.contains("__schema") && gql_resp.body.contains("types") {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("react_graphql_introspection_{}", Self::generate_id()),
@@ -792,8 +795,11 @@ impl ReactSecurityScanner {
                 tests_run += 1;
                 let mut cors_headers = HashMap::new();
                 cors_headers.insert("Origin".to_string(), "https://evil.com".to_string());
+                let headers_vec: Vec<(String, String)> = cors_headers.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
 
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, cors_headers).await {
+                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "https://evil.com" || acao == "*" {
                             let has_creds = cors_resp.headers.get("access-control-allow-credentials")
@@ -949,8 +955,11 @@ impl ReactSecurityScanner {
                     let json_payload = r#"{"__proto__":{"polluted":"true"}}"#;
                     let mut headers = HashMap::new();
                     headers.insert("Content-Type".to_string(), "application/json".to_string());
+                    let headers_vec: Vec<(String, String)> = headers.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
 
-                    if let Ok(json_resp) = self.http_client.post_with_headers(base, json_payload, headers).await {
+                    if let Ok(json_resp) = self.http_client.post_with_headers(base, json_payload, headers_vec).await {
                         if json_resp.status_code == 200 || json_resp.status_code == 201 {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("react_prototype_pollution_{}", Self::generate_id()),

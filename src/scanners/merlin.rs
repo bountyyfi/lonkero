@@ -4,7 +4,7 @@
 //! Merlin - Advanced JavaScript Library Vulnerability Scanner
 //! Detects vulnerable third-party JavaScript libraries and frameworks
 
-use crate::config::ScanConfig;
+use crate::types::ScanConfig;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, Severity, Vulnerability};
 use regex::Regex;

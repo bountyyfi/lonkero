@@ -329,7 +329,10 @@ impl NextJsSecurityScanner {
             let mut headers = HashMap::new();
             headers.insert("x-middleware-subrequest".to_string(), "1".to_string());
 
-            if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers.clone()).await {
+            let headers_vec: Vec<(String, String)> = headers.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers_vec).await {
                 // Check if we bypassed authentication
                 if bypass_resp.status_code == 200 ||
                    (bypass_resp.status_code != 401 && bypass_resp.status_code != 403) {
@@ -630,7 +633,10 @@ impl NextJsSecurityScanner {
                 let mut headers = HashMap::new();
                 headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers).await {
+                let headers_vec: Vec<(String, String)> = headers.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "https://evil.com" || acao == "*" {
                             let has_credentials = cors_resp.headers.get("access-control-allow-credentials")
@@ -1121,7 +1127,10 @@ impl NextJsSecurityScanner {
         headers.insert("Next-Action".to_string(), "test".to_string());
         headers.insert("Host".to_string(), "evil.com".to_string());
 
-        if let Ok(resp) = self.http_client.post_with_headers(base, "[]", headers).await {
+        let headers_vec: Vec<(String, String)> = headers.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if let Ok(resp) = self.http_client.post_with_headers(base, "[]", headers_vec).await {
             // Check if the response indicates SSRF potential
             if resp.body.contains("evil.com") ||
                resp.headers.get("location").map(|l| l.contains("evil.com")).unwrap_or(false) {

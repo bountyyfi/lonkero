@@ -252,7 +252,7 @@ impl LaravelSecurityScanner {
 
             // Check for Laravel session cookie
             if let Some(cookies) = response.headers.get("set-cookie") {
-                let cookie_str = cookies.to_str().unwrap_or("");
+                let cookie_str = cookies.as_str();
                 if cookie_str.contains("laravel_session") || cookie_str.contains("XSRF-TOKEN") {
                     is_laravel = true;
                 }
@@ -568,7 +568,7 @@ impl LaravelSecurityScanner {
                     vulnerabilities.push(Vulnerability {
                         id: format!("laravel_admin_panel_{}", Self::generate_id()),
                         vuln_type: format!("{} Exposed", name),
-                        severity,
+                        severity: severity.clone(),
                         confidence: Confidence::High,
                         category: "Information Disclosure".to_string(),
                         url: test_url.clone(),
@@ -1247,7 +1247,7 @@ impl LaravelSecurityScanner {
         tests_run += 1;
         if let Ok(response) = self.http_client.get(url).await {
             if let Some(cookies) = response.headers.get("set-cookie") {
-                let cookie_str = cookies.to_str().unwrap_or("");
+                let cookie_str = cookies.as_str();
 
                 // Check for insecure cookie settings
                 let has_xsrf = cookie_str.contains("XSRF-TOKEN");
