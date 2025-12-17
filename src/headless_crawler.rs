@@ -71,10 +71,15 @@ impl HeadlessCrawler {
                 const results = [];
 
                 // Helper to extract input info including SELECT options
-                function extractInput(el) {
+                function extractInput(el, index) {
                     const tagName = el.tagName.toLowerCase();
-                    const name = el.name || el.id || el.getAttribute('aria-label') || el.placeholder;
-                    if (!name) return null;
+                    // Get name from multiple sources, generate fallback if none exist
+                    let name = el.name || el.id || el.getAttribute('aria-label') || el.placeholder;
+                    if (!name) {
+                        // Generate fallback name from type/tag and index for controlled inputs
+                        const inputType = el.type || tagName;
+                        name = inputType + '_field_' + index;
+                    }
 
                     const inputType = el.type || tagName;
                     if (inputType === 'hidden' || inputType === 'submit' || inputType === 'button') return null;
@@ -113,8 +118,9 @@ impl HeadlessCrawler {
                 // Get all form elements
                 document.querySelectorAll('form').forEach(form => {
                     const inputs = [];
+                    let idx = 0;
                     form.querySelectorAll('input, textarea, select').forEach(el => {
-                        const info = extractInput(el);
+                        const info = extractInput(el, idx++);
                         if (info) inputs.push(info);
                     });
                     if (inputs.length > 0) {
@@ -130,8 +136,9 @@ impl HeadlessCrawler {
                 document.querySelectorAll('[class*="form"], [class*="contact"], [class*="signup"], [class*="login"], [role="form"]').forEach(container => {
                     if (container.closest('form')) return;
                     const inputs = [];
+                    let idx = 0;
                     container.querySelectorAll('input, textarea, select').forEach(el => {
-                        const info = extractInput(el);
+                        const info = extractInput(el, idx++);
                         if (info) inputs.push(info);
                     });
                     if (inputs.length > 0) {
@@ -145,9 +152,10 @@ impl HeadlessCrawler {
 
                 // Find standalone inputs
                 const standalone = [];
+                let standaloneIdx = 0;
                 document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea, select').forEach(el => {
                     if (!el.closest('form') && !el.closest('[class*="form"]')) {
-                        const info = extractInput(el);
+                        const info = extractInput(el, standaloneIdx++);
                         if (info) standalone.push(info);
                     }
                 });
