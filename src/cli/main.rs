@@ -388,6 +388,7 @@ async fn verify_license_before_scan(
         &hardware_id,
         license_key,
         Some(env!("CARGO_PKG_VERSION")),
+        vec![],
     ).await {
         Ok(token) => {
             info!("[OK] Scan authorized: {} license, max {} targets",
@@ -874,7 +875,7 @@ fn get_dummy_value(field_name: &str) -> String {
 fn get_form_input_value(input: &crate::crawler::FormInput) -> String {
     // For SELECT elements with options, use first option
     if input.input_type.eq_ignore_ascii_case("select") {
-        if let Some(ref options) = input.options {
+        if let Some(options) = &input.options {
             if !options.is_empty() {
                 return options[0].clone();
             }
@@ -882,7 +883,7 @@ fn get_form_input_value(input: &crate::crawler::FormInput) -> String {
     }
 
     // If input has a preset value, use it
-    if let Some(ref value) = input.value {
+    if let Some(value) = &input.value {
         if !value.is_empty() {
             return value.clone();
         }
@@ -1204,7 +1205,7 @@ async fn execute_standalone_scan(
                     // SQLi on form field (if not static)
                     if !is_static_site {
                         let (vulns, tests) = engine.sqli_scanner.scan_post_body(
-                            action_url, &input.name, &base_body, Some("application/x-www-form-urlencoded"), scan_config
+                            action_url, &input.name, &base_body, scan_config
                         ).await?;
                         all_vulnerabilities.extend(vulns);
                         total_tests += tests as u64;
@@ -1757,6 +1758,7 @@ async fn execute_standalone_scan(
     match signing::sign_results(
         &results_hash,
         &scan_token,
+        vec![],
         Some(signing::ScanMetadata {
             targets_count: Some(1),
             scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
