@@ -1036,7 +1036,11 @@ async fn execute_standalone_scan(
     let mut intercepted_endpoints: Vec<String> = Vec::new();
     if needs_headless {
         info!("  - SPA detected with no forms found, using headless browser to discover real endpoints...");
-        let headless = HeadlessCrawler::new(30);
+        // Pass auth token to headless crawler for authenticated form discovery
+        let headless = HeadlessCrawler::with_auth(30, scan_config.auth_token.clone());
+        if scan_config.auth_token.is_some() {
+            info!("  - Using authenticated headless session with provided token");
+        }
 
         // First: Discover actual form submission endpoints via network interception
         // This is crucial for React/Next.js apps where forms POST to /api/ routes

@@ -16,12 +16,23 @@ use tracing::{debug, info, warn};
 /// Headless browser crawler for SPA form detection
 pub struct HeadlessCrawler {
     timeout: Duration,
+    /// Optional JWT/Bearer token for authenticated scanning
+    auth_token: Option<String>,
 }
 
 impl HeadlessCrawler {
     pub fn new(timeout_secs: u64) -> Self {
         Self {
             timeout: Duration::from_secs(timeout_secs),
+            auth_token: None,
+        }
+    }
+
+    /// Create a new headless crawler with authentication token
+    pub fn with_auth(timeout_secs: u64, token: Option<String>) -> Self {
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+            auth_token: token,
         }
     }
 
@@ -31,10 +42,11 @@ impl HeadlessCrawler {
 
         let url_owned = url.to_string();
         let timeout = self.timeout;
+        let auth_token = self.auth_token.clone();
 
         // Run headless_chrome in blocking task (it's synchronous)
         let forms = tokio::task::spawn_blocking(move || {
-            Self::extract_forms_sync(&url_owned, timeout)
+            Self::extract_forms_sync(&url_owned, timeout, auth_token.as_deref())
         })
         .await
         .context("Headless browser task panicked")??;
@@ -44,7 +56,7 @@ impl HeadlessCrawler {
     }
 
     /// Synchronous form extraction (runs in blocking thread)
-    fn extract_forms_sync(url: &str, timeout: Duration) -> Result<Vec<DiscoveredForm>> {
+    fn extract_forms_sync(url: &str, timeout: Duration, auth_token: Option<&str>) -> Result<Vec<DiscoveredForm>> {
         // Launch browser
         let browser = Browser::new(
             LaunchOptions::default_builder()
@@ -58,12 +70,36 @@ impl HeadlessCrawler {
         // Create new tab and navigate
         let tab = browser.new_tab().context("Failed to create new tab")?;
 
-        tab.navigate_to(url)
-            .context("Failed to navigate to URL")?;
+        // If we have an auth token, first navigate to the base URL and inject it
+        if let Some(token) = auth_token {
+            info!("[Headless] Injecting authentication token into browser session");
 
-        // Wait for page to load
-        tab.wait_until_navigated()
-            .context("Navigation timeout")?;
+            // Navigate to the URL first to set up the origin
+            tab.navigate_to(url)
+                .context("Failed to navigate to URL")?;
+            tab.wait_until_navigated()
+                .context("Navigation timeout")?;
+
+            // Inject token into localStorage (common pattern for SPAs)
+            let js_inject_token = format!(r#"
+                localStorage.setItem('token', '{}');
+                localStorage.setItem('accessToken', '{}');
+                localStorage.setItem('auth_token', '{}');
+                localStorage.setItem('jwt', '{}');
+            "#, token, token, token, token);
+            let _ = tab.evaluate(&js_inject_token, false);
+
+            // Reload the page to apply authentication
+            tab.reload(true, None)
+                .context("Failed to reload with auth")?;
+            tab.wait_until_navigated()
+                .context("Navigation timeout after auth")?;
+        } else {
+            tab.navigate_to(url)
+                .context("Failed to navigate to URL")?;
+            tab.wait_until_navigated()
+                .context("Navigation timeout")?;
+        }
 
         // Additional wait for JS to render
         std::thread::sleep(Duration::from_secs(2));
@@ -505,9 +541,10 @@ impl HeadlessCrawler {
 
         let url_owned = url.to_string();
         let timeout = self.timeout;
+        let auth_token = self.auth_token.clone();
 
         let endpoints = tokio::task::spawn_blocking(move || {
-            Self::discover_endpoints_sync(&url_owned, timeout)
+            Self::discover_endpoints_sync(&url_owned, timeout, auth_token.as_deref())
         })
         .await
         .context("Form endpoint discovery task panicked")??;
@@ -517,7 +554,7 @@ impl HeadlessCrawler {
     }
 
     /// Synchronous endpoint discovery with network interception
-    fn discover_endpoints_sync(url: &str, timeout: Duration) -> Result<Vec<DiscoveredEndpoint>> {
+    fn discover_endpoints_sync(url: &str, timeout: Duration, auth_token: Option<&str>) -> Result<Vec<DiscoveredEndpoint>> {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
@@ -528,6 +565,24 @@ impl HeadlessCrawler {
         .context("Failed to launch Chrome/Chromium")?;
 
         let tab = browser.new_tab().context("Failed to create tab")?;
+
+        // If we have auth token, inject it before setting up interception
+        if let Some(token) = auth_token {
+            info!("[Headless] Setting up authenticated session for endpoint discovery");
+
+            // Navigate first to set origin
+            tab.navigate_to(url).context("Failed to navigate for auth setup")?;
+            tab.wait_until_navigated().context("Auth setup navigation timeout")?;
+
+            // Inject token into localStorage
+            let js_inject_token = format!(r#"
+                localStorage.setItem('token', '{}');
+                localStorage.setItem('accessToken', '{}');
+                localStorage.setItem('auth_token', '{}');
+                localStorage.setItem('jwt', '{}');
+            "#, token, token, token, token);
+            let _ = tab.evaluate(&js_inject_token, false);
+        }
 
         // Store captured requests
         let captured_requests: Arc<Mutex<Vec<CapturedRequest>>> = Arc::new(Mutex::new(Vec::new()));
