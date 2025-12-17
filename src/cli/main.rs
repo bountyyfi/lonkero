@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn, Level};
+use url;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use lonkero_scanner::config::ScannerConfig;
@@ -1184,6 +1185,21 @@ async fn execute_standalone_scan(
         // FIRST: Test discovered forms with POST (full form body)
         if !discovered_forms.is_empty() {
             info!("  - Testing {} discovered forms with POST", discovered_forms.len());
+
+            // Find potential API endpoints for form submission from JS miner results
+            let form_api_endpoints: Vec<String> = js_miner_results.api_endpoints.iter()
+                .chain(js_miner_results.form_actions.iter())
+                .filter(|ep| {
+                    let ep_lower = ep.to_lowercase();
+                    ep_lower.contains("contact") || ep_lower.contains("submit") ||
+                    ep_lower.contains("form") || ep_lower.contains("send") ||
+                    ep_lower.contains("message") || ep_lower.contains("inquiry") ||
+                    ep_lower.contains("newsletter") || ep_lower.contains("signup") ||
+                    ep_lower.contains("/api/")
+                })
+                .cloned()
+                .collect();
+
             for (action_url, form_inputs) in &discovered_forms {
                 // Build base form body using smart values (SELECT options, preset values, or dummy)
                 let base_body: String = form_inputs.iter()
@@ -1191,24 +1207,71 @@ async fn execute_standalone_scan(
                     .collect::<Vec<_>>()
                     .join("&");
 
-                // Test each field in the form
+                // Determine URLs to test - if action is just page URL, also try discovered API endpoints
+                let mut test_urls: Vec<String> = vec![action_url.clone()];
+
+                // If form action is the page URL (React/SPA default), add discovered API endpoints
+                let parsed_target = url::Url::parse(target).ok();
+                let is_page_url = parsed_target.as_ref()
+                    .map(|t| action_url == target || action_url == &format!("{}/", t.as_str().trim_end_matches('/')))
+                    .unwrap_or(false);
+
+                if is_page_url && !form_api_endpoints.is_empty() {
+                    info!("    [SPA] Form action is page URL, also testing {} potential API endpoints", form_api_endpoints.len());
+                    for api_ep in &form_api_endpoints {
+                        // Resolve relative URLs
+                        let full_url = if api_ep.starts_with("http") {
+                            api_ep.clone()
+                        } else if let Some(ref parsed) = parsed_target {
+                            format!("{}{}", parsed.origin().ascii_serialization(),
+                                   if api_ep.starts_with('/') { api_ep.as_str() } else { &format!("/{}", api_ep) })
+                        } else {
+                            continue;
+                        };
+                        if !test_urls.contains(&full_url) {
+                            test_urls.push(full_url);
+                        }
+                    }
+                }
+
+                // Build JSON body for API endpoints
+                let json_body: String = format!("{{{}}}",
+                    form_inputs.iter()
+                        .map(|input| format!("\"{}\":\"{}\"", input.name, get_form_input_value(input)))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+
+                // Test each field in the form against all potential endpoints
                 for input in form_inputs {
-                    info!("    Testing form field '{}' ({}) at {}", input.name, input.input_type, action_url);
+                    for test_url in &test_urls {
+                        let is_api_endpoint = test_url.contains("/api/");
+                        info!("    Testing form field '{}' ({}) at {}{}",
+                              input.name, input.input_type, test_url,
+                              if is_api_endpoint { " [API/JSON]" } else { "" });
 
-                    // XSS on form field
-                    let (vulns, tests) = engine.xss_scanner.scan_post_body(
-                        action_url, &input.name, &base_body, Some("application/x-www-form-urlencoded"), scan_config
-                    ).await?;
-                    all_vulnerabilities.extend(vulns);
-                    total_tests += tests as u64;
+                        // Choose content type based on endpoint
+                        let (body_to_test, content_type) = if is_api_endpoint {
+                            (json_body.clone(), Some("application/json"))
+                        } else {
+                            (base_body.clone(), Some("application/x-www-form-urlencoded"))
+                        };
 
-                    // SQLi on form field (if not static)
-                    if !is_static_site {
-                        let (vulns, tests) = engine.sqli_scanner.scan_post_body(
-                            action_url, &input.name, &base_body, scan_config
+                        // XSS on form field
+                        let (vulns, tests) = engine.xss_scanner.scan_post_body(
+                            test_url, &input.name, &body_to_test, content_type, scan_config
                         ).await?;
                         all_vulnerabilities.extend(vulns);
                         total_tests += tests as u64;
+
+                        // SQLi on form field (if not static)
+                        if !is_static_site {
+                            let (vulns, tests) = engine.sqli_scanner.scan_post_body(
+                                test_url, &input.name, &body_to_test, scan_config
+                            ).await?;
+                            all_vulnerabilities.extend(vulns);
+                            total_tests += tests as u64;
+                        }
                     }
                 }
             }
