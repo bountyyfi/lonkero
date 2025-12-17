@@ -768,3 +768,312 @@ pub struct DiscoveredEndpoint {
     pub method: String,
     pub content_type: Option<String>,
 }
+
+/// Complete site crawl results
+#[derive(Debug, Clone, Default)]
+pub struct SiteCrawlResults {
+    /// All pages visited during crawl
+    pub pages_visited: Vec<String>,
+    /// All forms discovered across the site
+    pub forms: Vec<DiscoveredForm>,
+    /// All API endpoints discovered via network interception
+    pub api_endpoints: Vec<DiscoveredEndpoint>,
+    /// Internal links found but not yet visited (for reference)
+    pub links_found: Vec<String>,
+}
+
+impl HeadlessCrawler {
+    /// Crawl entire authenticated site - discover all pages, forms, and API endpoints
+    /// This is the main entry point for comprehensive site scanning
+    pub async fn crawl_authenticated_site(&self, start_url: &str, max_pages: usize) -> Result<SiteCrawlResults> {
+        info!("[Headless] Starting full authenticated site crawl: {}", start_url);
+
+        let url_owned = start_url.to_string();
+        let timeout = self.timeout;
+        let auth_token = self.auth_token.clone();
+
+        let results = tokio::task::spawn_blocking(move || {
+            Self::crawl_site_sync(&url_owned, timeout, auth_token.as_deref(), max_pages)
+        })
+        .await
+        .context("Site crawl task panicked")??;
+
+        info!(
+            "[Headless] Site crawl complete: {} pages, {} forms, {} API endpoints",
+            results.pages_visited.len(),
+            results.forms.len(),
+            results.api_endpoints.len()
+        );
+        Ok(results)
+    }
+
+    /// Synchronous full site crawl
+    fn crawl_site_sync(
+        start_url: &str,
+        timeout: Duration,
+        auth_token: Option<&str>,
+        max_pages: usize,
+    ) -> Result<SiteCrawlResults> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
+        )
+        .context("Failed to launch Chrome/Chromium")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+
+        // Parse base URL for same-origin checks
+        let base_url = url::Url::parse(start_url).context("Invalid start URL")?;
+        let base_host = base_url.host_str().unwrap_or("").to_string();
+
+        // Track visited pages and pages to visit
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut to_visit: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        to_visit.push_back(start_url.to_string());
+
+        let mut results = SiteCrawlResults::default();
+
+        // Set up network interception for API discovery
+        let captured_requests: Arc<Mutex<Vec<CapturedRequest>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = Arc::clone(&captured_requests);
+
+        let patterns = vec![RequestPattern {
+            url_pattern: Some("*".to_string()),
+            resource_Type: None,
+            request_stage: Some(RequestStage::Request),
+        }];
+
+        tab.enable_fetch(Some(&patterns), None)
+            .context("Failed to enable fetch interception")?;
+
+        tab.enable_request_interception(Arc::new(
+            move |_transport, _session_id, intercepted: RequestPausedEvent| {
+                let request = &intercepted.params.request;
+                let method = if request.method.is_empty() {
+                    "GET"
+                } else {
+                    &request.method
+                };
+
+                // Capture POST/PUT/PATCH/DELETE requests and XHR/fetch GETs to API endpoints
+                let url_lower = request.url.to_lowercase();
+                let is_api_request = url_lower.contains("/api/")
+                    || url_lower.contains("/graphql")
+                    || url_lower.contains("/v1/")
+                    || url_lower.contains("/v2/")
+                    || method != "GET";
+
+                if is_api_request {
+                    // Filter out tracking/analytics
+                    let should_capture = !url_lower.contains("analytics")
+                        && !url_lower.contains("tracking")
+                        && !url_lower.contains("pixel")
+                        && !url_lower.contains("gtag")
+                        && !url_lower.contains("facebook.com")
+                        && !url_lower.contains("google-analytics")
+                        && !url_lower.contains("sentry.io")
+                        && !url_lower.contains("cdn.");
+
+                    if should_capture {
+                        if let Ok(mut captured) = captured_clone.lock() {
+                            // Avoid duplicates
+                            let exists = captured.iter().any(|r| r.url == request.url && r.method == method);
+                            if !exists {
+                                debug!("[Headless] Captured API: {} {}", method, request.url);
+                                captured.push(CapturedRequest {
+                                    url: request.url.clone(),
+                                    method: method.to_string(),
+                                    post_data: request.post_data.clone(),
+                                    content_type: request
+                                        .headers
+                                        .0
+                                        .as_ref()
+                                        .and_then(|h| {
+                                            h.get("Content-Type").or_else(|| h.get("content-type"))
+                                        })
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                RequestPausedDecision::Continue(None)
+            },
+        ))?;
+
+        // Navigate to start URL and inject auth token
+        tab.navigate_to(start_url)
+            .context("Failed to navigate to start URL")?;
+        tab.wait_until_navigated()
+            .context("Navigation timeout")?;
+
+        if let Some(token) = auth_token {
+            info!("[Headless] Injecting authentication token");
+            let js_inject_token = format!(
+                r#"
+                localStorage.setItem('token', '{}');
+                localStorage.setItem('accessToken', '{}');
+                localStorage.setItem('auth_token', '{}');
+                localStorage.setItem('jwt', '{}');
+                sessionStorage.setItem('token', '{}');
+                sessionStorage.setItem('accessToken', '{}');
+            "#,
+                token, token, token, token, token, token
+            );
+            let _ = tab.evaluate(&js_inject_token, false);
+
+            // Reload to apply auth
+            tab.reload(true, None).context("Failed to reload with auth")?;
+            tab.wait_until_navigated()
+                .context("Navigation timeout after auth")?;
+        }
+
+        // Crawl loop
+        while let Some(current_url) = to_visit.pop_front() {
+            if visited.contains(&current_url) {
+                continue;
+            }
+
+            if visited.len() >= max_pages {
+                info!(
+                    "[Headless] Reached max pages limit ({}), stopping crawl",
+                    max_pages
+                );
+                break;
+            }
+
+            // Navigate to the page
+            if current_url != start_url || visited.is_empty() {
+                debug!("[Headless] Navigating to: {}", current_url);
+                if tab.navigate_to(&current_url).is_err() {
+                    warn!("[Headless] Failed to navigate to: {}", current_url);
+                    continue;
+                }
+                if tab.wait_until_navigated().is_err() {
+                    warn!("[Headless] Navigation timeout for: {}", current_url);
+                    continue;
+                }
+            }
+
+            visited.insert(current_url.clone());
+            results.pages_visited.push(current_url.clone());
+
+            // Wait for JS to render
+            std::thread::sleep(Duration::from_millis(1500));
+
+            // Extract forms from current page
+            match Self::extract_forms_from_tab(&tab, &current_url) {
+                Ok(page_forms) => {
+                    info!(
+                        "[Headless] Page {} - found {} forms",
+                        current_url,
+                        page_forms.len()
+                    );
+                    results.forms.extend(page_forms);
+                }
+                Err(e) => {
+                    warn!("[Headless] Failed to extract forms from {}: {}", current_url, e);
+                }
+            }
+
+            // Extract internal links
+            let js_extract_links = format!(
+                r#"
+                (function() {{
+                    const links = new Set();
+                    const baseHost = '{}';
+
+                    // Get all anchor links
+                    document.querySelectorAll('a[href]').forEach(a => {{
+                        try {{
+                            const href = a.href;
+                            if (!href || href.startsWith('javascript:') || href.startsWith('#') || href.startsWith('mailto:')) return;
+
+                            const url = new URL(href, window.location.origin);
+                            // Same origin check
+                            if (url.hostname === baseHost || url.hostname.endsWith('.' + baseHost)) {{
+                                // Skip file downloads and external resources
+                                const path = url.pathname.toLowerCase();
+                                if (path.endsWith('.pdf') || path.endsWith('.zip') || path.endsWith('.doc')) return;
+                                if (path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.gif')) return;
+
+                                // Clean URL (remove hash)
+                                url.hash = '';
+                                links.add(url.href);
+                            }}
+                        }} catch(e) {{}}
+                    }});
+
+                    // Also check for SPA navigation links (router-link, etc)
+                    document.querySelectorAll('[to], [routerlink], [ng-href]').forEach(el => {{
+                        const to = el.getAttribute('to') || el.getAttribute('routerlink') || el.getAttribute('ng-href');
+                        if (to && !to.startsWith('#')) {{
+                            try {{
+                                const url = new URL(to, window.location.origin);
+                                if (url.hostname === baseHost) {{
+                                    links.add(url.href);
+                                }}
+                            }} catch(e) {{}}
+                        }}
+                    }});
+
+                    return JSON.stringify(Array.from(links));
+                }})()
+            "#,
+                base_host
+            );
+
+            if let Ok(result) = tab.evaluate(&js_extract_links, true) {
+                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                    if let Ok(links) = serde_json::from_str::<Vec<String>>(&json_str) {
+                        for link in links {
+                            if !visited.contains(&link) && !to_visit.contains(&link) {
+                                to_visit.push_back(link.clone());
+                                results.links_found.push(link);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Try clicking on navigation items to discover more content
+            let _ = tab.evaluate(
+                r#"
+                (function() {
+                    // Click on nav items that might reveal more content
+                    document.querySelectorAll('nav a, [role="navigation"] a, .nav-link, .menu-item').forEach((el, i) => {
+                        if (i < 5) { // Limit to avoid too many clicks
+                            el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+                        }
+                    });
+                })()
+            "#,
+                false,
+            );
+        }
+
+        // Disable interception
+        let _ = tab.disable_fetch();
+
+        // Collect API endpoints
+        if let Ok(captured) = captured_requests.lock() {
+            for req in captured.iter() {
+                results.api_endpoints.push(DiscoveredEndpoint {
+                    url: req.url.clone(),
+                    method: req.method.clone(),
+                    content_type: req.content_type.clone(),
+                });
+            }
+        }
+
+        // Store remaining links for reference
+        results.links_found = to_visit.into_iter().collect();
+
+        Ok(results)
+    }
+}

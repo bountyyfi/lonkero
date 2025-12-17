@@ -1038,36 +1038,21 @@ async fn execute_standalone_scan(
         info!("  - SPA detected with no forms found, using headless browser to discover real endpoints...");
         // Pass auth token to headless crawler for authenticated form discovery
         let headless = HeadlessCrawler::with_auth(30, scan_config.auth_token.clone());
+
+        // For authenticated scans, do full site crawl to discover all pages and forms
         if scan_config.auth_token.is_some() {
-            info!("  - Using authenticated headless session with provided token");
-        }
+            info!("  - Using authenticated headless session - performing full site crawl");
+            let max_pages = 50; // Limit pages for reasonable scan time
 
-        // First: Discover actual form submission endpoints via network interception
-        // This is crucial for React/Next.js apps where forms POST to /api/ routes
-        info!("  - Intercepting network requests to discover form endpoints...");
-        match headless.discover_form_endpoints(target).await {
-            Ok(endpoints) => {
-                if !endpoints.is_empty() {
-                    info!("[SUCCESS] Intercepted {} form submission endpoints:", endpoints.len());
-                    for ep in &endpoints {
-                        info!("    - {} {} ({})", ep.method, ep.url, ep.content_type.as_deref().unwrap_or("unknown"));
-                        intercepted_endpoints.push(ep.url.clone());
-                    }
-                } else {
-                    info!("  - No POST requests intercepted during form submission");
-                }
-            }
-            Err(e) => {
-                warn!("  - Network interception failed: {}", e);
-            }
-        }
+            match headless.crawl_authenticated_site(target, max_pages).await {
+                Ok(crawl_results) => {
+                    info!("[SUCCESS] Authenticated site crawl complete:");
+                    info!("    - Pages visited: {}", crawl_results.pages_visited.len());
+                    info!("    - Forms discovered: {}", crawl_results.forms.len());
+                    info!("    - API endpoints found: {}", crawl_results.api_endpoints.len());
 
-        // Second: Extract form field info
-        match headless.extract_forms(target).await {
-            Ok(forms) => {
-                if !forms.is_empty() {
-                    info!("[SUCCESS] Headless browser found {} forms", forms.len());
-                    for form in &forms {
+                    // Add all discovered forms
+                    for form in &crawl_results.forms {
                         let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
                             .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                            !input.input_type.eq_ignore_ascii_case("submit") &&
@@ -1076,33 +1061,95 @@ async fn execute_standalone_scan(
                             .collect();
 
                         if !form_inputs.is_empty() {
-                            // Use intercepted endpoint if available, otherwise fall back to form.action
-                            let action_url = if !intercepted_endpoints.is_empty() {
-                                // Use first intercepted endpoint as the real form target
-                                intercepted_endpoints[0].clone()
-                            } else if form.action.is_empty() {
-                                target.to_string()
+                            let action_url = if form.action.is_empty() {
+                                form.discovered_at.clone()
                             } else {
                                 form.action.clone()
                             };
                             let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
-                            discovered_forms.push((action_url.clone(), form_inputs.clone()));
-                            discovered_params.extend(param_names.clone());
-
-                            // Also add entries for other intercepted endpoints (if any)
-                            for ep in intercepted_endpoints.iter().skip(1) {
-                                discovered_forms.push((ep.clone(), form_inputs.clone()));
-                            }
+                            discovered_forms.push((action_url, form_inputs));
+                            discovered_params.extend(param_names);
                         }
                     }
-                    info!("  - Found {} real form fields from rendered page", discovered_params.len());
-                    if !intercepted_endpoints.is_empty() {
-                        info!("  - Using intercepted API endpoint(s) instead of page URL");
+
+                    // Add all discovered API endpoints
+                    for ep in &crawl_results.api_endpoints {
+                        info!("    - API: {} {}", ep.method, ep.url);
+                        intercepted_endpoints.push(ep.url.clone());
                     }
+
+                    info!("  - Total: {} forms with {} fields, {} API endpoints",
+                          discovered_forms.len(), discovered_params.len(), intercepted_endpoints.len());
+                }
+                Err(e) => {
+                    warn!("  - Full site crawl failed: {}", e);
+                    warn!("  - Falling back to single-page scan");
                 }
             }
-            Err(e) => {
-                warn!("  - Headless browser failed: {} (Chrome/Chromium may not be installed)", e);
+        } else {
+            // Non-authenticated: use single-page discovery (existing behavior)
+            // First: Discover actual form submission endpoints via network interception
+            // This is crucial for React/Next.js apps where forms POST to /api/ routes
+            info!("  - Intercepting network requests to discover form endpoints...");
+            match headless.discover_form_endpoints(target).await {
+                Ok(endpoints) => {
+                    if !endpoints.is_empty() {
+                        info!("[SUCCESS] Intercepted {} form submission endpoints:", endpoints.len());
+                        for ep in &endpoints {
+                            info!("    - {} {} ({})", ep.method, ep.url, ep.content_type.as_deref().unwrap_or("unknown"));
+                            intercepted_endpoints.push(ep.url.clone());
+                        }
+                    } else {
+                        info!("  - No POST requests intercepted during form submission");
+                    }
+                }
+                Err(e) => {
+                    warn!("  - Network interception failed: {}", e);
+                }
+            }
+
+            // Second: Extract form field info
+            match headless.extract_forms(target).await {
+                Ok(forms) => {
+                    if !forms.is_empty() {
+                        info!("[SUCCESS] Headless browser found {} forms", forms.len());
+                        for form in &forms {
+                            let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
+                                .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
+                                               !input.input_type.eq_ignore_ascii_case("submit") &&
+                                               !input.name.is_empty())
+                                .cloned()
+                                .collect();
+
+                            if !form_inputs.is_empty() {
+                                // Use intercepted endpoint if available, otherwise fall back to form.action
+                                let action_url = if !intercepted_endpoints.is_empty() {
+                                    // Use first intercepted endpoint as the real form target
+                                    intercepted_endpoints[0].clone()
+                                } else if form.action.is_empty() {
+                                    target.to_string()
+                                } else {
+                                    form.action.clone()
+                                };
+                                let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
+                                discovered_forms.push((action_url.clone(), form_inputs.clone()));
+                                discovered_params.extend(param_names.clone());
+
+                                // Also add entries for other intercepted endpoints (if any)
+                                for ep in intercepted_endpoints.iter().skip(1) {
+                                    discovered_forms.push((ep.clone(), form_inputs.clone()));
+                                }
+                            }
+                        }
+                        info!("  - Found {} real form fields from rendered page", discovered_params.len());
+                        if !intercepted_endpoints.is_empty() {
+                            info!("  - Using intercepted API endpoint(s) instead of page URL");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("  - Headless browser failed: {} (Chrome/Chromium may not be installed)", e);
+                }
             }
         }
     }
