@@ -92,7 +92,8 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9"
 
 # Headless browser for JavaScript-rendered pages (SPA form detection)
-headless_chrome = "1.0"
+# Using fetch feature for network request interception to discover actual form endpoints
+headless_chrome = { version = "1.0", features = ["fetch"] }
 
 # Base64
 base64 = "0.22.1"
