@@ -1510,14 +1510,16 @@ async fn execute_standalone_scan(
             info!("  - Skipping Command Injection (Node.js stacks don't execute shell commands)");
         }
 
-        // Run Path Traversal scanner (skip for static sites)
-        if !is_static_site {
+        // Run Path Traversal scanner (skip for static sites and GraphQL backends)
+        if !is_static_site && !is_graphql_only {
             info!("  - Testing Path Traversal");
             for (param_name, _) in &test_params {
                 let (vulns, tests) = engine.path_scanner.scan_parameter(target, param_name, scan_config).await?;
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
             }
+        } else if is_graphql_only {
+            info!("  - Skipping Path Traversal (GraphQL serves JSON data, not files)");
         }
 
         // Run SSRF scanner (skip for static sites - they can't make server requests)
