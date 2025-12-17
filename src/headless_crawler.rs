@@ -398,14 +398,28 @@ impl HeadlessCrawler {
 
     /// Extract forms from an existing tab
     fn extract_forms_from_tab(tab: &headless_chrome::Tab, original_url: &str) -> Result<Vec<DiscoveredForm>> {
+        // Comprehensive form extraction - handles Vue/Vuetify, React, Angular, and traditional forms
         let js_extract = r#"
             (function() {
                 const results = [];
+                const processedContainers = new Set();
 
-                function extractInput(el) {
+                function extractInput(el, index) {
                     const tagName = el.tagName.toLowerCase();
-                    const name = el.name || el.id || el.getAttribute('aria-label') || el.placeholder;
-                    if (!name) return null;
+                    // Get name from multiple sources, generate fallback if none exist
+                    let name = el.name || el.id || el.getAttribute('aria-label') || el.placeholder;
+
+                    // For Vuetify, check parent label
+                    if (!name) {
+                        const label = el.closest('.v-input')?.querySelector('.v-label')?.textContent?.trim();
+                        if (label) name = label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                    }
+
+                    if (!name) {
+                        // Generate fallback name from type/tag and index
+                        const inputType = el.type || tagName;
+                        name = inputType + '_field_' + index;
+                    }
 
                     const inputType = el.type || tagName;
                     if (inputType === 'hidden' || inputType === 'submit' || inputType === 'button') return null;
@@ -415,9 +429,10 @@ impl HeadlessCrawler {
                         type: inputType,
                         value: el.value || null,
                         options: null,
-                        required: el.required || el.getAttribute('aria-required') === 'true'
+                        required: el.required || el.getAttribute('aria-required') === 'true' || el.closest('.v-input--required') !== null
                     };
 
+                    // For SELECT elements
                     if (tagName === 'select') {
                         info.type = 'select';
                         info.options = [];
@@ -431,6 +446,16 @@ impl HeadlessCrawler {
                         }
                     }
 
+                    // For Vuetify select/autocomplete - check for hidden input with options
+                    const vuetifySelect = el.closest('.v-select, .v-autocomplete, .v-combobox');
+                    if (vuetifySelect) {
+                        info.type = 'select';
+                        const menuItems = document.querySelectorAll('.v-list-item');
+                        if (menuItems.length > 0) {
+                            info.options = Array.from(menuItems).map(item => item.textContent?.trim()).filter(Boolean);
+                        }
+                    }
+
                     if (inputType === 'checkbox' || inputType === 'radio') {
                         info.value = el.checked ? (el.value || 'on') : null;
                     }
@@ -438,27 +463,117 @@ impl HeadlessCrawler {
                     return info;
                 }
 
+                // 1. Traditional <form> elements
                 document.querySelectorAll('form').forEach(form => {
+                    processedContainers.add(form);
                     const inputs = [];
+                    let idx = 0;
                     form.querySelectorAll('input, textarea, select').forEach(el => {
-                        const info = extractInput(el);
+                        const info = extractInput(el, idx++);
                         if (info) inputs.push(info);
                     });
                     if (inputs.length > 0) {
                         results.push({
                             action: form.action || window.location.href,
                             method: (form.method || 'POST').toUpperCase(),
-                            inputs: inputs,
-                            is_followup: true
+                            inputs: inputs
                         });
                     }
                 });
+
+                // 2. Vuetify v-form components (rendered as div with specific classes)
+                document.querySelectorAll('.v-form, [class*="v-form"]').forEach(vform => {
+                    if (processedContainers.has(vform)) return;
+                    processedContainers.add(vform);
+                    const inputs = [];
+                    let idx = 0;
+                    vform.querySelectorAll('input, textarea, select, .v-input input, .v-input textarea').forEach(el => {
+                        if (el.closest('.v-form') === vform || el.closest('[class*="v-form"]') === vform) {
+                            const info = extractInput(el, idx++);
+                            if (info) inputs.push(info);
+                        }
+                    });
+                    if (inputs.length > 0) {
+                        results.push({
+                            action: window.location.href,
+                            method: 'POST',
+                            inputs: inputs
+                        });
+                    }
+                });
+
+                // 3. Form-like containers by class patterns
+                const formPatterns = [
+                    '[class*="form"]', '[class*="Form"]',
+                    '[class*="contact"]', '[class*="signup"]', '[class*="signin"]', '[class*="login"]', '[class*="register"]',
+                    '[class*="checkout"]', '[class*="payment"]', '[class*="shipping"]', '[class*="calculator"]',
+                    '[role="form"]', '[data-form]'
+                ];
+                document.querySelectorAll(formPatterns.join(', ')).forEach(container => {
+                    if (processedContainers.has(container)) return;
+                    if (container.closest('form') || container.closest('.v-form')) return;
+                    processedContainers.add(container);
+
+                    const inputs = [];
+                    let idx = 0;
+                    container.querySelectorAll('input, textarea, select').forEach(el => {
+                        const info = extractInput(el, idx++);
+                        if (info) inputs.push(info);
+                    });
+                    if (inputs.length > 0) {
+                        results.push({
+                            action: window.location.href,
+                            method: 'POST',
+                            inputs: inputs
+                        });
+                    }
+                });
+
+                // 4. Vuetify cards/dialogs that contain inputs (common pattern)
+                document.querySelectorAll('.v-card, .v-dialog, .v-sheet').forEach(container => {
+                    if (processedContainers.has(container)) return;
+                    const inputs = [];
+                    let idx = 0;
+                    container.querySelectorAll('input:not([type="hidden"]), textarea, select').forEach(el => {
+                        if (!el.closest('form') && !el.closest('.v-form')) {
+                            const info = extractInput(el, idx++);
+                            if (info) inputs.push(info);
+                        }
+                    });
+                    if (inputs.length >= 2) { // At least 2 inputs to be considered a form
+                        processedContainers.add(container);
+                        results.push({
+                            action: window.location.href,
+                            method: 'POST',
+                            inputs: inputs
+                        });
+                    }
+                });
+
+                // 5. Any remaining standalone inputs not in a form
+                const standalone = [];
+                let standaloneIdx = 0;
+                document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), textarea, select').forEach(el => {
+                    // Skip if already processed
+                    for (const container of processedContainers) {
+                        if (container.contains(el)) return;
+                    }
+                    const info = extractInput(el, standaloneIdx++);
+                    if (info) standalone.push(info);
+                });
+                if (standalone.length > 0) {
+                    results.push({
+                        action: window.location.href,
+                        method: 'POST',
+                        inputs: standalone
+                    });
+                }
 
                 return JSON.stringify(results);
             })()
         "#;
 
-        let result = tab.evaluate(js_extract, true).context("Failed to extract follow-up forms")?;
+        let result = tab.evaluate(js_extract, true).context("Failed to extract forms")?;
         let mut forms = Vec::new();
 
         if let Some(json_str) = result.value {
@@ -517,12 +632,12 @@ impl HeadlessCrawler {
                         }
 
                         if !inputs.is_empty() {
-                            debug!("[Headless] Follow-up form at {} with {} inputs", action, inputs.len());
+                            debug!("[Headless] Form at {} with {} inputs", action, inputs.len());
                             forms.push(DiscoveredForm {
                                 action,
                                 method,
                                 inputs,
-                                discovered_at: format!("{} (follow-up)", original_url),
+                                discovered_at: original_url.to_string(),
                             });
                         }
                     }
