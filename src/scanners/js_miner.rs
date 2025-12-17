@@ -1586,20 +1586,40 @@ impl JsMinerScanner {
             "_sentrySpans", "_sentryTraceData", "sentryConfig",
             // Vue.js internals
             "ssrContext", "nuxt", "vuex", "vueRouter", "vueI18n",
-            "morph", "prefetch", "deep", "wrapper",
+            "morph", "prefetch", "deep", "wrapper", "scopedSlots",
+            "vnode", "slots", "render", "functional", "staticClass",
+            "staticStyle", "directives", "keepAlive", "transition",
+            // Vuetify/Vue directives
+            "ripple", "intersect", "intersection", "scroll", "resize",
+            "touch", "mutate", "clickOutside", "lazyload",
+            // Apollo/GraphQL internals
+            "watchLoading", "watchError", "apolloData", "apolloQueries",
+            "_apolloPromises", "apolloSubscriptions", "smartQuery",
+            // Nuxt internals
+            "asyncData", "fetch", "head", "layout", "middleware",
+            "scrollToTop", "watchQuery", "getMetaHTML", "metaInfo",
             // Generic service/provider class names (not params)
             "authService", "signatureService", "serviceGenerator",
-            "globalSettingsService", "extraServiceService",
-            // Crypto/algorithm names
-            "ed25519", "sha256", "sha512", "hmac", "aes",
+            "globalSettingsService", "extraServiceService", "configService",
+            "fileService", "bugReportService", "apiService", "httpService",
+            "storageService", "cacheService", "logService", "dataService",
+            // Crypto/algorithm names (not params)
+            "ed25519", "sha256", "sha512", "hmac", "aes", "rsa",
+            "elliptic", "secp256k1", "secp256r1", "curve25519", "p256",
+            "ecdsa", "ecdh", "pbkdf2", "argon2", "bcrypt", "scrypt",
             // Common JS internals
-            "spectrum", "palette", "handleError", "transport",
-            "App", "Router", "Store", "Provider", "Context",
-            "mutation", "subscription", "resolver",
+            "spectrum", "palette", "handleError", "transport", "tune",
+            "App", "Router", "Store", "Provider", "Context", "Normal",
+            "mutation", "subscription", "resolver", "fragment",
             // dayjs/moment internals
-            "isDayjsObject", "isMoment", "localOffset",
+            "isDayjsObject", "isMoment", "localOffset", "utcOffset",
+            "isValid", "invalidAt", "parsingFlags",
             // Generic framework noise
-            "_key", "_times", "defaultWidth", "shortRange",
+            "_key", "_times", "defaultWidth", "shortRange", "hasNormal",
+            "defaultHeight", "maxWidth", "maxHeight", "maxDepth", "maxWeight",
+            // Vue internal flags
+            "_isVue", "_watchers", "_data", "_props", "_computed",
+            "_renderProxy", "_self", "_inactive", "_directInactive",
         ];
         let name_lower = name.to_lowercase();
         for skip in skip_exact {
@@ -1626,11 +1646,17 @@ impl JsMinerScanner {
             "WEBPACK", "CHUNK", "MODULE",
             // Framework name patterns (likely internal)
             "Service", "Provider", "Factory", "Handler", "Manager",
-            "Controller", "Resolver", "Generator", "Util",
+            "Controller", "Resolver", "Generator", "Util", "Helper",
+            "Adapter", "Wrapper", "Decorator", "Observer", "Listener",
+            "Subscriber", "Publisher", "Emitter", "Dispatcher", "Reducer",
             // Sentry patterns
-            "sentry", "Sentry", "_sentry",
+            "sentry", "Sentry", "_sentry", "Sentry",
             // Apollo patterns
-            "Apollo", "_apollo",
+            "Apollo", "_apollo", "apollo",
+            // Vue/Nuxt patterns
+            "Vuex", "Nuxt", "$nuxt", "_nuxt",
+            // React patterns
+            "Redux", "Mobx", "Recoil",
         ];
         for pattern in skip_patterns {
             if name.contains(pattern) {
