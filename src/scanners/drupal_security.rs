@@ -967,7 +967,7 @@ impl DrupalSecurityScanner {
     }
 
     /// Test REST/JSON API exposure
-    async fn test_api_exposure(&self, url: &str, version: &Option<DrupalVersion>) -> Vec<Vulnerability> {
+    async fn test_api_exposure(&self, url: &str, _version: &Option<DrupalVersion>) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 

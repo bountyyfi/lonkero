@@ -428,7 +428,7 @@ impl DjangoSecurityScanner {
 
                         // Check if admin is accessible without auth redirect
                         if resp.status_code == 200 && !resp.body.contains("login") {
-                            issues.push("Admin accessible without authentication");
+                            issues.push("Admin accessible without authentication".to_string());
                         }
 
                         // Check for default/weak credentials
@@ -464,7 +464,7 @@ impl DjangoSecurityScanner {
                                             // Check for successful login (redirect to admin dashboard)
                                             if login_resp.status_code == 302 &&
                                                login_resp.headers.get("location").map(|l| !l.contains("login")).unwrap_or(false) {
-                                                issues.push(&format!("Default credentials: {}:{}", user, pass));
+                                                issues.push(format!("Default credentials: {}:{}", user, pass));
                                             }
                                         }
                                     }

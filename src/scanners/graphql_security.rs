@@ -511,7 +511,7 @@ impl GraphqlSecurityScanner {
         info!("Testing GraphQL subscription vulnerabilities");
 
         // Check for WebSocket endpoint
-        let ws_endpoints = vec![
+        let _ws_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/').replace("http", "ws")),
             format!("{}/subscriptions", url.trim_end_matches('/').replace("http", "ws")),
         ];

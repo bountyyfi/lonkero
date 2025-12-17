@@ -158,7 +158,7 @@ impl ExpressSecurityScanner {
     }
 
     /// Main scan function
-    pub async fn scan(&self, url: &str, config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(&self, url: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
         // Check license
         if !crate::license::has_feature("cms_security") {
             debug!("Express security scanner requires Personal+ license");
@@ -1275,7 +1275,7 @@ impl ExpressSecurityScanner {
     }
 
     /// Check for known CVEs in detected packages
-    async fn check_package_cves(&self, url: &str, info: &PackageInfo) -> (Vec<Vulnerability>, usize) {
+    async fn check_package_cves(&self, url: &str, _info: &PackageInfo) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 

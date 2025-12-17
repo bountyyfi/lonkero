@@ -98,7 +98,7 @@ impl WafBypassScanner {
         let mut tests_run = 0;
 
         // XSS payload in different encodings
-        let base_payload = "<script>alert(1)</script>";
+        let _base_payload = "<script>alert(1)</script>";
 
         let encoded_payloads = vec![
             // Double URL encoding
@@ -413,40 +413,42 @@ impl WafBypassScanner {
         }
 
         // Test unusual HTTP methods
-        let unusual_methods = vec!["TRACE", "TRACK", "DEBUG", "CONNECT", "PROPFIND"];
-
-        for method in &unusual_methods {
-            tests_run += 1;
-
-            match self.http_client.request(method, url, None, vec![]).await {
-                Ok(response) => {
-                    if response.status_code != 405 && response.status_code != 403 {
-                        vulnerabilities.push(Vulnerability {
-                            id: format!("waf_bypass_unusual_method_{}", tests_run),
-                            vuln_type: "Unusual HTTP Method Accepted".to_string(),
-                            severity: Severity::Low,
-                            confidence: Confidence::High,
-                            category: "WAF Bypass".to_string(),
-                            url: url.to_string(),
-                            parameter: None,
-                            payload: method.to_string(),
-                            description: format!(
-                                "Server accepts {} HTTP method. This may bypass WAF rules.",
-                                method
-                            ),
-                            evidence: Some(format!("Status: {}", response.status_code)),
-                            cwe: "CWE-650".to_string(),
-                            cvss: 3.1,
-                            verified: true,
-                            false_positive: false,
-                            remediation: "Restrict allowed HTTP methods to only those required".to_string(),
-                            discovered_at: chrono::Utc::now().to_rfc3339(),
-                        });
-                    }
-                }
-                Err(_) => {}
-            }
-        }
+        // COMMENTED OUT: HttpClient doesn't have a generic request() method
+        // Only specific methods like get(), post(), get_with_headers(), post_with_headers() are available
+        // let unusual_methods = vec!["TRACE", "TRACK", "DEBUG", "CONNECT", "PROPFIND"];
+        //
+        // for method in &unusual_methods {
+        //     tests_run += 1;
+        //
+        //     match self.http_client.request(method, url, None, vec![]).await {
+        //         Ok(response) => {
+        //             if response.status_code != 405 && response.status_code != 403 {
+        //                 vulnerabilities.push(Vulnerability {
+        //                     id: format!("waf_bypass_unusual_method_{}", tests_run),
+        //                     vuln_type: "Unusual HTTP Method Accepted".to_string(),
+        //                     severity: Severity::Low,
+        //                     confidence: Confidence::High,
+        //                     category: "WAF Bypass".to_string(),
+        //                     url: url.to_string(),
+        //                     parameter: None,
+        //                     payload: method.to_string(),
+        //                     description: format!(
+        //                         "Server accepts {} HTTP method. This may bypass WAF rules.",
+        //                         method
+        //                     ),
+        //                     evidence: Some(format!("Status: {}", response.status_code)),
+        //                     cwe: "CWE-650".to_string(),
+        //                     cvss: 3.1,
+        //                     verified: true,
+        //                     false_positive: false,
+        //                     remediation: "Restrict allowed HTTP methods to only those required".to_string(),
+        //                     discovered_at: chrono::Utc::now().to_rfc3339(),
+        //                 });
+        //             }
+        //         }
+        //         Err(_) => {}
+        //     }
+        // }
 
         Ok((vulnerabilities, tests_run))
     }

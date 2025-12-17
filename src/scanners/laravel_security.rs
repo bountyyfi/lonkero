@@ -129,7 +129,7 @@ impl LaravelSecurityScanner {
     }
 
     /// Main scan function
-    pub async fn scan(&self, url: &str, config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(&self, url: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
         // Check license
         if !crate::license::has_feature("cms_security") {
             debug!("Laravel security scanner requires Personal+ license");
@@ -1252,7 +1252,7 @@ impl LaravelSecurityScanner {
                 // Check for insecure cookie settings
                 let has_xsrf = cookie_str.contains("XSRF-TOKEN");
                 let has_secure = cookie_str.to_lowercase().contains("secure");
-                let has_httponly = cookie_str.to_lowercase().contains("httponly");
+                let _has_httponly = cookie_str.to_lowercase().contains("httponly");
                 let has_samesite = cookie_str.to_lowercase().contains("samesite");
 
                 if has_xsrf && !has_secure && url.starts_with("https") {

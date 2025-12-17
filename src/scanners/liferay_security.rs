@@ -655,7 +655,7 @@ impl LiferaySecurityScanner {
                         vulnerabilities.push(Vulnerability {
                             id: format!("liferay_config_{}", uuid_simple()),
                             vuln_type: format!("Liferay {} Exposure", config_name),
-                            severity,
+                            severity: severity.clone(),
                             confidence: Confidence::High,
                             category: "Configuration Exposure".to_string(),
                             url: url.clone(),

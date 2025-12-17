@@ -1220,7 +1220,7 @@ impl WordPressSecurityScanner {
 
     /// Deep plugin scan (more comprehensive, slower)
     async fn deep_plugin_scan(&self, url: &str) -> Vec<Vulnerability> {
-        let mut vulnerabilities = Vec::new();
+        let vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
         // Additional popular plugins to check

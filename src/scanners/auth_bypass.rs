@@ -1418,8 +1418,8 @@ References:
     }
 
     /// Test HTTP DEBUG/TRACE methods for server version disclosure
-    async fn test_http_debug_method(&self, url: &str) -> Vec<Vulnerability> {
-        let mut vulnerabilities = Vec::new();
+    async fn test_http_debug_method(&self, _url: &str) -> Vec<Vulnerability> {
+        let vulnerabilities = Vec::new();
 
         // NOTE: HttpClient doesn't have a generic request() method that supports arbitrary HTTP methods.
         // This test would require HttpClient to support methods like DEBUG, TRACE, TRACK, OPTIONS.

@@ -389,7 +389,10 @@ impl NextJsSecurityScanner {
                 let mut headers = HashMap::new();
                 headers.insert(header.to_string(), value.to_string());
 
-                if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers).await {
+                let headers_vec: Vec<(String, String)> = headers.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers_vec).await {
                     if bypass_resp.status_code == 200 && normal_resp.status_code != 200 {
                         vulnerabilities.push(Vulnerability {
                             id: format!("nextjs_middleware_bypass_{}", Self::generate_id()),

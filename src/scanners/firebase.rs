@@ -1091,8 +1091,8 @@ impl FirebaseScanner {
     }
 
     /// Test Cloud Functions discovery
-    async fn test_cloud_functions(&self, project_id: &str, url: &str) -> (Vec<Vulnerability>, usize) {
-        let mut vulnerabilities = Vec::new();
+    async fn test_cloud_functions(&self, project_id: &str, _url: &str) -> (Vec<Vulnerability>, usize) {
+        let vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
         let regions = vec!["us-central1", "europe-west1"];

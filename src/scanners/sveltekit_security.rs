@@ -44,7 +44,7 @@ struct SvelteKitCVE {
     check_type: CVECheckType,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum CVECheckType {
     CSRF,
     PathTraversal,
@@ -661,7 +661,10 @@ impl SvelteKitSecurityScanner {
                 let mut cors_headers = HashMap::new();
                 cors_headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, cors_headers).await {
+                let headers_vec: Vec<(String, String)> = cors_headers.iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "https://evil.com" || acao == "*" {
                             let has_credentials = cors_resp.headers.get("access-control-allow-credentials")
