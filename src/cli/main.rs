@@ -1221,6 +1221,91 @@ async fn execute_standalone_scan(
               js_param_count);
     }
 
+    // ==========================================================================
+    // EARLY AUTH TESTING: Run auth-critical tests first while JWT token is fresh
+    // JWT tokens expire - we need to test auth endpoints before doing slow injection tests
+    // ==========================================================================
+    let mut auth_tests_done = false;
+    if scan_config.auth_token.is_some() {
+        info!("Phase 0.5: Early authentication testing (JWT token may expire)");
+
+        // JWT vulnerabilities - MUST run first while token is valid
+        info!("  - Testing JWT Security (priority: token freshness)");
+        if let Some(ref token) = scan_config.auth_token {
+            let (vulns, tests) = engine.jwt_scanner.scan_jwt(target, token, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+
+        // JWT Vulnerabilities Scanner (general JWT analysis)
+        info!("  - Testing JWT Vulnerabilities");
+        let (vulns, tests) = engine.jwt_vulnerabilities_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // GraphQL - often uses JWT for auth, test while token works
+        info!("  - Testing GraphQL Security (uses auth token)");
+        let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Advanced GraphQL
+        info!("  - Testing Advanced GraphQL Security");
+        let (vulns, tests) = engine.graphql_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Test discovered GraphQL endpoints from crawl/JS mining
+        let backend_graphql = "https://netlux-stage-backend.valmistumassa.fi/graphql";
+        for ep in &intercepted_endpoints {
+            if ep.to_lowercase().contains("graphql") && ep != backend_graphql {
+                info!("  - Testing discovered GraphQL endpoint: {}", ep);
+                let (vulns, tests) = engine.graphql_scanner.scan(ep, scan_config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
+        }
+
+        // Also test intercepted backend GraphQL
+        if intercepted_endpoints.iter().any(|e| e.contains("graphql")) {
+            for ep in &intercepted_endpoints {
+                if ep.to_lowercase().contains("graphql") {
+                    info!("  - Testing intercepted GraphQL: {}", ep);
+                    let (vulns, tests) = engine.graphql_scanner.scan(ep, scan_config).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests as u64;
+                }
+            }
+        }
+
+        // API Security - often auth-dependent
+        info!("  - Testing API Security");
+        let (vulns, tests) = engine.api_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // Auth Bypass - requires valid token to compare responses
+        info!("  - Testing Authentication Bypass");
+        let (vulns, tests) = engine.auth_bypass_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // IDOR - needs auth to test resource access
+        info!("  - Testing IDOR");
+        let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // BOLA
+        info!("  - Testing BOLA");
+        let (vulns, tests) = engine.bola_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        auth_tests_done = true;
+        info!("[SUCCESS] Early auth testing complete - token-dependent tests done");
+    }
+
     // Phase 1: Parameter-based scanning
     info!("Phase 1: Parameter injection testing");
 
@@ -1486,21 +1571,44 @@ async fn execute_standalone_scan(
     // Phase 3: Authentication & Authorization
     info!("Phase 3: Authentication testing");
 
-    // JWT vulnerabilities (only if auth token is provided)
-    info!("  - Testing JWT Security");
-    if let Some(ref token) = scan_config.auth_token {
-        let (vulns, tests) = engine.jwt_scanner.scan_jwt(target, token, scan_config).await?;
+    // Skip tests already done in early auth phase
+    if !auth_tests_done {
+        // JWT vulnerabilities (only if auth token is provided)
+        info!("  - Testing JWT Security");
+        if let Some(ref token) = scan_config.auth_token {
+            let (vulns, tests) = engine.jwt_scanner.scan_jwt(target, token, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+
+        // JWT Vulnerabilities Scanner (general JWT analysis)
+        info!("  - Testing JWT Vulnerabilities");
+        let (vulns, tests) = engine.jwt_vulnerabilities_scanner.scan(target, scan_config).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
+
+        // Auth Bypass
+        info!("  - Testing Authentication Bypass");
+        let (vulns, tests) = engine.auth_bypass_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // IDOR
+        info!("  - Testing IDOR");
+        let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // BOLA (Broken Object Level Authorization)
+        info!("  - Testing BOLA");
+        let (vulns, tests) = engine.bola_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - JWT/Auth Bypass/IDOR/BOLA already tested in early auth phase");
     }
 
-    // JWT Vulnerabilities Scanner (general JWT analysis)
-    info!("  - Testing JWT Vulnerabilities");
-    let (vulns, tests) = engine.jwt_vulnerabilities_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // OAuth
+    // OAuth (not tested in early phase)
     info!("  - Testing OAuth Security");
     let (vulns, tests) = engine.oauth_scanner.scan(target, scan_config).await?;
     all_vulnerabilities.extend(vulns);
@@ -1509,24 +1617,6 @@ async fn execute_standalone_scan(
     // Session Management
     info!("  - Testing Session Management");
     let (vulns, tests) = engine.session_management_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // Auth Bypass
-    info!("  - Testing Authentication Bypass");
-    let (vulns, tests) = engine.auth_bypass_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // IDOR
-    info!("  - Testing IDOR");
-    let (vulns, tests) = engine.idor_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
-
-    // BOLA (Broken Object Level Authorization)
-    info!("  - Testing BOLA");
-    let (vulns, tests) = engine.bola_scanner.scan(target, scan_config).await?;
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
@@ -1563,23 +1653,28 @@ async fn execute_standalone_scan(
     // Phase 4: API Security
     info!("Phase 4: API security testing");
 
-    // GraphQL
-    info!("  - Testing GraphQL Security");
-    let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    // Skip GraphQL/API tests if already done in early auth phase
+    if !auth_tests_done {
+        // GraphQL
+        info!("  - Testing GraphQL Security");
+        let (vulns, tests) = engine.graphql_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
 
-    // GraphQL Security (advanced GraphQL testing)
-    info!("  - Testing Advanced GraphQL Security");
-    let (vulns, tests) = engine.graphql_security_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+        // GraphQL Security (advanced GraphQL testing)
+        info!("  - Testing Advanced GraphQL Security");
+        let (vulns, tests) = engine.graphql_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
 
-    // API Security
-    info!("  - Testing API Security");
-    let (vulns, tests) = engine.api_security_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+        // API Security
+        info!("  - Testing API Security");
+        let (vulns, tests) = engine.api_security_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    } else {
+        info!("  - GraphQL/API Security already tested in early auth phase");
+    }
 
     // gRPC
     info!("  - Testing gRPC Security");
