@@ -1352,8 +1352,34 @@ async fn execute_standalone_scan(
 
     // Detect if this is a GraphQL-only backend (Vue/Nuxt + GraphQL)
     // GraphQL apps don't use traditional form POST - they use GraphQL mutations
-    let is_graphql_only = intercepted_endpoints.iter().all(|ep| ep.to_lowercase().contains("graphql"))
-        && !intercepted_endpoints.is_empty();
+    // Check both: intercepted endpoints (from headless browser) AND js_miner_results.graphql_endpoints
+    let has_graphql_from_miner = !js_miner_results.graphql_endpoints.is_empty();
+    let all_intercepted_are_graphql = intercepted_endpoints.iter().all(|ep| ep.to_lowercase().contains("graphql"));
+
+    // Exclude common utility endpoints from non-GraphQL API check (health checks, etc.)
+    let utility_endpoints = ["ping", "health", "healthz", "status", "ready", "live", "metrics", "version"];
+    let has_non_graphql_api = js_miner_results.api_endpoints.iter()
+        .any(|ep| {
+            let ep_lower = ep.to_lowercase();
+            let is_graphql = ep_lower.contains("graphql");
+            let is_utility = utility_endpoints.iter().any(|u| {
+                ep_lower.ends_with(&format!("/{}", u)) || ep_lower.ends_with(&format!("/{}/", u))
+            });
+            !is_graphql && !is_utility
+        });
+
+    // GraphQL-only if:
+    // 1. JS Miner found GraphQL endpoints, AND
+    // 2. No non-GraphQL API endpoints were found (excluding utility endpoints), AND
+    // 3. Either no intercepted endpoints OR all intercepted endpoints are GraphQL
+    let is_graphql_only = has_graphql_from_miner
+        && !has_non_graphql_api
+        && (intercepted_endpoints.is_empty() || all_intercepted_are_graphql);
+
+    if is_graphql_only {
+        info!("  [GraphQL] Detected GraphQL-only backend (found {} GraphQL endpoints)",
+              js_miner_results.graphql_endpoints.len());
+    }
 
     // Only run parameter injection tests if we have REAL parameters to test
     if has_real_params {
@@ -1472,6 +1498,7 @@ async fn execute_standalone_scan(
 
         // THEN: Test URL parameters with GET (original behavior)
         // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
+        // GraphQL APIs return JSON, not HTML, so XSS payloads won't be reflected
         if !is_graphql_only {
             info!("  - Testing XSS ({} parameters)", test_params.len());
             for (param_name, _) in &test_params {
@@ -1480,7 +1507,8 @@ async fn execute_standalone_scan(
                 total_tests += tests as u64;
             }
         } else {
-            info!("  - Skipping XSS (Vue/React auto-escapes, GraphQL backend has no SQL)");
+            info!("  - Skipping XSS ({} parameters) - GraphQL backend returns JSON, not HTML",
+                  test_params.len());
         }
 
         // Run SQLi scanner (skip for static sites and GraphQL-only backends)
