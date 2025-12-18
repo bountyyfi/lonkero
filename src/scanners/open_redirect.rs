@@ -26,9 +26,12 @@
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use futures::stream::{self, StreamExt};
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 pub struct OpenRedirectScanner {
@@ -848,8 +851,8 @@ impl OpenRedirectScanner {
         ]
     }
 
-    /// Get common redirect parameter names - comprehensive list
-    fn get_redirect_params(&self) -> Vec<&'static str> {
+    /// Get common redirect parameter names - comprehensive list (static version for concurrent use)
+    fn get_redirect_params_static() -> Vec<&'static str> {
         vec![
             // Standard redirect params
             "redirect", "redirect_uri", "redirect_url", "redirectUri", "redirectUrl",
@@ -900,7 +903,7 @@ impl OpenRedirectScanner {
 
     /// Scan a parameter for open redirect vulnerabilities
     pub async fn scan_parameter(
-        &self,
+        self: &Arc<Self>,
         url: &str,
         param_name: &str,
         config: &ScanConfig,
@@ -915,10 +918,6 @@ impl OpenRedirectScanner {
             tracing::warn!("Open redirect scan blocked: No valid scan authorization");
             return Ok((Vec::new(), 0));
         }
-
-        let mut vulnerabilities = Vec::new();
-        let mut tests_run = 0;
-        let mut found_bypass: Option<String> = None;
 
         info!("[OpenRedirect] Enterprise scanner - testing parameter: {}", param_name);
 
@@ -938,101 +937,132 @@ impl OpenRedirectScanner {
         info!("[OpenRedirect] Testing {} bypass payloads", total_payloads);
 
         // First, do a baseline test to understand the behavior
-        let baseline = self.get_baseline(url, param_name).await;
+        let baseline = Arc::new(self.get_baseline(url, param_name).await);
 
-        for payload_info in &payloads {
-            tests_run += 1;
+        // Shared state for early termination and results
+        let found_vuln = Arc::new(AtomicBool::new(false));
+        let tests_completed = Arc::new(AtomicUsize::new(0));
+        let vulnerabilities = Arc::new(Mutex::new(Vec::new()));
+        let is_fast_mode = config.scan_mode == crate::types::ScanMode::Fast;
 
-            let test_url = self.build_test_url(url, param_name, &payload_info.payload);
+        // High concurrency for fast scanning (200 concurrent requests)
+        let concurrent_requests = 200;
 
-            match self.http_client.get(&test_url).await {
-                Ok(response) => {
-                    // Check for HTTP redirect (3xx status with Location header)
-                    if let Some(vuln) = self.analyze_http_redirect(
-                        &response,
-                        &payload_info.payload,
-                        &payload_info.description,
-                        &test_url,
-                        param_name,
-                        &payload_info.category,
-                    ).await {
-                        if !self.is_false_positive(&vuln, &baseline) {
-                            info!("[VULN] Open redirect found: {} - {}",
-                                  payload_info.description,
-                                  payload_info.category.as_str());
-                            vulnerabilities.push(vuln);
-                            found_bypass = Some(payload_info.category.as_str().to_string());
+        stream::iter(payloads)
+            .for_each_concurrent(concurrent_requests, |payload_info| {
+                let scanner = Arc::clone(self);
+                let url = url.to_string();
+                let param_name = param_name.to_string();
+                let found_vuln = Arc::clone(&found_vuln);
+                let tests_completed = Arc::clone(&tests_completed);
+                let vulnerabilities = Arc::clone(&vulnerabilities);
+                let baseline = Arc::clone(&baseline);
 
-                            // In fast mode, stop after first find
-                            if config.scan_mode == crate::types::ScanMode::Fast {
-                                break;
+                async move {
+                    // Early termination in fast mode if we already found a vulnerability
+                    if is_fast_mode && found_vuln.load(Ordering::Relaxed) {
+                        return;
+                    }
+
+                    let test_url = scanner.build_test_url(&url, &param_name, &payload_info.payload);
+
+                    match scanner.http_client.get(&test_url).await {
+                        Ok(response) => {
+                            tests_completed.fetch_add(1, Ordering::Relaxed);
+
+                            // Check for HTTP redirect (3xx status with Location header)
+                            if let Some(vuln) = scanner.analyze_http_redirect(
+                                &response,
+                                &payload_info.payload,
+                                &payload_info.description,
+                                &test_url,
+                                &param_name,
+                                &payload_info.category,
+                            ).await {
+                                if !scanner.is_false_positive(&vuln, &*baseline) {
+                                    info!("[VULN] Open redirect found: {} - {}",
+                                          payload_info.description,
+                                          payload_info.category.as_str());
+                                    found_vuln.store(true, Ordering::Relaxed);
+                                    let mut vulns = vulnerabilities.lock().await;
+                                    vulns.push(vuln);
+                                }
+                            }
+
+                            // Check for meta refresh redirect
+                            if let Some(vuln) = scanner.analyze_meta_redirect(
+                                &response.body,
+                                &payload_info.payload,
+                                &payload_info.description,
+                                &test_url,
+                                &param_name,
+                                &payload_info.category,
+                            ) {
+                                if !scanner.is_false_positive(&vuln, &*baseline) {
+                                    info!("[VULN] Meta refresh redirect: {}", payload_info.description);
+                                    let mut vulns = vulnerabilities.lock().await;
+                                    vulns.push(vuln);
+                                }
+                            }
+
+                            // Check for JavaScript-based redirect
+                            if let Some(vuln) = scanner.analyze_js_redirect(
+                                &response.body,
+                                &payload_info.payload,
+                                &payload_info.description,
+                                &test_url,
+                                &param_name,
+                                &payload_info.category,
+                            ) {
+                                if !scanner.is_false_positive(&vuln, &*baseline) {
+                                    info!("[VULN] JavaScript redirect: {}", payload_info.description);
+                                    let mut vulns = vulnerabilities.lock().await;
+                                    vulns.push(vuln);
+                                }
+                            }
+
+                            // Check for iframe/frame redirect
+                            if let Some(vuln) = scanner.analyze_frame_redirect(
+                                &response.body,
+                                &payload_info.payload,
+                                &payload_info.description,
+                                &test_url,
+                                &param_name,
+                            ) {
+                                if !scanner.is_false_positive(&vuln, &*baseline) {
+                                    info!("[VULN] Frame-based redirect: {}", payload_info.description);
+                                    let mut vulns = vulnerabilities.lock().await;
+                                    vulns.push(vuln);
+                                }
                             }
                         }
-                    }
-
-                    // Check for meta refresh redirect
-                    if let Some(vuln) = self.analyze_meta_redirect(
-                        &response.body,
-                        &payload_info.payload,
-                        &payload_info.description,
-                        &test_url,
-                        param_name,
-                        &payload_info.category,
-                    ) {
-                        if !self.is_false_positive(&vuln, &baseline) {
-                            info!("[VULN] Meta refresh redirect: {}", payload_info.description);
-                            vulnerabilities.push(vuln);
-                        }
-                    }
-
-                    // Check for JavaScript-based redirect
-                    if let Some(vuln) = self.analyze_js_redirect(
-                        &response.body,
-                        &payload_info.payload,
-                        &payload_info.description,
-                        &test_url,
-                        param_name,
-                        &payload_info.category,
-                    ) {
-                        if !self.is_false_positive(&vuln, &baseline) {
-                            info!("[VULN] JavaScript redirect: {}", payload_info.description);
-                            vulnerabilities.push(vuln);
-                        }
-                    }
-
-                    // Check for iframe/frame redirect
-                    if let Some(vuln) = self.analyze_frame_redirect(
-                        &response.body,
-                        &payload_info.payload,
-                        &payload_info.description,
-                        &test_url,
-                        param_name,
-                    ) {
-                        if !self.is_false_positive(&vuln, &baseline) {
-                            info!("[VULN] Frame-based redirect: {}", payload_info.description);
-                            vulnerabilities.push(vuln);
+                        Err(e) => {
+                            debug!("Request failed for payload {}: {}", payload_info.description, e);
                         }
                     }
                 }
-                Err(e) => {
-                    debug!("Request failed for payload {}: {}", payload_info.description, e);
-                }
+            })
+            .await;
+
+        // Extract results
+        let final_vulns = match Arc::try_unwrap(vulnerabilities) {
+            Ok(mutex) => mutex.into_inner(),
+            Err(arc) => {
+                let guard = arc.lock().await;
+                guard.clone()
             }
-        }
+        };
+        let tests_run = tests_completed.load(Ordering::Relaxed);
 
         // Log summary
         info!(
             "[SUCCESS] [OpenRedirect] Completed {} tests on parameter '{}', found {} vulnerabilities",
             tests_run,
             param_name,
-            vulnerabilities.len()
+            final_vulns.len()
         );
 
-        if let Some(bypass) = found_bypass {
-            info!("[OpenRedirect] Successful bypass technique: {}", bypass);
-        }
-
-        Ok((vulnerabilities, tests_run))
+        Ok((final_vulns, tests_run))
     }
 
     /// Extract domain from URL
@@ -1408,7 +1438,7 @@ impl OpenRedirectScanner {
 
     /// Scan endpoint for open redirect (general scan)
     pub async fn scan(
-        &self,
+        self: &Arc<Self>,
         url: &str,
         config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
@@ -1417,7 +1447,7 @@ impl OpenRedirectScanner {
         let mut found_params = HashSet::new();
 
         // Test all common redirect parameters
-        let params = self.get_redirect_params();
+        let params = Self::get_redirect_params_static();
 
         for param in params {
             let (vulns, tests) = self.scan_parameter(url, param, config).await?;

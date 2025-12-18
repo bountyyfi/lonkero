@@ -24,7 +24,10 @@
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
+use futures::stream::{self, StreamExt};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use tokio::sync::Mutex;
 use tracing::{debug, info};
 
 /// SSRF bypass category for classification
@@ -103,9 +106,6 @@ impl SsrfScanner {
 
         info!("[SSRF] Enterprise scanner - testing parameter: {}", parameter);
 
-        let mut vulnerabilities = Vec::new();
-        let mut tests_run = 0;
-
         let baseline = match self.http_client.get(base_url).await {
             Ok(response) => response,
             Err(e) => {
@@ -123,35 +123,73 @@ impl SsrfScanner {
             self.generate_basic_payloads()
         };
 
-        info!("[SSRF] Testing {} generated payloads", payloads.len());
+        let total_payloads = payloads.len();
+        info!("[SSRF] Testing {} generated payloads", total_payloads);
 
-        for ssrf_payload in &payloads {
-            tests_run += 1;
+        // Shared state for early termination
+        let found_vuln = Arc::new(AtomicBool::new(false));
+        let tests_completed = Arc::new(AtomicUsize::new(0));
+        let vulnerabilities = Arc::new(Mutex::new(Vec::new()));
+        let baseline = Arc::new(baseline);
 
-            let test_url = if base_url.contains('?') {
-                format!("{}&{}={}", base_url, parameter, urlencoding::encode(&ssrf_payload.payload))
-            } else {
-                format!("{}?{}={}", base_url, parameter, urlencoding::encode(&ssrf_payload.payload))
-            };
+        // High concurrency for fast scanning (200 concurrent requests)
+        let concurrent_requests = 200;
 
-            match self.http_client.get(&test_url).await {
-                Ok(response) => {
-                    if let Some(vuln) = self.analyze_ssrf_response(
-                        &response, ssrf_payload, parameter, &test_url, &baseline,
-                    ) {
-                        info!("[ALERT] SSRF vulnerability detected via {}", ssrf_payload.category.as_str());
-                        vulnerabilities.push(vuln);
-                        break;
+        stream::iter(payloads)
+            .for_each_concurrent(concurrent_requests, |ssrf_payload| {
+                let url = base_url.to_string();
+                let param = parameter.to_string();
+                let client = Arc::clone(&self.http_client);
+                let found_vuln = Arc::clone(&found_vuln);
+                let tests_completed = Arc::clone(&tests_completed);
+                let vulnerabilities = Arc::clone(&vulnerabilities);
+                let baseline = Arc::clone(&baseline);
+
+                async move {
+                    // Early termination - skip if we already found a vulnerability
+                    if found_vuln.load(Ordering::Relaxed) {
+                        return;
+                    }
+
+                    let test_url = if url.contains('?') {
+                        format!("{}&{}={}", url, param, urlencoding::encode(&ssrf_payload.payload))
+                    } else {
+                        format!("{}?{}={}", url, param, urlencoding::encode(&ssrf_payload.payload))
+                    };
+
+                    match client.get(&test_url).await {
+                        Ok(response) => {
+                            tests_completed.fetch_add(1, Ordering::Relaxed);
+
+                            if let Some(vuln) = Self::analyze_ssrf_response_static(
+                                &response, &ssrf_payload, &param, &test_url, &baseline,
+                            ) {
+                                info!("[ALERT] SSRF vulnerability detected via {}", ssrf_payload.category.as_str());
+                                found_vuln.store(true, Ordering::Relaxed);
+                                let mut vulns = vulnerabilities.lock().await;
+                                vulns.push(vuln);
+                            }
+                        }
+                        Err(e) => {
+                            debug!("SSRF test error: {}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    debug!("SSRF test error: {}", e);
-                }
-            }
-        }
+            })
+            .await;
 
-        info!("[SUCCESS] [SSRF] Completed {} tests, found {} vulnerabilities", tests_run, vulnerabilities.len());
-        Ok((vulnerabilities, tests_run))
+        // Extract results from Arc<Mutex<Vec>>
+        let final_vulns = match Arc::try_unwrap(vulnerabilities) {
+            Ok(mutex) => mutex.into_inner(),
+            Err(arc) => {
+                let guard = arc.lock().await;
+                guard.clone()
+            }
+        };
+        let tests_run = tests_completed.load(Ordering::Relaxed);
+
+        info!("[SUCCESS] [SSRF] Completed {} tests, found {} vulnerabilities", tests_run, final_vulns.len());
+        Ok((final_vulns, tests_run))
     }
 
     // ========================================================================
@@ -886,6 +924,17 @@ impl SsrfScanner {
         test_url: &str,
         baseline: &HttpResponse,
     ) -> Option<Vulnerability> {
+        Self::analyze_ssrf_response_static(response, ssrf_payload, parameter, test_url, baseline)
+    }
+
+    /// Static version for use in async contexts without &self
+    fn analyze_ssrf_response_static(
+        response: &HttpResponse,
+        ssrf_payload: &SsrfPayload,
+        parameter: &str,
+        test_url: &str,
+        baseline: &HttpResponse,
+    ) -> Option<Vulnerability> {
         let body_lower = response.body.to_lowercase();
         let baseline_lower = baseline.body.to_lowercase();
 
@@ -919,7 +968,7 @@ impl SsrfScanner {
 
         for indicator in &aws_indicators {
             if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(self.create_vulnerability(parameter, &ssrf_payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
                     &format!("AWS metadata accessible via {}", ssrf_payload.category.as_str()),
                     Confidence::High, format!("AWS indicator: {}", indicator), &ssrf_payload.category));
             }
@@ -927,7 +976,7 @@ impl SsrfScanner {
 
         for indicator in &gcp_indicators {
             if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(self.create_vulnerability(parameter, &ssrf_payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
                     &format!("GCP metadata accessible via {}", ssrf_payload.category.as_str()),
                     Confidence::High, format!("GCP indicator: {}", indicator), &ssrf_payload.category));
             }
@@ -935,7 +984,7 @@ impl SsrfScanner {
 
         for indicator in &azure_indicators {
             if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(self.create_vulnerability(parameter, &ssrf_payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
                     &format!("Azure metadata accessible via {}", ssrf_payload.category.as_str()),
                     Confidence::High, format!("Azure indicator: {}", indicator), &ssrf_payload.category));
             }
@@ -943,7 +992,7 @@ impl SsrfScanner {
 
         for indicator in &internal_indicators {
             if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(self.create_vulnerability(parameter, &ssrf_payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
                     &format!("Internal service accessible via {}", ssrf_payload.category.as_str()),
                     Confidence::High, format!("Internal indicator: {}", indicator), &ssrf_payload.category));
             }
@@ -953,6 +1002,11 @@ impl SsrfScanner {
     }
 
     fn create_vulnerability(&self, parameter: &str, payload: &str, test_url: &str,
+        description: &str, confidence: Confidence, evidence: String, category: &SsrfBypassCategory) -> Vulnerability {
+        Self::create_vulnerability_static(parameter, payload, test_url, description, confidence, evidence, category)
+    }
+
+    fn create_vulnerability_static(parameter: &str, payload: &str, test_url: &str,
         description: &str, confidence: Confidence, evidence: String, category: &SsrfBypassCategory) -> Vulnerability {
         Vulnerability {
             id: format!("ssrf_{:x}", rand::random::<u32>()),
