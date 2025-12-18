@@ -139,11 +139,14 @@ impl PathTraversalScanner {
             })
             .await;
 
-        let final_vulns = Arc::try_unwrap(vulnerabilities)
-            .unwrap_or_else(|arc| {
-                let guard = futures::executor::block_on(arc.lock());
+        // Extract results from Arc<Mutex<Vec>>
+        let final_vulns = match Arc::try_unwrap(vulnerabilities) {
+            Ok(mutex) => mutex.into_inner(),
+            Err(arc) => {
+                let guard = arc.lock().await;
                 guard.clone()
-            });
+            }
+        };
         let tests_run = tests_completed.load(Ordering::Relaxed);
 
         info!("[SUCCESS] [PathTraversal] Completed {} tests (skipped {} due to early termination), found {} vulnerabilities",
