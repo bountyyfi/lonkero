@@ -668,6 +668,14 @@ impl ScanEngine {
 
         // Phase 1: Test URL parameters (or common parameter names if none exist)
         if !test_parameters.is_empty() {
+            // Filter out irrelevant parameters (JS framework internals, etc.)
+            let original_count = test_parameters.len();
+            test_parameters.retain(|(name, _)| Self::is_relevant_parameter(name));
+            let filtered_count = original_count - test_parameters.len();
+            if filtered_count > 0 {
+                info!("[FILTER] Skipped {} irrelevant parameters (framework internals)", filtered_count);
+            }
+
             info!("Testing {} parameters for injection vulnerabilities", test_parameters.len());
 
             for (param_name, _param_value) in &test_parameters {
@@ -773,10 +781,13 @@ impl ScanEngine {
         if !api_endpoints.is_empty() {
             info!("[Phase 1b] Testing {} API endpoints discovered from JavaScript", api_endpoints.len());
 
-            // Get parameters to test on endpoints (from JS discovery)
+            // Get parameters to test on endpoints (from JS discovery, filtered)
             let js_params: Vec<String> = crawl_results.parameters
                 .get("*")
-                .map(|p| p.iter().cloned().collect())
+                .map(|p| p.iter()
+                    .filter(|name| Self::is_relevant_parameter(name))
+                    .cloned()
+                    .collect())
                 .unwrap_or_default();
 
             // Test up to 10 API endpoints with discovered parameters
@@ -1876,6 +1887,71 @@ impl ScanEngine {
                 Ok(None)
             }
         }
+    }
+
+    /// Check if a parameter name is relevant for security testing
+    /// Filters out JavaScript framework internals, crypto libraries, and other noise
+    fn is_relevant_parameter(param_name: &str) -> bool {
+        let param_lower = param_name.to_lowercase();
+
+        // Skip parameters starting with underscore (usually internal/private)
+        if param_name.starts_with('_') {
+            return false;
+        }
+
+        // Skip UUID-like parameters (f_xxx, generated IDs)
+        if param_name.starts_with("f_") && param_name.len() > 10 {
+            return false;
+        }
+
+        // Skip Vue.js / Nuxt internals
+        let vue_internals = [
+            "vnode", "scopedslots", "vuesignature", "vuex", "vuecomponent",
+            "$attrs", "$listeners", "$slots", "$refs", "$el", "$options",
+        ];
+        if vue_internals.iter().any(|v| param_lower == *v) {
+            return false;
+        }
+
+        // Skip Apollo GraphQL internals
+        let apollo_internals = [
+            "apollo", "apollopromises", "apolloinitdata", "apolloprovider",
+            "apolloutil", "apolloclients", "apollostate",
+        ];
+        if apollo_internals.iter().any(|a| param_lower.contains(a)) {
+            return false;
+        }
+
+        // Skip Sentry monitoring internals
+        if param_lower.contains("sentry") {
+            return false;
+        }
+
+        // Skip crypto library references
+        let crypto_libs = [
+            "elliptic", "secp256k1", "ripple", "ecdsa", "ed25519", "curve25519",
+        ];
+        if crypto_libs.iter().any(|c| param_lower == *c) {
+            return false;
+        }
+
+        // Skip *Service, *Provider patterns (service references, not input params)
+        if (param_lower.ends_with("service") || param_lower.ends_with("provider"))
+            && param_name.len() > 10 {
+            return false;
+        }
+
+        // Skip common JS framework internals
+        let framework_internals = [
+            "morph", "prefetch", "deep", "intersection", "wrapper",
+            "tune", "palette", "scroll", "live", "normal", "alarm",
+            "mutation", "getmetahtml", "routename", "checkoutparams",
+        ];
+        if framework_internals.iter().any(|f| param_lower == *f) {
+            return false;
+        }
+
+        true
     }
 
     /// Check if we should skip a scanner based on CDN detection
