@@ -25,6 +25,8 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use tokio::sync::Mutex;
 use tracing::{debug, info};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -94,44 +96,59 @@ impl PathTraversalScanner {
         let total_payloads = payloads.len();
         info!("[PathTraversal] Testing {} generated payloads", total_payloads);
 
-        let mut vulnerabilities = Vec::new();
-        let concurrent_requests = 50;
+        // Shared state for early termination
+        let found_vuln = Arc::new(AtomicBool::new(false));
+        let tests_completed = Arc::new(AtomicUsize::new(0));
+        let vulnerabilities = Arc::new(Mutex::new(Vec::new()));
 
-        let results = stream::iter(payloads)
-            .map(|payload| {
+        // Higher concurrency for faster scanning (200 vs 50)
+        let concurrent_requests = 200;
+
+        stream::iter(payloads)
+            .for_each_concurrent(concurrent_requests, |payload| {
                 let url = base_url.to_string();
                 let param = parameter.to_string();
                 let client = Arc::clone(&self.http_client);
+                let found_vuln = Arc::clone(&found_vuln);
+                let tests_completed = Arc::clone(&tests_completed);
+                let vulnerabilities = Arc::clone(&vulnerabilities);
 
                 async move {
+                    // Early termination - skip if we already found a vulnerability
+                    if found_vuln.load(Ordering::Relaxed) {
+                        return;
+                    }
+
                     let test_url = if url.contains('?') {
                         format!("{}&{}={}", url, param, urlencoding::encode(&payload.payload))
                     } else {
                         format!("{}?{}={}", url, param, urlencoding::encode(&payload.payload))
                     };
 
-                    match client.get(&test_url).await {
-                        Ok(response) => Some((payload, response, test_url)),
-                        Err(_) => None,
+                    if let Ok(response) = client.get(&test_url).await {
+                        tests_completed.fetch_add(1, Ordering::Relaxed);
+
+                        if let Some(vuln) = Self::detect_path_traversal_static(&response.body, &payload, &param, &test_url) {
+                            info!("[ALERT] Path traversal via {} detected", payload.category.as_str());
+                            found_vuln.store(true, Ordering::Relaxed);
+                            let mut vulns = vulnerabilities.lock().await;
+                            vulns.push(vuln);
+                        }
                     }
                 }
             })
-            .buffer_unordered(concurrent_requests)
-            .collect::<Vec<_>>()
             .await;
 
-        for result in results {
-            if let Some((payload, response, test_url)) = result {
-                if let Some(vuln) = self.detect_path_traversal(&response.body, &payload, parameter, &test_url) {
-                    info!("[ALERT] Path traversal via {} detected", payload.category.as_str());
-                    vulnerabilities.push(vuln);
-                    break;
-                }
-            }
-        }
+        let final_vulns = Arc::try_unwrap(vulnerabilities)
+            .unwrap_or_else(|arc| {
+                let guard = futures::executor::block_on(arc.lock());
+                guard.clone()
+            });
+        let tests_run = tests_completed.load(Ordering::Relaxed);
 
-        info!("[SUCCESS] [PathTraversal] Completed {} tests, found {} vulnerabilities", total_payloads, vulnerabilities.len());
-        Ok((vulnerabilities, total_payloads))
+        info!("[SUCCESS] [PathTraversal] Completed {} tests (skipped {} due to early termination), found {} vulnerabilities",
+              tests_run, total_payloads - tests_run, final_vulns.len());
+        Ok((final_vulns, total_payloads))
     }
 
     // ========================================================================
@@ -568,6 +585,11 @@ impl PathTraversalScanner {
     }
 
     fn detect_path_traversal(&self, body: &str, payload: &TraversalPayload, parameter: &str, test_url: &str) -> Option<Vulnerability> {
+        Self::detect_path_traversal_static(body, payload, parameter, test_url)
+    }
+
+    /// Static version for use in async contexts without &self
+    fn detect_path_traversal_static(body: &str, payload: &TraversalPayload, parameter: &str, test_url: &str) -> Option<Vulnerability> {
         let body_lower = body.to_lowercase();
 
         // Linux indicators
@@ -603,7 +625,7 @@ impl PathTraversalScanner {
 
         for (indicator, file_type) in &linux_indicators {
             if body_lower.contains(indicator) {
-                return Some(self.create_vulnerability(parameter, &payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
                     &format!("{} content found via {}", file_type, payload.category.as_str()),
                     Confidence::High, format!("Indicator: {}", indicator), &payload.category));
             }
@@ -611,7 +633,7 @@ impl PathTraversalScanner {
 
         for (indicator, file_type) in &windows_indicators {
             if body_lower.contains(indicator) {
-                return Some(self.create_vulnerability(parameter, &payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
                     &format!("{} content found via {}", file_type, payload.category.as_str()),
                     Confidence::High, format!("Indicator: {}", indicator), &payload.category));
             }
@@ -619,7 +641,7 @@ impl PathTraversalScanner {
 
         for (indicator, file_type) in &proc_indicators {
             if body_lower.contains(indicator) {
-                return Some(self.create_vulnerability(parameter, &payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
                     &format!("{} content found via {}", file_type, payload.category.as_str()),
                     Confidence::High, format!("Indicator: {}", indicator), &payload.category));
             }
@@ -629,6 +651,11 @@ impl PathTraversalScanner {
     }
 
     fn create_vulnerability(&self, parameter: &str, payload: &str, test_url: &str,
+        description: &str, confidence: Confidence, evidence: String, category: &TraversalBypassCategory) -> Vulnerability {
+        Self::create_vulnerability_static(parameter, payload, test_url, description, confidence, evidence, category)
+    }
+
+    fn create_vulnerability_static(parameter: &str, payload: &str, test_url: &str,
         description: &str, confidence: Confidence, evidence: String, category: &TraversalBypassCategory) -> Vulnerability {
         Vulnerability {
             id: format!("lfi_{:x}", rand::random::<u32>()),
