@@ -24,6 +24,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -1161,7 +1162,15 @@ impl CommandInjectionScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[CmdInjection] Enterprise scanner - testing parameter: {}", parameter);
+        // Smart parameter filtering - command injection needs command/file/path parameters
+        if ParameterFilter::should_skip_parameter(parameter, ScannerType::CommandInjection) {
+            debug!("[CmdInjection] Skipping boolean/internal parameter: {}", parameter);
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[CmdInjection] Enterprise scanner - testing parameter: {} (priority: {})",
+              parameter,
+              ParameterFilter::get_parameter_priority(parameter));
 
         // Get payloads based on license tier
         let payloads = if crate::license::is_feature_available("enterprise_cmd_injection") {

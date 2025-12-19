@@ -83,6 +83,7 @@ impl JwtVulnerabilitiesScanner {
         info!("Testing JWT none algorithm vulnerability");
 
         // Create JWT with none algorithm
+        // NOTE: We rely on detect_successful_auth() to verify using marker or JWT-specific patterns
         let none_tokens = vec![
             // Header: {"alg":"none","typ":"JWT"}, Payload: {"sub":"admin","exp":9999999999}
             "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImV4cCI6OTk5OTk5OTk5OX0.",
@@ -229,25 +230,33 @@ impl JwtVulnerabilitiesScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Detect successful authentication
+    /// Detect successful authentication with unique marker verification
     fn detect_successful_auth(&self, body: &str, status_code: u16) -> bool {
-        // 200 OK suggests authentication might have succeeded
+        // PRIMARY: Check if our unique test marker appears in the response
+        // This proves the JWT was actually processed and accepted
+        let body_lower = body.to_lowercase();
+        let marker_lower = self.test_marker.to_lowercase();
+
+        if body_lower.contains(&marker_lower) {
+            // Verify it's in a structured response (JSON), not just HTML reflection
+            if body.trim().starts_with('{') || body.trim().starts_with('[') {
+                return true;
+            }
+        }
+
+        // SECONDARY: Check for JWT-specific success indicators (lower confidence)
+        // Only report if we see BOTH a 200 status AND JWT-specific success patterns
         if status_code == 200 {
-            let body_lower = body.to_lowercase();
+            // Look for JWT token in response (strongest secondary evidence)
+            if (body_lower.contains("\"token\"") || body_lower.contains("\"jwt\"")) &&
+               (body_lower.contains("bearer") || body_lower.contains("authorization")) {
+                return true;
+            }
 
-            // Check for authentication success indicators
-            let success_indicators = vec![
-                "welcome",
-                "dashboard",
-                "profile",
-                "admin",
-                "authenticated",
-                "logged in",
-                "user",
-            ];
-
-            for indicator in success_indicators {
-                if body_lower.contains(indicator) {
+            // Look for structured auth response with role/admin properties
+            if body.trim().starts_with('{') || body.trim().starts_with('[') {
+                if (body_lower.contains("\"role\":") || body_lower.contains("\"admin\":true")) &&
+                   (body_lower.contains("authenticated") || body_lower.contains("token")) {
                     return true;
                 }
             }
@@ -258,8 +267,10 @@ impl JwtVulnerabilitiesScanner {
             return false;
         }
 
-        // If we got 200 without error messages, consider it potentially vulnerable
-        status_code == 200 && !body.to_lowercase().contains("unauthorized") && !body.to_lowercase().contains("forbidden")
+        // REMOVED: Generic keyword matching like "welcome", "dashboard", "user"
+        // These cause false positives on ANY successful page response
+
+        false
     }
 
     /// Create a vulnerability record

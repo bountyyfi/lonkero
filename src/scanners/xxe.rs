@@ -11,6 +11,7 @@
 
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -32,7 +33,15 @@ impl XxeScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("[XXE] Scanning parameter: {}", parameter);
+        // Smart parameter filtering - XXE only works on XML parameters
+        if ParameterFilter::should_skip_parameter(parameter, ScannerType::XXE) {
+            debug!("[XXE] Skipping non-XML parameter: {}", parameter);
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[XXE] Scanning parameter: {} (priority: {})",
+              parameter,
+              ParameterFilter::get_parameter_priority(parameter));
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;

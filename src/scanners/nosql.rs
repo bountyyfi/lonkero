@@ -10,6 +10,7 @@
  */
 
 use crate::http_client::{HttpClient, HttpResponse};
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -17,11 +18,17 @@ use tracing::{debug, info};
 
 pub struct NoSqlScanner {
     http_client: Arc<HttpClient>,
+    test_marker: String,
 }
 
 impl NoSqlScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        // Generate unique test marker for verification (nosql_<uuid>)
+        let test_marker = format!("nosql_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        Self {
+            http_client,
+            test_marker,
+        }
     }
 
     /// Scan a parameter for NoSQL injection vulnerabilities
@@ -31,7 +38,15 @@ impl NoSqlScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("[NoSQL] Scanning parameter: {}", parameter);
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter(parameter, ScannerType::NoSQL) {
+            debug!("[NoSQL] Skipping framework/internal parameter: {}", parameter);
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[NoSQL] Scanning parameter: {} (priority: {})",
+              parameter,
+              ParameterFilter::get_parameter_priority(parameter));
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -74,10 +89,17 @@ impl NoSqlScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Generate NoSQL injection payloads
+    /// Generate NoSQL injection payloads with unique markers
     fn generate_nosql_payloads(&self) -> Vec<String> {
         vec![
-            // MongoDB operator injection
+            // PRIMARY: Unique marker-based payloads (strongest verification)
+            format!(r#"{{"$ne": null, "marker": "{}"}}"#, self.test_marker),
+            format!(r#"{{"$gt": "", "marker": "{}"}}"#, self.test_marker),
+            format!(r#"{{"username": {{"$ne": null}}, "marker": "{}"}}"#, self.test_marker),
+            format!(r#"' || 'marker'=='{}' || '1'=='1"#, self.test_marker),
+            format!(r#"admin' || 'a'=='{}' || '1'=='1"#, self.test_marker),
+
+            // SECONDARY: MongoDB operator injection (verify with error messages)
             r#"{"$gt": ""}"#.to_string(),
             r#"{"$ne": null}"#.to_string(),
             r#"{"$ne": ""}"#.to_string(),
@@ -125,7 +147,7 @@ impl NoSqlScanner {
         ]
     }
 
-    /// Analyze HTTP response for NoSQL injection indicators
+    /// Analyze HTTP response for NoSQL injection indicators with zero false positives
     fn analyze_nosql_response(
         &self,
         response: &HttpResponse,
@@ -134,20 +156,27 @@ impl NoSqlScanner {
         test_url: &str,
     ) -> Option<Vulnerability> {
         let body_lower = response.body.to_lowercase();
+        let marker_lower = self.test_marker.to_lowercase();
 
-        // Check for successful authentication bypass
-        let auth_indicators = [
-            "welcome",
-            "dashboard",
-            "logged in",
-            "login successful",
-            "authentication successful",
-            "admin panel",
-            "user profile",
-            "account",
-        ];
+        // PRIMARY DETECTION: Check if our unique marker is reflected in the response
+        // This is the strongest evidence of successful injection
+        if body_lower.contains(&marker_lower) {
+            // Verify it's in a structured response (JSON), not just HTML reflection
+            if response.body.trim().starts_with('{') || response.body.trim().starts_with('[') {
+                return Some(self.create_vulnerability(
+                    parameter,
+                    payload,
+                    test_url,
+                    "NoSQL injection confirmed - unique marker processed by database",
+                    Confidence::High,
+                    format!("Unique test marker '{}' was processed and returned by the database, confirming NoSQL injection", self.test_marker),
+                    Severity::Critical,
+                    9.8,
+                ));
+            }
+        }
 
-        // Check for database error messages (information leakage)
+        // SECONDARY DETECTION: Database error messages (Medium confidence)
         let error_indicators = [
             "mongodb",
             "mongoose",
@@ -163,31 +192,10 @@ impl NoSqlScanner {
             "$gt",
             "$ne",
             "$nin",
+            "cast to objectid failed",
+            "invalid operator",
         ];
 
-        // Check for authentication bypass indicators
-        let mut found_auth = false;
-        for indicator in &auth_indicators {
-            if body_lower.contains(indicator) {
-                found_auth = true;
-                break;
-            }
-        }
-
-        if found_auth && (payload.contains("$gt") || payload.contains("$ne") || payload.contains("||")) {
-            return Some(self.create_vulnerability(
-                parameter,
-                payload,
-                test_url,
-                "NoSQL injection allows authentication bypass",
-                Confidence::High,
-                format!("Response indicates successful authentication with NoSQL operator: {}", payload),
-                Severity::Critical,
-                9.8,
-            ));
-        }
-
-        // Check for database error disclosure
         let mut found_error = false;
         let mut error_type = String::new();
         for indicator in &error_indicators {
@@ -211,9 +219,10 @@ impl NoSqlScanner {
             ));
         }
 
-        // DON'T report based solely on response size - this causes false positives
-        // A normal web app will return a page for ANY parameter value
-        // We need actual error messages or authentication bypass indicators
+        // REMOVED: Generic "success" keyword detection - this causes false positives
+        // We only report when we have concrete evidence:
+        // 1. Our unique marker appears in structured response (PRIMARY)
+        // 2. Database-specific error messages (SECONDARY)
 
         None
     }

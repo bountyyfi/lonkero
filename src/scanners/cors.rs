@@ -98,16 +98,18 @@ impl CorsScanner {
     }
 
     /// Send request with custom Origin header
-    async fn send_with_origin(&self, url: &str, _origin: &str) -> Result<HttpResponse> {
-        // For now, use GET - in production, we'd use custom headers
-        // This is a simplified version; real implementation would use reqwest with custom headers
-        self.http_client.get(url).await
+    async fn send_with_origin(&self, url: &str, origin: &str) -> Result<HttpResponse> {
+        let headers = vec![("Origin".to_string(), origin.to_string())];
+        self.http_client.get_with_headers(url, headers).await
     }
 
     /// Send request with credentials
-    async fn send_with_credentials(&self, url: &str, _origin: &str) -> Result<HttpResponse> {
-        // Simplified version
-        self.http_client.get(url).await
+    async fn send_with_credentials(&self, url: &str, origin: &str) -> Result<HttpResponse> {
+        let headers = vec![
+            ("Origin".to_string(), origin.to_string()),
+            ("Cookie".to_string(), "session=test_session_value".to_string()),
+        ];
+        self.http_client.get_with_headers(url, headers).await
     }
 
     /// Extract domain from URL

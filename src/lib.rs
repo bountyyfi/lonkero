@@ -20,6 +20,7 @@ pub mod database;
 pub mod detection_helpers;
 pub mod dns_cache;
 pub mod framework_detector;
+pub mod oob_detector;
 pub mod payloads;
 pub mod payloads_comprehensive;
 pub mod payloads_optimized;

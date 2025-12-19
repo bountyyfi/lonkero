@@ -33,6 +33,7 @@ path = "src/bin/internal-agent.rs"
 # Async runtime
 tokio = { version = "1.48", features = ["full", "tracing"] }
 futures = "0.3"
+futures-util = "0.3"
 
 # HTTP client with HTTP/2 support
 reqwest = { version = "0.12.24", features = ["json", "cookies", "stream", "rustls-tls-native-roots"] }
@@ -112,6 +113,10 @@ hickory-resolver = "0.25"
 # HTML parsing
 scraper = "0.25"
 html-escape = "0.2"
+
+# WebSocket client for exploitation testing
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tungstenite = "0.24"
 
 # Rate limiting - Token Bucket
 governor = "0.10"

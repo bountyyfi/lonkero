@@ -23,11 +23,17 @@ use tracing::{debug, info};
 
 pub struct XPathInjectionScanner {
     http_client: Arc<HttpClient>,
+    test_marker: String,
 }
 
 impl XPathInjectionScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        // Generate unique test marker for verification (xpath_<uuid>)
+        let test_marker = format!("xpath_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        Self {
+            http_client,
+            test_marker,
+        }
     }
 
     /// Scan endpoint for XPath injection vulnerabilities

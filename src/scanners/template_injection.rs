@@ -19,6 +19,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -47,6 +48,16 @@ impl TemplateInjectionScanner {
             debug!("[SSTI] Feature requires Professional license or higher");
             return Ok((vulnerabilities, tests_run));
         }
+
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
+            debug!("[SSTI] Skipping framework/internal parameter: {}", param_name);
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        info!("[SSTI] Testing parameter: {} (priority: {})",
+              param_name,
+              ParameterFilter::get_parameter_priority(param_name));
 
         info!("Testing SSTI on parameter: {}", param_name);
 

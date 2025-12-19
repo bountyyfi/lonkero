@@ -36,25 +36,52 @@ impl FileUploadVulnerabilitiesScanner {
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
 
-        // Test unrestricted file extensions
-        let (vulns, tests) = self.test_unrestricted_extensions(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
+        // Step 1: Discover upload endpoints dynamically
+        total_tests += 1;
+        let upload_endpoints = self.discover_upload_endpoints(url).await?;
 
-        // Test MIME type bypass
-        let (vulns, tests) = self.test_mime_type_bypass(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
+        if upload_endpoints.is_empty() {
+            info!("No upload endpoints found, testing default endpoints");
+            // Fallback to testing common endpoints
+            let (vulns, tests) = self.test_default_endpoints(url).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests;
+        } else {
+            info!("Found {} upload endpoints to test", upload_endpoints.len());
 
-        // Test path traversal in filename
-        let (vulns, tests) = self.test_path_traversal(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
+            // Test each discovered endpoint
+            for endpoint in upload_endpoints {
+                if !all_vulnerabilities.is_empty() {
+                    break; // Found vulnerability, stop testing
+                }
 
-        // Test double extension bypass
-        let (vulns, tests) = self.test_double_extension(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
+                // Test unrestricted file extensions
+                let (vulns, tests) = self.test_unrestricted_extensions(&endpoint).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests;
+
+                if all_vulnerabilities.is_empty() {
+                    // Test MIME type bypass
+                    let (vulns, tests) = self.test_mime_type_bypass(&endpoint).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests;
+                }
+
+                if all_vulnerabilities.is_empty() {
+                    // Test path traversal in filename
+                    let (vulns, tests) = self.test_path_traversal(&endpoint).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests;
+                }
+
+                if all_vulnerabilities.is_empty() {
+                    // Test double extension bypass
+                    let (vulns, tests) = self.test_double_extension(&endpoint).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests;
+                }
+            }
+        }
 
         info!(
             "File upload vulnerabilities scan completed: {} tests run, {} vulnerabilities found",
@@ -65,55 +92,176 @@ impl FileUploadVulnerabilitiesScanner {
         Ok((all_vulnerabilities, total_tests))
     }
 
-    /// Test unrestricted file extensions
-    async fn test_unrestricted_extensions(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    /// Discover upload endpoints by scanning for forms with enctype="multipart/form-data"
+    async fn discover_upload_endpoints(&self, url: &str) -> anyhow::Result<Vec<String>> {
+        let mut endpoints = Vec::new();
+
+        match self.http_client.get(url).await {
+            Ok(response) => {
+                let body = response.body.to_lowercase();
+
+                // Look for forms with multipart/form-data
+                if body.contains("multipart/form-data") {
+                    // Extract form actions
+                    let form_regex = regex::Regex::new(r#"<form[^>]*action=["']([^"']+)["'][^>]*>[\s\S]*?multipart/form-data"#).ok();
+                    let form_regex2 = regex::Regex::new(r#"multipart/form-data[\s\S]*?<form[^>]*action=["']([^"']+)["']"#).ok();
+
+                    let response_body = &response.body;
+
+                    if let Some(re) = form_regex {
+                        for cap in re.captures_iter(response_body) {
+                            if let Some(action) = cap.get(1) {
+                                let endpoint = self.normalize_endpoint(url, action.as_str());
+                                if !endpoints.contains(&endpoint) {
+                                    endpoints.push(endpoint);
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(re) = form_regex2 {
+                        for cap in re.captures_iter(response_body) {
+                            if let Some(action) = cap.get(1) {
+                                let endpoint = self.normalize_endpoint(url, action.as_str());
+                                if !endpoints.contains(&endpoint) {
+                                    endpoints.push(endpoint);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Also check for common upload API patterns in JavaScript
+                let js_patterns = [
+                    r#"/upload"#,
+                    r#"/api/upload"#,
+                    r#"/file/upload"#,
+                    r#"/files/upload"#,
+                ];
+
+                for pattern in js_patterns {
+                    if response.body.contains(pattern) {
+                        let endpoint = self.normalize_endpoint(url, pattern);
+                        if !endpoints.contains(&endpoint) {
+                            endpoints.push(endpoint);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                info!("Failed to fetch page for endpoint discovery: {}", e);
+            }
+        }
+
+        Ok(endpoints)
+    }
+
+    /// Normalize endpoint URL
+    fn normalize_endpoint(&self, base_url: &str, endpoint: &str) -> String {
+        if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+            endpoint.to_string()
+        } else if endpoint.starts_with('/') {
+            // Extract base URL
+            if let Ok(parsed) = url::Url::parse(base_url) {
+                format!("{}://{}{}", parsed.scheme(), parsed.host_str().unwrap_or(""), endpoint)
+            } else {
+                format!("{}{}", base_url.trim_end_matches('/'), endpoint)
+            }
+        } else {
+            format!("{}/{}", base_url.trim_end_matches('/'), endpoint)
+        }
+    }
+
+    /// Test default endpoints when no upload forms are found
+    async fn test_default_endpoints(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 5;
+        let tests_run = 3;
 
-        info!("Testing unrestricted file extensions");
-
-        // Try common upload endpoints
-        let upload_endpoints = vec![
+        let endpoints = vec![
             format!("{}/upload", url.trim_end_matches('/')),
             format!("{}/api/upload", url.trim_end_matches('/')),
             format!("{}/file/upload", url.trim_end_matches('/')),
         ];
 
-        // Dangerous file extensions
+        for endpoint in &endpoints {
+            let (vulns, _) = self.test_unrestricted_extensions(endpoint).await?;
+            vulnerabilities.extend(vulns);
+            if !vulnerabilities.is_empty() {
+                break;
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test unrestricted file extensions
+    async fn test_unrestricted_extensions(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 5;
+
+        info!("Testing unrestricted file extensions on: {}", url);
+
+        // Dangerous file extensions with unique markers for verification
         let dangerous_extensions = vec![
-            ("php", "<?php echo 'test'; ?>"),
-            ("jsp", "<% out.println(\"test\"); %>"),
-            ("asp", "<% Response.Write(\"test\") %>"),
-            ("aspx", "<%@ Page Language=\"C#\" %><% Response.Write(\"test\"); %>"),
-            ("sh", "#!/bin/bash\necho test"),
+            ("php", format!("<?php echo '{}'; ?>", self.test_marker)),
+            ("jsp", format!("<% out.println(\"{}\"); %>", self.test_marker)),
+            ("asp", format!("<% Response.Write(\"{}\") %>", self.test_marker)),
+            ("aspx", format!("<%@ Page Language=\"C#\" %><% Response.Write(\"{}\"); %>", self.test_marker)),
+            ("sh", format!("#!/bin/bash\necho {}", self.test_marker)),
         ];
 
-        for endpoint in &upload_endpoints {
-            for (ext, content) in &dangerous_extensions {
-                let filename = format!("{}.{}", self.test_marker, ext);
-                let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        for (ext, content) in &dangerous_extensions {
+            let filename = format!("{}.{}", self.test_marker, ext);
+            let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
 
-                let body = self.create_multipart_body(&boundary, &filename, content, "application/octet-stream");
-                let headers = vec![
-                    ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
-                ];
+            let body = self.create_multipart_body(&boundary, &filename, content, "application/octet-stream");
+            let headers = vec![
+                ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
+            ];
 
-                match self.http_client.post_with_headers(endpoint, &body, headers).await {
-                    Ok(response) => {
-                        if self.detect_upload_success(&response.body, response.status_code, &filename) {
-                            vulnerabilities.push(self.create_vulnerability(
-                                "Unrestricted File Upload",
-                                endpoint,
-                                &format!("Server accepted dangerous file extension .{}: {}", ext, filename),
-                                Severity::Critical,
-                                "CWE-434",
-                            ));
-                            return Ok((vulnerabilities, tests_run));
+            // Step 1: Upload the file
+            match self.http_client.post_with_headers(url, &body, headers).await {
+                Ok(response) => {
+                    // Step 2: Extract upload path from response or try common paths
+                    let upload_paths = self.extract_upload_paths(&response.body, &filename, url);
+
+                    // Step 3: Verify file was uploaded and can be accessed
+                    for upload_path in upload_paths {
+                        match self.http_client.get(&upload_path).await {
+                            Ok(verify_response) => {
+                                // Step 4: Check if our marker is in the response (proof of execution)
+                                if verify_response.body.contains(&self.test_marker) {
+                                    info!("VERIFIED: File uploaded and executed at {}", upload_path);
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        "Unrestricted File Upload with Code Execution",
+                                        url,
+                                        &format!("Uploaded {} and verified execution. File accessible at: {}. Marker '{}' found in response.", filename, upload_path, self.test_marker),
+                                        Severity::Critical,
+                                        "CWE-434",
+                                    ));
+                                    return Ok((vulnerabilities, tests_run));
+                                } else if verify_response.status_code == 200 {
+                                    // File exists but didn't execute - still a vulnerability but lower severity
+                                    info!("File uploaded but not executed at {}", upload_path);
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        "Unrestricted File Upload",
+                                        url,
+                                        &format!("Uploaded {} to {}. File is accessible but execution not confirmed.", filename, upload_path),
+                                        Severity::High,
+                                        "CWE-434",
+                                    ));
+                                    return Ok((vulnerabilities, tests_run));
+                                }
+                            }
+                            Err(_) => {
+                                // File not accessible at this path, try next one
+                                continue;
+                            }
                         }
                     }
-                    Err(e) => {
-                        info!("Unrestricted extension test failed: {}", e);
-                    }
+                }
+                Err(e) => {
+                    info!("Upload test failed for .{}: {}", ext, e);
                 }
             }
         }
@@ -121,50 +269,111 @@ impl FileUploadVulnerabilitiesScanner {
         Ok((vulnerabilities, tests_run))
     }
 
+    /// Extract potential upload paths from response or construct common ones
+    fn extract_upload_paths(&self, response_body: &str, filename: &str, base_url: &str) -> Vec<String> {
+        let mut paths = Vec::new();
+
+        // Try to extract path from response JSON
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(response_body) {
+            // Check common JSON fields for upload path
+            if let Some(path) = json.get("path").and_then(|v| v.as_str()) {
+                paths.push(self.normalize_endpoint(base_url, path));
+            }
+            if let Some(url) = json.get("url").and_then(|v| v.as_str()) {
+                paths.push(self.normalize_endpoint(base_url, url));
+            }
+            if let Some(location) = json.get("location").and_then(|v| v.as_str()) {
+                paths.push(self.normalize_endpoint(base_url, location));
+            }
+            if let Some(file) = json.get("file").and_then(|v| v.as_str()) {
+                paths.push(self.normalize_endpoint(base_url, file));
+            }
+        }
+
+        // Try to extract from response body using regex
+        let url_pattern = regex::Regex::new(&format!(r#"["'](/[^"']*{}[^"']*)["']"#, regex::escape(filename))).ok();
+        if let Some(re) = url_pattern {
+            for cap in re.captures_iter(response_body) {
+                if let Some(path) = cap.get(1) {
+                    paths.push(self.normalize_endpoint(base_url, path.as_str()));
+                }
+            }
+        }
+
+        // Try common upload directories
+        let common_paths = vec![
+            format!("/uploads/{}", filename),
+            format!("/upload/{}", filename),
+            format!("/files/{}", filename),
+            format!("/static/uploads/{}", filename),
+            format!("/media/{}", filename),
+            format!("/content/{}", filename),
+        ];
+
+        for path in common_paths {
+            paths.push(self.normalize_endpoint(base_url, &path));
+        }
+
+        paths
+    }
+
     /// Test MIME type validation bypass
     async fn test_mime_type_bypass(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing MIME type validation bypass");
-
-        let upload_endpoints = vec![
-            format!("{}/upload", url.trim_end_matches('/')),
-        ];
+        info!("Testing MIME type validation bypass on: {}", url);
 
         // Upload PHP file with image MIME type
         let payloads = vec![
-            ("php", "<?php echo 'test'; ?>", "image/jpeg", "MIME type spoofing with image/jpeg"),
-            ("php", "<?php echo 'test'; ?>", "image/png", "MIME type spoofing with image/png"),
-            ("jsp", "<% out.println(\"test\"); %>", "image/gif", "MIME type spoofing with image/gif"),
+            ("php", format!("<?php echo '{}'; ?>", self.test_marker), "image/jpeg", "MIME type spoofing with image/jpeg"),
+            ("php", format!("<?php echo '{}'; ?>", self.test_marker), "image/png", "MIME type spoofing with image/png"),
+            ("jsp", format!("<% out.println(\"{}\"); %>", self.test_marker), "image/gif", "MIME type spoofing with image/gif"),
         ];
 
-        for endpoint in &upload_endpoints {
-            for (ext, content, mime_type, description) in &payloads {
-                let filename = format!("{}.{}", self.test_marker, ext);
-                let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        for (ext, content, mime_type, description) in &payloads {
+            let filename = format!("{}.{}", self.test_marker, ext);
+            let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
 
-                let body = self.create_multipart_body(&boundary, &filename, content, mime_type);
-                let headers = vec![
-                    ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
-                ];
+            let body = self.create_multipart_body(&boundary, &filename, content, mime_type);
+            let headers = vec![
+                ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
+            ];
 
-                match self.http_client.post_with_headers(endpoint, &body, headers).await {
-                    Ok(response) => {
-                        if self.detect_upload_success(&response.body, response.status_code, &filename) {
-                            vulnerabilities.push(self.create_vulnerability(
-                                "File Upload MIME Type Bypass",
-                                endpoint,
-                                &format!("{}: Uploaded {} as {}", description, filename, mime_type),
-                                Severity::Critical,
-                                "CWE-434",
-                            ));
-                            return Ok((vulnerabilities, tests_run));
+            match self.http_client.post_with_headers(url, &body, headers).await {
+                Ok(response) => {
+                    let upload_paths = self.extract_upload_paths(&response.body, &filename, url);
+
+                    for upload_path in upload_paths {
+                        match self.http_client.get(&upload_path).await {
+                            Ok(verify_response) => {
+                                if verify_response.body.contains(&self.test_marker) {
+                                    info!("VERIFIED: MIME bypass successful, file executed at {}", upload_path);
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        "File Upload MIME Type Bypass with Code Execution",
+                                        url,
+                                        &format!("{}: Uploaded {} as {} and verified execution at {}. Marker found in response.", description, filename, mime_type, upload_path),
+                                        Severity::Critical,
+                                        "CWE-434",
+                                    ));
+                                    return Ok((vulnerabilities, tests_run));
+                                } else if verify_response.status_code == 200 {
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        "File Upload MIME Type Bypass",
+                                        url,
+                                        &format!("{}: Uploaded {} as {} to {}. File accessible but execution not confirmed.", description, filename, mime_type, upload_path),
+                                        Severity::High,
+                                        "CWE-434",
+                                    ));
+                                    return Ok((vulnerabilities, tests_run));
+                                }
+                            }
+                            Err(_) => continue,
                         }
                     }
-                    Err(e) => {
-                        info!("MIME type bypass test failed: {}", e);
-                    }
+                }
+                Err(e) => {
+                    info!("MIME type bypass test failed: {}", e);
                 }
             }
         }
@@ -177,45 +386,68 @@ impl FileUploadVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing path traversal in file upload");
+        info!("Testing path traversal in file upload on: {}", url);
 
-        let upload_endpoints = vec![
-            format!("{}/upload", url.trim_end_matches('/')),
-        ];
-
-        // Path traversal filenames
+        // Path traversal filenames with unique content
         let traversal_filenames = vec![
-            format!("../../../{}.txt", self.test_marker),
-            format!("..\\..\\..\\{}.txt", self.test_marker),
-            format!("....//....//....//....//....//....//....//tmp/{}.txt", self.test_marker),
+            format!("../../../tmp/{}.txt", self.test_marker),
+            format!("..\\..\\..\\tmp\\{}.txt", self.test_marker),
+            format!("....//....//tmp/{}.txt", self.test_marker),
         ];
 
-        for endpoint in &upload_endpoints {
-            for filename in &traversal_filenames {
-                let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
-                let content = "test content";
+        for filename in &traversal_filenames {
+            let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+            let content = format!("path_traversal_{}", self.test_marker);
 
-                let body = self.create_multipart_body(&boundary, filename, content, "text/plain");
-                let headers = vec![
-                    ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
-                ];
+            let body = self.create_multipart_body(&boundary, filename, &content, "text/plain");
+            let headers = vec![
+                ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
+            ];
 
-                match self.http_client.post_with_headers(endpoint, &body, headers).await {
-                    Ok(response) => {
-                        if self.detect_path_traversal_success(&response.body, response.status_code) {
-                            vulnerabilities.push(self.create_vulnerability(
-                                "File Upload Path Traversal",
-                                endpoint,
-                                &format!("Server accepted path traversal in filename: {}", filename),
-                                Severity::High,
-                                "CWE-22",
-                            ));
-                            return Ok((vulnerabilities, tests_run));
+            match self.http_client.post_with_headers(url, &body, headers).await {
+                Ok(response) => {
+                    // Check if upload succeeded (status 200/201 and no error messages)
+                    if (response.status_code == 200 || response.status_code == 201) &&
+                       !response.body.to_lowercase().contains("invalid") &&
+                       !response.body.to_lowercase().contains("error") &&
+                       !response.body.to_lowercase().contains("forbidden") {
+
+                        // Try to access the file in traversed location
+                        let traversed_filename = format!("{}.txt", self.test_marker);
+                        let potential_paths = vec![
+                            format!("/tmp/{}", traversed_filename),
+                            self.normalize_endpoint(url, &format!("/../../../tmp/{}", traversed_filename)),
+                        ];
+
+                        for path in potential_paths {
+                            if let Ok(verify_response) = self.http_client.get(&path).await {
+                                if verify_response.body.contains(&content) {
+                                    info!("VERIFIED: Path traversal successful, file found at {}", path);
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        "File Upload Path Traversal",
+                                        url,
+                                        &format!("Uploaded file with path traversal filename '{}' and verified at {}. Content marker found.", filename, path),
+                                        Severity::High,
+                                        "CWE-22",
+                                    ));
+                                    return Ok((vulnerabilities, tests_run));
+                                }
+                            }
                         }
+
+                        // Even if we can't verify the file location, accepting path traversal is a vulnerability
+                        vulnerabilities.push(self.create_vulnerability(
+                            "File Upload Path Traversal (Unverified)",
+                            url,
+                            &format!("Server accepted path traversal filename '{}' without error. File location could not be verified.", filename),
+                            Severity::Medium,
+                            "CWE-22",
+                        ));
+                        return Ok((vulnerabilities, tests_run));
                     }
-                    Err(e) => {
-                        info!("Path traversal test failed: {}", e);
-                    }
+                }
+                Err(e) => {
+                    info!("Path traversal test failed: {}", e);
                 }
             }
         }
@@ -228,45 +460,57 @@ impl FileUploadVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing double extension bypass");
+        info!("Testing double extension bypass on: {}", url);
 
-        let upload_endpoints = vec![
-            format!("{}/upload", url.trim_end_matches('/')),
-        ];
-
-        // Double extension filenames
+        // Double extension filenames with unique markers
         let double_extensions = vec![
-            format!("{}.php.jpg", self.test_marker),
-            format!("{}.jsp.png", self.test_marker),
-            format!("{}.php.gif", self.test_marker),
+            (format!("{}.php.jpg", self.test_marker), format!("<?php echo '{}'; ?>", self.test_marker)),
+            (format!("{}.jsp.png", self.test_marker), format!("<% out.println(\"{}\"); %>", self.test_marker)),
+            (format!("{}.php.gif", self.test_marker), format!("<?php echo '{}'; ?>", self.test_marker)),
         ];
 
-        for endpoint in &upload_endpoints {
-            for filename in &double_extensions {
-                let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
-                let content = "<?php echo 'test'; ?>";
+        for (filename, content) in &double_extensions {
+            let boundary = format!("----WebKitFormBoundary{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
 
-                let body = self.create_multipart_body(&boundary, filename, content, "image/jpeg");
-                let headers = vec![
-                    ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
-                ];
+            let body = self.create_multipart_body(&boundary, filename, content, "image/jpeg");
+            let headers = vec![
+                ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary))
+            ];
 
-                match self.http_client.post_with_headers(endpoint, &body, headers).await {
-                    Ok(response) => {
-                        if self.detect_upload_success(&response.body, response.status_code, filename) {
-                            vulnerabilities.push(self.create_vulnerability(
-                                "File Upload Double Extension Bypass",
-                                endpoint,
-                                &format!("Server accepted double extension file: {}", filename),
-                                Severity::Critical,
-                                "CWE-434",
-                            ));
-                            return Ok((vulnerabilities, tests_run));
+            match self.http_client.post_with_headers(url, &body, headers).await {
+                Ok(response) => {
+                    let upload_paths = self.extract_upload_paths(&response.body, filename, url);
+
+                    for upload_path in upload_paths {
+                        match self.http_client.get(&upload_path).await {
+                            Ok(verify_response) => {
+                                if verify_response.body.contains(&self.test_marker) {
+                                    info!("VERIFIED: Double extension bypass successful, file executed at {}", upload_path);
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        "File Upload Double Extension Bypass with Code Execution",
+                                        url,
+                                        &format!("Uploaded double extension file '{}' and verified execution at {}. Marker found in response.", filename, upload_path),
+                                        Severity::Critical,
+                                        "CWE-434",
+                                    ));
+                                    return Ok((vulnerabilities, tests_run));
+                                } else if verify_response.status_code == 200 {
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        "File Upload Double Extension Bypass",
+                                        url,
+                                        &format!("Uploaded double extension file '{}' to {}. File accessible but execution not confirmed.", filename, upload_path),
+                                        Severity::High,
+                                        "CWE-434",
+                                    ));
+                                    return Ok((vulnerabilities, tests_run));
+                                }
+                            }
+                            Err(_) => continue,
                         }
                     }
-                    Err(e) => {
-                        info!("Double extension test failed: {}", e);
-                    }
+                }
+                Err(e) => {
+                    info!("Double extension test failed: {}", e);
                 }
             }
         }
@@ -280,44 +524,6 @@ impl FileUploadVulnerabilitiesScanner {
             "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\nContent-Type: {}\r\n\r\n{}\r\n--{}--\r\n",
             boundary, filename, mime_type, content, boundary
         )
-    }
-
-    /// Detect successful file upload
-    fn detect_upload_success(&self, body: &str, status_code: u16, filename: &str) -> bool {
-        let body_lower = body.to_lowercase();
-
-        // Success status codes
-        if status_code == 200 || status_code == 201 {
-            // Check for success indicators
-            let filename_lower = filename.to_lowercase();
-            let success_indicators = vec![
-                "upload",
-                "success",
-                "uploaded",
-                "file saved",
-                "completed",
-                filename_lower.as_str(),
-            ];
-
-            for indicator in success_indicators {
-                if body_lower.contains(indicator) {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Detect path traversal success
-    fn detect_path_traversal_success(&self, body: &str, status_code: u16) -> bool {
-        let body_lower = body.to_lowercase();
-
-        // If upload succeeded without error about invalid path
-        (status_code == 200 || status_code == 201) &&
-        !body_lower.contains("invalid path") &&
-        !body_lower.contains("invalid filename") &&
-        !body_lower.contains("path not allowed")
     }
 
     /// Create a vulnerability record
@@ -390,23 +596,37 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_upload_success() {
+    fn test_extract_upload_paths() {
         let scanner = create_test_scanner();
+        let filename = "test.php";
+        let base_url = "http://example.com/upload";
 
-        assert!(scanner.detect_upload_success(r#"{"message":"File uploaded successfully"}"#, 200, "test.php"));
-        assert!(scanner.detect_upload_success(r#"Upload completed: test.jpg"#, 201, "test.jpg"));
+        // Test JSON response parsing
+        let json_response = r#"{"path":"/uploads/test.php","status":"success"}"#;
+        let paths = scanner.extract_upload_paths(json_response, filename, base_url);
+        assert!(paths.iter().any(|p| p.contains("/uploads/test.php")));
 
-        assert!(!scanner.detect_upload_success(r#"{"error":"Upload failed"}"#, 400, "test.php"));
+        // Test common paths are included
+        let empty_response = "";
+        let paths = scanner.extract_upload_paths(empty_response, filename, base_url);
+        assert!(paths.iter().any(|p| p.ends_with("/uploads/test.php")));
+        assert!(paths.iter().any(|p| p.ends_with("/files/test.php")));
     }
 
     #[test]
-    fn test_detect_path_traversal_success() {
+    fn test_normalize_endpoint() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.detect_path_traversal_success(r#"{"message":"File saved"}"#, 200));
+        // Test absolute URL
+        assert_eq!(
+            scanner.normalize_endpoint("http://example.com", "http://other.com/file"),
+            "http://other.com/file"
+        );
 
-        assert!(!scanner.detect_path_traversal_success(r#"Invalid path detected"#, 400));
-        assert!(!scanner.detect_path_traversal_success(r#"Path not allowed"#, 403));
+        // Test relative path
+        let result = scanner.normalize_endpoint("http://example.com/api", "/uploads/file.txt");
+        assert!(result.starts_with("http://"));
+        assert!(result.contains("/uploads/file.txt"));
     }
 
     #[test]

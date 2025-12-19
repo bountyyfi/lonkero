@@ -91,6 +91,16 @@ impl GraphqlSecurityScanner {
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
+        // Advanced: Cost analysis and pagination abuse
+        let (vulns, tests) = self.test_cost_analysis_attacks(url).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests;
+
+        // Advanced: Enhanced introspection abuse
+        let (vulns, tests) = self.test_introspection_abuse(url).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests;
+
         info!(
             "GraphQL security scan completed: {} tests run, {} vulnerabilities found",
             total_tests,
@@ -228,10 +238,10 @@ impl GraphqlSecurityScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Test for batch query attacks
+    /// Test for batch query attacks (DoS via Query Coalescing)
     async fn test_batch_queries(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 1;
+        let tests_run = 3;
 
         info!("Testing GraphQL batch query attacks");
 
@@ -239,33 +249,106 @@ impl GraphqlSecurityScanner {
             format!("{}/graphql", url.trim_end_matches('/')),
         ];
 
-        // Batch query with multiple operations
-        let batch_query = r#"[
-            {"query":"{ __typename }"},
-            {"query":"{ __typename }"},
-            {"query":"{ __typename }"},
-            {"query":"{ __typename }"},
-            {"query":"{ __typename }"}
-        ]"#;
-
-        for endpoint in graphql_endpoints {
+        for endpoint in &graphql_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(&endpoint, batch_query, headers).await {
+            // Test 1: Array-based batching (multiple queries in one request)
+            let mut batch_array_items = Vec::new();
+            for i in 1..=100 {
+                batch_array_items.push(format!(r#"{{"query":"{{ user(id: {}) {{ id name email }} }}"}}"#, i));
+            }
+            let batch_array_query = format!("[{}]", batch_array_items.join(","));
+
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, &batch_array_query, headers.clone()).await {
                 Ok(response) => {
+                    let elapsed = start.elapsed();
+
                     if self.detect_batch_query_accepted(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
                             "GraphQL Batch Queries Enabled",
-                            &endpoint,
-                            "GraphQL endpoint accepts batch queries without rate limiting, potentially enabling DoS attacks",
-                            Severity::Medium,
+                            endpoint,
+                            &format!("GraphQL endpoint accepts array-based batch queries (100 queries in one request). Response time: {}ms. No batching limits detected - potential DoS vector.",
+                                elapsed.as_millis()),
+                            Severity::High,
                             "CWE-770",
                         ));
-                        break;
                     }
                 }
                 Err(e) => {
-                    info!("Batch query test failed: {}", e);
+                    info!("Batch array query test failed: {}", e);
+                }
+            }
+
+            // Test 2: Single query with multiple aliased operations (query coalescing)
+            let mut alias_queries = Vec::new();
+            for i in 1..=100 {
+                alias_queries.push(format!("user{}: user(id: {}) {{ id name email }}", i, i));
+            }
+            let coalesced_query = format!(r#"{{"query":"query BatchCoalesce {{ {} }}"}}"#, alias_queries.join(" "));
+
+            let start = std::time::Instant::now();
+            let baseline_time = match self.http_client.post_with_headers(
+                endpoint,
+                r#"{"query":"query Single { user(id: 1) { id name email } }"}"#,
+                headers.clone()
+            ).await {
+                Ok(_) => start.elapsed(),
+                Err(_) => std::time::Duration::from_millis(0),
+            };
+
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, &coalesced_query, headers.clone()).await {
+                Ok(response) => {
+                    let elapsed = start.elapsed();
+
+                    // Check if query was accepted and executed
+                    let executed = response.body.contains("user1")
+                        && response.body.contains("user50")
+                        && !response.body.to_lowercase().contains("limit")
+                        && !response.body.to_lowercase().contains("max");
+
+                    if executed && (baseline_time.is_zero() || elapsed > baseline_time * 10) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Batching Attack via Aliases",
+                            endpoint,
+                            &format!("GraphQL endpoint allows query coalescing with 100 aliased operations. Response time: {}ms (baseline: {}ms). Server processes all queries without batching limits - potential DoS via resource exhaustion.",
+                                elapsed.as_millis(), baseline_time.as_millis()),
+                            Severity::High,
+                            "CWE-770",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    info!("Batch coalescing test failed: {}", e);
+                }
+            }
+
+            // Test 3: Mutation batching (rate limit bypass)
+            let mut mutation_batch = Vec::new();
+            for i in 1..=50 {
+                mutation_batch.push(format!(
+                    r#"{{"query":"mutation Batch{} {{ updateUser(id: {}, name: \"{}\") {{ id }} }}"}}"#,
+                    i, i, self.test_marker
+                ));
+            }
+            let mutation_batch_query = format!("[{}]", mutation_batch.join(","));
+
+            match self.http_client.post_with_headers(endpoint, &mutation_batch_query, headers.clone()).await {
+                Ok(response) => {
+                    // Check if mutations were accepted
+                    if response.body.starts_with('[') && !response.body.to_lowercase().contains("rate limit") {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Mutation Batching Bypass",
+                            endpoint,
+                            &format!("GraphQL endpoint accepts batched mutations (50 mutations in one request) without rate limiting. This can bypass per-request rate limits. Marker: {}", self.test_marker),
+                            Severity::High,
+                            "CWE-770",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    info!("Mutation batching test failed: {}", e);
                 }
             }
         }
@@ -273,153 +356,297 @@ impl GraphqlSecurityScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Test for query complexity DoS attacks via deep nesting
+    /// Test for query complexity DoS attacks via deep nesting, circular queries, and field duplication
     async fn test_query_complexity_dos(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 5;
+
+        info!("Testing GraphQL query complexity / deep nesting / circular query DoS");
+
+        let graphql_endpoints = vec![
+            format!("{}/graphql", url.trim_end_matches('/')),
+        ];
+
+        for endpoint in &graphql_endpoints {
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+            // Test 1: Deep nesting query with recursive relationships (exponential complexity)
+            let mut nesting_levels = String::from("user { id name ");
+            for _ in 0..20 {
+                nesting_levels.push_str("posts { id title author { id name ");
+            }
+            for _ in 0..20 {
+                nesting_levels.push_str("} } ");
+            }
+            nesting_levels.push_str("} ");
+
+            let deep_recursive_query = format!(r#"{{"query":"query DeepRecursive {{ {} }}"}}"#, nesting_levels);
+
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, &deep_recursive_query, headers.clone()).await {
+                Ok(response) => {
+                    let elapsed = start.elapsed();
+
+                    // Check if query was accepted (no depth limit error)
+                    let no_depth_limit = !response.body.to_lowercase().contains("depth")
+                        && !response.body.to_lowercase().contains("too deep")
+                        && !response.body.to_lowercase().contains("nesting")
+                        && !response.body.to_lowercase().contains("recursion");
+
+                    // Check if server took long time or accepted query
+                    let slow_response = elapsed.as_secs() > 3;
+
+                    if (no_depth_limit && response.body.contains("data")) || slow_response {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Circular/Recursive Query DoS",
+                            endpoint,
+                            &format!("GraphQL endpoint allows deeply nested recursive queries (depth: 20). Response time: {}ms. No depth limits detected - potential exponential complexity DoS attack vector.",
+                                elapsed.as_millis()),
+                            Severity::Critical,
+                            "CWE-400",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    info!("Deep recursive query test failed: {}", e);
+                }
+            }
+
+            // Test 2: Circular fragment reference (infinite recursion)
+            let circular_query = r#"{"query":"query CircularRef { user { ...UserData } } fragment UserData on User { id name friends { ...UserData } }"}"#;
+
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, circular_query, headers.clone()).await {
+                Ok(response) => {
+                    let elapsed = start.elapsed();
+
+                    let no_circular_check = !response.body.to_lowercase().contains("circular")
+                        && !response.body.to_lowercase().contains("infinite")
+                        && !response.body.to_lowercase().contains("recursive");
+
+                    let slow_or_accepted = elapsed.as_secs() > 2 || response.body.contains("data");
+
+                    if no_circular_check && slow_or_accepted {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Circular Fragment DoS",
+                            endpoint,
+                            &format!("GraphQL endpoint allows circular fragment references. Response time: {}ms. No circular reference detection - can cause infinite recursion DoS.",
+                                elapsed.as_millis()),
+                            Severity::High,
+                            "CWE-674",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    info!("Circular query test failed: {}", e);
+                }
+            }
+
+            // Test 3: Field duplication attack (request same expensive field 1000 times)
+            let mut duplicated_fields = Vec::new();
+            for _ in 0..1000 {
+                duplicated_fields.push("posts");
+            }
+            let field_dup_query = format!(
+                r#"{{"query":"query FieldDup {{ user {{ id name {} }} }}"}}"#,
+                duplicated_fields.join(" ")
+            );
+
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, &field_dup_query, headers.clone()).await {
+                Ok(response) => {
+                    let elapsed = start.elapsed();
+
+                    let no_deduplication = !response.body.to_lowercase().contains("duplicate")
+                        && !response.body.to_lowercase().contains("repeated");
+
+                    // Check if server processed all fields (high CPU/time)
+                    let slow_response = elapsed.as_millis() > 1000;
+                    let large_response = response.body.len() > 10000;
+
+                    if no_deduplication && (slow_response || large_response) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Field Duplication DoS",
+                            endpoint,
+                            &format!("GraphQL endpoint allows duplicating expensive fields 1000 times without deduplication. Response time: {}ms, size: {} bytes. Server processes all duplicate fields - CPU exhaustion DoS vector.",
+                                elapsed.as_millis(), response.body.len()),
+                            Severity::High,
+                            "CWE-770",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    info!("Field duplication test failed: {}", e);
+                }
+            }
+
+            // Test 4: Deeply nested fragments with circular relationships
+            let nested_circular = r#"{"query":"query NestedCircular { user { ...Level1 } } fragment Level1 on User { friends { ...Level2 } } fragment Level2 on User { friends { ...Level3 } } fragment Level3 on User { friends { ...Level4 } } fragment Level4 on User { friends { ...Level5 } } fragment Level5 on User { friends { ...Level1 } }"}"#;
+
+            match self.http_client.post_with_headers(endpoint, nested_circular, headers.clone()).await {
+                Ok(response) => {
+                    let no_checks = !response.body.to_lowercase().contains("circular")
+                        && !response.body.to_lowercase().contains("depth")
+                        && !response.body.to_lowercase().contains("too complex");
+
+                    if no_checks && response.body.contains("data") {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Nested Circular Fragment Attack",
+                            endpoint,
+                            "GraphQL endpoint allows deeply nested fragments with circular relationships. This can bypass simple depth checks and cause exponential query complexity.",
+                            Severity::High,
+                            "CWE-674",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    info!("Nested circular test failed: {}", e);
+                }
+            }
+
+            // Test 5: Recursive query with different entry points
+            let multi_entry_recursive = r#"{"query":"query MultiEntry { user { friends { friends { friends { posts { comments { author { friends { friends { id } } } } } } } } post { author { friends { friends { posts { author { id } } } } } } }"}"#;
+
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, multi_entry_recursive, headers.clone()).await {
+                Ok(response) => {
+                    let elapsed = start.elapsed();
+
+                    if elapsed.as_secs() > 2 || response.body.len() > 50000 {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Multi-Entry Recursive DoS",
+                            endpoint,
+                            &format!("GraphQL endpoint processes complex queries with multiple recursive entry points. Response time: {}ms, size: {} bytes. No aggregate complexity limits detected.",
+                                elapsed.as_millis(), response.body.len()),
+                            Severity::High,
+                            "CWE-400",
+                        ));
+                    }
+                }
+                Err(e) => {
+                    info!("Multi-entry recursive test failed: {}", e);
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for alias abuse attacks (amplification and overloading)
+    async fn test_alias_abuse(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL query complexity / deep nesting DoS");
+        info!("Testing GraphQL alias abuse and overloading attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
         ];
 
-        // Deep nesting query (exponential complexity)
-        let deep_nesting_query = r#"{"query":"query DeepNest { user { friends { friends { friends { friends { friends { friends { friends { friends { friends { friends { id name } } } } } } } } } } } }"}"#;
-
-        // Field duplication query
-        let field_duplication_query = r#"{"query":"query Dup { user { id id id id id id id id id id id id id id id id id id id id } }"}"#;
-
-        // Circular fragment query
-        let circular_query = r#"{"query":"query Circular { ...A } fragment A on Query { ...B } fragment B on Query { ...A }"}"#;
-
-        let complexity_payloads = vec![
-            (deep_nesting_query, "Deep nesting DoS (exponential complexity)"),
-            (field_duplication_query, "Field duplication attack"),
-            (circular_query, "Circular fragment reference"),
-        ];
-
         for endpoint in &graphql_endpoints {
-            for (payload, description) in &complexity_payloads {
-                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                let start = std::time::Instant::now();
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
-                    Ok(response) => {
-                        let elapsed = start.elapsed();
+            // Test 1: Alias overloading - thousands of aliases to bypass simple query counting
+            let mut massive_aliases = Vec::new();
+            for i in 1..=1000 {
+                massive_aliases.push(format!("alias{}: __typename", i));
+            }
+            let alias_overload = format!(
+                r#"{{"query":"query AliasOverload {{ {} }}"}}"#,
+                massive_aliases.join(" ")
+            );
 
-                        // Check if query was accepted (no complexity error)
-                        let accepted = !response.body.to_lowercase().contains("complexity")
-                            && !response.body.to_lowercase().contains("depth")
-                            && !response.body.to_lowercase().contains("max")
-                            && !response.body.to_lowercase().contains("limit exceeded");
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, &alias_overload, headers.clone()).await {
+                Ok(response) => {
+                    let elapsed = start.elapsed();
 
-                        // Check if server took long time (>2s indicates DoS potential)
-                        let slow_response = elapsed.as_secs() > 2;
+                    // Server may count as 1 query but executes thousands
+                    let executed = response.body.contains("alias1")
+                        && response.body.contains("alias500")
+                        && !response.body.to_lowercase().contains("too many aliases")
+                        && !response.body.to_lowercase().contains("alias limit");
 
-                        if accepted || slow_response {
-                            vulnerabilities.push(self.create_vulnerability(
-                                "GraphQL Query Complexity DoS",
-                                endpoint,
-                                &format!("{} - Response time: {}ms. No complexity limits detected.",
-                                    description, elapsed.as_millis()),
-                                Severity::High,
-                                "CWE-400",
-                            ));
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        info!("Complexity test failed: {}", e);
+                    if executed {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Alias Overloading DoS",
+                            endpoint,
+                            &format!("GraphQL endpoint allows 1000 aliases in a single query. Response time: {}ms. Server may count this as 1 query but executes thousands of operations - can bypass rate limits and cause CPU exhaustion.",
+                                elapsed.as_millis()),
+                            Severity::High,
+                            "CWE-770",
+                        ));
                     }
                 }
+                Err(e) => {
+                    info!("Alias overload test failed: {}", e);
+                }
             }
-        }
 
-        Ok((vulnerabilities, tests_run))
-    }
+            // Test 2: Alias amplification with expensive fields
+            let mut expensive_aliases = Vec::new();
+            for i in 1..=100 {
+                expensive_aliases.push(format!("u{}: user(id: {}) {{ id name email posts {{ id title }} }}", i, i));
+            }
+            let expensive_alias_query = format!(
+                r#"{{"query":"query ExpensiveAliases {{ {} }}"}}"#,
+                expensive_aliases.join(" ")
+            );
 
-    /// Test for alias abuse attacks (amplification)
-    async fn test_alias_abuse(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
-        let tests_run = 2;
+            let start = std::time::Instant::now();
+            match self.http_client.post_with_headers(endpoint, &expensive_alias_query, headers.clone()).await {
+                Ok(response) => {
+                    let elapsed = start.elapsed();
 
-        info!("Testing GraphQL alias abuse attacks");
+                    let no_limits = !response.body.to_lowercase().contains("alias")
+                        && !response.body.to_lowercase().contains("limit")
+                        && !response.body.to_lowercase().contains("complexity");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+                    // Check for execution
+                    let executed = response.body.contains("u1") || response.body.len() > 5000;
 
-        // Alias amplification attack - same expensive query with many aliases
-        let alias_amplification = r#"{"query":"query AliasAmplification {
-            a1: user(id: \"1\") { id name email }
-            a2: user(id: \"1\") { id name email }
-            a3: user(id: \"1\") { id name email }
-            a4: user(id: \"1\") { id name email }
-            a5: user(id: \"1\") { id name email }
-            a6: user(id: \"1\") { id name email }
-            a7: user(id: \"1\") { id name email }
-            a8: user(id: \"1\") { id name email }
-            a9: user(id: \"1\") { id name email }
-            a10: user(id: \"1\") { id name email }
-            a11: user(id: \"1\") { id name email }
-            a12: user(id: \"1\") { id name email }
-            a13: user(id: \"1\") { id name email }
-            a14: user(id: \"1\") { id name email }
-            a15: user(id: \"1\") { id name email }
-            a16: user(id: \"1\") { id name email }
-            a17: user(id: \"1\") { id name email }
-            a18: user(id: \"1\") { id name email }
-            a19: user(id: \"1\") { id name email }
-            a20: user(id: \"1\") { id name email }
-        }"}"#;
-
-        // Array-based alias attack
-        let array_alias = r#"{"query":"query ArrayAlias {
-            a1: users(first: 100) { id }
-            a2: users(first: 100) { id }
-            a3: users(first: 100) { id }
-            a4: users(first: 100) { id }
-            a5: users(first: 100) { id }
-        }"}"#;
-
-        let alias_payloads = vec![
-            (alias_amplification, "Alias amplification attack (20 aliases)"),
-            (array_alias, "Array-based alias amplification"),
-        ];
-
-        for endpoint in &graphql_endpoints {
-            for (payload, description) in &alias_payloads {
-                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-
-                let start = std::time::Instant::now();
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
-                    Ok(response) => {
-                        let elapsed = start.elapsed();
-
-                        // Check if aliases were executed
-                        let alias_executed = response.body.contains("a1")
-                            || response.body.contains("\"data\"");
-
-                        let no_limits = !response.body.to_lowercase().contains("alias")
-                            && !response.body.to_lowercase().contains("limit")
-                            && !response.body.to_lowercase().contains("max");
-
-                        if alias_executed && no_limits {
-                            vulnerabilities.push(self.create_vulnerability(
-                                "GraphQL Alias Abuse",
-                                endpoint,
-                                &format!("{} - No alias limits detected. Response time: {}ms",
-                                    description, elapsed.as_millis()),
-                                Severity::High,
-                                "CWE-770",
-                            ));
-                            break;
-                        }
+                    if executed && (no_limits || elapsed.as_millis() > 2000) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Alias Amplification Attack",
+                            endpoint,
+                            &format!("GraphQL endpoint allows 100 aliases for expensive queries. Response time: {}ms, size: {} bytes. No complexity limits detected - can amplify resource consumption.",
+                                elapsed.as_millis(), response.body.len()),
+                            Severity::High,
+                            "CWE-400",
+                        ));
                     }
-                    Err(e) => {
-                        info!("Alias abuse test failed: {}", e);
+                }
+                Err(e) => {
+                    info!("Expensive alias test failed: {}", e);
+                }
+            }
+
+            // Test 3: Nested aliases (aliases within aliases)
+            let nested_alias = r#"{"query":"query NestedAlias {
+                a1: user { p1: posts { id } p2: posts { id } p3: posts { id } p4: posts { id } p5: posts { id } }
+                a2: user { p1: posts { id } p2: posts { id } p3: posts { id } p4: posts { id } p5: posts { id } }
+                a3: user { p1: posts { id } p2: posts { id } p3: posts { id } p4: posts { id } p5: posts { id } }
+                a4: user { p1: posts { id } p2: posts { id } p3: posts { id } p4: posts { id } p5: posts { id } }
+                a5: user { p1: posts { id } p2: posts { id } p3: posts { id } p4: posts { id } p5: posts { id } }
+            }"}"#;
+
+            match self.http_client.post_with_headers(endpoint, nested_alias, headers.clone()).await {
+                Ok(response) => {
+                    let no_limits = !response.body.to_lowercase().contains("limit")
+                        && !response.body.to_lowercase().contains("complexity");
+
+                    if (response.body.contains("a1") || response.body.contains("p1")) && no_limits {
+                        vulnerabilities.push(self.create_vulnerability(
+                            "GraphQL Nested Alias Multiplication",
+                            endpoint,
+                            "GraphQL endpoint allows nested aliases (5 top-level aliases × 5 field aliases = 25× amplification). No limits detected - multiplicative resource consumption.",
+                            Severity::Medium,
+                            "CWE-770",
+                        ));
                     }
+                }
+                Err(e) => {
+                    info!("Nested alias test failed: {}", e);
                 }
             }
         }
@@ -780,6 +1007,123 @@ impl GraphqlSecurityScanner {
                     }
                     Err(e) => {
                         info!("Auth bypass test failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for cost analysis and pagination abuse attacks
+    async fn test_cost_analysis_attacks(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 3;
+
+        info!("Testing GraphQL cost analysis and pagination abuse");
+
+        let graphql_endpoints = vec![
+            format!("{}/graphql", url.trim_end_matches('/')),
+        ];
+
+        // Pagination abuse - request excessive items
+        let pagination_abuse = r#"{"query":"{ users(first: 999999) { id name } }"}"#;
+
+        // Nested pagination abuse
+        let nested_pagination = r#"{"query":"{ posts(first: 1000) { comments(first: 1000) { id } } }"}"#;
+
+        // Cost calculation bypass
+        let cost_bypass = r#"{"query":"{ a: users(first: 100) { id } b: users(first: 100) { id } c: users(first: 100) { id } }"}"#;
+
+        let cost_payloads = vec![
+            (pagination_abuse, "Excessive pagination request"),
+            (nested_pagination, "Nested pagination abuse"),
+            (cost_bypass, "Cost calculation bypass via aliases"),
+        ];
+
+        for endpoint in &graphql_endpoints {
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+            for (payload, description) in &cost_payloads {
+                match self.http_client.post_with_headers(endpoint, payload, headers.clone()).await {
+                    Ok(response) => {
+                        // Check if server accepted large pagination without limits
+                        let has_data = response.body.contains("\"data\"");
+                        let no_limit_error = !response.body.to_lowercase().contains("limit exceeded")
+                            && !response.body.to_lowercase().contains("too many")
+                            && !response.body.to_lowercase().contains("cost");
+
+                        if has_data && no_limit_error && response.status_code == 200 {
+                            vulnerabilities.push(self.create_vulnerability(
+                                "GraphQL Cost Analysis Bypass",
+                                endpoint,
+                                &format!("{} - Server accepted resource-intensive query without proper limits",
+                                    description),
+                                Severity::Medium,
+                                "CWE-400",
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        info!("Cost analysis test failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test for enhanced introspection abuse
+    async fn test_introspection_abuse(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 4;
+
+        info!("Testing GraphQL introspection abuse");
+
+        let graphql_endpoints = vec![
+            format!("{}/graphql", url.trim_end_matches('/')),
+        ];
+
+        // Full schema dump
+        let schema_dump = r#"{"query":"{ __schema { types { name fields { name type { name kind ofType { name kind } } } } } }"}"#;
+
+        // Directive introspection
+        let directive_introspection = r#"{"query":"{ __schema { directives { name description locations } } }"}"#;
+
+        // Query type introspection
+        let query_introspection = r#"{"query":"{ __schema { queryType { fields { name description args { name type { name } } } } } }"}"#;
+
+        // Mutation type introspection
+        let mutation_introspection = r#"{"query":"{ __schema { mutationType { fields { name description args { name type { name } } } } } }"}"#;
+
+        let introspection_payloads = vec![
+            (schema_dump, "Full schema introspection"),
+            (directive_introspection, "Directive introspection"),
+            (query_introspection, "Query type introspection"),
+            (mutation_introspection, "Mutation type introspection"),
+        ];
+
+        for endpoint in &graphql_endpoints {
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+            for (payload, description) in &introspection_payloads {
+                match self.http_client.post_with_headers(endpoint, payload, headers.clone()).await {
+                    Ok(response) => {
+                        // Check if introspection is enabled
+                        if self.detect_introspection_enabled(&response.body) {
+                            vulnerabilities.push(self.create_vulnerability(
+                                "GraphQL Introspection Enabled",
+                                endpoint,
+                                &format!("{} - Schema information exposed via introspection: {}",
+                                    description, self.extract_evidence(&response.body, 200)),
+                                Severity::Medium,
+                                "CWE-200",
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        info!("Introspection test failed: {}", e);
                     }
                 }
             }

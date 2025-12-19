@@ -100,6 +100,7 @@ pub mod varnish_misconfig;
 pub mod js_sensitive_info;
 pub mod client_route_auth_bypass;
 pub mod rate_limiting;
+pub mod html_injection;
 pub mod wordpress_security;
 pub mod drupal_security;
 pub mod laravel_security;
@@ -109,6 +110,7 @@ pub mod sveltekit_security;
 pub mod react_security;
 pub mod django_security;
 pub mod liferay_security;
+pub mod parameter_filter;
 
 // External security scanners
 pub mod external;
