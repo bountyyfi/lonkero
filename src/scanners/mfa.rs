@@ -11,10 +11,12 @@
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tracing::{info, debug};
 
 pub struct MfaScanner {
     http_client: Arc<HttpClient>,
@@ -33,43 +35,39 @@ impl MfaScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // First, check if this site has any MFA-related functionality
-        // by looking at the main page content
+        // CRITICAL: First detect application characteristics
+        // Don't test MFA on SPAs or static sites
         tests_run += 1;
         let response = match self.http_client.get(url).await {
             Ok(r) => r,
             Err(_) => return Ok((Vec::new(), tests_run)),
         };
 
-        let body_lower = response.body.to_lowercase();
+        let characteristics = AppCharacteristics::from_response(&response, url);
 
-        // Check for evidence of authentication/MFA functionality
-        let has_mfa_indicators = body_lower.contains("two-factor")
-            || body_lower.contains("2fa")
-            || body_lower.contains("mfa")
-            || body_lower.contains("multi-factor")
-            || body_lower.contains("authenticator")
-            || body_lower.contains("verification code")
-            || body_lower.contains("totp");
-
-        let has_auth_functionality = body_lower.contains("login")
-            || body_lower.contains("sign in")
-            || body_lower.contains("log in")
-            || body_lower.contains("password");
-
-        // If no authentication or MFA indicators, skip all MFA tests
-        // This prevents false positives on static sites
-        if !has_auth_functionality && !has_mfa_indicators {
+        // Skip MFA tests if no real authentication or MFA detected
+        if characteristics.should_skip_mfa_tests() {
+            info!("[MFA] No MFA/authentication detected - skipping MFA tests");
             return Ok((Vec::new(), tests_run));
         }
 
+        // Skip MFA tests on SPAs (they return same HTML for all routes)
+        if characteristics.should_skip_injection_tests() {
+            info!("[MFA] Site is SPA/static - skipping MFA tests (client-side only)");
+            return Ok((Vec::new(), tests_run));
+        }
+
+        info!("[MFA] MFA/authentication detected - proceeding with security tests");
+
+        let body_lower = response.body.to_lowercase();
+
         // Test 1: Check for MFA enforcement (only if auth indicators exist)
-        if has_auth_functionality {
+        if characteristics.has_authentication {
             self.check_mfa_enforcement(&response, url, &mut vulnerabilities);
         }
 
         // Test 2: Test for MFA bypass via parameter manipulation (only if MFA is mentioned)
-        if has_mfa_indicators {
+        if characteristics.has_mfa {
             tests_run += 1;
             if let Ok(bypass_response) = self.test_mfa_bypass(url).await {
                 self.check_mfa_bypass(&bypass_response, url, &mut vulnerabilities);
@@ -77,7 +75,7 @@ impl MfaScanner {
         }
 
         // Test 3-7: Only run endpoint-specific tests if endpoints actually exist
-        // Check if common MFA verification endpoints exist before testing them
+        // CRITICAL: Don't test endpoints that don't exist (SPAs return 200 for everything!)
         let mfa_endpoints = vec![
             (format!("{}/mfa/verify", url.trim_end_matches('/')), "mfa_verify"),
             (format!("{}/2fa/verify", url.trim_end_matches('/')), "2fa_verify"),
@@ -88,21 +86,21 @@ impl MfaScanner {
         for (endpoint_url, _endpoint_type) in &mfa_endpoints {
             tests_run += 1;
             if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
-                // Only proceed if endpoint exists (not 404, 403 is ok as it means protected)
-                if endpoint_response.status_code == 404 {
+                // CRITICAL: Check if endpoint actually exists (not SPA fallback)
+                if !endpoint_exists(&endpoint_response, &[200, 401, 403]) {
+                    debug!("[MFA] Endpoint {} doesn't exist - skipping", endpoint_url);
                     continue;
                 }
 
                 let endpoint_body_lower = endpoint_response.body.to_lowercase();
 
                 // Only test rate limiting if this is actually an MFA verification page
-                let is_mfa_page = endpoint_body_lower.contains("code")
-                    || endpoint_body_lower.contains("verify")
-                    || endpoint_body_lower.contains("totp")
-                    || endpoint_body_lower.contains("authenticator")
-                    || endpoint_body_lower.contains("enter")
-                    || endpoint_response.status_code == 401
-                    || endpoint_response.status_code == 403;
+                // MUCH stricter criteria than before!
+                let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
+                    endpoint_body_lower.contains("authenticator app") ||
+                    endpoint_body_lower.contains("totp")) &&
+                    (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input")) &&
+                    (endpoint_response.status_code == 200 || endpoint_response.status_code == 401);
 
                 if is_mfa_page {
                     self.check_rate_limiting(&endpoint_response, endpoint_url, &mut vulnerabilities);
@@ -111,7 +109,7 @@ impl MfaScanner {
         }
 
         // Only test SMS MFA if there's evidence of phone-based auth
-        if has_mfa_indicators && (body_lower.contains("sms") || body_lower.contains("phone")) {
+        if characteristics.has_mfa && (body_lower.contains("sms") || body_lower.contains("phone number")) {
             tests_run += 1;
             if let Ok(sms_response) = self.test_sms_mfa(url).await {
                 self.check_sms_mfa_security(&sms_response, url, &mut vulnerabilities);
@@ -231,26 +229,24 @@ impl MfaScanner {
         let body_lower = body.to_lowercase();
         let status = response.status_code;
 
-        // Check for successful bypass indicators
-        let bypass_indicators = vec![
-            "dashboard",
-            "welcome",
-            "logged in",
-            "account",
-            "profile",
-            "success",
-        ];
+        // CRITICAL: Be MUCH more strict about bypass detection
+        // Generic keywords like "dashboard" and "welcome" are in EVERY SPA!
 
-        let has_bypass = bypass_indicators
-            .iter()
-            .any(|indicator| body_lower.contains(indicator));
+        // Check for STRONG bypass indicators (session tokens, specific success messages)
+        let has_strong_bypass = response.headers.get("set-cookie")
+            .map(|c| c.contains("session") || c.contains("auth_token"))
+            .unwrap_or(false) ||
+            body_lower.contains("authentication successful") ||
+            body_lower.contains("mfa bypassed") ||
+            body_lower.contains("\"authenticated\":true");
 
         let has_mfa_check = body_lower.contains("verification")
             || body_lower.contains("2fa")
             || body_lower.contains("authenticator")
             || body_lower.contains("enter code");
 
-        if (status == 200 || status == 302) && has_bypass && !has_mfa_check {
+        // Only report if we have STRONG evidence of bypass
+        if (status == 200 || status == 302) && has_strong_bypass && !has_mfa_check {
             vulnerabilities.push(Vulnerability {
                 id: generate_uuid(),
                 vuln_type: "MFA Bypass Vulnerability".to_string(),

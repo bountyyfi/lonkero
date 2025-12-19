@@ -25,6 +25,7 @@ use std::time::Instant;
 use tracing::{error, info, warn, Level};
 
 use lonkero_scanner::config::ScannerConfig;
+use lonkero_scanner::detection_helpers::detect_technology;
 use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
 use lonkero_scanner::scanners::ScanEngine;
@@ -2088,11 +2089,23 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
-    // Merlin Scanner (general security checks)
-    info!("  - Running Merlin Security Checks");
-    let (vulns, tests) = engine.merlin_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    // Merlin Scanner (general security checks) - only if JavaScript detected
+    let baseline_response = match engine.http_client.get(target).await {
+        Ok(r) => Some(r),
+        Err(_) => None,
+    };
+
+    if let Some(ref response) = baseline_response {
+        let has_js = response.body.contains("<script") || response.body.contains(".js\"");
+        if has_js {
+            info!("  - Running Merlin Security Checks");
+            let (vulns, tests) = engine.merlin_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        } else {
+            info!("  - Skipping Merlin (no JavaScript detected)");
+        }
+    }
 
     // JS Sensitive Info Scanner (for JavaScript sites)
     if is_nodejs_stack {
@@ -2114,11 +2127,17 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
-    // Firebase Scanner
-    info!("  - Testing Firebase Security");
-    let (vulns, tests) = engine.firebase_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    // Firebase Scanner - only if Firebase detected
+    if let Some(ref response) = baseline_response {
+        if detect_technology("firebase", &response.body, &response.headers) {
+            info!("  - Testing Firebase Security");
+            let (vulns, tests) = engine.firebase_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        } else {
+            info!("  - Skipping Firebase (not detected)");
+        }
+    }
 
     // Phase 8: Cloud & Container (Thorough/Insane modes)
     if scan_config.enable_cloud_scanning() {

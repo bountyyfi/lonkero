@@ -11,6 +11,7 @@
 
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::detection_helpers::AppCharacteristics;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use serde_json::{json, Value};
@@ -37,6 +38,31 @@ impl JwtScanner {
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
+
+        // CRITICAL: First check if JWT is actually used by the application
+        // Don't waste time testing JWT if the site doesn't use it
+        tests_run += 1;
+        let baseline_response = match self.http_client.get(base_url).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("[JWT] Failed to fetch baseline: {}", e);
+                return Ok((vulnerabilities, tests_run));
+            }
+        };
+
+        let characteristics = AppCharacteristics::from_response(&baseline_response, base_url);
+
+        if !characteristics.has_jwt {
+            info!("[JWT] No JWT usage detected - skipping JWT tests (likely doesn't use JWT auth)");
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        if characteristics.should_skip_injection_tests() {
+            info!("[JWT] Site is SPA/static - skipping JWT tests (no server-side auth)");
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        info!("[JWT] JWT usage confirmed - proceeding with vulnerability tests");
 
         // Parse the original JWT
         let parts: Vec<&str> = jwt_token.split('.').collect();
@@ -427,14 +453,49 @@ impl JwtScanner {
     }
 
     /// Check if response indicates authentication
+    /// CRITICAL: This must be VERY specific to avoid false positives on SPAs
     fn is_authenticated(&self, response: &HttpResponse) -> bool {
-        response.status_code == 200 &&
-        (response.body.contains("authenticated") ||
-         response.body.contains("logged in") ||
-         response.body.contains("dashboard") ||
-         response.body.contains("welcome") ||
-         response.body.contains("user") ||
-         !response.body.contains("unauthorized") && !response.body.contains("forbidden"))
+        // First check: must be 200 OK
+        if response.status_code != 200 {
+            return false;
+        }
+
+        // Second check: must have AUTH-SPECIFIC indicators, not generic keywords
+        let body_lower = response.body.to_lowercase();
+
+        // STRONG indicators of successful authentication
+        let strong_auth_indicators = [
+            "authentication successful",
+            "login successful",
+            "session established",
+            "welcome back",
+            "authenticated as",
+            "logged in as",
+        ];
+
+        for indicator in &strong_auth_indicators {
+            if body_lower.contains(indicator) {
+                return true;
+            }
+        }
+
+        // Check for auth tokens/session in response
+        if response.headers.get("set-cookie")
+            .map(|c| c.contains("session") || c.contains("auth_token"))
+            .unwrap_or(false) {
+            return true;
+        }
+
+        // Check for JSON success response (API endpoints)
+        if body_lower.contains("\"authenticated\":true") ||
+           body_lower.contains("\"success\":true") && body_lower.contains("\"token\"") {
+            return true;
+        }
+
+        // REJECT generic keywords that appear in SPAs
+        // "dashboard", "welcome", "user" are WAY too generic!
+
+        false
     }
 
     /// Check if response indicates elevated privileges

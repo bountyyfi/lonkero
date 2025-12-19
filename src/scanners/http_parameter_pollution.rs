@@ -18,6 +18,7 @@
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -40,6 +41,22 @@ impl HttpParameterPollutionScanner {
         let mut total_tests = 0;
 
         info!("[HPP] Starting HTTP Parameter Pollution scan on {}", url);
+
+        // CRITICAL: Check if site is SPA/static first
+        // HPP tests don't work on SPAs (same HTML for all params)
+        let baseline_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
+        let characteristics = AppCharacteristics::from_response(&baseline_response, url);
+
+        if characteristics.should_skip_injection_tests() {
+            info!("[HPP] Site is SPA/static - skipping HPP tests (not applicable)");
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[HPP] Dynamic site detected - proceeding with HPP tests");
 
         // Test server-side HPP
         let (vulns, tests) = self.test_server_side_hpp(url).await?;
@@ -370,16 +387,14 @@ impl HttpParameterPollutionScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    // Check if both values are reflected
-                    let both_reflected = response.body.contains(values[0]) &&
-                        response.body.contains(values[1]);
+                    // CRITICAL: Use smart reflection detection (not substring matching!)
+                    let dangerous_reflection = is_payload_reflected_dangerously(&response, values[1]);
 
-                    // Check if malicious value appears in dangerous context
-                    let dangerous_reflection = self.detect_dangerous_reflection(
-                        &response.body, values[1]
-                    );
+                    // Also check if BOTH values appear in dangerous context
+                    let both_dangerous = is_payload_reflected_dangerously(&response, values[0]) &&
+                                        dangerous_reflection;
 
-                    if both_reflected || dangerous_reflection {
+                    if both_dangerous || dangerous_reflection {
                         let severity = if dangerous_reflection {
                             Severity::High
                         } else {

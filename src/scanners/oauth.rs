@@ -11,10 +11,11 @@
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, debug};
 
 pub struct OAuthScanner {
     http_client: Arc<HttpClient>,
@@ -45,12 +46,34 @@ impl OAuthScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // CRITICAL: First check application characteristics
+        // Don't test OAuth on SPAs or sites without real OAuth
+        tests_run += 1;
+        let baseline_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((vulnerabilities, tests_run)),
+        };
+
+        let characteristics = AppCharacteristics::from_response(&baseline_response, url);
+
+        if characteristics.should_skip_oauth_tests() {
+            info!("[OAuth] No OAuth implementation detected - skipping OAuth tests");
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        if characteristics.should_skip_injection_tests() {
+            info!("[OAuth] Site is SPA/static - OAuth tests not applicable (client-side only)");
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        info!("[OAuth] Real OAuth detected - proceeding with vulnerability tests");
+
         // Test 1: Detect ACTUAL OAuth implementation (not just mentions)
         tests_run += 1;
         let oauth_detection = self.detect_oauth_implementation(url).await;
 
         if !oauth_detection.has_oauth {
-            info!("[OAuth] No OAuth implementation detected - skipping OAuth tests (likely static site)");
+            info!("[OAuth] No OAuth implementation detected on closer inspection");
             return Ok((vulnerabilities, tests_run));
         }
 
@@ -64,11 +87,24 @@ impl OAuthScanner {
         tests_run += 1;
         self.check_token_in_url(url, &mut vulnerabilities);
 
-        // Test 4: Test redirect_uri validation (only if OAuth endpoints found)
+        // Test 4: Test redirect_uri validation (only if OAuth endpoints ACTUALLY exist)
         tests_run += 1;
         if oauth_detection.has_oauth_endpoint {
-            if let Ok(response) = self.test_redirect_uri_validation(url).await {
-                self.check_redirect_uri_validation(&response, url, &mut vulnerabilities);
+            // Test common OAuth endpoints
+            let oauth_endpoints = vec![
+                format!("{}/oauth/authorize", url.trim_end_matches('/')),
+                format!("{}/oauth2/authorize", url.trim_end_matches('/')),
+            ];
+
+            for endpoint in &oauth_endpoints {
+                if let Ok(response) = self.http_client.get(endpoint).await {
+                    // CRITICAL: Only test if endpoint exists and isn't SPA fallback
+                    if endpoint_exists(&response, &[200, 302, 400, 401]) {
+                        self.check_redirect_uri_validation(&response, endpoint, &mut vulnerabilities);
+                    } else {
+                        debug!("[OAuth] Endpoint {} doesn't exist - skipping", endpoint);
+                    }
+                }
             }
         }
 
@@ -76,7 +112,10 @@ impl OAuthScanner {
         tests_run += 1;
         if oauth_detection.has_oauth_flow {
             if let Ok(response) = self.test_state_parameter(url).await {
-                self.check_state_parameter(&response, url, &mut vulnerabilities);
+                // Only check if response isn't SPA shell
+                if endpoint_exists(&response, &[200]) {
+                    self.check_state_parameter(&response, url, &mut vulnerabilities);
+                }
             }
         }
 
@@ -84,7 +123,9 @@ impl OAuthScanner {
         tests_run += 1;
         if oauth_detection.has_oauth_endpoint {
             if let Ok(response) = self.test_open_redirect(url).await {
-                self.check_open_redirect(&response, url, &mut vulnerabilities);
+                if endpoint_exists(&response, &[302, 301]) {
+                    self.check_open_redirect(&response, url, &mut vulnerabilities);
+                }
             }
         }
 
@@ -100,7 +141,9 @@ impl OAuthScanner {
         tests_run += 1;
         if oauth_detection.has_oauth_endpoint {
             if let Ok(response) = self.test_pkce_support(url).await {
-                self.check_pkce_support(&response, url, &mut vulnerabilities);
+                if endpoint_exists(&response, &[200, 400]) {
+                    self.check_pkce_support(&response, url, &mut vulnerabilities);
+                }
             }
         }
 
@@ -150,10 +193,11 @@ impl OAuthScanner {
             detection.evidence.push("OAuth parameters in URL".to_string());
         }
 
+        // CRITICAL: Don't just check URL path - SPAs have client-side routes!
+        // Only mark as OAuth endpoint if it's an actual server endpoint
         if url_lower.contains("/oauth") || url_lower.contains("/authorize") || url_lower.contains("/token") {
-            detection.has_oauth = true;
-            detection.has_oauth_endpoint = true;
-            detection.evidence.push("OAuth endpoint path".to_string());
+            // Will verify later if endpoint actually exists
+            detection.evidence.push("OAuth-like path in URL".to_string());
         }
 
         // Fetch and analyze response
@@ -329,11 +373,14 @@ impl OAuthScanner {
     ) {
         let body_lower = response.body.to_lowercase();
 
-        // If OAuth flow is present but state is not required
-        if (body_lower.contains("oauth") || body_lower.contains("authorize"))
-            && !body_lower.contains("state")
-            && !url.contains("state=")
-        {
+        // CRITICAL: Be MUCH more strict - don't just look for keywords!
+        // Check if this is an actual OAuth authorization page with forms/inputs
+        let is_oauth_auth_page = (body_lower.contains("<form") || body_lower.contains("action=")) &&
+                                  (body_lower.contains("client_id") || body_lower.contains("response_type")) &&
+                                  (body_lower.contains("oauth") || body_lower.contains("authorize"));
+
+        // Only check for missing state if it's a REAL OAuth page
+        if is_oauth_auth_page && !body_lower.contains("state") && !url.contains("state=") {
             vulnerabilities.push(self.create_vulnerability(
                 "Missing OAuth state Parameter",
                 url,

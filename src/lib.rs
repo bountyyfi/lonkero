@@ -17,6 +17,7 @@ pub mod crawler;
 pub mod headless_crawler;
 pub mod auth_context;
 pub mod database;
+pub mod detection_helpers;
 pub mod dns_cache;
 pub mod framework_detector;
 pub mod payloads;

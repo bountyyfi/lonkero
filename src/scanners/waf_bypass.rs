@@ -4,6 +4,7 @@
 use crate::types::ScanConfig;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, Severity, Vulnerability};
+use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -25,6 +26,22 @@ impl WafBypassScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
+
+        // CRITICAL: Check if site is SPA/static first
+        // WAF bypass tests generate tons of false positives on SPAs
+        let baseline_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
+        let characteristics = AppCharacteristics::from_response(&baseline_response, url);
+
+        if characteristics.should_skip_injection_tests() {
+            info!("[WAF-Bypass] Site is SPA/static - skipping WAF bypass tests (not applicable)");
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[WAF-Bypass] Dynamic site detected - proceeding with WAF bypass tests");
 
         // Test encoding bypasses
         let (enc_vulns, enc_tests) = self.test_encoding_bypasses(url).await?;
@@ -129,10 +146,10 @@ impl WafBypassScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    let body_lower = response.body.to_lowercase();
-
-                    // Check if payload passed through
-                    if body_lower.contains("alert(1)") || body_lower.contains("<script>") {
+                    // CRITICAL: Use smart reflection detection
+                    // Don't just check if substring exists (matches framework bundles!)
+                    if is_payload_reflected_dangerously(&response, "alert(1)") ||
+                       is_payload_reflected_dangerously(&response, "<script>") {
                         info!("[WAF-Bypass] Encoding bypass successful: {}", technique);
 
                         vulnerabilities.push(Vulnerability {
