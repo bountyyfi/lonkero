@@ -840,6 +840,9 @@ impl FileUploadScanner {
         // Try to determine upload path from response
         let upload_paths = self.extract_upload_paths(&upload_evidence, filename);
 
+        // Log the upload response to help debug path issues
+        debug!("Upload response: {}", &upload_evidence[..upload_evidence.len().min(500)]);
+
         // Extract endpoint suffix to derive storage directory
         // Example: /upload -> try /upload/, /uploads/
         //          /api/upload -> try /api/upload/, /api/uploads/
@@ -889,8 +892,11 @@ impl FileUploadScanner {
         ].concat();
 
         // Try to access the uploaded file
+        debug!("Trying {} possible upload paths for {}", test_paths.len(), filename);
         for test_path in test_paths {
+            debug!("Testing upload path: {}", test_path);
             if let Ok(response) = self.http_client.get(&test_path).await {
+                debug!("Got response {} from {}", response.status_code, test_path);
                 if response.status_code == 200 && response.body.contains(marker) {
                     return Ok((
                         test_path.clone(),
