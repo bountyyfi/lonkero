@@ -190,6 +190,8 @@ pub use tomcat_misconfig::TomcatMisconfigScanner;
 pub use varnish_misconfig::VarnishMisconfigScanner;
 pub use js_sensitive_info::JsSensitiveInfoScanner;
 pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
+pub use baseline_detector::BaselineDetector;
+pub use html_injection::HtmlInjectionScanner;
 pub use rate_limiting::RateLimitingScanner;
 pub use wordpress_security::WordPressSecurityScanner;
 pub use drupal_security::DrupalSecurityScanner;
@@ -281,6 +283,8 @@ pub struct ScanEngine {
     pub varnish_misconfig_scanner: VarnishMisconfigScanner,
     pub js_sensitive_info_scanner: JsSensitiveInfoScanner,
     pub client_route_auth_bypass_scanner: ClientRouteAuthBypassScanner,
+    pub baseline_detector: BaselineDetector,
+    pub html_injection_scanner: HtmlInjectionScanner,
     pub rate_limiting_scanner: RateLimitingScanner,
     pub wordpress_security_scanner: WordPressSecurityScanner,
     pub drupal_security_scanner: DrupalSecurityScanner,
@@ -461,6 +465,8 @@ impl ScanEngine {
             varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
             js_sensitive_info_scanner: JsSensitiveInfoScanner::new(Arc::clone(&http_client)),
             client_route_auth_bypass_scanner: ClientRouteAuthBypassScanner::new(Arc::clone(&http_client)),
+            baseline_detector: BaselineDetector::new(Arc::clone(&http_client)),
+            html_injection_scanner: HtmlInjectionScanner::new(Arc::clone(&http_client)),
             rate_limiting_scanner: RateLimitingScanner::new(Arc::clone(&http_client)),
             wordpress_security_scanner: WordPressSecurityScanner::new(Arc::clone(&http_client)),
             drupal_security_scanner: DrupalSecurityScanner::new(Arc::clone(&http_client)),

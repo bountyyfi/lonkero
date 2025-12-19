@@ -84,6 +84,8 @@ pub mod advanced_scanning {
     pub const API_FUZZER: &str = "api_fuzzer";
     /// Authentication bypass scanner
     pub const AUTH_BYPASS: &str = "auth_bypass";
+    /// Client route authorization bypass scanner
+    pub const CLIENT_ROUTE_AUTH_BYPASS: &str = "client_route_auth_bypass";
     /// JWT vulnerabilities scanner
     pub const JWT_SCANNER: &str = "jwt_scanner";
     /// OAuth security scanner
@@ -144,6 +146,10 @@ pub mod advanced_scanning {
     pub const JS_SENSITIVE_INFO: &str = "js_sensitive_info";
     /// JS miner scanner
     pub const JS_MINER: &str = "js_miner";
+    /// Baseline detector (anomaly detection)
+    pub const BASELINE_DETECTOR: &str = "baseline_detector";
+    /// HTML injection scanner
+    pub const HTML_INJECTION: &str = "html_injection";
     /// Rate limiting scanner
     pub const RATE_LIMITING: &str = "rate_limiting";
     /// Tomcat misconfiguration scanner
@@ -314,6 +320,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::CODE_INJECTION,
         advanced_scanning::API_FUZZER,
         advanced_scanning::AUTH_BYPASS,
+        advanced_scanning::CLIENT_ROUTE_AUTH_BYPASS,
         advanced_scanning::JWT_SCANNER,
         advanced_scanning::OAUTH_SCANNER,
         advanced_scanning::SAML_SCANNER,
@@ -344,6 +351,8 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::SENSITIVE_DATA,
         advanced_scanning::JS_SENSITIVE_INFO,
         advanced_scanning::JS_MINER,
+        advanced_scanning::BASELINE_DETECTOR,
+        advanced_scanning::HTML_INJECTION,
         advanced_scanning::RATE_LIMITING,
         advanced_scanning::TOMCAT_MISCONFIG,
         advanced_scanning::VARNISH_MISCONFIG,
