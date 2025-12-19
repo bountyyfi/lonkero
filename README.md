@@ -27,8 +27,8 @@ Lonkero is a production-grade web security scanner designed for professional sec
 - Near-zero false positives (5% vs industry 20-30%)
 - Intelligent testing - Skips framework internals, focuses on real vulnerabilities
 - Modern stack coverage - Next.js, React, GraphQL, gRPC, WebSocket, HTTP/3
-- Blind vulnerability detection - Out-of-band DNS/HTTP callbacks for SSRF, XXE, SQLi
 - 80% faster scans - Smart parameter filtering eliminates noise
+- Advanced blind vulnerability detection techniques
 
 Unlike generic scanners that spam thousands of useless payloads, Lonkero uses context-aware filtering to test only what matters.
 
@@ -36,56 +36,30 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ## Core Capabilities
 
-```mermaid
-mindmap
-  root((Lonkero))
-    **90 Scanners**
-      Injection
-        SQLi Blind Binary Search
-        XSS DOM/Mutation
-        XXE OOB Detection
-        SSRF Cloud Metadata
-        NoSQL Advanced
-      Auth & Session
-        JWT Algorithm Confusion
-        OAuth Token Theft
-        SAML Bypass
-        MFA Replay Attack
-        Session Fixation
-      API Security
-        GraphQL Batching DoS
-        gRPC Reflection
-        REST Mass Assignment
-        WebSocket Injection
-      Framework Detection
-        JavaScript (React, Vue, Angular)
-        PHP (Laravel, WordPress)
-        Python (Django, Flask)
-        Ruby (Rails)
-        Java (Spring)
-    **Smart Scanning**
-      Parameter Filtering
-        Skip Framework Internals
-        Prioritize User Input
-        Context-Aware Testing
-      OOB Detection
-        DNS Exfiltration
-        HTTP Callbacks
-        Blind Vulnerability Proof
-    **Enterprise Features**
-      Compliance
-        OWASP Top 10 2025
-        PCI DSS
-        GDPR/NIS2/DORA
-      CI/CD
-        GitHub Actions
-        GitLab SAST
-        SARIF Output
-      Licensing
-        Professional Tier
-        Enterprise Tier
-        API Key Management
-```
+### 91 Security Scanners
+
+| Category | Scanners | Focus Areas |
+|----------|----------|-------------|
+| **Injection** | 25 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, HTML |
+| **Authentication** | 18 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, Privilege Escalation |
+| **API Security** | 14 scanners | GraphQL, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3 |
+| **Frameworks** | 11 scanners | Next.js, React, Django, Laravel, WordPress, Drupal, Express |
+| **Configuration** | 13 scanners | Headers, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF |
+| **Business Logic** | 6 scanners | Race Conditions, Payment Bypass, Workflow Manipulation |
+| **Info Disclosure** | 8 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets |
+| **Specialized** | 6 scanners | CVE Detection, Version Mapping, ReDoS |
+
+### Smart Scanning Features
+
+- **Parameter Filtering** - Skips framework internals, prioritizes user input (80% faster scans)
+- **Blind Detection** - Time-based, error-based, boolean-based techniques
+- **Context-Aware** - Adapts testing based on detected technology stack
+
+### Enterprise Integration
+
+- **Compliance** - OWASP Top 10 2025, PCI DSS, GDPR, NIS2, DORA
+- **CI/CD** - GitHub Actions, GitLab SAST, SARIF output
+- **Reporting** - JSON, HTML, SARIF formats with detailed remediation
 
 ---
 
@@ -95,40 +69,38 @@ mindmap
 
 ```mermaid
 graph TB
-    Start([Target URL]) --> Recon[Phase 0: Reconnaissance]
+    Start([Target URL]) --> Recon[Phase 0: Reconnaissance<br/>Tech Detection, Endpoint Discovery]
 
-    Recon --> Tech{Technology<br/>Detection}
-    Tech -->|Next.js/React| Modern[Modern Framework]
-    Tech -->|Laravel/Django| Traditional[Traditional MVC]
-    Tech -->|API/SPA| API[API Endpoints]
+    Recon --> Filter{Smart Filter}
+    Filter -->|Skip| Skip[Framework Internals]
+    Filter -->|Test| Priority[Prioritized Parameters]
 
-    Modern --> Filter
-    Traditional --> Filter
-    API --> Filter
+    Priority --> Injection[Phase 1: Injection<br/>SQLi, XSS, XXE, NoSQL<br/>Command, LDAP, XPath<br/>SSRF, Template, HTML]
 
-    Filter{Smart Filter} -->|Skip| Skip[Framework Internals<br/>state, buildId, csrf]
-    Filter -->|Priority 10| P10[User Input<br/>password, email, token]
-    Filter -->|Priority 9| P9[Search & Content<br/>query, message, comment]
-    Filter -->|Priority 5| P5[Business Data<br/>price, quantity, id]
+    Injection --> Auth[Phase 2: Authentication<br/>JWT, OAuth, SAML<br/>Session, Cookie<br/>MFA, Password Reset]
 
-    P10 --> Phase1[Phase 1: Injection Tests<br/>SQLi, XSS, XXE, NoSQL]
-    P9 --> Phase1
-    P5 --> Phase1
+    Auth --> AuthZ[Phase 3: Authorization<br/>IDOR, Privilege Escalation<br/>Client-side Route Bypass<br/>Mass Assignment]
 
-    Phase1 --> Phase2[Phase 2: Auth & Session<br/>JWT, OAuth, SAML, MFA]
-    Phase2 --> Phase3[Phase 3: Business Logic<br/>IDOR, Race Conditions]
-    Phase3 --> Phase4[Phase 4: Configuration<br/>CORS, Headers, Cache]
-    Phase4 --> Phase5[Phase 5: API Security<br/>GraphQL, gRPC, REST]
-    Phase5 --> Phase6[Phase 6: Framework-Specific<br/>Next.js, Laravel, Django]
-    Phase6 --> Phase7[Phase 7: OOB Detection<br/>DNS/HTTP Callbacks]
-    Phase7 --> Report[Generate Report<br/>JSON/HTML/SARIF]
+    AuthZ --> Logic[Phase 4: Business Logic<br/>Race Conditions<br/>Payment/Discount Bypass<br/>Workflow Manipulation]
+
+    Logic --> API[Phase 5: API Security<br/>GraphQL, gRPC, REST<br/>WebSocket, Rate Limiting<br/>CORS, Cache Poisoning]
+
+    API --> Framework[Phase 6: Framework-Specific<br/>Next.js, React, Vue<br/>Laravel, Django, Rails<br/>WordPress, Drupal]
+
+    Framework --> Config[Phase 7: Configuration<br/>Security Headers, SSL/TLS<br/>Debug Mode, Directory Listing<br/>Backup Files, Git Exposure]
+
+    Config --> Info[Phase 8: Information Disclosure<br/>Sensitive Data Exposure<br/>Error Messages<br/>Source Code Leaks]
+
+    Info --> Report[Generate Report<br/>JSON/HTML/SARIF]
 
     Report --> End([Scan Complete])
 
     style Filter fill:#ff6b6b
-    style Skip fill:#95e1d3
-    style P10 fill:#f38181
-    style Phase7 fill:#aa96da
+    style Injection fill:#e74c3c
+    style Auth fill:#3498db
+    style AuthZ fill:#9b59b6
+    style Logic fill:#e67e22
+    style API fill:#1abc9c
 ```
 
 ---
@@ -185,31 +157,22 @@ sequenceDiagram
 
 ## Blind Vulnerability Detection
 
-### Out-of-Band (OOB) Infrastructure
+Lonkero uses advanced techniques to detect blind vulnerabilities without relying on visible output:
 
-```mermaid
-graph LR
-    Scanner[Lonkero Scanner] -->|1. Inject Payload| Target[Target Application]
-    Target -->|2. SSRF/XXE/SQLi| DNS[DNS Server<br/>oob.lonkero.bountyy.fi]
-    DNS -->|3. Log Callback| Detector[OOB Detector]
-    Detector -->|4. Verify Vuln| Scanner
+### Time-Based Detection
+- **Blind SQLi** - Binary search algorithm (5-7 requests vs 100+)
+- **Command Injection** - Sleep/timeout analysis with statistical verification
+- **XXE** - Response timing pattern analysis
 
-    Target -->|2. HTTP Callback| HTTP[HTTP Server<br/>callback.lonkero.bountyy.fi]
-    HTTP -->|3. Log Request| Detector
+### Error-Based Detection
+- **SQL Injection** - Database error pattern matching
+- **Path Traversal** - File inclusion error signatures
+- **Template Injection** - Engine-specific error messages
 
-    style DNS fill:#96ceb4
-    style HTTP fill:#ffeaa7
-    style Detector fill:#ff7675
-```
-
-### Supported Vulnerability Types
-
-- **SSRF** - Cloud metadata access (AWS, Azure, GCP)
-- **XXE** - External entity injection with DNS exfiltration
-- **Command Injection** - Blind command execution via DNS/HTTP
-- **SQL Injection** - Blind SQLi via DNS queries
-- **LDAP Injection** - Directory service attacks
-- **Template Injection** - Server-side template engines
+### Boolean-Based Detection
+- **Authentication Bypass** - Response differential analysis
+- **Logic Flaws** - State change verification
+- **IDOR** - Access control boundary testing
 
 ---
 
@@ -327,69 +290,113 @@ graph TD
     style XXE fill:#ffe66d
 ```
 
-### Authentication & Authorization (15 scanners)
+### Authentication & Authorization (18 scanners)
 
-- JWT vulnerabilities (algorithm confusion, weak secrets, None algorithm)
-- OAuth 2.0 attacks (token theft, redirect manipulation, PKCE bypass)
-- SAML assertion bypass
-- Multi-factor authentication bypass
-- Session fixation & hijacking
-- Client-side route authentication bypass
-- IDOR (Insecure Direct Object Reference)
-- Privilege escalation
-- Authentication bypass via parameter tampering
+- **JWT** - Algorithm confusion, weak secrets, None algorithm, key injection
+- **OAuth 2.0** - Token theft, redirect manipulation, PKCE bypass, scope abuse
+- **SAML** - Assertion bypass, signature wrapping, XML injection
+- **MFA** - Bypass techniques, replay attacks, race conditions
+- **Session Management** - Fixation, hijacking, prediction
+- **Auth Bypass** - Parameter tampering, header injection, credential stuffing
+- **IDOR** - Object reference manipulation, baseline detection
+- **Privilege Escalation** - Horizontal and vertical privilege abuse
+- **Client Route Auth Bypass** - SPA authentication bypass
+- **Advanced Auth** - Complex authentication flow exploitation
+- **Password Reset** - Token prediction, account takeover
+- **WebAuthn** - Biometric authentication bypass
+- **BOLA** - Broken object level authorization (API-specific IDOR)
 
-### API Security (12 scanners)
+### Injection Vulnerabilities (25 scanners)
 
-- GraphQL security (batching DoS, cost analysis, introspection abuse)
-- gRPC reflection & enumeration
-- REST API mass assignment
-- WebSocket injection
-- API rate limiting bypass
-- API key exposure
-- CORS misconfigurations
-- Cache poisoning
+- **SQL Injection** - Enhanced detection, blind (boolean/time/binary search), second-order
+- **XSS** - Enhanced detection, DOM-based, mutation XSS, SVG-based, stored/reflected
+- **XXE** - XML external entity, billion laughs, parameter entity
+- **NoSQL Injection** - MongoDB, CouchDB, operator injection
+- **Command Injection** - OS command execution, blind detection
+- **LDAP Injection** - Directory service attacks
+- **XPath Injection** - XML query manipulation
+- **Template Injection** - SSTI (Jinja, Twig, Freemarker, Velocity, etc.)
+- **SSRF** - Enhanced detection, blind SSRF, cloud metadata exploitation
+- **Code Injection** - Dynamic code evaluation
+- **CRLF Injection** - HTTP response splitting
+- **Email Header Injection** - SMTP header manipulation
+- **Host Header Injection** - Cache poisoning, password reset poisoning
+- **XML Injection** - XML structure manipulation
+- **SSI Injection** - Server-side includes
+- **Prototype Pollution** - JavaScript object pollution
+- **HTML Injection** - Non-XSS markup injection
+- **HTTP Parameter Pollution** - HPP attacks
+- **Deserialization** - Unsafe object deserialization
 
-### Modern Framework Scanners (18 scanners)
+### API Security (14 scanners)
 
-- **Next.js** - Middleware bypass, server action vulnerabilities
-- **React** - DevTools exposure, hydration mismatch
-- **SvelteKit** - CSRF token bypass
-- **Django** - DEBUG mode leaks, ORM injection
-- **Laravel** - Ignition RCE, route enumeration
-- **WordPress** - Plugin vulnerabilities, XML-RPC abuse
+- **GraphQL** - Security scanner, batching DoS, cost analysis, introspection
+- **gRPC** - Reflection, enumeration, metadata abuse
+- **REST** - Mass assignment, API fuzzing, parameter pollution
+- **WebSocket** - Message injection, protocol abuse
+- **API Gateway** - Azure APIM, generic gateway vulnerabilities
+- **API Security** - Comprehensive API testing
+- **Rate Limiting** - Bypass techniques
+- **CORS** - Misconfiguration detection
+- **Cache Poisoning** - Web cache deception
+- **HTTP/3** - QUIC-specific vulnerabilities
+- **HTTP Smuggling** - Request smuggling attacks
+
+### Modern Framework Scanners (11 scanners)
+
+- **Next.js** - Middleware bypass, server actions, routing vulnerabilities
+- **React** - DevTools exposure, hydration issues, client-side vulnerabilities
+- **SvelteKit** - CSRF bypass, SSR vulnerabilities
+- **Django** - DEBUG mode, ORM injection, middleware bypass
+- **Laravel** - Ignition RCE, route enumeration, mass assignment
+- **Express.js** - Middleware vulnerabilities, prototype pollution
+- **WordPress** - Plugin vulnerabilities, XML-RPC, REST API abuse
 - **Drupal** - Core vulnerabilities, module security
+- **Liferay** - Portal-specific vulnerabilities
+- **Tomcat** - Misconfiguration, default credentials
+- **Varnish** - Cache misconfiguration
 
-### Configuration & Deployment (10 scanners)
+### Configuration & Security (13 scanners)
 
-- Security headers (HSTS, CSP, X-Frame-Options)
-- CORS policy validation
-- SSL/TLS configuration
-- HTTP/2 vulnerabilities
-- Cache poisoning
-- CDN bypass techniques
-- Subdomain takeover
-- DNS security
+- **Security Headers** - HSTS, CSP, X-Frame-Options, referrer policy
+- **CORS Misconfiguration** - Wildcard origins, credential exposure
+- **SSL/TLS** - Weak ciphers, certificate validation
+- **Cloud Security** - AWS, Azure, GCP misconfiguration
+- **Cloud Storage** - S3 buckets, Azure blobs, GCS exposure
+- **Firebase** - Database exposure, misconfiguration
+- **Container Security** - Docker, Kubernetes vulnerabilities
+- **WAF Bypass** - Web application firewall evasion
+- **Clickjacking** - Frame injection, UI redressing
+- **CSRF** - Cross-site request forgery
 
-### Business Logic (8 scanners)
+### Business Logic (6 scanners)
 
-- Race conditions
-- Payment manipulation
-- Discount/coupon abuse
-- Multi-step form bypass
-- File upload validation
-- Rate limiting bypass
-- Business workflow manipulation
+- **Business Logic** - Advanced workflow exploitation
+- **Race Conditions** - TOCTOU, parallel request abuse
+- **Payment Manipulation** - Price tampering, discount abuse
+- **Workflow Bypass** - Multi-step form manipulation
+- **File Upload** - Enhanced validation bypass, polyglot files
+- **IDOR Analyzer** - Advanced object reference testing
 
-### Information Disclosure (7 scanners)
+### Information Disclosure (8 scanners)
 
-- Sensitive data exposure
-- Debug information leaks
-- Source code disclosure
-- Git repository exposure
-- Directory listing
-- Backup file detection
-- Certificate transparency logs
+- **Information Disclosure** - Sensitive data exposure
+- **Sensitive Data** - PII, credentials, API keys
+- **Debug Information** - Stack traces, verbose errors
+- **Source Code** - Git exposure, backup files
+- **JS Miner** - JavaScript secret extraction
+- **JS Sensitive Info** - Client-side data leakage
+- **Session Analyzer** - Session token analysis
+- **Baseline Detector** - Deviation detection
+
+### Specialized Scanners (5 scanners)
+
+- **CVE-2025-55182** - Specific vulnerability scanner
+- **CVE-2025-55183** - Specific vulnerability scanner
+- **CVE-2025-55184** - Specific vulnerability scanner
+- **Framework Vulnerabilities** - Generic framework CVEs
+- **Merlin** - Version detection and vulnerability mapping
+- **ReDoS** - Regular expression denial of service
 
 ---
 
@@ -413,13 +420,13 @@ Advanced detection techniques requiring license authentication:
 12. **graphql_cost_analysis** - Query complexity exploitation
 13. **smart_parameter_filtering** - AI-powered noise reduction
 
-### Enterprise Tier
+### Enterprise Tier (Coming Soon)
 
 High-value features for critical infrastructure:
 
-14. **oob_detection** - Out-of-band vulnerability detection infrastructure
-15. **oob_dns_exfiltration** - DNS-based blind vulnerability verification
-16. **oob_http_callbacks** - HTTP callback verification for blind attacks
+14. **oob_detection** - Out-of-band vulnerability detection infrastructure (Coming Soon)
+15. **oob_dns_exfiltration** - DNS-based blind vulnerability verification (Coming Soon)
+16. **oob_http_callbacks** - HTTP callback verification for blind attacks (Coming Soon)
 
 ---
 
