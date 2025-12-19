@@ -224,6 +224,10 @@ const PREMIUM_FEATURES: &[&str] = &[
     "team_sharing",
     "custom_integrations",
     "priority_support",
+    // Advanced bypass techniques
+    "rate_limiting_bypass",
+    "mfa_bypass_advanced",
+    "mass_assignment_advanced",
 ];
 
 /// Check if a premium feature is available for the current license
@@ -413,6 +417,7 @@ impl Default for LicenseStatus {
 
 /// Killswitch response from server
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct KillswitchResponse {
     pub active: bool,
     pub reason: Option<String>,

@@ -202,7 +202,7 @@ impl Authenticator {
     /// Find login URL from base URL
     fn find_login_url(&self, base_url: &str) -> String {
         // Common login paths
-        let login_paths = ["/login", "/signin", "/auth/login", "/user/login", "/account/login", "/api/auth/login"];
+        let _login_paths = ["/login", "/signin", "/auth/login", "/user/login", "/account/login", "/api/auth/login"];
 
         // For now, just try /login - in production would probe each
         format!("{}/login", base_url.trim_end_matches('/'))

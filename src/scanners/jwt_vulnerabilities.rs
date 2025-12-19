@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
@@ -35,6 +36,15 @@ impl JwtVulnerabilitiesScanner {
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
+
+        // Check if JWT is actually used before testing
+        let baseline_response = self.http_client.get(url).await?;
+        let characteristics = AppCharacteristics::from_response(&baseline_response, url);
+
+        if !characteristics.has_jwt {
+            info!("[JWT-Vuln] No JWT usage detected - skipping JWT vulnerability tests");
+            return Ok((all_vulnerabilities, total_tests));
+        }
 
         // Test none algorithm
         let (vulns, tests) = self.test_none_algorithm(url).await?;

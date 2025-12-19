@@ -2,8 +2,8 @@
 // This software is proprietary and confidential.
 
 /**
- * Bountyy Oy - Rate Limiting Scanner
- * Tests for insufficient rate limiting on critical endpoints
+ * Bountyy Oy - Advanced Rate Limiting & Bypass Scanner
+ * Tests for insufficient rate limiting and common bypass techniques on critical endpoints
  *
  * Detects:
  * - Missing rate limiting on signup/registration endpoints
@@ -11,6 +11,11 @@
  * - Missing rate limiting on password reset
  * - Missing rate limiting on OTP/2FA endpoints
  * - Missing rate limiting on API endpoints
+ * - X-Forwarded-For bypass vulnerabilities
+ * - X-Real-IP, X-Client-IP, True-Client-IP bypass vulnerabilities
+ * - User-Agent rotation bypasses
+ * - Session token rotation bypasses
+ * - Combined bypass techniques
  *
  * @copyright 2025 Bountyy Oy
  * @license Proprietary
@@ -19,13 +24,46 @@
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
+use futures::stream::{self, StreamExt};
 use regex::Regex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 pub struct RateLimitingScanner {
     http_client: Arc<HttpClient>,
+}
+
+/// Bypass technique categories
+#[derive(Debug, Clone, PartialEq)]
+enum BypassTechnique {
+    None,
+    XForwardedFor,
+    XRealIP,
+    XClientIP,
+    XRemoteIP,
+    TrueClientIP,
+    UserAgentRotation,
+    SessionRotation,
+    Combined(Vec<String>),
+}
+
+impl BypassTechnique {
+    fn as_string(&self) -> String {
+        match self {
+            Self::None => "None".to_string(),
+            Self::XForwardedFor => "X-Forwarded-For".to_string(),
+            Self::XRealIP => "X-Real-IP".to_string(),
+            Self::XClientIP => "X-Client-IP".to_string(),
+            Self::XRemoteIP => "X-Remote-IP".to_string(),
+            Self::TrueClientIP => "True-Client-IP".to_string(),
+            Self::UserAgentRotation => "User-Agent Rotation".to_string(),
+            Self::SessionRotation => "Session Rotation".to_string(),
+            Self::Combined(techniques) => format!("Combined ({})", techniques.join(" + ")),
+        }
+    }
 }
 
 /// Result of rate limiting test
@@ -38,6 +76,7 @@ struct RateLimitTestResult {
     rate_limited_at: Option<usize>,
     total_time: Duration,
     vulnerable: bool,
+    bypass_technique: BypassTechnique,
 }
 
 /// Detected endpoint for testing
@@ -69,7 +108,7 @@ impl RateLimitingScanner {
         url: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Scanning for rate limiting vulnerabilities");
+        info!("Scanning for rate limiting vulnerabilities and bypass techniques");
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -90,11 +129,28 @@ impl RateLimitingScanner {
             // Limit requests in fast mode
             let request_count = if config.scan_mode.as_str() == "fast" { 5 } else { 10 };
 
+            // First test basic rate limiting
             tests_run += request_count;
-            let result = self.test_rate_limiting(&endpoint, request_count).await;
+            let basic_result = self.test_rate_limiting(&endpoint, request_count, BypassTechnique::None, &[]).await;
 
-            if result.vulnerable {
-                vulnerabilities.push(self.create_vulnerability(&result, url));
+            if basic_result.vulnerable {
+                vulnerabilities.push(self.create_vulnerability(&basic_result, url));
+            } else if basic_result.rate_limited_at.is_some() {
+                // Rate limiting is present, now test bypass techniques (PREMIUM FEATURE)
+                if crate::license::is_feature_available("rate_limiting_bypass") {
+                    info!("Rate limiting detected on {} - testing bypass techniques", endpoint.url);
+
+                    let bypass_results = self.test_bypass_techniques(&endpoint, config).await;
+                    tests_run += bypass_results.1;
+
+                    for bypass_result in bypass_results.0 {
+                        if bypass_result.vulnerable {
+                            vulnerabilities.push(self.create_vulnerability(&bypass_result, url));
+                        }
+                    }
+                } else {
+                    debug!("Rate limiting bypass techniques require premium license");
+                }
             }
 
             // Stop early in fast mode
@@ -301,6 +357,297 @@ impl RateLimitingScanner {
         has_code || has_digit_input
     }
 
+    /// Test bypass techniques concurrently
+    async fn test_bypass_techniques(
+        &self,
+        endpoint: &DetectedEndpoint,
+        config: &ScanConfig,
+    ) -> (Vec<RateLimitTestResult>, usize) {
+        let request_count = if config.scan_mode.as_str() == "fast" { 5 } else { 10 };
+        let mut results = Vec::new();
+        let mut total_tests = 0;
+
+        info!("Testing bypass techniques on {}", endpoint.url);
+
+        // Define bypass techniques to test
+        let bypass_techniques = vec![
+            (BypassTechnique::XForwardedFor, "X-Forwarded-For".to_string()),
+            (BypassTechnique::XRealIP, "X-Real-IP".to_string()),
+            (BypassTechnique::XClientIP, "X-Client-IP".to_string()),
+            (BypassTechnique::XRemoteIP, "X-Remote-IP".to_string()),
+            (BypassTechnique::TrueClientIP, "True-Client-IP".to_string()),
+            (BypassTechnique::UserAgentRotation, "User-Agent".to_string()),
+        ];
+
+        // Test each bypass technique
+        for (technique, header_name) in bypass_techniques {
+            total_tests += request_count;
+            let result = self.test_single_bypass_technique(
+                endpoint,
+                request_count,
+                technique.clone(),
+                &header_name,
+            ).await;
+
+            if result.vulnerable {
+                results.push(result);
+                // Found a bypass, no need to test other techniques in fast mode
+                if config.scan_mode.as_str() == "fast" {
+                    break;
+                }
+            }
+        }
+
+        // Test combined techniques if individual ones didn't work
+        if results.is_empty() && config.scan_mode.as_str() != "fast" {
+            total_tests += request_count;
+            let combined_result = self.test_combined_bypass(endpoint, request_count).await;
+            if combined_result.vulnerable {
+                results.push(combined_result);
+            }
+        }
+
+        (results, total_tests)
+    }
+
+    /// Test a single bypass technique
+    async fn test_single_bypass_technique(
+        &self,
+        endpoint: &DetectedEndpoint,
+        request_count: usize,
+        technique: BypassTechnique,
+        header_name: &str,
+    ) -> RateLimitTestResult {
+        info!("Testing {} bypass on {}", technique.as_string(), endpoint.url);
+
+        let start = Instant::now();
+        let mut successful = 0;
+        let mut rate_limited_at = None;
+
+        // Shared state for concurrent requests
+        let endpoint_arc = Arc::new(endpoint.clone());
+        let http_client = Arc::clone(&self.http_client);
+        let technique_arc = Arc::new(technique.clone());
+        let header_name = header_name.to_string();
+
+        // Use concurrent requests to test bypass
+        let tasks: Vec<_> = (0..request_count)
+            .map(|i| {
+                let endpoint = Arc::clone(&endpoint_arc);
+                let client = Arc::clone(&http_client);
+                let tech = Arc::clone(&technique_arc);
+                let header = header_name.clone();
+
+                tokio::spawn(async move {
+                    // Generate unique data for each request
+                    let form_data = Self::generate_request_data(&endpoint, i);
+                    let body = Self::encode_form_data_static(&form_data);
+
+                    // Build headers based on bypass technique
+                    let headers = Self::build_bypass_headers(&tech, &header, i);
+
+                    // Send request with bypass headers
+                    let result = client.post_with_headers(&endpoint.url, &body, headers).await;
+
+                    match result {
+                        Ok(response) => {
+                            // Check for rate limiting
+                            let is_rate_limited = response.status_code == 429 ||
+                                response.body.to_lowercase().contains("rate limit") ||
+                                response.body.to_lowercase().contains("too many") ||
+                                response.body.to_lowercase().contains("slow down") ||
+                                response.body.to_lowercase().contains("liian monta");
+
+                            let is_successful = !is_rate_limited &&
+                                (response.status_code < 400 ||
+                                 response.status_code == 400 ||
+                                 response.status_code == 422);
+
+                            (is_rate_limited, is_successful)
+                        }
+                        Err(_) => (false, false),
+                    }
+                })
+            })
+            .collect();
+
+        // Wait for all requests and analyze results
+        for (i, task) in tasks.into_iter().enumerate() {
+            if let Ok(result) = task.await {
+                let (is_rate_limited, is_successful) = result;
+
+                if is_rate_limited && rate_limited_at.is_none() {
+                    rate_limited_at = Some(i + 1);
+                }
+
+                if is_successful {
+                    successful += 1;
+                }
+            }
+
+            // Small delay between spawning (realistic timing)
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+
+        let total_time = start.elapsed();
+
+        // Vulnerable if we bypassed the rate limit (no rate limiting detected OR rate limited much later)
+        let vulnerable = rate_limited_at.is_none() && successful >= request_count / 2;
+
+        RateLimitTestResult {
+            endpoint: endpoint.url.clone(),
+            endpoint_type: format!("{:?}", endpoint.endpoint_type),
+            requests_sent: request_count,
+            successful_requests: successful,
+            rate_limited_at,
+            total_time,
+            vulnerable,
+            bypass_technique: technique,
+        }
+    }
+
+    /// Test combined bypass techniques
+    async fn test_combined_bypass(
+        &self,
+        endpoint: &DetectedEndpoint,
+        request_count: usize,
+    ) -> RateLimitTestResult {
+        info!("Testing combined bypass techniques on {}", endpoint.url);
+
+        let start = Instant::now();
+        let mut successful = 0;
+        let mut rate_limited_at = None;
+
+        let combined_techniques = vec![
+            "X-Forwarded-For".to_string(),
+            "User-Agent".to_string(),
+        ];
+
+        for i in 0..request_count {
+            // Generate unique data
+            let form_data = Self::generate_request_data(endpoint, i);
+            let body = self.encode_form_data(&form_data);
+
+            // Build combined headers
+            let mut headers = Vec::new();
+            headers.push(("X-Forwarded-For".to_string(), Self::generate_fake_ip(i)));
+            headers.push(("User-Agent".to_string(), Self::generate_user_agent(i)));
+
+            let result = self.http_client.post_with_headers(&endpoint.url, &body, headers).await;
+
+            match result {
+                Ok(response) => {
+                    if response.status_code == 429 ||
+                       response.body.to_lowercase().contains("rate limit") ||
+                       response.body.to_lowercase().contains("too many") {
+                        rate_limited_at = Some(i + 1);
+                        break;
+                    }
+
+                    if response.status_code < 400 || response.status_code == 400 || response.status_code == 422 {
+                        successful += 1;
+                    }
+                }
+                Err(_) => {}
+            }
+
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let total_time = start.elapsed();
+        let vulnerable = rate_limited_at.is_none() && successful >= request_count / 2;
+
+        RateLimitTestResult {
+            endpoint: endpoint.url.clone(),
+            endpoint_type: format!("{:?}", endpoint.endpoint_type),
+            requests_sent: request_count,
+            successful_requests: successful,
+            rate_limited_at,
+            total_time,
+            vulnerable,
+            bypass_technique: BypassTechnique::Combined(combined_techniques),
+        }
+    }
+
+    /// Build headers for bypass technique
+    fn build_bypass_headers(technique: &BypassTechnique, header_name: &str, index: usize) -> Vec<(String, String)> {
+        let mut headers = Vec::new();
+
+        match technique {
+            BypassTechnique::XForwardedFor |
+            BypassTechnique::XRealIP |
+            BypassTechnique::XClientIP |
+            BypassTechnique::XRemoteIP |
+            BypassTechnique::TrueClientIP => {
+                // Generate a unique IP for this request
+                headers.push((header_name.to_string(), Self::generate_fake_ip(index)));
+            }
+            BypassTechnique::UserAgentRotation => {
+                // Rotate User-Agent
+                headers.push((header_name.to_string(), Self::generate_user_agent(index)));
+            }
+            _ => {}
+        }
+
+        headers
+    }
+
+    /// Generate fake IP address
+    fn generate_fake_ip(index: usize) -> String {
+        // Generate diverse IP ranges to simulate distributed attack
+        let octet1 = 10 + (index % 240);
+        let octet2 = (index / 256) % 256;
+        let octet3 = (index / 65536) % 256;
+        let octet4 = (index * 7) % 256;
+        format!("{}.{}.{}.{}", octet1, octet2, octet3, octet4)
+    }
+
+    /// Generate diverse User-Agent strings
+    fn generate_user_agent(index: usize) -> String {
+        let user_agents = vec![
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (iPad; CPU OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36",
+        ];
+
+        user_agents[index % user_agents.len()].to_string()
+    }
+
+    /// Generate request data based on endpoint type
+    fn generate_request_data(endpoint: &DetectedEndpoint, index: usize) -> Vec<(String, String)> {
+        match &endpoint.endpoint_type {
+            EndpointType::Signup => {
+                vec![
+                    ("email".to_string(), format!("ratelimit-test-{}@bountyy-scanner.invalid", Self::generate_random_string(12))),
+                    ("password".to_string(), format!("RateTest{}!@#", Self::generate_random_string(6))),
+                    ("username".to_string(), format!("ratetest_{}_{}", index, Self::generate_random_string(8))),
+                    ("name".to_string(), "Rate Limit Test".to_string()),
+                ]
+            }
+            _ => {
+                endpoint.form_data.clone().unwrap_or_else(|| {
+                    vec![
+                        ("email".to_string(), "ratelimit-test@bountyy-scanner.invalid".to_string()),
+                        ("password".to_string(), "TestPassword123!".to_string()),
+                    ]
+                })
+            }
+        }
+    }
+
+    /// Static version of encode_form_data for use in async closures
+    fn encode_form_data_static(data: &[(String, String)]) -> String {
+        data.iter()
+            .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
+            .collect::<Vec<_>>()
+            .join("&")
+    }
+
     /// Extract form fields
     fn extract_form_fields(&self, form_content: &str) -> Vec<(String, String)> {
         let mut fields = Vec::new();
@@ -346,7 +693,13 @@ impl RateLimitingScanner {
     }
 
     /// Test rate limiting on an endpoint
-    async fn test_rate_limiting(&self, endpoint: &DetectedEndpoint, request_count: usize) -> RateLimitTestResult {
+    async fn test_rate_limiting(
+        &self,
+        endpoint: &DetectedEndpoint,
+        request_count: usize,
+        bypass_technique: BypassTechnique,
+        custom_headers: &[(String, String)],
+    ) -> RateLimitTestResult {
         info!("Testing rate limiting on {} ({:?})", endpoint.url, endpoint.endpoint_type);
 
         let start = Instant::now();
@@ -378,7 +731,12 @@ impl RateLimitingScanner {
 
             let body = self.encode_form_data(&form_data);
 
-            let result = self.http_client.post(&endpoint.url, body).await;
+            // Send request with or without custom headers
+            let result = if custom_headers.is_empty() {
+                self.http_client.post(&endpoint.url, body.clone()).await
+            } else {
+                self.http_client.post_with_headers(&endpoint.url, &body, custom_headers.to_vec()).await
+            };
 
             match result {
                 Ok(response) => {
@@ -419,131 +777,244 @@ impl RateLimitingScanner {
             rate_limited_at,
             total_time,
             vulnerable,
+            bypass_technique,
         }
     }
 
     /// Create vulnerability from test result
     fn create_vulnerability(&self, result: &RateLimitTestResult, original_url: &str) -> Vulnerability {
-        let (severity, cvss, description, remediation) = match result.endpoint_type.as_str() {
+        // Adjust severity based on whether this is a bypass or missing rate limit
+        let is_bypass = result.bypass_technique != BypassTechnique::None;
+
+        let bypass_description = if is_bypass {
+            format!("\n\nBypass Technique: {}\n\
+                    Rate limiting was present but successfully bypassed using {} header manipulation. \
+                    The application trusts client-supplied headers without proper validation.",
+                    result.bypass_technique.as_string(),
+                    result.bypass_technique.as_string())
+        } else {
+            String::new()
+        };
+
+        let (base_severity, cvss, description, remediation) = match result.endpoint_type.as_str() {
             "Signup" => (
                 Severity::High,
                 7.5,
                 format!(
-                    "The account registration endpoint lacks rate limiting. \
+                    "The account registration endpoint {} rate limiting. \
                     Sent {} requests with {} successful account creation attempts in {:?}. \
                     This allows attackers to:\n\
                     - Create massive numbers of spam accounts\n\
                     - Perform resource exhaustion attacks\n\
                     - Pollute user database\n\
                     - Abuse referral/signup bonuses\n\
-                    - Create botnet accounts",
+                    - Create botnet accounts{}",
+                    if is_bypass { "has bypassable" } else { "lacks" },
                     result.requests_sent,
                     result.successful_requests,
-                    result.total_time
+                    result.total_time,
+                    bypass_description
                 ),
-                "1. Implement rate limiting on registration endpoint (e.g., 3-5 attempts per IP per hour)\n\
-                 2. Add CAPTCHA verification for signup\n\
-                 3. Require email verification before account is active\n\
-                 4. Implement device fingerprinting\n\
-                 5. Add honeypot fields to detect bots\n\
-                 6. Consider phone number verification for sensitive accounts\n\
-                 7. Monitor for signup anomalies (bulk creation, disposable emails)"
+                if is_bypass {
+                    "1. DO NOT trust client-supplied IP headers (X-Forwarded-For, X-Real-IP, etc.) directly\n\
+                     2. Implement rate limiting based on actual source IP from socket connection\n\
+                     3. If behind a proxy/CDN, validate X-Forwarded-For against known proxy IPs\n\
+                     4. Use multiple factors: IP + User-Agent + fingerprint + session\n\
+                     5. Add CAPTCHA verification for signup\n\
+                     6. Implement progressive delays and account lockouts\n\
+                     7. Monitor for distributed attacks from multiple IPs"
+                } else {
+                    "1. Implement rate limiting on registration endpoint (e.g., 3-5 attempts per IP per hour)\n\
+                     2. Add CAPTCHA verification for signup\n\
+                     3. Require email verification before account is active\n\
+                     4. Implement device fingerprinting\n\
+                     5. Add honeypot fields to detect bots\n\
+                     6. Consider phone number verification for sensitive accounts\n\
+                     7. Monitor for signup anomalies (bulk creation, disposable emails)"
+                }
             ),
             "Login" => (
                 Severity::High,
                 7.5,
                 format!(
-                    "The login endpoint lacks rate limiting. \
+                    "The login endpoint {} rate limiting. \
                     Sent {} requests with {} accepted in {:?}. \
                     This enables:\n\
                     - Brute force password attacks\n\
                     - Credential stuffing attacks\n\
                     - Account enumeration\n\
-                    - User account lockout abuse",
+                    - User account lockout abuse{}",
+                    if is_bypass { "has bypassable" } else { "lacks" },
                     result.requests_sent,
                     result.successful_requests,
-                    result.total_time
+                    result.total_time,
+                    bypass_description
                 ),
-                "1. Implement rate limiting (e.g., 5 attempts per minute, then exponential backoff)\n\
-                 2. Add CAPTCHA after 3 failed attempts\n\
-                 3. Implement account lockout after repeated failures\n\
-                 4. Use progressive delays between attempts\n\
-                 5. Send notification on suspicious login attempts\n\
-                 6. Consider 2FA for sensitive accounts"
+                if is_bypass {
+                    "1. DO NOT trust client-supplied IP headers without validation\n\
+                     2. Implement multi-factor rate limiting (IP + session + fingerprint)\n\
+                     3. Use actual connection IP for rate limiting, not forwarded headers\n\
+                     4. Add CAPTCHA after 3 failed attempts\n\
+                     5. Implement account lockout after repeated failures\n\
+                     6. Send notification on suspicious login attempts\n\
+                     7. Consider 2FA for sensitive accounts"
+                } else {
+                    "1. Implement rate limiting (e.g., 5 attempts per minute, then exponential backoff)\n\
+                     2. Add CAPTCHA after 3 failed attempts\n\
+                     3. Implement account lockout after repeated failures\n\
+                     4. Use progressive delays between attempts\n\
+                     5. Send notification on suspicious login attempts\n\
+                     6. Consider 2FA for sensitive accounts"
+                }
             ),
             "PasswordReset" => (
                 Severity::Medium,
                 5.3,
                 format!(
-                    "The password reset endpoint lacks rate limiting. \
+                    "The password reset endpoint {} rate limiting. \
                     Sent {} requests with {} accepted in {:?}. \
                     This enables:\n\
                     - Email flooding/spam to users\n\
                     - Resource exhaustion (email sending)\n\
-                    - Social engineering preparation",
+                    - Social engineering preparation{}",
+                    if is_bypass { "has bypassable" } else { "lacks" },
                     result.requests_sent,
                     result.successful_requests,
-                    result.total_time
+                    result.total_time,
+                    bypass_description
                 ),
-                "1. Implement rate limiting (e.g., 3 requests per email per hour)\n\
-                 2. Add CAPTCHA for password reset requests\n\
-                 3. Implement cooldown period between reset requests\n\
-                 4. Log and monitor reset request patterns\n\
-                 5. Send single consolidated email for multiple requests"
+                if is_bypass {
+                    "1. Validate X-Forwarded-For against known proxy IPs only\n\
+                     2. Implement rate limiting on actual source IP\n\
+                     3. Add CAPTCHA for password reset requests\n\
+                     4. Implement cooldown period between reset requests\n\
+                     5. Log and monitor reset request patterns\n\
+                     6. Send single consolidated email for multiple requests"
+                } else {
+                    "1. Implement rate limiting (e.g., 3 requests per email per hour)\n\
+                     2. Add CAPTCHA for password reset requests\n\
+                     3. Implement cooldown period between reset requests\n\
+                     4. Log and monitor reset request patterns\n\
+                     5. Send single consolidated email for multiple requests"
+                }
             ),
             "OTP" => (
                 Severity::Critical,
                 9.1,
                 format!(
-                    "The OTP/2FA verification endpoint lacks rate limiting. \
+                    "The OTP/2FA verification endpoint {} rate limiting. \
                     Sent {} requests with {} accepted in {:?}. \
                     This is CRITICAL as it enables:\n\
                     - OTP brute forcing (6-digit = 1M combinations)\n\
                     - Bypassing two-factor authentication\n\
-                    - Account takeover",
+                    - Account takeover{}",
+                    if is_bypass { "has bypassable" } else { "lacks" },
                     result.requests_sent,
                     result.successful_requests,
-                    result.total_time
+                    result.total_time,
+                    bypass_description
                 ),
-                "1. CRITICAL: Implement strict rate limiting (3-5 attempts max)\n\
-                 2. Invalidate OTP after 3 failed attempts\n\
-                 3. Implement exponential backoff\n\
-                 4. Use longer OTP codes (8+ digits)\n\
-                 5. Implement time-based lockout\n\
-                 6. Alert user on failed OTP attempts\n\
-                 7. Consider hardware security keys for sensitive accounts"
+                if is_bypass {
+                    "1. CRITICAL: DO NOT trust any client-supplied headers for OTP rate limiting\n\
+                     2. Rate limit on session token + actual IP only\n\
+                     3. Invalidate OTP after 3 failed attempts (hard limit)\n\
+                     4. Implement exponential backoff\n\
+                     5. Use longer OTP codes (8+ digits)\n\
+                     6. Alert user immediately on failed OTP attempts\n\
+                     7. Consider hardware security keys for sensitive accounts"
+                } else {
+                    "1. CRITICAL: Implement strict rate limiting (3-5 attempts max)\n\
+                     2. Invalidate OTP after 3 failed attempts\n\
+                     3. Implement exponential backoff\n\
+                     4. Use longer OTP codes (8+ digits)\n\
+                     5. Implement time-based lockout\n\
+                     6. Alert user on failed OTP attempts\n\
+                     7. Consider hardware security keys for sensitive accounts"
+                }
             ),
             _ => (
                 Severity::Medium,
                 5.3,
                 format!(
-                    "The API endpoint lacks rate limiting. \
-                    Sent {} requests with {} accepted in {:?}.",
+                    "The API endpoint {} rate limiting. \
+                    Sent {} requests with {} accepted in {:?}.{}",
+                    if is_bypass { "has bypassable" } else { "lacks" },
                     result.requests_sent,
                     result.successful_requests,
-                    result.total_time
+                    result.total_time,
+                    bypass_description
                 ),
-                "1. Implement rate limiting based on endpoint sensitivity\n\
-                 2. Use API keys with rate limits\n\
-                 3. Implement request throttling\n\
-                 4. Monitor and alert on unusual traffic patterns"
+                if is_bypass {
+                    "1. Validate client-supplied headers before using for rate limiting\n\
+                     2. Use API keys with rate limits tied to actual source IP\n\
+                     3. Implement request throttling on connection IP\n\
+                     4. Monitor and alert on unusual traffic patterns\n\
+                     5. Use Web Application Firewall with header validation"
+                } else {
+                    "1. Implement rate limiting based on endpoint sensitivity\n\
+                     2. Use API keys with rate limits\n\
+                     3. Implement request throttling\n\
+                     4. Monitor and alert on unusual traffic patterns"
+                }
             ),
         };
 
-        Vulnerability {
-            id: format!("rate_limit_{}_{}", result.endpoint_type.to_lowercase(), Self::generate_id()),
-            vuln_type: format!("Insufficient Rate Limiting - {} Endpoint", result.endpoint_type),
-            severity,
-            confidence: Confidence::High,
-            category: "Access Control".to_string(),
-            url: original_url.to_string(),
-            parameter: Some(result.endpoint.clone()),
-            payload: format!(
+        // Increase severity for bypasses on critical endpoints
+        let severity = if is_bypass && matches!(base_severity, Severity::High | Severity::Critical) {
+            Severity::Critical
+        } else {
+            base_severity
+        };
+
+        let vuln_type = if is_bypass {
+            format!("Rate Limiting Bypass via {} - {} Endpoint", result.bypass_technique.as_string(), result.endpoint_type)
+        } else {
+            format!("Insufficient Rate Limiting - {} Endpoint", result.endpoint_type)
+        };
+
+        let payload = if is_bypass {
+            format!(
+                "Bypass: {} | {} requests sent, {} successful, rate limiting bypassed",
+                result.bypass_technique.as_string(),
+                result.requests_sent,
+                result.successful_requests
+            )
+        } else {
+            format!(
                 "{} requests sent, {} successful, no rate limiting detected",
-                result.requests_sent, result.successful_requests
-            ),
-            description,
-            evidence: Some(format!(
+                result.requests_sent,
+                result.successful_requests
+            )
+        };
+
+        let evidence = if is_bypass {
+            format!(
+                "Endpoint: {}\n\
+                Endpoint Type: {}\n\
+                Bypass Technique: {}\n\
+                Requests Sent: {}\n\
+                Successful: {}\n\
+                Rate Limited: {}\n\
+                Total Time: {:?}\n\
+                \n\
+                Bypass Details:\n\
+                - Initial testing detected rate limiting on this endpoint\n\
+                - Rate limiting successfully bypassed using {} header manipulation\n\
+                - Application trusts client-supplied headers without validation\n\
+                - Used concurrent requests to simulate distributed attack\n\
+                - All bypass requests completed successfully without rate limiting\n\
+                - CRITICAL: This allows attackers to bypass existing rate limits",
+                result.endpoint,
+                result.endpoint_type,
+                result.bypass_technique.as_string(),
+                result.requests_sent,
+                result.successful_requests,
+                result.rate_limited_at.map_or("Never (bypassed)".to_string(), |n| format!("After {} requests", n)),
+                result.total_time,
+                result.bypass_technique.as_string()
+            )
+        } else {
+            format!(
                 "Endpoint: {}\n\
                 Endpoint Type: {}\n\
                 Requests Sent: {}\n\
@@ -562,7 +1033,20 @@ impl RateLimitingScanner {
                 result.successful_requests,
                 result.rate_limited_at.map_or("Never".to_string(), |n| format!("After {} requests", n)),
                 result.total_time
-            )),
+            )
+        };
+
+        Vulnerability {
+            id: format!("rate_limit_{}_{}", result.endpoint_type.to_lowercase(), Self::generate_id()),
+            vuln_type,
+            severity,
+            confidence: Confidence::High,
+            category: "Access Control".to_string(),
+            url: original_url.to_string(),
+            parameter: Some(result.endpoint.clone()),
+            payload,
+            description,
+            evidence: Some(evidence),
             cwe: "CWE-307".to_string(), // Improper Restriction of Excessive Authentication Attempts
             cvss,
             verified: true,

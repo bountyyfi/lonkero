@@ -4,6 +4,8 @@
 //! Headless browser crawler for JavaScript-rendered pages
 //! Uses Chrome/Chromium to render SPAs and extract real form elements
 
+#![allow(dead_code)]
+
 use crate::crawler::{DiscoveredForm, FormInput};
 use anyhow::{Context, Result};
 use headless_chrome::browser::tab::RequestPausedDecision;
@@ -717,7 +719,7 @@ impl HeadlessCrawler {
 
         // Set up the request interceptor
         tab.enable_request_interception(Arc::new(
-            move |transport, session_id, intercepted: RequestPausedEvent| {
+            move |_transport, _session_id, intercepted: RequestPausedEvent| {
                 let request = &intercepted.params.request;
                 let method = if request.method.is_empty() { "GET" } else { &request.method };
 

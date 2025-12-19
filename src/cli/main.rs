@@ -17,7 +17,7 @@
  * (c) 2025 Bountyy Oy
  */
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,7 +30,7 @@ use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
 use lonkero_scanner::scanners::ScanEngine;
 use lonkero_scanner::signing::{self, SigningError, ScanToken};
-use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults, Vulnerability};
+use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults};
 
 /// Lonkero - Enterprise Web Security Scanner
 #[derive(Parser)]
@@ -898,11 +898,11 @@ async fn execute_standalone_scan(
     job: Arc<ScanJob>,
     config: &ScannerConfig,
 ) -> Result<ScanResults> {
-    use lonkero_scanner::crawler::{CrawlResults, WebCrawler};
+    use lonkero_scanner::crawler::WebCrawler;
     use lonkero_scanner::headless_crawler::HeadlessCrawler;
     use lonkero_scanner::framework_detector::FrameworkDetector;
-    use lonkero_scanner::signing::ReportSignature;
-    use lonkero_scanner::types::{Confidence, Severity, Vulnerability};
+    
+    use lonkero_scanner::types::Vulnerability;
 
     // ============================================================
     // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
@@ -1441,8 +1441,12 @@ async fn execute_standalone_scan(
                         let full_url = if api_ep.starts_with("http") {
                             api_ep.clone()
                         } else if let Some(ref parsed) = parsed_target {
-                            format!("{}{}", parsed.origin().ascii_serialization(),
-                                   if api_ep.starts_with('/') { api_ep.as_str() } else { &format!("/{}", api_ep) })
+                            let path = if api_ep.starts_with('/') {
+                                api_ep.as_str()
+                            } else {
+                                &format!("/{}", api_ep)
+                            };
+                            format!("{}{}", parsed.origin().ascii_serialization(), path)
                         } else {
                             continue;
                         };

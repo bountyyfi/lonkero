@@ -98,6 +98,7 @@ pub mod merlin;
 pub mod tomcat_misconfig;
 pub mod varnish_misconfig;
 pub mod js_sensitive_info;
+pub mod client_route_auth_bypass;
 pub mod rate_limiting;
 pub mod wordpress_security;
 pub mod drupal_security;

@@ -112,9 +112,13 @@ impl OAuthScanner {
         tests_run += 1;
         if oauth_detection.has_oauth_flow {
             if let Ok(response) = self.test_state_parameter(url).await {
-                // Only check if response isn't SPA shell
-                if endpoint_exists(&response, &[200]) {
+                // CRITICAL: Only test if endpoint exists (not 404)
+                // Accept 200 (success), 302 (redirect), 400 (bad request), 401 (unauthorized)
+                // Reject 404 (doesn't exist) and other error codes
+                if endpoint_exists(&response, &[200, 302, 400, 401]) {
                     self.check_state_parameter(&response, url, &mut vulnerabilities);
+                } else {
+                    debug!("[OAuth] State parameter test skipped - endpoint doesn't exist (status: {})", response.status_code);
                 }
             }
         }

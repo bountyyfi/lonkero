@@ -16,6 +16,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::time::{sleep, Duration, Instant};
 use tracing::{info, debug};
 
 pub struct MfaScanner {
@@ -113,6 +114,114 @@ impl MfaScanner {
             tests_run += 1;
             if let Ok(sms_response) = self.test_sms_mfa(url).await {
                 self.check_sms_mfa_security(&sms_response, url, &mut vulnerabilities);
+            }
+        }
+
+        // ADVANCED BYPASS TECHNIQUES - Only run if MFA is detected (PREMIUM FEATURE)
+        if characteristics.has_mfa && crate::license::is_feature_available("mfa_bypass_advanced") {
+            info!("[MFA] Running advanced bypass technique tests");
+
+            // Test 5: OTP Replay Attack
+            for (endpoint_url, _) in &mfa_endpoints {
+                tests_run += 1;
+                if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
+                    if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
+                        let endpoint_body_lower = endpoint_response.body.to_lowercase();
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
+                            endpoint_body_lower.contains("authenticator app") ||
+                            endpoint_body_lower.contains("totp")) &&
+                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+
+                        if is_mfa_page {
+                            if let Ok((replay_vulns, replay_tests)) = self.test_otp_replay_attack(endpoint_url).await {
+                                vulnerabilities.extend(replay_vulns);
+                                tests_run += replay_tests;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Test 6: Parallel Verification Attempts (Race Condition)
+            for (endpoint_url, _) in &mfa_endpoints {
+                tests_run += 1;
+                if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
+                    if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
+                        let endpoint_body_lower = endpoint_response.body.to_lowercase();
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
+                            endpoint_body_lower.contains("authenticator app") ||
+                            endpoint_body_lower.contains("totp")) &&
+                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+
+                        if is_mfa_page {
+                            if let Ok((race_vulns, race_tests)) = self.test_parallel_verification(endpoint_url).await {
+                                vulnerabilities.extend(race_vulns);
+                                tests_run += race_tests;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Test 7: OTP Expiration Bypass
+            for (endpoint_url, _) in &mfa_endpoints {
+                tests_run += 1;
+                if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
+                    if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
+                        let endpoint_body_lower = endpoint_response.body.to_lowercase();
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
+                            endpoint_body_lower.contains("authenticator app") ||
+                            endpoint_body_lower.contains("totp")) &&
+                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+
+                        if is_mfa_page {
+                            if let Ok((expiry_vulns, expiry_tests)) = self.test_otp_expiration_bypass(endpoint_url).await {
+                                vulnerabilities.extend(expiry_vulns);
+                                tests_run += expiry_tests;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Test 8: Timing-Based OTP Brute Force
+            for (endpoint_url, _) in &mfa_endpoints {
+                tests_run += 1;
+                if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
+                    if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
+                        let endpoint_body_lower = endpoint_response.body.to_lowercase();
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
+                            endpoint_body_lower.contains("authenticator app") ||
+                            endpoint_body_lower.contains("totp")) &&
+                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+
+                        if is_mfa_page {
+                            if let Ok((brute_vulns, brute_tests)) = self.test_timing_based_brute_force(endpoint_url).await {
+                                vulnerabilities.extend(brute_vulns);
+                                tests_run += brute_tests;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Test 9: Backup Code Enumeration
+            let backup_endpoints = vec![
+                format!("{}/mfa/backup", url.trim_end_matches('/')),
+                format!("{}/2fa/recovery", url.trim_end_matches('/')),
+                format!("{}/auth/recovery", url.trim_end_matches('/')),
+            ];
+
+            for backup_endpoint in &backup_endpoints {
+                tests_run += 1;
+                if let Ok(endpoint_response) = self.http_client.get(backup_endpoint).await {
+                    if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
+                        if let Ok((backup_enum_vulns, backup_enum_tests)) = self.test_backup_code_enumeration(backup_endpoint).await {
+                            vulnerabilities.extend(backup_enum_vulns);
+                            tests_run += backup_enum_tests;
+                        }
+                    }
+                }
             }
         }
 
@@ -590,6 +699,539 @@ impl MfaScanner {
                 discovered_at: chrono::Utc::now().to_rfc3339(),
             });
         }
+    }
+
+    // ==================== ADVANCED BYPASS TECHNIQUES ====================
+
+    /// Test 1: OTP Replay Attack
+    /// Simulates capturing an OTP and replaying it after initial use
+    /// CRITICAL: Only reports if OTP is actually reusable (confirmed bypass)
+    async fn test_otp_replay_attack(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 3; // Initial attempt, first replay, second replay
+
+        debug!("[MFA] Testing OTP replay attack on {}", endpoint);
+
+        // Generate a test OTP (simulating a captured code)
+        let test_otp = "123456";
+        let test_data = format!("code={}", test_otp);
+
+        // First attempt: Submit the OTP
+        let first_response = match self.http_client.post_form(endpoint, &test_data).await {
+            Ok(r) => r,
+            Err(_) => return Ok((vulnerabilities, tests_run)),
+        };
+
+        let first_body_lower = first_response.body.to_lowercase();
+
+        // Check if first submission was successful or at least processed
+        let first_processed = first_response.status_code == 200
+            || first_response.status_code == 302
+            || first_body_lower.contains("incorrect")
+            || first_body_lower.contains("invalid");
+
+        if !first_processed {
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        // Small delay to simulate time passing
+        sleep(Duration::from_millis(100)).await;
+
+        // Second attempt: Replay the same OTP
+        let replay_response = match self.http_client.post_form(endpoint, &test_data).await {
+            Ok(r) => r,
+            Err(_) => return Ok((vulnerabilities, tests_run)),
+        };
+
+        let replay_body_lower = replay_response.body.to_lowercase();
+
+        // CRITICAL: Only report if replay was SUCCESSFUL (not rejected)
+        let replay_successful = (replay_response.status_code == 200 || replay_response.status_code == 302)
+            && (replay_body_lower.contains("success")
+                || replay_body_lower.contains("verified")
+                || replay_body_lower.contains("authenticated")
+                || replay_body_lower.contains("correct")
+                || replay_response.headers.contains_key("set-cookie"));
+
+        // Make sure it's not just accepting invalid codes in general
+        let not_error = !replay_body_lower.contains("incorrect")
+            && !replay_body_lower.contains("invalid")
+            && !replay_body_lower.contains("wrong")
+            && !replay_body_lower.contains("failed");
+
+        if replay_successful && not_error {
+            // Third attempt to confirm replayability
+            sleep(Duration::from_millis(100)).await;
+            let second_replay = match self.http_client.post_form(endpoint, &test_data).await {
+                Ok(r) => r,
+                Err(_) => return Ok((vulnerabilities, tests_run)),
+            };
+
+            let second_replay_lower = second_replay.body.to_lowercase();
+            let second_replay_successful = (second_replay.status_code == 200 || second_replay.status_code == 302)
+                && (second_replay_lower.contains("success") || second_replay_lower.contains("verified"));
+
+            // Only report if BOTH replays succeeded (confirmed vulnerability)
+            if second_replay_successful {
+                vulnerabilities.push(Vulnerability {
+                    id: generate_uuid(),
+                    vuln_type: "OTP Replay Attack Vulnerability".to_string(),
+                    severity: Severity::Critical,
+                    confidence: Confidence::High,
+                    category: "Authentication".to_string(),
+                    url: endpoint.to_string(),
+                    parameter: Some("code".to_string()),
+                    payload: test_otp.to_string(),
+                    description: "OTP codes can be replayed multiple times. A captured OTP remains valid after initial use, allowing attackers to reuse intercepted codes. This completely defeats the purpose of MFA.".to_string(),
+                    evidence: Some("Same OTP successfully verified multiple times (3 consecutive attempts)".to_string()),
+                    cwe: "CWE-294".to_string(),
+                    cvss: 9.8,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "1. CRITICAL: Invalidate OTP immediately after first use\n2. Store used OTPs in a cache with TTL matching code validity period\n3. Check if code was previously used before verification\n4. For TOTP: track last successful timestamp to prevent replay\n5. For email/SMS OTP: mark as consumed in database\n6. Implement nonce or session-specific codes\n7. Log all OTP verification attempts for monitoring".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test 2: Parallel Verification Attempts (Race Condition)
+    /// Tests if same OTP can be used simultaneously from multiple sessions
+    /// This is a critical race condition vulnerability
+    async fn test_parallel_verification(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 5; // 5 concurrent attempts
+
+        debug!("[MFA] Testing parallel verification race condition on {}", endpoint);
+
+        let test_otp = "654321";
+        let test_data = format!("code={}", test_otp);
+
+        // Launch 5 concurrent verification requests with the same OTP
+        let mut handles = Vec::new();
+        for i in 0..5 {
+            let client = self.http_client.clone();
+            let endpoint_clone = endpoint.to_string();
+            let data_clone = test_data.clone();
+
+            let handle = tokio::spawn(async move {
+                debug!("[MFA] Parallel attempt {} starting", i);
+                client.post_form(&endpoint_clone, &data_clone).await
+            });
+
+            handles.push(handle);
+        }
+
+        // Collect all results
+        let mut successful_verifications = 0;
+        let mut responses = Vec::new();
+
+        for handle in handles {
+            if let Ok(Ok(response)) = handle.await {
+                responses.push(response);
+            }
+        }
+
+        // Count how many were successful
+        for response in &responses {
+            let body_lower = response.body.to_lowercase();
+            let is_success = (response.status_code == 200 || response.status_code == 302)
+                && (body_lower.contains("success")
+                    || body_lower.contains("verified")
+                    || body_lower.contains("authenticated")
+                    || body_lower.contains("correct"));
+
+            let not_error = !body_lower.contains("incorrect")
+                && !body_lower.contains("invalid")
+                && !body_lower.contains("wrong");
+
+            if is_success && not_error {
+                successful_verifications += 1;
+            }
+        }
+
+        // CRITICAL: Only report if multiple parallel verifications succeeded
+        // This means the same OTP was accepted more than once simultaneously
+        if successful_verifications >= 2 {
+            vulnerabilities.push(Vulnerability {
+                id: generate_uuid(),
+                vuln_type: "MFA Race Condition - Parallel Verification".to_string(),
+                severity: Severity::Critical,
+                confidence: Confidence::High,
+                category: "Authentication".to_string(),
+                url: endpoint.to_string(),
+                parameter: Some("code".to_string()),
+                payload: test_otp.to_string(),
+                description: format!(
+                    "Race condition allows same OTP to be verified multiple times in parallel. {} out of 5 concurrent requests succeeded with the same code. Attackers can abuse this to authenticate multiple sessions with a single intercepted OTP.",
+                    successful_verifications
+                ),
+                evidence: Some(format!("{} parallel verifications succeeded with identical OTP", successful_verifications)),
+                cwe: "CWE-367".to_string(),
+                cvss: 9.1,
+                verified: true,
+                false_positive: false,
+                remediation: "1. CRITICAL: Implement atomic OTP validation with distributed locking\n2. Use database transactions with row-level locking\n3. Check and mark OTP as used in a single atomic operation\n4. Implement Redis-based distributed locks for clustered environments\n5. Add request deduplication based on session + code hash\n6. Use optimistic locking with version numbers\n7. Reject subsequent attempts if code validation is in progress\n8. Add unique constraint on (user_id, code, timestamp) in database".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test 3: OTP Expiration Bypass
+    /// Tests if the application properly validates OTP expiration
+    /// Simulates using an OTP after it should have expired
+    async fn test_otp_expiration_bypass(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        debug!("[MFA] Testing OTP expiration bypass on {}", endpoint);
+
+        // Test with timestamps that should be expired
+        // TOTP codes typically expire every 30 seconds
+        let expired_scenarios = vec![
+            ("timestamp", "-300"), // 5 minutes ago
+            ("timestamp", "-600"), // 10 minutes ago
+            ("valid_until", "0"),   // Already expired
+            ("expires_at", "2020-01-01T00:00:00Z"), // Long expired
+        ];
+
+        for (param, value) in &expired_scenarios {
+            tests_run += 1;
+
+            let test_data = format!("code=123456&{}={}", param, value);
+
+            match self.http_client.post_form(endpoint, &test_data).await {
+                Ok(response) => {
+                    let body_lower = response.body.to_lowercase();
+
+                    // Check if expired code was accepted
+                    let accepted = (response.status_code == 200 || response.status_code == 302)
+                        && (body_lower.contains("success")
+                            || body_lower.contains("verified")
+                            || body_lower.contains("authenticated"));
+
+                    let not_expired_error = !body_lower.contains("expired")
+                        && !body_lower.contains("invalid")
+                        && !body_lower.contains("timeout");
+
+                    if accepted && not_expired_error {
+                        vulnerabilities.push(Vulnerability {
+                            id: generate_uuid(),
+                            vuln_type: "OTP Expiration Bypass".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::Medium,
+                            category: "Authentication".to_string(),
+                            url: endpoint.to_string(),
+                            parameter: Some(param.to_string()),
+                            payload: format!("{}={}", param, value),
+                            description: "OTP expiration is not properly validated. The application accepts codes that should have expired, extending the window for attackers to use intercepted codes.".to_string(),
+                            evidence: Some(format!("Expired OTP accepted with {}={}", param, value)),
+                            cwe: "CWE-613".to_string(),
+                            cvss: 7.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. CRITICAL: Validate OTP expiration server-side\n2. For TOTP: verify code is within acceptable time window (±1 period)\n3. For email/SMS OTP: enforce strict expiration (e.g., 5-10 minutes)\n4. Never trust client-provided timestamps\n5. Use server time for all expiration checks\n6. Invalidate codes immediately after use\n7. Implement maximum lifetime for all OTP types\n8. Log attempts to use expired codes".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                        break; // Found the vulnerability, no need to test more scenarios
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+
+        // Also test if server accepts manipulated TOTP window
+        tests_run += 1;
+        let window_test = "code=000000&time_step=999999"; // Extremely large time window
+
+        match self.http_client.post_form(endpoint, window_test).await {
+            Ok(response) => {
+                let body_lower = response.body.to_lowercase();
+                if (response.status_code == 200 || response.status_code == 302)
+                    && !body_lower.contains("invalid")
+                    && !body_lower.contains("incorrect") {
+
+                    vulnerabilities.push(Vulnerability {
+                        id: generate_uuid(),
+                        vuln_type: "TOTP Time Window Manipulation".to_string(),
+                        severity: Severity::High,
+                        confidence: Confidence::Medium,
+                        category: "Authentication".to_string(),
+                        url: endpoint.to_string(),
+                        parameter: Some("time_step".to_string()),
+                        payload: "time_step=999999".to_string(),
+                        description: "TOTP time window can be manipulated by the client. Attackers can extend the validity period of TOTP codes indefinitely.".to_string(),
+                        evidence: Some("Server accepted client-provided time_step parameter".to_string()),
+                        cwe: "CWE-20".to_string(),
+                        cvss: 7.8,
+                        verified: false,
+                        false_positive: false,
+                        remediation: "1. CRITICAL: Never accept time parameters from client\n2. Use fixed server-side TOTP window (typically ±1 period = 60 seconds)\n3. Implement RFC 6238 compliant TOTP validation\n4. Use trusted time source (NTP)\n5. Reject any client attempts to modify time-related parameters".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+            }
+            Err(_) => {}
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test 4: Timing-Based OTP Brute Force
+    /// Tests rate limiting and timing analysis for OTP brute force
+    /// Attempts rapid-fire OTP submissions to detect missing rate limits
+    async fn test_timing_based_brute_force(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        debug!("[MFA] Testing timing-based OTP brute force on {}", endpoint);
+
+        let mut response_times = Vec::new();
+        let mut successful_attempts = 0;
+        let attempt_count = 15; // Test 15 rapid attempts
+
+        let start_time = Instant::now();
+
+        for i in 0..attempt_count {
+            tests_run += 1;
+            let test_code = format!("{:06}", i); // 000000, 000001, 000002, etc.
+            let test_data = format!("code={}", test_code);
+
+            let attempt_start = Instant::now();
+
+            match self.http_client.post_form(endpoint, &test_data).await {
+                Ok(response) => {
+                    let attempt_duration = attempt_start.elapsed();
+                    response_times.push(attempt_duration.as_millis());
+
+                    let body_lower = response.body.to_lowercase();
+
+                    // Check for rate limiting
+                    let is_rate_limited = response.status_code == 429
+                        || body_lower.contains("rate limit")
+                        || body_lower.contains("too many")
+                        || body_lower.contains("slow down");
+
+                    // If we hit rate limiting, that's good (not vulnerable)
+                    if is_rate_limited {
+                        debug!("[MFA] Rate limiting detected at attempt {}", i + 1);
+                        break;
+                    }
+
+                    // Check if attempt went through (successful or failed, but processed)
+                    if response.status_code == 200 || response.status_code == 400 || response.status_code == 401 {
+                        successful_attempts += 1;
+                    }
+                }
+                Err(_) => break,
+            }
+
+            // Small delay to avoid overwhelming the server
+            sleep(Duration::from_millis(50)).await;
+        }
+
+        let total_time = start_time.elapsed();
+
+        // CRITICAL: Only report if we could make many attempts without rate limiting
+        if successful_attempts >= 10 {
+            // Calculate average response time for timing analysis
+            let avg_response_time = if !response_times.is_empty() {
+                response_times.iter().sum::<u128>() / response_times.len() as u128
+            } else {
+                0
+            };
+
+            // Check for timing attack vulnerability
+            let timing_variance = if response_times.len() > 1 {
+                let mean = avg_response_time;
+                let variance = response_times.iter()
+                    .map(|&t| {
+                        let diff = if t > mean { t - mean } else { mean - t };
+                        diff * diff
+                    })
+                    .sum::<u128>() / response_times.len() as u128;
+                variance
+            } else {
+                0
+            };
+
+            // Report missing rate limiting
+            vulnerabilities.push(Vulnerability {
+                id: generate_uuid(),
+                vuln_type: "Missing Rate Limiting - OTP Brute Force".to_string(),
+                severity: Severity::Critical,
+                confidence: Confidence::High,
+                category: "Authentication".to_string(),
+                url: endpoint.to_string(),
+                parameter: Some("code".to_string()),
+                payload: String::new(),
+                description: format!(
+                    "No rate limiting on OTP verification. Successfully submitted {} verification attempts in {:.2} seconds. For 6-digit codes (1,000,000 combinations), this would allow brute force in approximately {:.1} hours.",
+                    successful_attempts,
+                    total_time.as_secs_f32(),
+                    (1_000_000.0 / successful_attempts as f32) * total_time.as_secs_f32() / 3600.0
+                ),
+                evidence: Some(format!("{} OTP attempts processed without rate limiting (avg response: {}ms)", successful_attempts, avg_response_time)),
+                cwe: "CWE-307".to_string(),
+                cvss: 9.1,
+                verified: true,
+                false_positive: false,
+                remediation: "1. CRITICAL: Implement strict rate limiting (3-5 attempts per session)\n2. Lock account after 5-10 failed attempts\n3. Require account recovery process after lockout\n4. Implement exponential backoff (delay increases with failures)\n5. Add CAPTCHA after 3 failed attempts\n6. Use longer OTP codes (8+ digits) for high-security accounts\n7. Implement IP-based rate limiting\n8. Monitor and alert on brute force patterns\n9. Consider adaptive authentication (step-up security)".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+            });
+
+            // Report timing attack if significant variance detected
+            if timing_variance > 1000 { // More than 1000ms² variance
+                vulnerabilities.push(Vulnerability {
+                    id: generate_uuid(),
+                    vuln_type: "Timing Attack - OTP Validation".to_string(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Low,
+                    category: "Authentication".to_string(),
+                    url: endpoint.to_string(),
+                    parameter: Some("code".to_string()),
+                    payload: String::new(),
+                    description: format!(
+                        "Response time variance detected in OTP validation (variance: {}ms²). This may allow timing attacks to distinguish correct vs incorrect codes.",
+                        timing_variance
+                    ),
+                    evidence: Some(format!("Timing variance: {}ms², average response: {}ms", timing_variance, avg_response_time)),
+                    cwe: "CWE-208".to_string(),
+                    cvss: 5.3,
+                    verified: false,
+                    false_positive: false,
+                    remediation: "1. Use constant-time comparison for OTP validation\n2. Add random delay to normalize response times\n3. Always perform full validation even if early mismatch detected\n4. Hash codes before comparison if possible\n5. Implement response time monitoring\n6. Use timing-safe comparison functions".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test 5: Backup Code Enumeration
+    /// Tests if backup codes follow predictable patterns
+    /// Attempts to identify weak code generation that could be enumerated
+    async fn test_backup_code_enumeration(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        debug!("[MFA] Testing backup code enumeration on {}", endpoint);
+
+        // Test common weak patterns in backup codes
+        let timestamp_pattern = format!("{}-0001", chrono::Utc::now().format("%Y%m%d"));
+
+        let weak_patterns = vec![
+            // Sequential patterns
+            "ABCD-EFGH-IJKL-MNOP",
+            "1234-5678-9012-3456",
+            "0000-0000-0000-0001",
+            "1111-1111-1111-1111",
+            // Common patterns
+            "AAAA-BBBB-CCCC-DDDD",
+            "0123-4567-8901-2345",
+            // Timestamp-based (if using current date)
+            timestamp_pattern.as_str(),
+            // Simple incremental
+            "CODE-0001-0001-0001",
+            "BACK-UP01-CODE-0001",
+        ];
+
+        for pattern in &weak_patterns {
+            tests_run += 1;
+            let test_data = format!("backup_code={}", pattern);
+
+            match self.http_client.post_form(endpoint, &test_data).await {
+                Ok(response) => {
+                    let body_lower = response.body.to_lowercase();
+
+                    let accepted = (response.status_code == 200 || response.status_code == 302)
+                        && (body_lower.contains("success")
+                            || body_lower.contains("verified")
+                            || body_lower.contains("valid")
+                            || body_lower.contains("authenticated"));
+
+                    let not_invalid = !body_lower.contains("invalid")
+                        && !body_lower.contains("incorrect")
+                        && !body_lower.contains("wrong");
+
+                    if accepted && not_invalid {
+                        vulnerabilities.push(Vulnerability {
+                            id: generate_uuid(),
+                            vuln_type: "Predictable MFA Backup Codes".to_string(),
+                            severity: Severity::Critical,
+                            confidence: Confidence::High,
+                            category: "Authentication".to_string(),
+                            url: endpoint.to_string(),
+                            parameter: Some("backup_code".to_string()),
+                            payload: pattern.to_string(),
+                            description: format!(
+                                "Backup codes follow predictable patterns. Code '{}' was accepted, indicating weak code generation. Attackers can enumerate valid backup codes.",
+                                pattern
+                            ),
+                            evidence: Some(format!("Predictable backup code accepted: {}", pattern)),
+                            cwe: "CWE-330".to_string(),
+                            cvss: 9.8,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. CRITICAL: Generate backup codes using cryptographically secure random numbers\n2. Use at least 128 bits of entropy per code\n3. Format codes as Base32/Base36 for readability (e.g., XXXX-XXXX-XXXX-XXXX)\n4. Generate 8-12 codes per user\n5. Make codes single-use only\n6. Invalidate all codes when new set is generated\n7. Hash codes before storage (like passwords)\n8. Implement rate limiting on backup code attempts\n9. Alert user when backup codes are used\n10. Example: use crypto.randomBytes(16).toString('base32')".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                        });
+                        break; // Found vulnerability, no need to test more
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+
+        // Test for pattern-based enumeration vulnerability
+        // Check if sequential codes exist by testing a range
+        tests_run += 2;
+        let base_code = "BACK-UP00-0000-";
+        let mut sequential_successes = 0;
+
+        for i in 1..=3 {
+            let test_code = format!("{}{:04}", base_code, i);
+            let test_data = format!("backup_code={}", test_code);
+
+            if let Ok(response) = self.http_client.post_form(endpoint, &test_data).await {
+                let body_lower = response.body.to_lowercase();
+                if response.status_code == 200
+                    && !body_lower.contains("invalid")
+                    && !body_lower.contains("incorrect") {
+                    sequential_successes += 1;
+                }
+            }
+
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        if sequential_successes >= 2 {
+            vulnerabilities.push(Vulnerability {
+                id: generate_uuid(),
+                vuln_type: "Sequential Backup Code Pattern".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Medium,
+                category: "Authentication".to_string(),
+                url: endpoint.to_string(),
+                parameter: Some("backup_code".to_string()),
+                payload: base_code.to_string(),
+                description: "Backup codes appear to follow a sequential pattern. Multiple codes with sequential numbers were accepted, indicating enumerable codes.".to_string(),
+                evidence: Some(format!("{} sequential codes accepted", sequential_successes)),
+                cwe: "CWE-330".to_string(),
+                cvss: 8.1,
+                verified: false,
+                false_positive: false,
+                remediation: "1. CRITICAL: Use cryptographically random code generation\n2. Avoid sequential or predictable patterns\n3. Each code should be independent and random\n4. Implement rate limiting to prevent enumeration\n5. Lock account after multiple failed backup code attempts\n6. Monitor for enumeration patterns".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+
+        Ok((vulnerabilities, tests_run))
     }
 }
 

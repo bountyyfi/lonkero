@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -35,6 +36,25 @@ impl XxeScanner {
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
+
+        // Check if this is a JSON-only API (GraphQL, REST API, etc)
+        let baseline_response = self.http_client.get(base_url).await?;
+        let characteristics = AppCharacteristics::from_response(&baseline_response, base_url);
+
+        // Skip XXE for JSON-only APIs unless multipart/file upload is detected
+        if characteristics.is_api && !characteristics.has_file_upload {
+            let content_type = baseline_response.headers.get("content-type")
+                .map(|s| s.to_lowercase())
+                .unwrap_or_default();
+
+            if content_type.contains("application/json") ||
+               content_type.contains("application/graphql") ||
+               baseline_response.body.trim_start().starts_with('{') ||
+               baseline_response.body.trim_start().starts_with('[') {
+                info!("[XXE] Skipping XXE (JSON-only API without file upload - XXE requires XML parsing)");
+                return Ok((vulnerabilities, tests_run));
+            }
+        }
 
         let payloads = self.generate_xxe_payloads();
 

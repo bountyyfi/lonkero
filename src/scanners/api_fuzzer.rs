@@ -1465,7 +1465,13 @@ impl ApiFuzzerScanner {
         let replay_response = self.http_client.get_with_headers(url, headers).await;
 
         if let (Ok(resp1), Ok(resp2)) = (first_response, replay_response) {
-            if resp1.status_code == resp2.status_code && resp1.body == resp2.body {
+            // CRITICAL: Don't report replay vulnerability on non-existent endpoints
+            // 404 responses are identical because the endpoint doesn't exist, not because replay worked
+            if resp1.status_code != 404  // Endpoint must exist
+                && resp1.status_code == resp2.status_code
+                && resp1.body == resp2.body
+                && !resp1.body.to_lowercase().contains("not found")  // Additional check
+                && !resp1.body.to_lowercase().contains("cannot get") {  // NestJS 404 message
                 vulnerabilities.push(self.create_vulnerability(
                     "Token Replay Attack Possible",
                     url,

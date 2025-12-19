@@ -21,6 +21,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -114,8 +115,18 @@ impl SsrfScanner {
             }
         };
 
-        // Generate payloads based on license tier
-        let payloads = if crate::license::is_feature_available("enterprise_ssrf") {
+        // Check if this is GraphQL/JSON API - use focused payloads
+        let characteristics = AppCharacteristics::from_response(&baseline, base_url);
+        let is_json_api = characteristics.is_api ||
+                          baseline.headers.get("content-type")
+                              .map(|ct| ct.contains("application/json") || ct.contains("application/graphql"))
+                              .unwrap_or(false);
+
+        // Generate payloads based on license tier and context
+        let payloads = if is_json_api {
+            info!("[SSRF] JSON API detected - using focused SSRF payloads (cloud metadata + localhost)");
+            self.generate_focused_api_payloads()
+        } else if crate::license::is_feature_available("enterprise_ssrf") {
             self.generate_enterprise_payloads()
         } else if crate::license::is_feature_available("ssrf_scanning") {
             self.generate_professional_payloads()
@@ -832,6 +843,38 @@ impl SsrfScanner {
             });
         }
 
+        payloads
+    }
+
+    /// Generate focused API payloads for GraphQL/REST JSON APIs
+    /// Only tests cloud metadata + localhost (most relevant for APIs)
+    fn generate_focused_api_payloads(&self) -> Vec<SsrfPayload> {
+        let mut payloads = Vec::new();
+
+        // Cloud metadata - CRITICAL for APIs running in cloud
+        payloads.extend(self.generate_cloud_metadata_payloads().into_iter().take(150));
+
+        // Localhost variants - APIs often access internal services
+        for host in &["127.0.0.1", "localhost", "0.0.0.0", "[::1]", "2130706433", "0x7f000001", "127.1", "127.0.1"] {
+            payloads.push(SsrfPayload {
+                payload: format!("http://{}/", host),
+                category: SsrfBypassCategory::LocalhostBypass,
+                description: format!("Localhost via {}", host),
+                severity: Severity::High,
+            });
+        }
+
+        // Internal network (limited for APIs)
+        for ip in &["192.168.1.1", "10.0.0.1", "172.16.0.1"] {
+            payloads.push(SsrfPayload {
+                payload: format!("http://{}/", ip),
+                category: SsrfBypassCategory::InternalNetwork,
+                description: format!("Internal network {}", ip),
+                severity: Severity::Medium,
+            });
+        }
+
+        info!("[SSRF] Generated {} focused API payloads (optimized for GraphQL/REST)", payloads.len());
         payloads
     }
 

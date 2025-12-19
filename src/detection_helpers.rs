@@ -44,12 +44,14 @@ pub struct AppCharacteristics {
     pub app_type: AppType,
     pub is_spa: bool,
     pub is_static: bool,
+    pub is_api: bool,
     pub is_api_only: bool,
     pub has_server_side_rendering: bool,
     pub has_authentication: bool,
     pub has_oauth: bool,
     pub has_jwt: bool,
     pub has_mfa: bool,
+    pub has_file_upload: bool,
     pub uses_client_side_routing: bool,
     pub framework_indicators: Vec<String>,
 }
@@ -61,12 +63,14 @@ impl AppCharacteristics {
             app_type: AppType::Unknown,
             is_spa: false,
             is_static: false,
+            is_api: false,
             is_api_only: false,
             has_server_side_rendering: false,
             has_authentication: false,
             has_oauth: false,
             has_jwt: false,
             has_mfa: false,
+            has_file_upload: false,
             uses_client_side_routing: false,
             framework_indicators: Vec::new(),
         }
@@ -98,8 +102,12 @@ impl AppCharacteristics {
 
         // Detect API-only responses
         if is_api_response(body, headers, url) {
+            characteristics.is_api = true;
             characteristics.is_api_only = true;
             characteristics.app_type = AppType::Api;
+        } else if url.contains("/api/") || url.contains("/graphql") || url.contains("/v1/") || url.contains("/v2/") {
+            // Likely API endpoint even if not pure JSON
+            characteristics.is_api = true;
         }
 
         // Detect server-side rendering
@@ -115,6 +123,9 @@ impl AppCharacteristics {
         characteristics.has_oauth = has_real_oauth(body, headers, &body_lower);
         characteristics.has_jwt = has_real_jwt(body, headers, &body_lower);
         characteristics.has_mfa = has_real_mfa(body, &body_lower);
+
+        // Detect file upload capabilities
+        characteristics.has_file_upload = has_file_upload(body, &body_lower);
 
         // Detect framework indicators
         characteristics.framework_indicators = detect_framework_indicators(body, headers);
@@ -762,4 +773,35 @@ mod tests {
 
         assert!(!is_payload_reflected_dangerously(&response, "alert(1)"));
     }
+}
+
+/// Detect if the site has file upload functionality
+fn has_file_upload(body: &str, body_lower: &str) -> bool {
+    // Check for file upload form elements
+    if body_lower.contains("type=\"file\"") ||
+       body_lower.contains("type='file'") ||
+       body_lower.contains("input file") ||
+       body_lower.contains("multipart/form-data") {
+        return true;
+    }
+
+    // Check for upload-related endpoints/text
+    if body_lower.contains("upload") && (
+        body_lower.contains("drag") ||
+        body_lower.contains("drop") ||
+        body_lower.contains("choose file") ||
+        body_lower.contains("select file")
+    ) {
+        return true;
+    }
+
+    // Check for file upload libraries
+    if body.contains("dropzone") ||
+       body.contains("filepond") ||
+       body.contains("uppy") ||
+       body.contains("fine-uploader") {
+        return true;
+    }
+
+    false
 }

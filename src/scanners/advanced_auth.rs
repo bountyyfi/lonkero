@@ -9,6 +9,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -74,6 +75,15 @@ impl AdvancedAuthScanner {
         let aggression = AggressionLevel::from_scan_mode(config.scan_mode.as_str());
 
         tracing::info!("Starting advanced authentication scan with aggression level: {:?}", aggression);
+
+        // Check if authentication is present before running auth tests
+        let baseline_response = self.http_client.get(url).await?;
+        let characteristics = AppCharacteristics::from_response(&baseline_response, url);
+
+        if !characteristics.has_authentication && !characteristics.has_oauth && !characteristics.has_jwt {
+            tracing::info!("[AdvAuth] No authentication detected - skipping advanced authentication tests");
+            return Ok((vulnerabilities, tests_run));
+        }
 
         // Session Management Tests
         let (session_vulns, session_tests) = self.test_session_management(url, config, aggression).await?;
@@ -1016,7 +1026,12 @@ impl AdvancedAuthScanner {
             let protected_url = format!("{}/dashboard", url.trim_end_matches('/'));
             match self.http_client.get(&protected_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && !response.body.to_lowercase().contains("mfa") {
+                    // CRITICAL: Don't report MFA bypass on non-existent endpoints (404)
+                    if response.status_code == 200
+                        && response.status_code != 404  // Endpoint must exist
+                        && !response.body.to_lowercase().contains("mfa")
+                        && !response.body.to_lowercase().contains("not found")  // Additional check
+                        && !response.body.to_lowercase().contains("cannot get") {  // NestJS 404 message
                         vulnerabilities.push(Vulnerability {
                             id: generate_uuid(),
                             vuln_type: "MFA Bypass - Direct Access".to_string(),
