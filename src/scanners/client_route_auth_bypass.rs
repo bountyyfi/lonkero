@@ -71,6 +71,12 @@ impl ClientRouteAuthBypassScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // PREMIUM FEATURE: Client Route Auth Bypass requires Professional license
+        if !crate::license::is_feature_available("client_route_auth_bypass") {
+            debug!("[ClientRouteAuth] Feature requires Professional license or higher");
+            return Ok((vulnerabilities, tests_run));
+        }
+
         info!("[ClientRouteAuth] Scanning for client-side route auth bypass: {}", url);
 
         // Step 1: Fetch main page to discover JavaScript bundles

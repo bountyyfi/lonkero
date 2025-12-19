@@ -228,6 +228,12 @@ const PREMIUM_FEATURES: &[&str] = &[
     "rate_limiting_bypass",
     "mfa_bypass_advanced",
     "mass_assignment_advanced",
+    // Professional tier scanners
+    "client_route_auth_bypass",
+    "template_injection",
+    "session_analyzer",
+    "baseline_detector",
+    "information_disclosure",
 ];
 
 /// Check if a premium feature is available for the current license

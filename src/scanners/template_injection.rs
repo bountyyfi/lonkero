@@ -42,6 +42,12 @@ impl TemplateInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // PREMIUM FEATURE: Template Injection requires Professional license
+        if !crate::license::is_feature_available("template_injection") {
+            debug!("[SSTI] Feature requires Professional license or higher");
+            return Ok((vulnerabilities, tests_run));
+        }
+
         info!("Testing SSTI on parameter: {}", param_name);
 
         // Template engines to test

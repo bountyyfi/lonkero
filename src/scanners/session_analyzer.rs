@@ -36,10 +36,16 @@ impl SessionAnalyzer {
         existing_session: Option<&AuthSession>,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("[Session] Starting deep session analysis");
-
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
+
+        // PREMIUM FEATURE: Session Analyzer requires Professional license
+        if !crate::license::is_feature_available("session_analyzer") {
+            debug!("[Session] Feature requires Professional license or higher");
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        info!("[Session] Starting deep session analysis");
 
         // 1. Collect multiple session IDs to measure entropy
         tests_run += 1;

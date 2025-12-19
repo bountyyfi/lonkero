@@ -40,6 +40,14 @@ impl BaselineDetector {
     ///
     /// Returns true if the site is a "static responder" (always same response)
     pub async fn is_static_responder(&self, url: &str) -> BaselineResult {
+        // PREMIUM FEATURE: Baseline Detector requires Professional license
+        if !crate::license::is_feature_available("baseline_detector") {
+            return BaselineResult {
+                is_static_responder: false,
+                baseline_response: None,
+                similarity_score: 0.0,
+            };
+        }
         // Send 3 different requests:
         // 1. Normal request
         // 2. Request with random parameter

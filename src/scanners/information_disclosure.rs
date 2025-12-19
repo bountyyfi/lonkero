@@ -47,6 +47,12 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // PREMIUM FEATURE: Information Disclosure requires Professional license
+        if !crate::license::is_feature_available("information_disclosure") {
+            debug!("[InfoDisclosure] Feature requires Professional license or higher");
+            return Ok((vulnerabilities, tests_run));
+        }
+
         info!("Testing information disclosure vulnerabilities");
 
         // Baseline detection: check if site responds identically to all requests
