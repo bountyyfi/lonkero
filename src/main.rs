@@ -19,6 +19,35 @@ fn main() -> Result<()> {
         )
         .init();
 
+    // Christmas colors: Red (\x1b[91m), Green (\x1b[92m), White (\x1b[97m), Reset (\x1b[0m)
+    println!("\x1b[92m");
+    println!("   __                __");
+    println!("  / /   ____  ____  / /_____  _________");
+    println!(" / /   / __ \\/ __ \\/ //_/ _ \\/ ___/ __ \\");
+    println!("\x1b[91m/ /___/ /_/ / / / / ,< /  __/ /  / /_/ /");
+    println!("/_____/\\____/_/ /_/_/|_|\\___/_/   \\____/\x1b[0m");
+    println!();
+    println!("\x1b[97m        Enterprise Web Security Scanner\x1b[0m");
+    println!("\x1b[92m            v1.0.0 - (c) 2025 Bountyy Oy\x1b[0m");
+    println!();
+
+    // Christmas easter egg - 10% chance
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    if seed % 10 == 0 {
+        let messages = [
+            "🎅 Ho ho ho! Checking your security list twice...",
+            "🎄 May your scans be merry and your vulns be zero!",
+            "❄️  All I want for Christmas is zero-day patches...",
+            "🎁 Santa's checking for IDOR, XSS, and SQLi!",
+            "⛄ Frosty found a CSRF! Time to patch it up!",
+            "🔔 Jingle bells, SQL smells, XSS went away!",
+            "🎅 Naughty or nice? Your security posture says...",
+        ];
+        let msg_idx = (seed / 10) % (messages.len() as u64);
+        println!("\x1b[93m        {}\x1b[0m\n", messages[msg_idx as usize]);
+    }
+
     info!("Lonkero Rust Scanner v1.0.0 - Starting");
 
     // Create optimized tokio runtime for enterprise-scale performance
