@@ -2266,16 +2266,22 @@ async fn execute_standalone_scan(
 }
 
 fn print_banner() {
-    println!(r#"
-    __                __
-   / /   ____  ____  / /_____  _________
-  / /   / __ \/ __ \/ //_/ _ \/ ___/ __ \
- / /___/ /_/ / / / / ,< /  __/ /  / /_/ /
-/_____/\____/_/ /_/_/|_|\___/_/   \____/
-
-        Enterprise Web Security Scanner
-            v1.0.0 - (c) 2025 Bountyy Oy
-"#);
+    // Christmas colors: Red (\x1b[91m), Green (\x1b[92m), White (\x1b[97m), Bold (\x1b[1m), Reset (\x1b[0m)
+    print!("\x1b[92m");
+    println!("   __                __");
+    println!("  / /   ____  ____  / /_____  _________");
+    println!(" / /   / __ \\/ __ \\/ //_/ _ \\/ ___/ __ \\");
+    print!("\x1b[91m");
+    println!(" / /___/ /_/ / / / / ,< /  __/ /  / /_/ /");
+    println!("/_____/\\____/_/ /_/_/|_|\\___/_/   \\____/");
+    print!("\x1b[0m");
+    println!();
+    print!("\x1b[1m\x1b[97m");
+    println!("        Enterprise Web Security Scanner");
+    print!("\x1b[0m\x1b[92m");
+    println!("         v2.0 - Happy Holidays - (c) 2025");
+    print!("\x1b[0m");
+    println!();
 }
 
 fn print_vulnerability_summary(results: &ScanResults) {
