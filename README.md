@@ -2,8 +2,6 @@
 
 <img src="https://bountyyfi.s3.eu-north-1.amazonaws.com/lonkero.png" alt="Lonkero Logo" width="200"/>
 
-# LONKERO
-
 ### Wraps around your attack surface
 
 Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
@@ -32,7 +30,7 @@ Lonkero is a production-grade web security scanner designed for professional sec
 - Blind vulnerability detection - Out-of-band DNS/HTTP callbacks for SSRF, XXE, SQLi
 - 80% faster scans - Smart parameter filtering eliminates noise
 
-Unlike generic scanners that spam thousands of useless payloads, Lonkero uses AI-powered context awareness to test only what matters.
+Unlike generic scanners that spam thousands of useless payloads, Lonkero uses context-aware filtering to test only what matters.
 
 ---
 
@@ -59,12 +57,12 @@ mindmap
         gRPC Reflection
         REST Mass Assignment
         WebSocket Injection
-      Modern Frameworks
-        Next.js Middleware Bypass
-        React DevTools Leak
-        SvelteKit CSRF
-        Django DEBUG Mode
-        Laravel Ignition RCE
+      Framework Detection
+        JavaScript (React, Vue, Angular)
+        PHP (Laravel, WordPress)
+        Python (Django, Flask)
+        Ruby (Rails)
+        Java (Spring)
     **Smart Scanning**
       Parameter Filtering
         Skip Framework Internals
@@ -100,15 +98,15 @@ graph TB
     Start([Target URL]) --> Recon[Phase 0: Reconnaissance]
 
     Recon --> Tech{Technology<br/>Detection}
-    Tech -->|Next.js| NextJS[Next.js Scanners]
-    Tech -->|GraphQL| GQL[GraphQL Scanners]
-    Tech -->|Generic| Generic[Universal Scanners]
+    Tech -->|Next.js/React| Modern[Modern Framework]
+    Tech -->|Laravel/Django| Traditional[Traditional MVC]
+    Tech -->|API/SPA| API[API Endpoints]
 
-    NextJS --> Filter
-    GQL --> Filter
-    Generic --> Filter
+    Modern --> Filter
+    Traditional --> Filter
+    API --> Filter
 
-    Filter{Smart Filter} -->|Skip| Skip[Framework Internals<br/>_apollo, vnode, isDayjs]
+    Filter{Smart Filter} -->|Skip| Skip[Framework Internals<br/>state, buildId, csrf]
     Filter -->|Priority 10| P10[User Input<br/>password, email, token]
     Filter -->|Priority 9| P9[Search & Content<br/>query, message, comment]
     Filter -->|Priority 5| P5[Business Data<br/>price, quantity, id]
@@ -142,13 +140,11 @@ graph TB
 Traditional scanners waste 95% of resources testing framework internals:
 
 ```
-Testing: _apolloInitData, __vnode, isDayjsObject, ed25519SignatureValue...
+Testing: __react_state, _nextData, csrfToken, sessionId, timestamp, buildId...
 Result: 2,800 requests, 0 vulnerabilities, 28 seconds
 ```
 
 ### The Solution
-
-Smart filtering skips noise, prioritizes real attack surface:
 
 ```mermaid
 sequenceDiagram
@@ -156,22 +152,22 @@ sequenceDiagram
     participant Filter as Smart Filter
     participant Target
 
-    Scanner->>Filter: Analyze: _apolloInitData
-    Filter-->>Scanner: Skip (GraphQL Internal)
+    Scanner->>Filter: Analyze: __react_state
+    Filter-->>Scanner: Skip (Framework Internal)
 
-    Scanner->>Filter: Analyze: vueSignature
-    Filter-->>Scanner: Skip (Vue.js Internal)
+    Scanner->>Filter: Analyze: _nextData
+    Filter-->>Scanner: Skip (Framework Internal)
 
     Scanner->>Filter: Analyze: email
     Filter-->>Scanner: Priority 10 (User Input)
 
-    Scanner->>Target: Test XXE on email parameter
+    Scanner->>Target: Test SQLi on email parameter
     Target-->>Scanner: Vulnerability Found
 
     Scanner->>Filter: Analyze: password
     Filter-->>Scanner: Priority 10 (Credentials)
 
-    Scanner->>Target: Test SQLi on password parameter
+    Scanner->>Target: Test injection on password
     Target-->>Scanner: Vulnerability Found
 ```
 
@@ -547,7 +543,7 @@ Interactive report with filtering, sorting, and vulnerability details.
 
 | Feature | Lonkero | Burp Suite Pro | OWASP ZAP | Acunetix |
 |---------|---------|----------------|-----------|----------|
-| **Price** | See website | $449/year | Free | $4,500/year |
+| **Price** | [See website](https://lonkero.bountyy.fi/en) | $449/year | Free | $4,500/year |
 | **False Positive Rate** | 5% | 10-15% | 20-30% | 10-15% |
 | **Modern Framework Support** | Next.js, React, GraphQL | Limited | Limited | Limited |
 | **Smart Parameter Filtering** | Yes | No | No | No |
@@ -580,4 +576,4 @@ For licensing inquiries, visit [lonkero.bountyy.fi](https://lonkero.bountyy.fi/e
 
 ---
 
-**Built with Rust for performance, safety, and reliability.**
+**Made in Finland** 🇫🇮
