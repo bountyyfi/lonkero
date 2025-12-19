@@ -17,6 +17,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use std::time::Instant;
@@ -82,7 +83,14 @@ impl SSIInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing SSI command execution");
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter("comment", ScannerType::Other) {
+            debug!("[SSI] Skipping framework/internal parameter: comment");
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[SSI] Testing SSI command execution (priority: {})",
+              ParameterFilter::get_parameter_priority("comment"));
 
         let payloads = vec![
             format!(r#"<!--#exec cmd="echo {}" -->"#, self.test_marker),

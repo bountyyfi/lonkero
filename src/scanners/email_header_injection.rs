@@ -17,6 +17,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -42,10 +43,18 @@ impl EmailHeaderInjectionScanner {
             return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
         }
 
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
+            debug!("[Email] Skipping framework/internal parameter: {}", param_name);
+            return Ok((Vec::new(), 0));
+        }
+
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing email header injection on parameter: {}", param_name);
+        info!("[Email] Testing email header injection on parameter: {} (priority: {})",
+              param_name,
+              ParameterFilter::get_parameter_priority(param_name));
 
         // Get baseline response with normal email
         let baseline_value = "test@example.com";

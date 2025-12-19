@@ -554,7 +554,7 @@ Interactive report with filtering, sorting, and vulnerability details.
 | **False Positive Rate** | 5% | 10-15% | 20-30% | 10-15% |
 | **Modern Framework Support** | Next.js, React, GraphQL | Limited | Limited | Limited |
 | **Smart Parameter Filtering** | Yes | No | No | No |
-| **OOB Detection** | Yes | Yes | No | Yes |
+| **OOB Detection** | Coming Soon | Yes | No | Yes |
 | **CI/CD Integration** | SARIF, JSON | Limited | JSON | Limited |
 | **Blind SQLi Binary Search** | Yes | No | No | Yes |
 | **GraphQL Security** | Yes | Extension | No | Limited |

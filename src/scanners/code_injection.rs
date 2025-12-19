@@ -18,6 +18,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use std::time::Instant;
@@ -83,7 +84,14 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing PHP code injection");
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter("code", ScannerType::CommandInjection) {
+            debug!("[Code] Skipping framework/internal parameter: code");
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[Code] Testing PHP code injection (priority: {})",
+              ParameterFilter::get_parameter_priority("code"));
 
         let payloads = vec![
             format!("phpinfo();echo '{}';", self.test_marker),

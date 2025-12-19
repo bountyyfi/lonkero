@@ -46,7 +46,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing XML injection vulnerabilities");
+        info!("[XML] Testing XML injection vulnerabilities");
 
         // Test XML structure injection
         let (vulns, tests) = self.test_xml_structure_injection(url).await?;

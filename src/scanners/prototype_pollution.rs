@@ -52,6 +52,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -116,7 +117,14 @@ impl PrototypePollutionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing __proto__ pollution");
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter("__proto__", ScannerType::Other) {
+            debug!("[Prototype] Skipping framework/internal parameter: __proto__");
+            return Ok((Vec::new(), 0));
+        }
+
+        info!("[Prototype] Testing __proto__ pollution (priority: {})",
+              ParameterFilter::get_parameter_priority("__proto__"));
 
         let payloads = vec![
             format!("__proto__[{}]=polluted", self.test_marker),

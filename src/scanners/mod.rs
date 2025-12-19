@@ -189,6 +189,7 @@ pub use merlin::MerlinScanner;
 pub use tomcat_misconfig::TomcatMisconfigScanner;
 pub use varnish_misconfig::VarnishMisconfigScanner;
 pub use js_sensitive_info::JsSensitiveInfoScanner;
+pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
 pub use rate_limiting::RateLimitingScanner;
 pub use wordpress_security::WordPressSecurityScanner;
 pub use drupal_security::DrupalSecurityScanner;
@@ -279,6 +280,7 @@ pub struct ScanEngine {
     pub tomcat_misconfig_scanner: TomcatMisconfigScanner,
     pub varnish_misconfig_scanner: VarnishMisconfigScanner,
     pub js_sensitive_info_scanner: JsSensitiveInfoScanner,
+    pub client_route_auth_bypass_scanner: ClientRouteAuthBypassScanner,
     pub rate_limiting_scanner: RateLimitingScanner,
     pub wordpress_security_scanner: WordPressSecurityScanner,
     pub drupal_security_scanner: DrupalSecurityScanner,
@@ -458,6 +460,7 @@ impl ScanEngine {
             tomcat_misconfig_scanner: TomcatMisconfigScanner::new(Arc::clone(&http_client)),
             varnish_misconfig_scanner: VarnishMisconfigScanner::new(Arc::clone(&http_client)),
             js_sensitive_info_scanner: JsSensitiveInfoScanner::new(Arc::clone(&http_client)),
+            client_route_auth_bypass_scanner: ClientRouteAuthBypassScanner::new(Arc::clone(&http_client)),
             rate_limiting_scanner: RateLimitingScanner::new(Arc::clone(&http_client)),
             wordpress_security_scanner: WordPressSecurityScanner::new(Arc::clone(&http_client)),
             drupal_security_scanner: DrupalSecurityScanner::new(Arc::clone(&http_client)),
@@ -1015,6 +1018,18 @@ impl ScanEngine {
             all_vulnerabilities.extend(auth_bypass_vulns);
             total_tests += auth_bypass_tests as u64;
             queue.increment_tests(scan_id.clone(), auth_bypass_tests as u64).await?;
+        }
+
+        // Client Route Authorization Bypass Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::CLIENT_ROUTE_AUTH_BYPASS) {
+            info!("[ClientRouteAuth] Testing client-side route authorization bypass");
+            modules_used.push(crate::modules::ids::advanced_scanning::CLIENT_ROUTE_AUTH_BYPASS.to_string());
+            let (client_route_vulns, client_route_tests) = self.client_route_auth_bypass_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(client_route_vulns);
+            total_tests += client_route_tests as u64;
+            queue.increment_tests(scan_id.clone(), client_route_tests as u64).await?;
         }
 
         // Session Management Security Check (Professional+)

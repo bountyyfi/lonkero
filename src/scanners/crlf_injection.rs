@@ -18,6 +18,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -38,10 +39,18 @@ impl CrlfInjectionScanner {
         param_name: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
+            debug!("[CRLF] Skipping framework/internal parameter: {}", param_name);
+            return Ok((Vec::new(), 0));
+        }
+
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing CRLF injection on parameter: {}", param_name);
+        info!("[CRLF] Testing CRLF injection on parameter: {} (priority: {})",
+              param_name,
+              ParameterFilter::get_parameter_priority(param_name));
 
         // Test various CRLF injection payloads
         let payloads = vec![

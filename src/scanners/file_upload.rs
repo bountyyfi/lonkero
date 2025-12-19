@@ -840,22 +840,51 @@ impl FileUploadScanner {
         // Try to determine upload path from response
         let upload_paths = self.extract_upload_paths(&upload_evidence, filename);
 
-        // Try common upload directory patterns
-        let base_url = url.trim_end_matches("/upload")
-            .trim_end_matches("/api/upload")
-            .trim_end_matches("/file/upload")
-            .trim_end_matches("/files/upload")
-            .trim_end_matches("/media/upload")
-            .trim_end_matches("/attachment/upload");
+        // Extract endpoint suffix to derive storage directory
+        // Example: /upload -> try /upload/, /uploads/
+        //          /api/upload -> try /api/upload/, /api/uploads/
+        let base_url = url.trim_end_matches('/');
 
         let test_paths = vec![
             upload_paths.clone(),
             vec![
-                format!("{}/uploads/{}", base_url, filename),
-                format!("{}/files/{}", base_url, filename),
-                format!("{}/media/{}", base_url, filename),
-                format!("{}/static/uploads/{}", base_url, filename),
-                format!("{}/upload/{}", base_url, filename),
+                // Try the upload endpoint itself (e.g., /upload/file.php)
+                format!("{}/{}", base_url, filename),
+                // Try plural version (e.g., /uploads/file.php)
+                format!("{}s/{}", base_url, filename),
+                // Try common directory patterns
+                format!("{}/files/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
+                format!("{}/uploads/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
+                format!("{}/media/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
+                format!("{}/static/uploads/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
             ],
         ].concat();
 
@@ -900,20 +929,48 @@ impl FileUploadScanner {
 
         // Try to access the uploaded file
         let upload_paths = self.extract_upload_paths(&upload_evidence, filename);
-        let base_url = url.trim_end_matches("/upload")
-            .trim_end_matches("/api/upload")
-            .trim_end_matches("/file/upload")
-            .trim_end_matches("/files/upload")
-            .trim_end_matches("/media/upload")
-            .trim_end_matches("/attachment/upload");
+        let base_url = url.trim_end_matches('/');
 
         let test_paths = vec![
             upload_paths.clone(),
             vec![
-                format!("{}/uploads/{}", base_url, filename),
-                format!("{}/files/{}", base_url, filename),
-                format!("{}/media/{}", base_url, filename),
-                format!("{}/static/uploads/{}", base_url, filename),
+                // Try the upload endpoint itself (e.g., /upload/file.svg)
+                format!("{}/{}", base_url, filename),
+                // Try plural version (e.g., /uploads/file.svg)
+                format!("{}s/{}", base_url, filename),
+                // Try common directory patterns
+                format!("{}/files/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
+                format!("{}/uploads/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
+                format!("{}/media/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
+                format!("{}/static/uploads/{}",
+                    base_url.trim_end_matches("/upload")
+                            .trim_end_matches("/api/upload")
+                            .trim_end_matches("/file/upload")
+                            .trim_end_matches("/files/upload")
+                            .trim_end_matches("/media/upload")
+                            .trim_end_matches("/attachment/upload"),
+                    filename),
             ],
         ].concat();
 

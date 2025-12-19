@@ -118,15 +118,45 @@ impl ApiFuzzerScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    let api_type = self.detect_api_type(&response.body, &response.headers);
-                    if api_type != ApiType::None {
-                        info!("Detected {} API at: {}", api_type.as_str(), test_url);
-                        endpoints.push(ApiEndpoint {
-                            url: test_url,
-                            api_type,
-                            methods: vec!["GET".to_string()],
-                        });
+                    // CRITICAL: Only detect API type if endpoint actually exists (not 404)
+                    // 404 responses with JSON bodies ({"statusCode":404,"message":"Cannot GET ..."})
+                    // should NOT be detected as REST APIs
+                    if response.status_code >= 200 && response.status_code < 300 {
+                        // 2xx success - endpoint exists and returned data
+                        let api_type = self.detect_api_type(&response.body, &response.headers);
+                        if api_type != ApiType::None {
+                            info!("Detected {} API at: {}", api_type.as_str(), test_url);
+                            endpoints.push(ApiEndpoint {
+                                url: test_url,
+                                api_type,
+                                methods: vec!["GET".to_string()],
+                            });
+                        }
+                    } else if response.status_code == 401 || response.status_code == 403 {
+                        // 401/403 - endpoint exists but requires auth
+                        let api_type = self.detect_api_type(&response.body, &response.headers);
+                        if api_type != ApiType::None {
+                            info!("Detected {} API at: {} (requires authentication)", api_type.as_str(), test_url);
+                            endpoints.push(ApiEndpoint {
+                                url: test_url,
+                                api_type,
+                                methods: vec!["GET".to_string()],
+                            });
+                        }
+                    } else if response.status_code == 405 {
+                        // 405 Method Not Allowed - endpoint exists but GET not supported
+                        // Try to detect API type anyway since endpoint clearly exists
+                        let api_type = self.detect_api_type(&response.body, &response.headers);
+                        if api_type != ApiType::None {
+                            info!("Detected {} API at: {} (GET not allowed)", api_type.as_str(), test_url);
+                            endpoints.push(ApiEndpoint {
+                                url: test_url,
+                                api_type,
+                                methods: vec!["POST".to_string()], // Assume POST works
+                            });
+                        }
                     }
+                    // 404, 500, etc - endpoint doesn't exist or error, skip
                 }
                 Err(e) => {
                     debug!("Failed to probe {}: {}", test_url, e);

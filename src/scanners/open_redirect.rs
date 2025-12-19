@@ -25,6 +25,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use futures::stream::{self, StreamExt};
 use regex::Regex;
@@ -916,6 +917,12 @@ impl OpenRedirectScanner {
         }
         if !crate::signing::is_scan_authorized() {
             tracing::warn!("Open redirect scan blocked: No valid scan authorization");
+            return Ok((Vec::new(), 0));
+        }
+
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
+            debug!("[OpenRedirect] Skipping framework/internal parameter: {}", param_name);
             return Ok((Vec::new(), 0));
         }
 

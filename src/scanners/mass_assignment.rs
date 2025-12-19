@@ -149,7 +149,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing role escalation via mass assignment");
+        info!("[Mass] Testing role escalation via mass assignment");
 
         let dangerous_params = vec![
             ("role", "admin"),
