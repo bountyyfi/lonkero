@@ -12,17 +12,17 @@ impl ParameterFilter {
 
         // ALWAYS skip these (framework internals) - uses substring matching
         let framework_internals_substring = [
-            // Apollo/GraphQL internals
-            "_apollo", "apollodata", "apolloprovider", "apollopromise",
+            // Apollo/GraphQL internals (all variations)
+            "_apollo", "apollodata", "apolloprovider", "apollopromise", "apolloutil",
             "__typename", "__schema", "__type", "_meta", "_debug", "_trace",
             "graphql", "operationname", "variables", "extensions",
             // Vue/Nuxt/React internals
             "vnode", "vuesignature", "ssrcontext", "prefetch", "watchloading",
             "_previousdata", "forceupdate", "checkoutparams",
-            "getmetahtml", "handleerror",
+            "getmetahtml", "handleerror", "scopedslots",
             // Sentry tracking
             "_sentryrootspan", "_sentryspans", "_times",
-            // Service/DI patterns (ends with Service)
+            // Service/DI patterns
             "service",
             // Internal framework flags
             "skipall", "skipallqueries", "skipallsubscriptions",
