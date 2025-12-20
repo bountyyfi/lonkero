@@ -369,7 +369,7 @@ async fn async_main(cli: Cli) -> Result<()> {
 fn determine_requested_modules(skip: &[String], only: &[String]) -> Vec<String> {
     let all_modules = module_ids::get_all_module_ids();
 
-    let result = if !only.is_empty() {
+    let result: Vec<String> = if !only.is_empty() {
         // Only request specific modules
         let only_set: HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
         all_modules
