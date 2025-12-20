@@ -364,10 +364,12 @@ async fn async_main(cli: Cli) -> Result<()> {
 ///
 /// If `only` is specified, only those modules are requested.
 /// Otherwise, all modules are requested except those in `skip`.
+///
+/// WARNING: If the resulting list is empty, only FREE tier modules will be authorized.
 fn determine_requested_modules(skip: &[String], only: &[String]) -> Vec<String> {
     let all_modules = module_ids::get_all_module_ids();
 
-    if !only.is_empty() {
+    let result = if !only.is_empty() {
         // Only request specific modules
         let only_set: HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
         all_modules
@@ -386,7 +388,14 @@ fn determine_requested_modules(skip: &[String], only: &[String]) -> Vec<String> 
     } else {
         // Request all modules
         all_modules.into_iter().map(|s| s.to_string()).collect()
+    };
+
+    // Warn if the filter resulted in an empty list
+    if result.is_empty() && !only.is_empty() {
+        warn!("[Auth] No modules matched --only filter {:?}. Only FREE tier modules will be authorized.", only);
     }
+
+    result
 }
 
 /// Verify license and authorize scan before starting
