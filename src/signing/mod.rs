@@ -204,6 +204,49 @@ impl ScanToken {
     pub fn is_module_authorized(&self, module_id: &str) -> bool {
         self.authorized_modules.iter().any(|m| m == module_id)
     }
+
+    /// Filter a list of modules to only include those authorized by the server
+    ///
+    /// This is a defensive check to ensure only authorized modules are used.
+    /// Returns a tuple of (authorized_modules, denied_modules) for logging.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let modules = vec!["sqli_scanner", "xss_scanner", "wordpress_scanner"];
+    /// let token = license_client.authorize_scan(&targets, &modules).await?;
+    ///
+    /// // Defensive: Only use modules the server authorized
+    /// let (approved, denied) = token.filter_modules(&modules);
+    /// if !denied.is_empty() {
+    ///     warn!("Modules not authorized: {:?}", denied);
+    /// }
+    /// // Use only approved modules
+    /// ```
+    pub fn filter_modules<'a>(&self, requested: &[&'a str]) -> (Vec<&'a str>, Vec<&'a str>) {
+        let mut approved = Vec::new();
+        let mut denied = Vec::new();
+
+        for module in requested {
+            if self.is_module_authorized(module) {
+                approved.push(*module);
+            } else {
+                denied.push(*module);
+            }
+        }
+
+        (approved, denied)
+    }
+
+    /// Get a list of modules that were requested but not authorized
+    ///
+    /// Useful for logging which modules were denied by the server.
+    pub fn get_denied_modules(&self, requested: &[String]) -> Vec<String> {
+        requested
+            .iter()
+            .filter(|m| !self.is_module_authorized(m))
+            .cloned()
+            .collect()
+    }
 }
 
 /// Complete signature attached to a report
