@@ -696,18 +696,23 @@ impl ScanEngine {
                     break;
                 }
 
-                // XSS Testing
-                let (xss_vulns, xss_tests) = self.xss_scanner
-                    .scan_parameter(&target, param_name, &config)
-                    .await?;
-                all_vulnerabilities.extend(xss_vulns);
-                total_tests += xss_tests as u64;
+                // XSS Testing (Professional+)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
+                    let (xss_vulns, xss_tests) = self.xss_scanner
+                        .scan_parameter(&target, param_name, &config)
+                        .await?;
+                    all_vulnerabilities.extend(xss_vulns);
+                    total_tests += xss_tests as u64;
+                    modules_used.push(crate::modules::ids::advanced_scanning::XSS_SCANNER.to_string());
 
-                // Update progress
-                queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+                    // Update progress
+                    queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+                }
 
-                // SQLi Testing (skip if CDN protected) - Unified scanner with all techniques
-                if !self.should_skip_scanner("sqli", &cdn_info) {
+                // SQLi Testing (Professional+, skip if CDN protected)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SQLI_SCANNER)
+                    && !self.should_skip_scanner("sqli", &cdn_info)
+                {
                     let (sqli_vulns, sqli_tests) = self.sqli_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
@@ -716,8 +721,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), sqli_tests as u64).await?;
                 }
 
-                // Command Injection Testing (skip if CDN protected)
-                if !self.should_skip_scanner("command_injection", &cdn_info) {
+                // Command Injection Testing (Professional+, skip if CDN protected)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::COMMAND_INJECTION)
+                    && !self.should_skip_scanner("command_injection", &cdn_info)
+                {
                     let (cmdi_vulns, cmdi_tests) = self.cmdi_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
@@ -727,8 +734,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), cmdi_tests as u64).await?;
                 }
 
-                // Path Traversal Testing (skip if CDN protected)
-                if !self.should_skip_scanner("path_traversal", &cdn_info) {
+                // Path Traversal Testing (Professional+, skip if CDN protected)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::PATH_TRAVERSAL)
+                    && !self.should_skip_scanner("path_traversal", &cdn_info)
+                {
                     let (path_vulns, path_tests) = self.path_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
@@ -738,25 +747,31 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), path_tests as u64).await?;
                 }
 
-                // SSRF Testing
-                let (ssrf_vulns, ssrf_tests) = self.ssrf_scanner
-                    .scan_parameter(&target, param_name, &config)
-                    .await?;
-                all_vulnerabilities.extend(ssrf_vulns);
-                total_tests += ssrf_tests as u64;
+                // SSRF Testing (Professional+)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SSRF_SCANNER) {
+                    let (ssrf_vulns, ssrf_tests) = self.ssrf_scanner
+                        .scan_parameter(&target, param_name, &config)
+                        .await?;
+                    all_vulnerabilities.extend(ssrf_vulns);
+                    total_tests += ssrf_tests as u64;
 
-                queue.increment_tests(scan_id.clone(), ssrf_tests as u64).await?;
+                    queue.increment_tests(scan_id.clone(), ssrf_tests as u64).await?;
+                }
 
-                // Blind SSRF with OOB Callback Testing
-                let (ssrf_blind_vulns, ssrf_blind_tests) = self.ssrf_blind_scanner
-                    .scan_parameter(&target, param_name, &config)
-                    .await?;
-                all_vulnerabilities.extend(ssrf_blind_vulns);
-                total_tests += ssrf_blind_tests as u64;
-                queue.increment_tests(scan_id.clone(), ssrf_blind_tests as u64).await?;
+                // Blind SSRF with OOB Callback Testing (Professional+)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SSRF_BLIND) {
+                    let (ssrf_blind_vulns, ssrf_blind_tests) = self.ssrf_blind_scanner
+                        .scan_parameter(&target, param_name, &config)
+                        .await?;
+                    all_vulnerabilities.extend(ssrf_blind_vulns);
+                    total_tests += ssrf_blind_tests as u64;
+                    queue.increment_tests(scan_id.clone(), ssrf_blind_tests as u64).await?;
+                }
 
-                // NoSQL Injection Testing (skip if CDN protected)
-                if !self.should_skip_scanner("nosql", &cdn_info) {
+                // NoSQL Injection Testing (Professional+, skip if CDN protected)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::NOSQL_SCANNER)
+                    && !self.should_skip_scanner("nosql", &cdn_info)
+                {
                     let (nosql_vulns, nosql_tests) = self.nosql_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
@@ -766,8 +781,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), nosql_tests as u64).await?;
                 }
 
-                // XXE Testing (skip if CDN protected)
-                if !self.should_skip_scanner("xxe", &cdn_info) {
+                // XXE Testing (Professional+, skip if CDN protected)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XXE_SCANNER)
+                    && !self.should_skip_scanner("xxe", &cdn_info)
+                {
                     let (xxe_vulns, xxe_tests) = self.xxe_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
@@ -777,14 +794,16 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), xxe_tests as u64).await?;
                 }
 
-                // ReDoS Testing
-                let (redos_vulns, redos_tests) = self.redos_scanner
-                    .scan_parameter(&target, param_name, &config)
-                    .await?;
-                all_vulnerabilities.extend(redos_vulns);
-                total_tests += redos_tests as u64;
+                // ReDoS Testing (Professional+)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::REDOS_SCANNER) {
+                    let (redos_vulns, redos_tests) = self.redos_scanner
+                        .scan_parameter(&target, param_name, &config)
+                        .await?;
+                    all_vulnerabilities.extend(redos_vulns);
+                    total_tests += redos_tests as u64;
 
-                queue.increment_tests(scan_id.clone(), redos_tests as u64).await?;
+                    queue.increment_tests(scan_id.clone(), redos_tests as u64).await?;
+                }
             }
         }
 
@@ -828,16 +847,20 @@ impl ScanEngine {
                         break;
                     }
 
-                    // XSS on API endpoint
-                    let (xss_vulns, xss_tests) = self.xss_scanner
-                        .scan_parameter(&full_url, param, &config)
-                        .await?;
-                    all_vulnerabilities.extend(xss_vulns);
-                    total_tests += xss_tests as u64;
-                    queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+                    // XSS on API endpoint (Professional+)
+                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
+                        let (xss_vulns, xss_tests) = self.xss_scanner
+                            .scan_parameter(&full_url, param, &config)
+                            .await?;
+                        all_vulnerabilities.extend(xss_vulns);
+                        total_tests += xss_tests as u64;
+                        queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+                    }
 
-                    // SQLi on API endpoint
-                    if !self.should_skip_scanner("sqli", &cdn_info) {
+                    // SQLi on API endpoint (Professional+)
+                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SQLI_SCANNER)
+                        && !self.should_skip_scanner("sqli", &cdn_info)
+                    {
                         let (sqli_vulns, sqli_tests) = self.sqli_scanner
                             .scan_parameter(&full_url, param, &config)
                             .await?;
@@ -853,12 +876,15 @@ impl ScanEngine {
                         break;
                     }
 
-                    let (xss_vulns, xss_tests) = self.xss_scanner
-                        .scan_parameter(&full_url, param, &config)
-                        .await?;
-                    all_vulnerabilities.extend(xss_vulns);
-                    total_tests += xss_tests as u64;
-                    queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+                    // XSS on API endpoint (Professional+)
+                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
+                        let (xss_vulns, xss_tests) = self.xss_scanner
+                            .scan_parameter(&full_url, param, &config)
+                            .await?;
+                        all_vulnerabilities.extend(xss_vulns);
+                        total_tests += xss_tests as u64;
+                        queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+                    }
                 }
             }
         }
