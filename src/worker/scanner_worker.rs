@@ -23,6 +23,7 @@ use uuid::Uuid;
 use crate::database::Database;
 use crate::errors::ScannerError;
 use crate::metrics::MetricsCollector;
+use crate::modules::ids as module_ids;
 use crate::types::ScanResults;
 
 /// Worker configuration
@@ -354,18 +355,26 @@ impl ScannerWorker {
         // This check ensures banned users cannot scan through the worker.
         // Authorization must have been obtained before job processing.
         // STRICT MODE: No offline fallback - server authorization required.
+        //
+        // CRITICAL: We must pass the modules array to get authorization for
+        // paid modules. Without it, only FREE tier modules are granted.
         if !crate::signing::is_scan_authorized() {
+            // Determine which modules this job requires
+            let requested_modules = self.get_modules_for_job(job);
+
             // Attempt to authorize for this job
             let hardware_id = crate::signing::get_hardware_id();
+            info!("Authorizing scan for job {} with {} modules", job.job_id, requested_modules.len());
             match crate::signing::authorize_scan(
                 1,
                 &hardware_id,
                 None,
                 Some(env!("CARGO_PKG_VERSION")),
-                vec![],
+                requested_modules,
             ).await {
-                Ok(_token) => {
-                    info!("Scan authorized for worker job: {}", job.job_id);
+                Ok(token) => {
+                    info!("Scan authorized for worker job {}: {} license, {} modules authorized",
+                        job.job_id, token.license_type, token.authorized_modules.len());
                 }
                 Err(crate::signing::SigningError::Banned(reason)) => {
                     error!("SCAN BLOCKED: Worker is banned - {}", reason);
@@ -491,6 +500,71 @@ impl ScannerWorker {
         // (This would be done via API call in practice)
 
         Ok(())
+    }
+
+    /// Determine which modules are needed for a scan job
+    ///
+    /// Maps job scan_type to specific module IDs, and also checks
+    /// the job config for any additional module specifications.
+    fn get_modules_for_job(&self, job: &ScanJob) -> Vec<String> {
+        let mut modules = Vec::new();
+
+        // Map scan_type to module ID
+        match job.scan_type.as_str() {
+            "xss" => modules.push(module_ids::advanced_scanning::XSS_SCANNER.to_string()),
+            "sqli" => modules.push(module_ids::advanced_scanning::SQLI_SCANNER.to_string()),
+            "ssrf" => modules.push(module_ids::advanced_scanning::SSRF_SCANNER.to_string()),
+            "lfi" | "path_traversal" => modules.push(module_ids::advanced_scanning::PATH_TRAVERSAL.to_string()),
+            "rce" | "command_injection" => modules.push(module_ids::advanced_scanning::COMMAND_INJECTION.to_string()),
+            "xxe" => modules.push(module_ids::advanced_scanning::XXE_SCANNER.to_string()),
+            "ssti" => modules.push(module_ids::advanced_scanning::SSTI_SCANNER.to_string()),
+            "nosql" => modules.push(module_ids::advanced_scanning::NOSQL_SCANNER.to_string()),
+            "csrf" => modules.push(module_ids::advanced_scanning::CSRF_SCANNER.to_string()),
+            "cors" => modules.push(module_ids::advanced_scanning::CORS_MISCONFIG.to_string()),
+            "graphql" => modules.push(module_ids::advanced_scanning::GRAPHQL_SCANNER.to_string()),
+            "jwt" => modules.push(module_ids::advanced_scanning::JWT_SCANNER.to_string()),
+            "wordpress" => modules.push(module_ids::cms_security::WORDPRESS_SCANNER.to_string()),
+            "drupal" => modules.push(module_ids::cms_security::DRUPAL_SCANNER.to_string()),
+            "full" | "comprehensive" => {
+                // Full scan - request all modules
+                return module_ids::get_all_module_ids()
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect();
+            }
+            _ => {
+                // Unknown scan type - request all modules for flexibility
+                warn!("Unknown scan type '{}', requesting all modules", job.scan_type);
+                return module_ids::get_all_module_ids()
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect();
+            }
+        }
+
+        // Check job config for additional modules
+        if let Some(config_modules) = job.config.get("modules").and_then(|v| v.as_array()) {
+            for module_val in config_modules {
+                if let Some(module_id) = module_val.as_str() {
+                    if !modules.contains(&module_id.to_string()) {
+                        modules.push(module_id.to_string());
+                    }
+                }
+            }
+        }
+
+        // Always include free tier modules as they're commonly needed
+        for free_module in &[
+            module_ids::free::HTTP_HEADERS,
+            module_ids::free::SECURITY_HEADERS,
+            module_ids::free::SSL_CHECKER,
+        ] {
+            if !modules.contains(&free_module.to_string()) {
+                modules.push(free_module.to_string());
+            }
+        }
+
+        modules
     }
 
     /// Get IP address

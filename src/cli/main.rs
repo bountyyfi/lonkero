@@ -24,10 +24,13 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn, Level};
 
+use std::collections::HashSet;
+
 use lonkero_scanner::config::ScannerConfig;
 use lonkero_scanner::detection_helpers::detect_technology;
 use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
+use lonkero_scanner::modules::ids as module_ids;
 use lonkero_scanner::scanners::ScanEngine;
 use lonkero_scanner::signing::{self, SigningError, ScanToken};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults};
@@ -296,12 +299,30 @@ async fn async_main(cli: Cli) -> Result<()> {
             rate_limit,
             no_rate_limit,
         } => {
+            // Determine which modules to request authorization for
+            // CRITICAL: The modules array is now REQUIRED for paid modules.
+            // Without it, the server only grants FREE tier modules (8 modules).
+            let requested_modules = determine_requested_modules(&skip, &only);
+
             // Verify license AND authorize scan before proceeding
             // Ban check happens during authorization - banned users are blocked here
-            let (license_status, _scan_token) = verify_license_before_scan(
+            let (license_status, scan_token) = verify_license_before_scan(
                 cli.license_key.as_deref(),
                 targets.len(),
+                requested_modules,
             ).await?;
+
+            // Log authorized modules and check for denied modules
+            info!("[Auth] {} modules authorized by server", scan_token.authorized_modules.len());
+
+            // Defensive check: warn if any requested modules were denied
+            let denied = scan_token.get_denied_modules(&determine_requested_modules(&skip, &only));
+            if !denied.is_empty() {
+                warn!("[Auth] {} modules were not authorized: {:?}",
+                    denied.len(),
+                    if denied.len() <= 5 { &denied[..] } else { &denied[..5] }
+                );
+            }
 
             run_scan(
                 targets,
@@ -339,6 +360,44 @@ async fn async_main(cli: Cli) -> Result<()> {
     }
 }
 
+/// Determine which modules to request authorization for
+///
+/// If `only` is specified, only those modules are requested.
+/// Otherwise, all modules are requested except those in `skip`.
+///
+/// WARNING: If the resulting list is empty, only FREE tier modules will be authorized.
+fn determine_requested_modules(skip: &[String], only: &[String]) -> Vec<String> {
+    let all_modules = module_ids::get_all_module_ids();
+
+    let result = if !only.is_empty() {
+        // Only request specific modules
+        let only_set: HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
+        all_modules
+            .into_iter()
+            .filter(|m| only_set.contains(*m))
+            .map(|s| s.to_string())
+            .collect()
+    } else if !skip.is_empty() {
+        // Request all modules except skipped ones
+        let skip_set: HashSet<&str> = skip.iter().map(|s| s.as_str()).collect();
+        all_modules
+            .into_iter()
+            .filter(|m| !skip_set.contains(*m))
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        // Request all modules
+        all_modules.into_iter().map(|s| s.to_string()).collect()
+    };
+
+    // Warn if the filter resulted in an empty list
+    if result.is_empty() && !only.is_empty() {
+        warn!("[Auth] No modules matched --only filter {:?}. Only FREE tier modules will be authorized.", only);
+    }
+
+    result
+}
+
 /// Verify license and authorize scan before starting
 ///
 /// This function performs two critical checks:
@@ -347,9 +406,15 @@ async fn async_main(cli: Cli) -> Result<()> {
 ///
 /// Both must pass for scanning to proceed. Banned users are
 /// rejected at the authorization stage - they cannot scan.
+///
+/// # Arguments
+/// * `license_key` - Optional license key for premium features
+/// * `target_count` - Number of targets to scan
+/// * `requested_modules` - List of module IDs to request authorization for
 async fn verify_license_before_scan(
     license_key: Option<&str>,
     target_count: usize,
+    requested_modules: Vec<String>,
 ) -> Result<(LicenseStatus, ScanToken)> {
     // Check if this appears to be commercial use (heuristic)
     let is_commercial = std::env::var("CI").is_ok()
@@ -380,19 +445,21 @@ async fn verify_license_before_scan(
 
     // Step 2: Authorize scan (ban check happens here!)
     // This is where banned users are blocked from scanning.
+    // CRITICAL: We now pass the modules array so the server knows which
+    // modules we intend to use. Without this, only FREE tier modules are granted.
     let hardware_id = signing::get_hardware_id();
 
-    info!("Authorizing scan...");
+    info!("Authorizing scan with {} requested modules...", requested_modules.len());
     let scan_token = match signing::authorize_scan(
         target_count as u32,
         &hardware_id,
         license_key,
         Some(env!("CARGO_PKG_VERSION")),
-        vec![],
+        requested_modules,
     ).await {
         Ok(token) => {
-            info!("[OK] Scan authorized: {} license, max {} targets",
-                token.license_type, token.max_targets);
+            info!("[OK] Scan authorized: {} license, max {} targets, {} modules authorized",
+                token.license_type, token.max_targets, token.authorized_modules.len());
             token
         }
         Err(SigningError::Banned(reason)) => {
