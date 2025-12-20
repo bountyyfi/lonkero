@@ -841,7 +841,10 @@ impl FileUploadScanner {
         let upload_paths = self.extract_upload_paths(&upload_evidence, filename);
 
         // Log the upload response to help debug path issues
-        debug!("Upload response: {}", &upload_evidence[..upload_evidence.len().min(500)]);
+        info!("Upload accepted. Response body: {}", &upload_evidence[..upload_evidence.len().min(300)]);
+        if !upload_paths.is_empty() {
+            info!("Extracted upload paths from response: {:?}", upload_paths);
+        }
 
         // Extract endpoint suffix to derive storage directory
         // Example: /upload -> try /upload/, /uploads/

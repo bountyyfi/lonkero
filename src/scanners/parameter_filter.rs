@@ -10,21 +10,45 @@ impl ParameterFilter {
     pub fn should_skip_parameter(param_name: &str, scanner_type: ScannerType) -> bool {
         let param_lower = param_name.to_lowercase();
 
-        // ALWAYS skip these (framework internals)
-        let framework_internals = [
-            "_apollo", "apollodata", "_apolloinitdata", "vnode", "mount",
-            "wrapper", "isdayjs", "ed25519", "vuesignature", "bugreportservice",
-            "signatureservice", "fileservice", "servicegenerator", "servicetype",
-            "_sentryrootspan", "_times", "skipall", "skipallqueries", "skipallsubscriptions",
-            "intersection", "pagination", "spectrum", "palette", "loadingkey",
-            "forceupdate", "checkoutparams", "i18n", "locale", "live", "normal",
+        // ALWAYS skip these (framework internals) - uses substring matching
+        let framework_internals_substring = [
+            // Apollo/GraphQL internals
+            "_apollo", "apollodata", "apolloprovider", "apollopromise",
             "__typename", "__schema", "__type", "_meta", "_debug", "_trace",
             "graphql", "operationname", "variables", "extensions",
+            // Vue/Nuxt/React internals
+            "vnode", "vuesignature", "ssrcontext", "prefetch", "watchloading",
+            "_previousdata", "forceupdate", "checkoutparams",
+            "getmetahtml", "handleerror",
+            // Sentry tracking
+            "_sentryrootspan", "_sentryspans", "_times",
+            // Service/DI patterns (ends with Service)
+            "service",
+            // Internal framework flags
+            "skipall", "skipallqueries", "skipallsubscriptions",
+            // Crypto libraries
+            "ed25519", "elliptic", "secp256k1",
         ];
 
-        for internal in &framework_internals {
+        for internal in &framework_internals_substring {
             if param_lower.contains(internal) {
-                debug!("[ParameterFilter] Skipping framework internal: {}", param_name);
+                debug!("[ParameterFilter] Skipping framework internal (substring): {}", param_name);
+                return true; // SKIP
+            }
+        }
+
+        // Exact match only (to avoid false positives like "locality" matching "local")
+        let framework_internals_exact = [
+            "apollo", "wrapper", "mount", "morph", "tune", "spectrum", "palette",
+            "loadingkey", "maxdepth", "maxheight", "row", "offset", "after",
+            "i18n", "locale", "live", "normal", "alarm", "archived", "info",
+            "_key", "_sub", "q", "col", "app", "type", "sort", "sortby",
+            "hasnormal", "vnode", "wrapper",
+        ];
+
+        for internal in &framework_internals_exact {
+            if param_lower == *internal {
+                debug!("[ParameterFilter] Skipping framework internal (exact): {}", param_name);
                 return true; // SKIP
             }
         }
