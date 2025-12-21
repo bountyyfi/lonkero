@@ -2474,6 +2474,7 @@ async fn execute_standalone_scan(
             scan_duration_ms: Some(elapsed.as_millis() as u64),
         }),
         Some(findings_summary),
+        Some(vec![target.to_string()]),
     ).await {
         Ok(signature) => {
             info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);

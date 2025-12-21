@@ -938,6 +938,7 @@ impl ScanEngine {
                         scan_duration_ms: Some(elapsed.as_millis() as u64),
                     }),
                     Some(findings_summary),
+                    Some(vec![job.target.clone()]),
                 ).await {
                     Ok(signature) => {
                         results.quantum_signature = Some(signature);
@@ -1906,6 +1907,7 @@ impl ScanEngine {
                 scan_duration_ms: Some(elapsed.as_millis() as u64),
             }),
             Some(findings_summary),
+            Some(vec![job.target.clone()]),
         ).await {
             Ok(signature) => {
                 info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);

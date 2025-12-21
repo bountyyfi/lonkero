@@ -167,6 +167,9 @@ struct SignRequest {
     /// PRIVACY-SAFE: Aggregate findings summary (only counts, no URLs or details)
     #[serde(skip_serializing_if = "Option::is_none")]
     findings_summary: Option<FindingsSummary>,
+    /// SHA-256 hashes of scanned targets for verification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_hashes: Option<Vec<String>>,
 }
 
 /// Response from signing endpoint
@@ -579,6 +582,7 @@ pub async fn authorize_scan(
 /// * `modules_used` - List of module IDs that were actually used during the scan
 /// * `metadata` - Optional scan metadata for audit purposes
 /// * `findings_summary` - Optional privacy-safe aggregate findings counts (no URLs or details)
+/// * `targets` - Optional list of target URLs to be hashed with SHA-256 for verification
 ///
 /// # Returns
 /// * `Ok(ReportSignature)` - Signature created successfully
@@ -589,6 +593,7 @@ pub async fn sign_results(
     modules_used: Vec<String>,
     metadata: Option<ScanMetadata>,
     findings_summary: Option<FindingsSummary>,
+    targets: Option<Vec<String>>,
 ) -> Result<ReportSignature, SigningError> {
     // Validate hash format: 64 hex chars, lowercase
     if !is_valid_blake3_hash(results_hash) {
@@ -616,6 +621,17 @@ pub async fn sign_results(
         findings_summary.as_ref().map(|f| f.total).unwrap_or(0)
     );
 
+    // Compute SHA-256 hashes of target URLs if provided
+    let target_hashes = targets.map(|urls| {
+        urls.iter()
+            .map(|url| {
+                let mut hasher = Sha256::new();
+                hasher.update(url.as_bytes());
+                format!("{:x}", hasher.finalize())
+            })
+            .collect::<Vec<String>>()
+    });
+
     let request = SignRequest {
         results_hash: results_hash.to_string(),
         scan_token: scan_token.token.clone(),
@@ -626,6 +642,7 @@ pub async fn sign_results(
         modules_used,
         scan_metadata: metadata,
         findings_summary,
+        target_hashes,
     };
 
     let client = reqwest::Client::builder()

@@ -465,6 +465,7 @@ impl ScannerWorker {
                         scan_duration_ms: Some(elapsed.as_millis() as u64),
                     }),
                     Some(findings_summary),
+                    Some(vec![job.target.clone()]),
                 ).await {
                     Ok(signature) => {
                         info!("[SIGNED] Worker results signed with: {}", signature.algorithm);
