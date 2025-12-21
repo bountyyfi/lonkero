@@ -452,6 +452,9 @@ impl ScannerWorker {
             let elapsed = start_time.elapsed();
 
             if let Ok(results_hash) = crate::signing::hash_results(&results) {
+                // Collect privacy-safe findings summary (only counts, no URLs or details)
+                let findings_summary = crate::signing::FindingsSummary::from_vulnerabilities(&results.vulnerabilities);
+
                 match crate::signing::sign_results(
                     &results_hash,
                     &token,
@@ -461,6 +464,7 @@ impl ScannerWorker {
                         scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
                         scan_duration_ms: Some(elapsed.as_millis() as u64),
                     }),
+                    Some(findings_summary),
                 ).await {
                     Ok(signature) => {
                         info!("[SIGNED] Worker results signed with: {}", signature.algorithm);

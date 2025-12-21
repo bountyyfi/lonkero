@@ -2461,6 +2461,9 @@ async fn execute_standalone_scan(
     let results_hash = signing::hash_results(&results)
         .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
 
+    // Collect privacy-safe findings summary (only counts, no URLs or details)
+    let findings_summary = signing::FindingsSummary::from_vulnerabilities(&results.vulnerabilities);
+
     match signing::sign_results(
         &results_hash,
         &scan_token,
@@ -2470,6 +2473,7 @@ async fn execute_standalone_scan(
             scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             scan_duration_ms: Some(elapsed.as_millis() as u64),
         }),
+        Some(findings_summary),
     ).await {
         Ok(signature) => {
             info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);
