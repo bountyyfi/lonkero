@@ -15,15 +15,28 @@
 //! // Step 2: Perform the actual scan
 //! let results = perform_scan(targets).await?;
 //!
-//! // Step 3: Hash and sign results
+//! // Step 3: Hash and sign results with privacy-safe findings summary
 //! let results_hash = hash_results(&results)?;
-//! let signature = sign_results(&results_hash, &scan_token, metadata).await?;
+//! let findings_summary = FindingsSummary::from_vulnerabilities(&results.vulnerabilities);
+//! let signature = sign_results(&results_hash, &scan_token, modules_used, metadata, Some(findings_summary)).await?;
 //! ```
+//!
+//! ## Privacy-Safe Findings Summary
+//! The `FindingsSummary` struct contains ONLY aggregate counts:
+//! - Total number of findings
+//! - Counts by severity level (critical, high, medium, low, info)
+//! - Counts by module/category name
+//!
+//! **NO sensitive data is included:**
+//! - No target URLs
+//! - No vulnerability details or payloads
+//! - No parameters or evidence
 
 use blake3::Hasher;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -151,6 +164,9 @@ struct SignRequest {
     /// Optional scan metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     scan_metadata: Option<ScanMetadata>,
+    /// PRIVACY-SAFE: Aggregate findings summary (only counts, no URLs or details)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    findings_summary: Option<FindingsSummary>,
 }
 
 /// Response from signing endpoint
@@ -276,6 +292,68 @@ pub struct ScanMetadata {
     /// Scan duration in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scan_duration_ms: Option<u64>,
+}
+
+/// PRIVACY-SAFE: Only aggregate counts, NO target URLs or finding details
+///
+/// This summary is sent to the signing server for telemetry purposes.
+/// It contains only statistical counts - no sensitive information like
+/// target URLs, payloads, or vulnerability descriptions.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FindingsSummary {
+    /// Total number of findings (just a count)
+    pub total: u32,
+    /// Counts by severity level (no details)
+    pub by_severity: SeverityCounts,
+    /// Counts by module name (no target info)
+    pub by_module: HashMap<String, u32>,
+}
+
+impl FindingsSummary {
+    /// Normalize module/category name for consistent grouping
+    fn normalize_module_name(name: &str) -> String {
+        name.trim().to_lowercase()
+    }
+
+    /// Collect ONLY counts from vulnerabilities - no URLs, no finding content
+    pub fn from_vulnerabilities(vulnerabilities: &[crate::types::Vulnerability]) -> Self {
+        let mut summary = Self::default();
+
+        for vuln in vulnerabilities {
+            summary.total += 1;
+            summary.by_severity.increment(&vuln.severity);
+            // ONLY normalized category/type, NOT target URL or payload
+            let module_name = Self::normalize_module_name(&vuln.category);
+            *summary.by_module.entry(module_name).or_insert(0) += 1;
+        }
+
+        summary
+    }
+}
+
+/// Counts by severity level for findings summary
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SeverityCounts {
+    pub critical: u32,
+    pub high: u32,
+    pub medium: u32,
+    pub low: u32,
+    pub info: u32,
+}
+
+impl SeverityCounts {
+    /// Increment the appropriate severity counter
+    pub fn increment(&mut self, severity: &crate::types::Severity) {
+        match severity {
+            crate::types::Severity::Critical => self.critical += 1,
+            crate::types::Severity::High => self.high += 1,
+            crate::types::Severity::Medium => self.medium += 1,
+            crate::types::Severity::Low => self.low += 1,
+            crate::types::Severity::Info => self.info += 1,
+        }
+    }
 }
 
 // ============ PUBLIC FUNCTIONS ============
@@ -500,6 +578,7 @@ pub async fn authorize_scan(
 /// * `scan_token` - Token from authorize_scan()
 /// * `modules_used` - List of module IDs that were actually used during the scan
 /// * `metadata` - Optional scan metadata for audit purposes
+/// * `findings_summary` - Optional privacy-safe aggregate findings counts (no URLs or details)
 ///
 /// # Returns
 /// * `Ok(ReportSignature)` - Signature created successfully
@@ -509,6 +588,7 @@ pub async fn sign_results(
     scan_token: &ScanToken,
     modules_used: Vec<String>,
     metadata: Option<ScanMetadata>,
+    findings_summary: Option<FindingsSummary>,
 ) -> Result<ReportSignature, SigningError> {
     // Validate hash format: 64 hex chars, lowercase
     if !is_valid_blake3_hash(results_hash) {
@@ -530,7 +610,11 @@ pub async fn sign_results(
 
     let nonce = generate_nonce();
 
-    debug!("[Sign] Signing with {} modules used", modules_used.len());
+    debug!(
+        "[Sign] Signing with {} modules used, findings_summary: {}",
+        modules_used.len(),
+        findings_summary.as_ref().map(|f| f.total).unwrap_or(0)
+    );
 
     let request = SignRequest {
         results_hash: results_hash.to_string(),
@@ -541,6 +625,7 @@ pub async fn sign_results(
         nonce,
         modules_used,
         scan_metadata: metadata,
+        findings_summary,
     };
 
     let client = reqwest::Client::builder()
@@ -755,5 +840,229 @@ mod tests {
         let nonce = generate_nonce();
         assert!(!nonce.starts_with("local_"));
         assert!(!nonce.starts_with("offline_"));
+    }
+
+    #[test]
+    fn test_severity_counts_new() {
+        let counts = SeverityCounts::default();
+        assert_eq!(counts.critical, 0);
+        assert_eq!(counts.high, 0);
+        assert_eq!(counts.medium, 0);
+        assert_eq!(counts.low, 0);
+        assert_eq!(counts.info, 0);
+    }
+
+    #[test]
+    fn test_severity_counts_increment() {
+        let mut counts = SeverityCounts::default();
+
+        counts.increment(&crate::types::Severity::Critical);
+        counts.increment(&crate::types::Severity::Critical);
+        counts.increment(&crate::types::Severity::High);
+        counts.increment(&crate::types::Severity::Medium);
+        counts.increment(&crate::types::Severity::Medium);
+        counts.increment(&crate::types::Severity::Medium);
+        counts.increment(&crate::types::Severity::Low);
+        counts.increment(&crate::types::Severity::Info);
+        counts.increment(&crate::types::Severity::Info);
+
+        assert_eq!(counts.critical, 2);
+        assert_eq!(counts.high, 1);
+        assert_eq!(counts.medium, 3);
+        assert_eq!(counts.low, 1);
+        assert_eq!(counts.info, 2);
+    }
+
+    #[test]
+    fn test_findings_summary_new() {
+        let summary = FindingsSummary::default();
+        assert_eq!(summary.total, 0);
+        assert_eq!(summary.by_severity.critical, 0);
+        assert_eq!(summary.by_severity.high, 0);
+        assert_eq!(summary.by_severity.medium, 0);
+        assert_eq!(summary.by_severity.low, 0);
+        assert_eq!(summary.by_severity.info, 0);
+        assert!(summary.by_module.is_empty());
+    }
+
+    #[test]
+    fn test_findings_summary_from_vulnerabilities() {
+        use crate::types::{Confidence, Severity, Vulnerability};
+
+        let vulns = vec![
+            Vulnerability {
+                id: "1".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::Critical,
+                confidence: Confidence::High,
+                category: "XSS".to_string(),
+                url: "https://example.com/page1".to_string(),
+                parameter: Some("q".to_string()),
+                payload: "<script>alert(1)</script>".to_string(),
+                description: "XSS vulnerability".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 8.0,
+                verified: true,
+                false_positive: false,
+                remediation: "Sanitize input".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+            Vulnerability {
+                id: "2".to_string(),
+                vuln_type: "sqli".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Medium,
+                category: "SQLi".to_string(),
+                url: "https://example.com/page2".to_string(),
+                parameter: Some("id".to_string()),
+                payload: "1' OR '1'='1".to_string(),
+                description: "SQL Injection".to_string(),
+                evidence: None,
+                cwe: "CWE-89".to_string(),
+                cvss: 9.0,
+                verified: false,
+                false_positive: false,
+                remediation: "Use parameterized queries".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+            Vulnerability {
+                id: "3".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Low,
+                category: "XSS".to_string(),
+                url: "https://example.com/page3".to_string(),
+                parameter: None,
+                payload: "test".to_string(),
+                description: "Another XSS".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 5.0,
+                verified: false,
+                false_positive: false,
+                remediation: "Sanitize".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+        ];
+
+        let summary = FindingsSummary::from_vulnerabilities(&vulns);
+
+        // Check total count
+        assert_eq!(summary.total, 3);
+
+        // Check severity breakdown - PRIVACY: only counts, no URLs
+        assert_eq!(summary.by_severity.critical, 1);
+        assert_eq!(summary.by_severity.high, 1);
+        assert_eq!(summary.by_severity.medium, 1);
+        assert_eq!(summary.by_severity.low, 0);
+        assert_eq!(summary.by_severity.info, 0);
+
+        // Check module breakdown - PRIVACY: only normalized category names, no target URLs
+        // Module names are normalized to lowercase
+        assert_eq!(summary.by_module.get("xss"), Some(&2));
+        assert_eq!(summary.by_module.get("sqli"), Some(&1));
+
+        // Verify NO URL data is stored in the summary
+        let serialized = serde_json::to_string(&summary).unwrap();
+        assert!(!serialized.contains("example.com"));
+        assert!(!serialized.contains("page1"));
+        assert!(!serialized.contains("page2"));
+        assert!(!serialized.contains("page3"));
+    }
+
+    #[test]
+    fn test_findings_summary_serialization() {
+        let mut summary = FindingsSummary::default();
+        summary.total = 5;
+        summary.by_severity.critical = 1;
+        summary.by_severity.high = 2;
+        summary.by_severity.medium = 1;
+        summary.by_severity.low = 1;
+        summary.by_module.insert("xss".to_string(), 3);
+        summary.by_module.insert("sqli".to_string(), 2);
+
+        // Test serialization - fields should be snake_case
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.contains("\"total\":5"));
+        assert!(json.contains("\"critical\":1"));
+        assert!(json.contains("\"high\":2"));
+        assert!(json.contains("\"by_severity\""));
+        assert!(json.contains("\"by_module\""));
+
+        // Test deserialization
+        let deserialized: FindingsSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.total, 5);
+        assert_eq!(deserialized.by_severity.critical, 1);
+        assert_eq!(deserialized.by_module.get("xss"), Some(&3));
+    }
+
+    #[test]
+    fn test_module_name_normalization() {
+        use crate::types::{Confidence, Severity, Vulnerability};
+
+        // Create vulnerabilities with varied casing and whitespace
+        let vulns = vec![
+            Vulnerability {
+                id: "1".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::High,
+                category: "XSS".to_string(), // uppercase
+                url: "https://example.com".to_string(),
+                parameter: None,
+                payload: "test".to_string(),
+                description: "test".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 5.0,
+                verified: false,
+                false_positive: false,
+                remediation: "fix".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+            Vulnerability {
+                id: "2".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Medium,
+                category: "  xss  ".to_string(), // with whitespace
+                url: "https://example.com".to_string(),
+                parameter: None,
+                payload: "test".to_string(),
+                description: "test".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 5.0,
+                verified: false,
+                false_positive: false,
+                remediation: "fix".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+            Vulnerability {
+                id: "3".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::Low,
+                confidence: Confidence::Low,
+                category: "Xss".to_string(), // mixed case
+                url: "https://example.com".to_string(),
+                parameter: None,
+                payload: "test".to_string(),
+                description: "test".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 5.0,
+                verified: false,
+                false_positive: false,
+                remediation: "fix".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+        ];
+
+        let summary = FindingsSummary::from_vulnerabilities(&vulns);
+
+        // All should be normalized to "xss" and counted together
+        assert_eq!(summary.by_module.len(), 1);
+        assert_eq!(summary.by_module.get("xss"), Some(&3));
     }
 }

@@ -925,6 +925,9 @@ impl ScanEngine {
             // STRICT MODE: Server signature required
             // Note: modules_used is empty for early termination
             if let Ok(results_hash) = crate::signing::hash_results(&results) {
+                // Collect privacy-safe findings summary (only counts, no URLs or details)
+                let findings_summary = crate::signing::FindingsSummary::from_vulnerabilities(&results.vulnerabilities);
+
                 match crate::signing::sign_results(
                     &results_hash,
                     &scan_token,
@@ -934,6 +937,7 @@ impl ScanEngine {
                         scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
                         scan_duration_ms: Some(elapsed.as_millis() as u64),
                     }),
+                    Some(findings_summary),
                 ).await {
                     Ok(signature) => {
                         results.quantum_signature = Some(signature);
@@ -1888,7 +1892,10 @@ impl ScanEngine {
         let results_hash = crate::signing::hash_results(&results)
             .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
 
-        info!("[Signing] Signing results with {} modules used", modules_used.len());
+        // Collect privacy-safe findings summary (only counts, no URLs or details)
+        let findings_summary = crate::signing::FindingsSummary::from_vulnerabilities(&results.vulnerabilities);
+
+        info!("[Signing] Signing results with {} modules used, {} findings", modules_used.len(), findings_summary.total);
         match crate::signing::sign_results(
             &results_hash,
             &scan_token,
@@ -1898,6 +1905,7 @@ impl ScanEngine {
                 scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
                 scan_duration_ms: Some(elapsed.as_millis() as u64),
             }),
+            Some(findings_summary),
         ).await {
             Ok(signature) => {
                 info!("[SIGNED] Results signed with algorithm: {}", signature.algorithm);
