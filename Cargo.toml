@@ -118,6 +118,10 @@ html-escape = "0.2"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 tungstenite = "0.24"
 
+# TLS support for raw TCP sockets (HTTP smuggling)
+tokio-native-tls = "0.3"
+native-tls = "0.2"
+
 # Rate limiting - Token Bucket
 governor = "0.10"
 nonzero_ext = "0.3"

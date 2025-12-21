@@ -853,61 +853,6 @@ impl JsMinerScanner {
             false
         };
 
-        // Check if string looks like a minified variable or framework internal
-        let is_minified_var = |s: &str| -> bool {
-            let chars: Vec<char> = s.chars().collect();
-            let len = chars.len();
-
-            // Very short names are likely minified
-            if len < 3 {
-                return true;
-            }
-
-            // Common framework/meta params that aren't user input
-            let skip_exact = [
-                "robots", "viewport", "charset", "content", "equiv",
-                "pid", "cid", "uid", "gid", "tid", "sid", "rid", "mid", "fid",
-                "idx", "len", "ptr", "buf", "ctx", "env", "obj", "arr", "str",
-                "val", "tmp", "ret", "res", "err", "evt", "req", "rsp",
-                // Analytics and tracking params
-                "s", "q", "query", "search",
-                "fmt", "format", "type",
-                "t", "ts", "timestamp", "time",
-                "cb", "cachebuster", "cache",
-                "v", "ver", "version",
-                "r", "ref", "referrer", "source", "src",
-                // React/Next.js framework internals
-                "sreact", "reactformreplay", "description",
-            ];
-            let s_lower = s.to_lowercase();
-            if skip_exact.iter().any(|&skip| s_lower == skip) {
-                return true;
-            }
-
-            // Pattern: 1-2 letters followed by digits (p192, t45, e0, L2, etc.)
-            if len <= 6 {
-                let letter_count = chars.iter().take_while(|c| c.is_ascii_alphabetic()).count();
-                if letter_count >= 1 && letter_count <= 2 {
-                    let rest = &chars[letter_count..];
-                    if !rest.is_empty() && rest.iter().all(|c| c.is_ascii_digit()) {
-                        return true;
-                    }
-                }
-            }
-
-            // Short mixed-case names without vowels (rT, xY, uG)
-            if len <= 4 {
-                let has_vowel = chars.iter().any(|c| "aeiouAEIOU".contains(*c));
-                let has_upper = chars.iter().any(|c| c.is_uppercase());
-                let has_lower = chars.iter().any(|c| c.is_lowercase());
-                if !has_vowel && has_upper && has_lower {
-                    return true;
-                }
-            }
-
-            false
-        };
-
         // Extract from URL patterns only (most reliable)
         for pattern in &param_patterns {
             if let Ok(regex) = Regex::new(pattern) {
@@ -918,7 +863,7 @@ impl JsMinerScanner {
                         if !js_noise.contains(param_str)
                             && param_str.len() >= 2
                             && !is_likely_component(param_str)
-                            && !is_minified_var(param_str) {
+                            && !Self::is_minified_param(param_str) {
                             global_params.insert(param_str.to_string());
                         }
                     }
@@ -1584,9 +1529,11 @@ impl JsMinerScanner {
             "_apollo", "_apolloInitData", "apolloState",
             // Sentry error tracking
             "_sentrySpans", "_sentryTraceData", "sentryConfig",
+            "_sentryRootSpan", "_sentryRootSpanTimer", "_sentryHub",
             // Vue.js internals
             "ssrContext", "nuxt", "vuex", "vueRouter", "vueI18n",
             "morph", "prefetch", "deep", "wrapper", "scopedSlots",
+            "loadingKey", "vueSignature", "skipAllQueries",
             "vnode", "slots", "render", "functional", "staticClass",
             "staticStyle", "directives", "keepAlive", "transition",
             // Vuetify/Vue directives
@@ -1594,7 +1541,7 @@ impl JsMinerScanner {
             "touch", "mutate", "clickOutside", "lazyload",
             // Apollo/GraphQL internals
             "watchLoading", "watchError", "apolloData", "apolloQueries",
-            "_apolloPromises", "apolloSubscriptions", "smartQuery",
+            "_apolloPromises", "apolloSubscriptions", "smartQuery", "variables",
             // Nuxt internals
             "asyncData", "fetch", "head", "layout", "middleware",
             "scrollToTop", "watchQuery", "getMetaHTML", "metaInfo",
@@ -1613,10 +1560,11 @@ impl JsMinerScanner {
             "mutation", "subscription", "resolver", "fragment",
             // dayjs/moment internals
             "isDayjsObject", "isMoment", "localOffset", "utcOffset",
-            "isValid", "invalidAt", "parsingFlags",
+            "isValid", "invalidAt", "parsingFlags", "alarm",
             // Generic framework noise
             "_key", "_times", "defaultWidth", "shortRange", "hasNormal",
             "defaultHeight", "maxWidth", "maxHeight", "maxDepth", "maxWeight",
+            "col", "row", "mount", "i18n", "isSubcontracting", "archived",
             // Vue internal flags
             "_isVue", "_watchers", "_data", "_props", "_computed",
             "_renderProxy", "_self", "_inactive", "_directInactive",

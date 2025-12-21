@@ -15,6 +15,7 @@
  */
 
 use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -47,6 +48,12 @@ impl RedosScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Runtime verification (integrity check)
         if !crate::license::verify_scan_authorized() {
+            return Ok((Vec::new(), 0));
+        }
+
+        // Smart parameter filtering - skip framework internals
+        if ParameterFilter::should_skip_parameter(parameter, ScannerType::ReDoS) {
+            debug!("[ReDoS] Skipping framework/internal parameter: {}", parameter);
             return Ok((Vec::new(), 0));
         }
 

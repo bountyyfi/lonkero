@@ -1148,8 +1148,34 @@ async fn execute_standalone_scan(
                         intercepted_endpoints.push(ep.url.clone());
                     }
 
-                    info!("  - Total: {} forms with {} fields, {} API endpoints",
-                          discovered_forms.len(), discovered_params.len(), intercepted_endpoints.len());
+                    // Log discovered JS files for debugging
+                    if !crawl_results.js_files.is_empty() {
+                        info!("    - JS files discovered: {}", crawl_results.js_files.len());
+                    }
+
+                    // Add discovered GraphQL endpoints to testing queue
+                    if !crawl_results.graphql_endpoints.is_empty() {
+                        info!("    - GraphQL endpoints: {}", crawl_results.graphql_endpoints.len());
+                        for gql_ep in &crawl_results.graphql_endpoints {
+                            info!("      - {}", gql_ep);
+                            // Add to intercepted endpoints for advanced testing
+                            if !intercepted_endpoints.contains(gql_ep) {
+                                intercepted_endpoints.push(gql_ep.clone());
+                            }
+                        }
+                    }
+
+                    // Log discovered GraphQL operations
+                    if !crawl_results.graphql_operations.is_empty() {
+                        info!("    - GraphQL operations discovered: {}", crawl_results.graphql_operations.len());
+                        for op in &crawl_results.graphql_operations {
+                            info!("      - {} {} (from {})", op.operation_type, op.name, op.source);
+                        }
+                    }
+
+                    info!("  - Total: {} forms with {} fields, {} API endpoints, {} GraphQL endpoints",
+                          discovered_forms.len(), discovered_params.len(),
+                          intercepted_endpoints.len(), crawl_results.graphql_endpoints.len());
                 }
                 Err(e) => {
                     warn!("  - Full site crawl failed: {}", e);

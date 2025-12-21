@@ -142,6 +142,19 @@ impl ParameterFilter {
                 }
                 skip
             }
+            ScannerType::ReDoS => {
+                // ReDoS targets string inputs - skip boolean flags and numeric params
+                let skip = param_lower.starts_with("is") ||
+                           param_lower.starts_with("has") ||
+                           param_lower.starts_with("enable") ||
+                           param_lower.starts_with("skip") ||
+                           param_lower.ends_with("count") ||
+                           param_lower.ends_with("id");
+                if skip {
+                    debug!("[ParameterFilter] Skipping non-string parameter for ReDoS: {}", param_name);
+                }
+                skip
+            }
             ScannerType::Other => false, // Other scanners test everything
         }
     }
@@ -248,6 +261,7 @@ pub enum ScannerType {
     CommandInjection,
     PathTraversal,
     SSRF,
+    ReDoS,
     Other,
 }
 

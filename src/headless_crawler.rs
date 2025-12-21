@@ -897,6 +897,25 @@ pub struct SiteCrawlResults {
     pub api_endpoints: Vec<DiscoveredEndpoint>,
     /// Internal links found but not yet visited (for reference)
     pub links_found: Vec<String>,
+    /// JavaScript files discovered (for JS Miner analysis)
+    pub js_files: Vec<String>,
+    /// GraphQL operations discovered in JS bundles
+    pub graphql_operations: Vec<GraphQLOperation>,
+    /// GraphQL endpoints discovered
+    pub graphql_endpoints: Vec<String>,
+}
+
+/// Discovered GraphQL operation (query, mutation, subscription)
+#[derive(Debug, Clone)]
+pub struct GraphQLOperation {
+    /// Operation type: query, mutation, subscription
+    pub operation_type: String,
+    /// Operation name
+    pub name: String,
+    /// Raw operation string
+    pub raw: String,
+    /// Source file where discovered
+    pub source: String,
 }
 
 impl HeadlessCrawler {
@@ -1185,6 +1204,157 @@ impl HeadlessCrawler {
                     method: req.method.clone(),
                     content_type: req.content_type.clone(),
                 });
+
+                // Collect GraphQL endpoints
+                if req.url.to_lowercase().contains("graphql") {
+                    if !results.graphql_endpoints.contains(&req.url) {
+                        results.graphql_endpoints.push(req.url.clone());
+                    }
+                }
+            }
+        }
+
+        // Extract JS files and GraphQL operations from all visited pages
+        // Navigate back to start URL for final JS extraction
+        if tab.navigate_to(start_url).is_ok() {
+            let _ = tab.wait_until_navigated();
+            std::thread::sleep(Duration::from_millis(1000));
+
+            // Extract all JS file URLs
+            let js_extract = format!(
+                r#"
+                (function() {{
+                    const jsFiles = new Set();
+                    const baseHost = '{}';
+
+                    // Get all script tags with src
+                    document.querySelectorAll('script[src]').forEach(script => {{
+                        try {{
+                            const src = script.src;
+                            if (src && !src.includes('analytics') && !src.includes('gtag') &&
+                                !src.includes('facebook') && !src.includes('twitter') &&
+                                !src.includes('cdn.') && !src.includes('googletagmanager')) {{
+                                const url = new URL(src, window.location.origin);
+                                if (url.hostname === baseHost || url.hostname.endsWith('.' + baseHost)) {{
+                                    jsFiles.add(url.href);
+                                }}
+                            }}
+                        }} catch(e) {{}}
+                    }});
+
+                    return JSON.stringify(Array.from(jsFiles));
+                }})()
+            "#,
+                base_host
+            );
+
+            if let Ok(result) = tab.evaluate(&js_extract, true) {
+                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                    if let Ok(files) = serde_json::from_str::<Vec<String>>(&json_str) {
+                        results.js_files = files;
+                        info!("[Headless] Found {} JavaScript files for analysis", results.js_files.len());
+                    }
+                }
+            }
+
+            // Extract GraphQL operations from window/global scope
+            let gql_extract = r#"
+                (function() {
+                    const operations = [];
+
+                    // Check for Apollo Client queries in cache
+                    if (window.__APOLLO_CLIENT__) {
+                        try {
+                            const cache = window.__APOLLO_CLIENT__.cache;
+                            if (cache && cache.data && cache.data.data) {
+                                Object.keys(cache.data.data).forEach(key => {
+                                    if (key.includes('Query') || key.includes('Mutation')) {
+                                        operations.push({
+                                            type: key.includes('Mutation') ? 'mutation' : 'query',
+                                            name: key,
+                                            raw: key
+                                        });
+                                    }
+                                });
+                            }
+                        } catch(e) {}
+                    }
+
+                    // Check for Vue Apollo
+                    if (window.__VUE_APOLLO_CLIENT__) {
+                        operations.push({ type: 'endpoint', name: 'Vue Apollo Client detected', raw: '' });
+                    }
+
+                    // Search for GraphQL strings in all script content (inline scripts)
+                    document.querySelectorAll('script:not([src])').forEach(script => {
+                        const content = script.textContent || '';
+
+                        // Find query/mutation definitions
+                        const patterns = [
+                            /(?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)\s*[\(\{]/g,
+                            /gql`([^`]+)`/g
+                        ];
+
+                        patterns.forEach(pattern => {
+                            let match;
+                            while ((match = pattern.exec(content)) !== null) {
+                                const name = match[1] || 'anonymous';
+                                const type = match[0].startsWith('mutation') ? 'mutation' :
+                                            match[0].startsWith('subscription') ? 'subscription' : 'query';
+                                operations.push({
+                                    type: type,
+                                    name: name.substring(0, 50),
+                                    raw: match[0].substring(0, 200)
+                                });
+                            }
+                        });
+                    });
+
+                    // Check for GraphQL endpoint in page variables
+                    const pageContent = document.documentElement.innerHTML;
+                    const gqlEndpointMatch = pageContent.match(/["'](https?:\/\/[^"']+\/graphql[^"']*)/);
+                    if (gqlEndpointMatch) {
+                        operations.push({
+                            type: 'endpoint',
+                            name: gqlEndpointMatch[1],
+                            raw: gqlEndpointMatch[1]
+                        });
+                    }
+
+                    return JSON.stringify(operations);
+                })()
+            "#;
+
+            if let Ok(result) = tab.evaluate(gql_extract, true) {
+                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                    if let Ok(ops) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                        for op in ops {
+                            let op_type = op.get("type").and_then(|v| v.as_str()).unwrap_or("query");
+                            let name = op.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                            let raw = op.get("raw").and_then(|v| v.as_str()).unwrap_or("");
+
+                            if op_type == "endpoint" && !name.is_empty() {
+                                if !results.graphql_endpoints.contains(&name.to_string()) {
+                                    results.graphql_endpoints.push(name.to_string());
+                                }
+                            } else if !name.is_empty() {
+                                results.graphql_operations.push(GraphQLOperation {
+                                    operation_type: op_type.to_string(),
+                                    name: name.to_string(),
+                                    raw: raw.to_string(),
+                                    source: start_url.to_string(),
+                                });
+                            }
+                        }
+
+                        if !results.graphql_operations.is_empty() {
+                            info!("[Headless] Discovered {} GraphQL operations", results.graphql_operations.len());
+                        }
+                        if !results.graphql_endpoints.is_empty() {
+                            info!("[Headless] Discovered {} GraphQL endpoints", results.graphql_endpoints.len());
+                        }
+                    }
+                }
             }
         }
 

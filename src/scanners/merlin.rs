@@ -2020,10 +2020,54 @@ impl MerlinScanner {
             }
         }
 
-        // Vue.js detection
-        if let Some(caps) = Regex::new(r#"Vue\.js v(\d+\.\d+(?:\.\d+)?)"#).ok().and_then(|re| re.captures(js)) {
-            if let Some(version) = caps.get(1) {
-                detected.push(("vue".to_string(), version.as_str().to_string()));
+        // Vue.js detection - multiple patterns for different build formats
+        let vue_patterns = [
+            r#"Vue\.js v(\d+\.\d+(?:\.\d+)?)"#,                           // "Vue.js v2.6.14"
+            r#"Vue\.version\s*=\s*['"](\d+\.\d+(?:\.\d+)?)"#,            // Vue.version = "2.6.14"
+            r#"\.version\s*=\s*['"](\d+\.\d+(?:\.\d+)?)['"]\s*[,;][^}]*__vue"#i, // minified: e.version="2.6.14",...__vue
+            r#"version:\s*['"](\d+\.\d+(?:\.\d+)?)['"]\s*,\s*\w+:\s*['"]Vue"#, // minified: version:"2.6.14",...,name:"Vue"
+            r#"\bVue\b[^}]*version:\s*['"](\d+\.\d+(?:\.\d+)?)"#,        // Vue...version:"2.6.14"
+            r#"vue[@/](\d+\.\d+(?:\.\d+)?)"#,                            // CDN: vue@2.6.14 or vue/2.6.14
+            r#"vue\.(?:min\.)?js[?/]v?=?(\d+\.\d+(?:\.\d+)?)"#,          // vue.min.js?v=2.6.14
+            r#"['"]vue['"]:\s*['"][\^~]?(\d+\.\d+(?:\.\d+)?)"#,          // package.json style: "vue": "^2.6.14"
+            r#"__VUE_VERSION__\s*[=:]\s*['"](\d+\.\d+(?:\.\d+)?)"#,      // Webpack define: __VUE_VERSION__ = "2.6.14"
+            r#"\.version\s*=\s*['"](\d+\.\d+(?:\.\d+)?)['"][^}]{0,100}createApp"#, // minified Vue 3: .version="3.2.0"...createApp
+            r#"createApp[^}]{0,200}version:\s*['"](\d+\.\d+(?:\.\d+)?)"#, // Vue 3 pattern
+            r#"Vue,\s*\{[^}]*version:\s*['"](\d+\.\d+(?:\.\d+)?)"#,      // export Vue,{version:"2.6.14"
+            r#"['"]\s*2\.6\.(?:14|13|12|11|10|9|8|7|6|5|4|3|2|1|0)\s*['"]\s*[,}][^}]{0,50}(?:Vue|_vue|__vue)"#, // Known vuln versions near Vue identifier
+        ];
+        for pattern in vue_patterns {
+            if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
+                if let Some(version) = caps.get(1) {
+                    detected.push(("vue".to_string(), version.as_str().to_string()));
+                    break; // Only detect once per JS file
+                }
+            }
+        }
+
+        // Vue 2.x special: search for known vulnerable version strings with Vue context
+        if !detected.iter().any(|(lib, _)| lib == "vue") {
+            // Check for Vue 2.6.x (CVE-2024-9506 affected)
+            if js.contains("Vue") || js.contains("__vue") || js.contains("_Vue") {
+                let vue2_versions = [
+                    r#"['"](2\.6\.1[0-4]|2\.6\.[0-9]|2\.[0-5]\.\d+)['"]\s*[,;}]"#,
+                    r#"version['"]\s*:\s*['"](2\.6\.1[0-4]|2\.6\.[0-9]|2\.[0-5]\.\d+)['"]\s*"#,
+                ];
+                for pattern in vue2_versions {
+                    if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
+                        if let Some(version) = caps.get(1) {
+                            // Double-check Vue context nearby (within 500 chars)
+                            let version_pos = js.find(version.as_str()).unwrap_or(0);
+                            let context_start = version_pos.saturating_sub(250);
+                            let context_end = (version_pos + 250).min(js.len());
+                            let context = &js[context_start..context_end];
+                            if context.contains("Vue") || context.contains("__vue") || context.contains("createApp") {
+                                detected.push(("vue".to_string(), version.as_str().to_string()));
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -2090,10 +2134,49 @@ impl MerlinScanner {
             }
         }
 
-        // Axios detection
-        if let Some(caps) = Regex::new(r#"axios[/\\](\d+\.\d+(?:\.\d+)?)"#).ok().and_then(|re| re.captures(js)) {
-            if let Some(version) = caps.get(1) {
-                detected.push(("axios".to_string(), version.as_str().to_string()));
+        // Axios detection - multiple patterns for different build formats
+        let axios_patterns = [
+            r#"axios[/\\](\d+\.\d+(?:\.\d+)?)"#,                          // path: axios/0.21.4
+            r#"axios\.VERSION\s*=\s*['"](\d+\.\d+(?:\.\d+)?)"#,           // axios.VERSION = "0.21.4"
+            r#"axios@(\d+\.\d+(?:\.\d+)?)"#,                              // CDN: axios@0.21.4
+            r#"['"]axios['"]:\s*['"][\^~]?(\d+\.\d+(?:\.\d+)?)"#,         // package.json: "axios": "^0.21.4"
+            r#"name:\s*['"]axios['"][^}]*version:\s*['"](\d+\.\d+(?:\.\d+)?)"#, // minified: name:"axios",...,version:"0.21.4"
+            r#"version:\s*['"](\d+\.\d+(?:\.\d+)?)['"]\s*[,}][^}]*['"]axios"#,  // minified reverse
+            r#"\baxios\b[^}]{0,50}version['"]?\s*[:=]\s*['"](\d+\.\d+(?:\.\d+)?)"#, // axios...version:"0.21.4"
+            r#"VERSION:\s*['"](\d+\.\d+(?:\.\d+)?)['"]\s*[,}][^}]{0,100}(?:interceptors|request|response)"#, // minified axios signature
+        ];
+        for pattern in axios_patterns {
+            if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
+                if let Some(version) = caps.get(1) {
+                    detected.push(("axios".to_string(), version.as_str().to_string()));
+                    break; // Only detect once per JS file
+                }
+            }
+        }
+
+        // Axios special: search for known vulnerable versions with axios context
+        if !detected.iter().any(|(lib, _)| lib == "axios") {
+            if js.contains("axios") || js.contains("Axios") || js.contains("interceptors") {
+                let axios_versions = [
+                    r#"['"](0\.2[01]\.[0-4]|0\.1[89]\.\d+|1\.[0-6]\.\d+)['"]\s*[,;}]"#, // Known vuln versions
+                    r#"VERSION['"]\s*:\s*['"](0\.2[01]\.[0-4]|0\.1[89]\.\d+)['"]\s*"#,
+                ];
+                for pattern in axios_versions {
+                    if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
+                        if let Some(version) = caps.get(1) {
+                            // Double-check axios context nearby
+                            let version_pos = js.find(version.as_str()).unwrap_or(0);
+                            let context_start = version_pos.saturating_sub(300);
+                            let context_end = (version_pos + 300).min(js.len());
+                            let context = &js[context_start..context_end];
+                            if context.contains("axios") || context.contains("Axios") ||
+                               (context.contains("interceptors") && context.contains("request")) {
+                                detected.push(("axios".to_string(), version.as_str().to_string()));
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -2335,6 +2418,67 @@ impl MerlinScanner {
             }
         }
 
+        // Package.json style dependencies embedded in webpack/vite bundles
+        // Format: "package-name":"^1.2.3" or "package-name":"1.2.3"
+        detected.extend(self.extract_package_json_deps(js));
+
+        detected
+    }
+
+    /// Extract package.json style dependencies from bundled JS
+    /// Webpack/Vite often embed package metadata in the bundle
+    fn extract_package_json_deps(&self, js: &str) -> Vec<(String, String)> {
+        let mut detected = Vec::new();
+
+        // Known vulnerable libraries to look for in package.json format
+        let vulnerable_libs = [
+            "vue", "axios", "lodash", "jquery", "angular", "react", "react-dom",
+            "moment", "handlebars", "express", "bootstrap", "underscore",
+            "dompurify", "marked", "showdown", "highlight.js", "prismjs",
+            "socket.io", "socket.io-client", "chart.js", "d3", "three",
+            "sweetalert", "sweetalert2", "tinymce", "ckeditor", "quill",
+            "codemirror", "ace-builds", "leaflet", "gsap", "modernizr",
+            "summernote", "froala-editor", "datatables.net", "select2",
+            "jquery-ui", "jquery-validation", "jquery-mobile", "jquery.terminal",
+            "backbone", "knockout", "mustache", "pug", "ejs", "nunjucks",
+            "ua-parser-js", "serialize-javascript", "node-forge", "js-yaml",
+            "fast-xml-parser", "xml2js", "ajv", "minimist", "yargs-parser",
+            "immer", "xlsx", "mathjax", "video.js", "plyr", "dropzone",
+            "sanitize-html", "follow-redirects", "webpack-dev-server",
+            "karma", "grunt", "gulp", "easyxdm", "prototype", "yui",
+            "prettyphoto", "extjs", "markdown-it", "tableexport", "jplayer",
+            "flowplayer",
+        ];
+
+        // Pattern: "package-name":"^1.2.3" or "package-name":"~1.2.3" or "package-name":"1.2.3"
+        let dep_pattern = Regex::new(r#"["']([a-z@][a-z0-9._/-]*)["']\s*:\s*["'][\^~]?(\d+\.\d+(?:\.\d+)?)["']"#);
+
+        if let Ok(re) = dep_pattern {
+            for caps in re.captures_iter(js) {
+                if let (Some(name), Some(version)) = (caps.get(1), caps.get(2)) {
+                    let lib_name = name.as_str().to_lowercase();
+                    // Only track known vulnerable libraries
+                    if vulnerable_libs.iter().any(|&vl| lib_name == vl || lib_name.contains(vl)) {
+                        detected.push((lib_name, version.as_str().to_string()));
+                    }
+                }
+            }
+        }
+
+        // Also check for node_modules path patterns in source maps or webpack metadata
+        // Pattern: /node_modules/package-name or node_modules/package-name/version
+        let node_modules_pattern = Regex::new(r#"node_modules/([a-z@][a-z0-9._/-]*)/(\d+\.\d+(?:\.\d+)?)"#);
+        if let Ok(re) = node_modules_pattern {
+            for caps in re.captures_iter(js) {
+                if let (Some(name), Some(version)) = (caps.get(1), caps.get(2)) {
+                    let lib_name = name.as_str().to_lowercase();
+                    if vulnerable_libs.iter().any(|&vl| lib_name == vl || lib_name.contains(vl)) {
+                        detected.push((lib_name, version.as_str().to_string()));
+                    }
+                }
+            }
+        }
+
         detected
     }
 
@@ -2399,9 +2543,14 @@ impl MerlinScanner {
         let mut detected = Vec::new();
 
         let vue_patterns = vec![
-            r#"vue[.-](\d+\.\d+(?:\.\d+)?)"#,
-            r#"vue/(\d+\.\d+(?:\.\d+)?)"#,
-            r#"vue@(\d+\.\d+(?:\.\d+)?)"#,
+            r#"vue[.-](\d+\.\d+(?:\.\d+)?)"#,                    // vue-2.6.14 or vue.2.6.14
+            r#"vue/(\d+\.\d+(?:\.\d+)?)"#,                       // vue/2.6.14
+            r#"vue@(\d+\.\d+(?:\.\d+)?)"#,                       // vue@2.6.14
+            r#"vue\.(?:min\.)?js\?v=(\d+\.\d+(?:\.\d+)?)"#,      // vue.min.js?v=2.6.14
+            r#"vue\.(?:runtime\.)?(?:esm\.)?js[?/](\d+\.\d+(?:\.\d+)?)"#, // vue.runtime.esm.js
+            r#"unpkg\.com/vue@(\d+\.\d+(?:\.\d+)?)"#,            // unpkg.com/vue@2.6.14
+            r#"cdn\.jsdelivr\.net/npm/vue@(\d+\.\d+(?:\.\d+)?)"#, // jsdelivr CDN
+            r#"cdnjs\.cloudflare\.com/ajax/libs/vue/(\d+\.\d+(?:\.\d+)?)"#, // cloudflare CDN
         ];
 
         for pattern in vue_patterns {
