@@ -300,6 +300,7 @@ pub struct ScanMetadata {
 /// It contains only statistical counts - no sensitive information like
 /// target URLs, payloads, or vulnerability descriptions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct FindingsSummary {
     /// Total number of findings (just a count)
     pub total: u32,
@@ -319,6 +320,11 @@ impl FindingsSummary {
         }
     }
 
+    /// Normalize module/category name for consistent grouping
+    fn normalize_module_name(name: &str) -> String {
+        name.trim().to_lowercase()
+    }
+
     /// Collect ONLY counts from vulnerabilities - no URLs, no finding content
     pub fn from_vulnerabilities(vulnerabilities: &[crate::types::Vulnerability]) -> Self {
         let mut summary = Self::new();
@@ -326,8 +332,9 @@ impl FindingsSummary {
         for vuln in vulnerabilities {
             summary.total += 1;
             summary.by_severity.increment(&vuln.severity);
-            // ONLY category/type, NOT target URL or payload
-            *summary.by_module.entry(vuln.category.clone()).or_insert(0) += 1;
+            // ONLY normalized category/type, NOT target URL or payload
+            let module_name = Self::normalize_module_name(&vuln.category);
+            *summary.by_module.entry(module_name).or_insert(0) += 1;
         }
 
         summary
@@ -342,6 +349,7 @@ impl Default for FindingsSummary {
 
 /// Counts by severity level for findings summary
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct SeverityCounts {
     pub critical: u32,
     pub high: u32,
@@ -982,9 +990,10 @@ mod tests {
         assert_eq!(summary.by_severity.low, 0);
         assert_eq!(summary.by_severity.info, 0);
 
-        // Check module breakdown - PRIVACY: only category names, no target URLs
-        assert_eq!(summary.by_module.get("XSS"), Some(&2));
-        assert_eq!(summary.by_module.get("SQLi"), Some(&1));
+        // Check module breakdown - PRIVACY: only normalized category names, no target URLs
+        // Module names are normalized to lowercase
+        assert_eq!(summary.by_module.get("xss"), Some(&2));
+        assert_eq!(summary.by_module.get("sqli"), Some(&1));
 
         // Verify NO URL data is stored in the summary
         let serialized = serde_json::to_string(&summary).unwrap();
@@ -1002,19 +1011,90 @@ mod tests {
         summary.by_severity.high = 2;
         summary.by_severity.medium = 1;
         summary.by_severity.low = 1;
-        summary.by_module.insert("XSS".to_string(), 3);
-        summary.by_module.insert("SQLi".to_string(), 2);
+        summary.by_module.insert("xss".to_string(), 3);
+        summary.by_module.insert("sqli".to_string(), 2);
 
-        // Test serialization
+        // Test serialization - fields should be snake_case
         let json = serde_json::to_string(&summary).unwrap();
         assert!(json.contains("\"total\":5"));
         assert!(json.contains("\"critical\":1"));
         assert!(json.contains("\"high\":2"));
+        assert!(json.contains("\"by_severity\""));
+        assert!(json.contains("\"by_module\""));
 
         // Test deserialization
         let deserialized: FindingsSummary = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.total, 5);
         assert_eq!(deserialized.by_severity.critical, 1);
-        assert_eq!(deserialized.by_module.get("XSS"), Some(&3));
+        assert_eq!(deserialized.by_module.get("xss"), Some(&3));
+    }
+
+    #[test]
+    fn test_module_name_normalization() {
+        use crate::types::{Confidence, Severity, Vulnerability};
+
+        // Create vulnerabilities with varied casing and whitespace
+        let vulns = vec![
+            Vulnerability {
+                id: "1".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::High,
+                category: "XSS".to_string(), // uppercase
+                url: "https://example.com".to_string(),
+                parameter: None,
+                payload: "test".to_string(),
+                description: "test".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 5.0,
+                verified: false,
+                false_positive: false,
+                remediation: "fix".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+            Vulnerability {
+                id: "2".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Medium,
+                category: "  xss  ".to_string(), // with whitespace
+                url: "https://example.com".to_string(),
+                parameter: None,
+                payload: "test".to_string(),
+                description: "test".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 5.0,
+                verified: false,
+                false_positive: false,
+                remediation: "fix".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+            Vulnerability {
+                id: "3".to_string(),
+                vuln_type: "xss".to_string(),
+                severity: Severity::Low,
+                confidence: Confidence::Low,
+                category: "Xss".to_string(), // mixed case
+                url: "https://example.com".to_string(),
+                parameter: None,
+                payload: "test".to_string(),
+                description: "test".to_string(),
+                evidence: None,
+                cwe: "CWE-79".to_string(),
+                cvss: 5.0,
+                verified: false,
+                false_positive: false,
+                remediation: "fix".to_string(),
+                discovered_at: "2024-01-01T00:00:00Z".to_string(),
+            },
+        ];
+
+        let summary = FindingsSummary::from_vulnerabilities(&vulns);
+
+        // All should be normalized to "xss" and counted together
+        assert_eq!(summary.by_module.len(), 1);
+        assert_eq!(summary.by_module.get("xss"), Some(&3));
     }
 }
