@@ -27,7 +27,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
@@ -355,12 +355,12 @@ impl OobDetector {
     }
 
     /// Check Interactsh for callbacks
-    async fn check_interactsh_callback(&self, test_id: &str) -> Result<bool> {
+    async fn check_interactsh_callback(&self, _test_id: &str) -> Result<bool> {
         // Interactsh requires polling their API
         // For now, we'll implement the basic structure
         // Full implementation would require Interactsh client integration
 
-        if let Some(client) = &self.http_client {
+        if self.http_client.is_some() {
             // Extract correlation ID from test_id
             // Format: {vuln_type}-{session_id}-{random}
 

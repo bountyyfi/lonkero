@@ -536,7 +536,7 @@ impl HttpParameterPollutionScanner {
         &self,
         baseline: &str,
         polluted: &str,
-        param: &str,
+        _param: &str,
         values: &[&str],
     ) -> bool {
         // Check for significant response differences
@@ -591,7 +591,7 @@ impl HttpParameterPollutionScanner {
     }
 
     /// Detect authentication bypass
-    fn detect_auth_bypass(&self, body: &str, param: &str, values: &[&str]) -> bool {
+    fn detect_auth_bypass(&self, body: &str, _param: &str, values: &[&str]) -> bool {
         let body_lower = body.to_lowercase();
 
         // Check for successful auth with privileged value

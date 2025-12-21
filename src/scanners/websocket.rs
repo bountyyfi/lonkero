@@ -12,13 +12,12 @@
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
-use futures_util::{SinkExt, StreamExt, stream::{SplitSink, SplitStream}};
+use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
-use tokio_tungstenite::{connect_async, tungstenite::Message, tungstenite::protocol::CloseFrame, WebSocketStream, MaybeTlsStream};
-use tokio::net::TcpStream;
-use tracing::{debug, info, warn};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tracing::{debug, info};
 
 pub struct WebSocketScanner {
     http_client: Arc<HttpClient>,
@@ -631,7 +630,7 @@ impl WebSocketScanner {
             let request = match url::Url::parse(ws_url) {
                 Ok(parsed_url) => {
                     let host = parsed_url.host_str().unwrap_or("localhost");
-                    let path = parsed_url.path();
+                    let _path = parsed_url.path();
 
                     let mut request = tungstenite::handshake::client::Request::builder()
                         .uri(ws_url)

@@ -676,8 +676,8 @@ impl OpenRedirectScanner {
     }
 
     /// Add special edge case payloads
-    fn add_edge_case_payloads(&self, payloads: &mut Vec<RedirectPayload>, target_domain: &str) {
-        let evil = "evil.com";
+    fn add_edge_case_payloads(&self, payloads: &mut Vec<RedirectPayload>, _target_domain: &str) {
+        let _evil = "evil.com";
 
         // Empty/whitespace tricks
         let edge_cases = vec![

@@ -1671,7 +1671,7 @@ impl BusinessLogicScanner {
     fn is_timestamp_based(&self, token: &str) -> bool {
         // Check if token contains current timestamp
         let now = chrono::Utc::now().timestamp();
-        let now_str = now.to_string();
+        let _now_str = now.to_string();
 
         // Check if token contains recent timestamp (within 1 day)
         for i in 0..86400 {

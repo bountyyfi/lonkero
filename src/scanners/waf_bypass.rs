@@ -6,7 +6,7 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, Severity, Vulnerability};
 use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Advanced WAF Bypass Scanner
 /// Tests multiple bypass techniques to detect WAF weaknesses

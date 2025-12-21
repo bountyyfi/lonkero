@@ -31,7 +31,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Client-side route extracted from JavaScript
 #[derive(Debug, Clone)]
@@ -367,7 +367,7 @@ impl ClientRouteAuthBypassScanner {
 
     /// Extract Next.js routes (from getServerSideProps patterns)
     fn extract_nextjs_routes(&self, js_code: &str) -> Vec<ClientRoute> {
-        let mut routes = Vec::new();
+        let routes = Vec::new();
 
         // Pattern: getServerSideProps with session check
         if js_code.contains("getServerSideProps") && js_code.contains("session") {

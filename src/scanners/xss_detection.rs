@@ -268,7 +268,7 @@ impl XssDetector {
     }
 
     /// Check if payload can break JavaScript string
-    fn can_break_js_string(&self, body: &str, payload: &str) -> bool {
+    fn can_break_js_string(&self, _body: &str, payload: &str) -> bool {
         // Check if payload contains characters that break JS strings
         let breaking_chars = ['\'', '"', '\\', '\n', '\r'];
 

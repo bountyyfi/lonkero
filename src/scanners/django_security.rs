@@ -29,7 +29,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct DjangoSecurityScanner {
     http_client: Arc<HttpClient>,
@@ -495,13 +495,19 @@ impl DjangoSecurityScanner {
                                         format!("Issues found: {}", issues.join(", "))
                                     }
                                 ),
-                                evidence: Some(format!(
-                                    "Admin URL: {}\n\
-                                    Status: {}\n\
-                                    Issues: {}",
-                                    admin_url, resp.status_code,
-                                    if issues.is_empty() { "None" } else { &issues.join(", ") }
-                                )),
+                                evidence: Some({
+                                    let issues_str = if issues.is_empty() {
+                                        "None".to_string()
+                                    } else {
+                                        issues.join(", ")
+                                    };
+                                    format!(
+                                        "Admin URL: {}\n\
+                                        Status: {}\n\
+                                        Issues: {}",
+                                        admin_url, resp.status_code, issues_str
+                                    )
+                                }),
                                 cwe: "CWE-200".to_string(),
                                 cvss: if issues.iter().any(|i| i.contains("credentials")) { 9.8 } else { 5.3 },
                                 verified: true,

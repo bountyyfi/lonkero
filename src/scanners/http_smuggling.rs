@@ -21,8 +21,7 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::{anyhow, Context, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::pin::Pin;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_native_tls::TlsConnector;
@@ -95,7 +94,7 @@ impl ConnectionPool {
                 conns.retain(|conn| conn.last_used.elapsed() < self.max_idle_time);
 
                 // Try to get a working connection
-                while let Some(mut conn) = conns.pop() {
+                while let Some(conn) = conns.pop() {
                     // Test if connection is still alive with a peek
                     let mut buf = [0u8; 1];
                     match conn.stream.try_read(&mut buf) {
@@ -251,8 +250,8 @@ impl HTTPSmugglingScanner {
     }
 
     /// Test CL.TE smuggling with TLS support
-    async fn test_cl_te_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, url: &str) -> Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
+    async fn test_cl_te_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, _url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let vulnerabilities = Vec::new();
         let tests_run = 3;
 
         // CL.TE test: Front-end uses Content-Length, back-end uses Transfer-Encoding
@@ -287,8 +286,8 @@ impl HTTPSmugglingScanner {
     }
 
     /// Test TE.CL smuggling with TLS support
-    async fn test_te_cl_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, url: &str) -> Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
+    async fn test_te_cl_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, _url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let vulnerabilities = Vec::new();
         let tests_run = 3;
 
         // TE.CL test: Front-end uses Transfer-Encoding, back-end uses Content-Length
@@ -327,8 +326,8 @@ impl HTTPSmugglingScanner {
     }
 
     /// Test TE.TE smuggling with TLS support
-    async fn test_te_te_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, url: &str) -> Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
+    async fn test_te_te_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, _url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+        let vulnerabilities = Vec::new();
         let tests_run = 2;
 
         // TE.TE test with obfuscated Transfer-Encoding
@@ -420,7 +419,7 @@ impl HTTPSmugglingScanner {
             path, host, smuggled_request.len(), smuggled_request
         );
 
-        if let Ok((first_response, second_response)) =
+        if let Ok((_first_response, second_response)) =
             self.send_double_request(&host, port, &request2, "GET / HTTP/1.1").await {
 
             // Check if second response contains our marker or shows signs of poisoning

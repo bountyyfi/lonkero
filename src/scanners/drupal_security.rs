@@ -31,7 +31,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct DrupalSecurityScanner {
     http_client: Arc<HttpClient>,

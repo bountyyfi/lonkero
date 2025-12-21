@@ -30,7 +30,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct ExpressSecurityScanner {
     http_client: Arc<HttpClient>,
@@ -768,13 +768,19 @@ impl ExpressSecurityScanner {
                                 Sensitive patterns found: {:?}",
                                 name, exposed_secrets
                             ),
-                            evidence: Some(format!(
-                                "File: {}\n\
-                                Size: {} bytes\n\
-                                Secrets found: {}",
-                                path, body.len(),
-                                if exposed_secrets.is_empty() { "None visible" } else { &exposed_secrets.join(", ") }
-                            )),
+                            evidence: Some({
+                                let secrets_str = if exposed_secrets.is_empty() {
+                                    "None visible".to_string()
+                                } else {
+                                    exposed_secrets.join(", ")
+                                };
+                                format!(
+                                    "File: {}\n\
+                                    Size: {} bytes\n\
+                                    Secrets found: {}",
+                                    path, body.len(), secrets_str
+                                )
+                            }),
                             cwe: "CWE-200".to_string(),
                             cvss: match severity {
                                 Severity::Critical => 9.5,

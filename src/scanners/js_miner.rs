@@ -6,7 +6,7 @@ use crate::types::{ScanConfig, Severity, Vulnerability};
 use regex::Regex;
 use std::collections::{HashSet, HashMap};
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::info;
 
 mod uuid {
     pub use uuid::Uuid;

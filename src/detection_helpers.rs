@@ -162,7 +162,7 @@ impl AppCharacteristics {
 }
 
 /// Detect SPA framework
-fn detect_spa_framework(body: &str, headers: &HashMap<String, String>) -> Option<SpaFramework> {
+fn detect_spa_framework(body: &str, _headers: &HashMap<String, String>) -> Option<SpaFramework> {
     let body_lower = body.to_lowercase();
 
     // Vue.js detection (strong indicators)
@@ -349,7 +349,7 @@ fn has_real_authentication(body: &str, headers: &HashMap<String, String>, body_l
 }
 
 /// Detect REAL OAuth implementation (not just documentation)
-fn has_real_oauth(body: &str, headers: &HashMap<String, String>, body_lower: &str) -> bool {
+fn has_real_oauth(body: &str, _headers: &HashMap<String, String>, body_lower: &str) -> bool {
     // OAuth URLs in actual forms/buttons (not docs)
     let oauth_providers = [
         "accounts.google.com/o/oauth2",

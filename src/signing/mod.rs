@@ -40,7 +40,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 /// Backwards-compatible type alias for SigningError
 pub type ScanError = SigningError;

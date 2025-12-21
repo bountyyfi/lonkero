@@ -333,7 +333,7 @@ impl FileUploadScanner {
         // GIF magic bytes + PHP
         let gif_php = format!("GIF89a<?php echo 'magic_{}'; ?>", marker);
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_verify_execution(url, "shell.php", &gif_php, "image/gif", &format!("magic_{}", marker))
             .await
         {
@@ -359,7 +359,7 @@ impl FileUploadScanner {
         png_php.extend_from_slice(php_payload.as_bytes());
         let png_php = String::from_utf8_lossy(&png_php).to_string();
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_verify_execution(url, "image.php", &png_php, "image/png", &format!("magic_{}", marker))
             .await
         {
@@ -385,7 +385,7 @@ impl FileUploadScanner {
         jpeg_php.extend_from_slice(php_payload_jpeg.as_bytes());
         let jpeg_php = String::from_utf8_lossy(&jpeg_php).to_string();
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_verify_execution(url, "photo.php", &jpeg_php, "image/jpeg", &format!("magic_{}", marker))
             .await
         {
@@ -424,7 +424,7 @@ impl FileUploadScanner {
             marker
         );
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_check_reflection(url, "image.svg", &svg_xss, "image/svg+xml", &format!("svg_{}", marker))
             .await
         {
@@ -450,7 +450,7 @@ impl FileUploadScanner {
         gif_polyglot.extend_from_slice(php_payload_gif.as_bytes());
         let gif_polyglot = String::from_utf8_lossy(&gif_polyglot).to_string();
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_verify_execution(url, "polyglot.gif", &gif_polyglot, "image/gif", &format!("polyglot_{}", marker))
             .await
         {
@@ -478,7 +478,7 @@ impl FileUploadScanner {
         png_meta.extend_from_slice(png_meta_footer);
         let png_meta = String::from_utf8_lossy(&png_meta).to_string();
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_verify_execution(url, "meta.png", &png_meta, "image/png", &format!("png_meta_{}", marker))
             .await
         {
@@ -513,7 +513,7 @@ impl FileUploadScanner {
         let zip_slip = self.create_zip_slip_archive(&marker);
         tests_run += 1;
 
-        if let Ok((accepted, evidence)) = self
+        if let Ok((accepted, _evidence)) = self
             .upload_file(url, "archive.zip", &zip_slip, "application/zip")
             .await
         {
@@ -557,7 +557,7 @@ impl FileUploadScanner {
         tests_run += 1;
 
         let before = std::time::Instant::now();
-        if let Ok((accepted, evidence)) = self
+        if let Ok((accepted, _evidence)) = self
             .upload_file(url, "compressed.zip", &zip_bomb, "application/zip")
             .await
         {
@@ -602,7 +602,7 @@ impl FileUploadScanner {
         );
 
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_check_reflection(url, "xxe.svg", &svg_xxe, "image/svg+xml", "root:")
             .await
         {
@@ -631,7 +631,7 @@ impl FileUploadScanner {
         );
 
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_check_reflection(url, "xxe_ssrf.svg", &svg_xxe_http, "image/svg+xml", "meta-data")
             .await
         {
@@ -672,7 +672,7 @@ impl FileUploadScanner {
 
         tests_run += 1;
         let before = std::time::Instant::now();
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_check_reflection(url, "ssrf.svg", &svg_ssrf, "image/svg+xml", "ami-")
             .await
         {
@@ -702,7 +702,7 @@ impl FileUploadScanner {
         );
 
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_check_reflection(url, "ssrf_local.svg", &svg_ssrf_local, "image/svg+xml", "admin")
             .await
         {
@@ -744,7 +744,7 @@ impl FileUploadScanner {
 
         for (filename, desc) in test_cases {
             tests_run += 1;
-            if let Ok((upload_path, evidence)) = self
+            if let Ok((_upload_path, evidence)) = self
                 .upload_and_verify_execution(url, filename, &payload, "image/jpeg", &format!("dblext_{}", marker))
                 .await
             {
@@ -780,7 +780,7 @@ impl FileUploadScanner {
 
         // Upload PHP with image MIME type
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_verify_execution(url, "shell.php", &payload, "image/jpeg", &format!("mime_{}", marker))
             .await
         {
@@ -800,7 +800,7 @@ impl FileUploadScanner {
 
         // Upload script.jpg with PHP MIME type
         tests_run += 1;
-        if let Ok((upload_path, evidence)) = self
+        if let Ok((_upload_path, evidence)) = self
             .upload_and_verify_execution(url, "script.jpg", &payload, "application/x-php", &format!("mime_{}", marker))
             .await
         {
@@ -998,7 +998,7 @@ impl FileUploadScanner {
     }
 
     /// Extract upload paths from response
-    fn extract_upload_paths(&self, response: &str, filename: &str) -> Vec<String> {
+    fn extract_upload_paths(&self, response: &str, _filename: &str) -> Vec<String> {
         let mut paths = Vec::new();
 
         // Try to extract URLs from JSON responses

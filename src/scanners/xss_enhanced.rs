@@ -20,7 +20,6 @@ use futures::stream::{self, StreamExt};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tracing::{debug, info, warn};
 
 pub struct EnhancedXssScanner {
@@ -848,7 +847,7 @@ impl EnhancedXssScanner {
     /// Test DOM XSS using headless browser
     async fn test_dom_xss_with_browser(
         &self,
-        crawler: &HeadlessCrawler,
+        _crawler: &HeadlessCrawler,
         url: &str,
         marker: &str,
     ) -> Result<bool> {

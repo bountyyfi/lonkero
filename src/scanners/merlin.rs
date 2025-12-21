@@ -1760,7 +1760,7 @@ impl VulnerabilityDatabase {
     }
 
     fn version_in_range(&self, version: &str, from: &Option<String>, to: &str) -> bool {
-        let (parsed_version, is_prerelease) = self.parse_version_with_prerelease(version);
+        let (parsed_version, _is_prerelease) = self.parse_version_with_prerelease(version);
         let (parsed_to, _) = self.parse_version_with_prerelease(to);
 
         // Check upper bound (strictly less than)
@@ -2024,7 +2024,7 @@ impl MerlinScanner {
         let vue_patterns = [
             r#"Vue\.js v(\d+\.\d+(?:\.\d+)?)"#,                           // "Vue.js v2.6.14"
             r#"Vue\.version\s*=\s*['"](\d+\.\d+(?:\.\d+)?)"#,            // Vue.version = "2.6.14"
-            r#"\.version\s*=\s*['"](\d+\.\d+(?:\.\d+)?)['"]\s*[,;][^}]*__vue"#i, // minified: e.version="2.6.14",...__vue
+            r#"(?i)\.version\s*=\s*['"](\d+\.\d+(?:\.\d+)?)['"]\s*[,;][^}]*__vue"#, // minified: e.version="2.6.14",...__vue
             r#"version:\s*['"](\d+\.\d+(?:\.\d+)?)['"]\s*,\s*\w+:\s*['"]Vue"#, // minified: version:"2.6.14",...,name:"Vue"
             r#"\bVue\b[^}]*version:\s*['"](\d+\.\d+(?:\.\d+)?)"#,        // Vue...version:"2.6.14"
             r#"vue[@/](\d+\.\d+(?:\.\d+)?)"#,                            // CDN: vue@2.6.14 or vue/2.6.14
