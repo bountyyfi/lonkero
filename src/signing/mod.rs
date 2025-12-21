@@ -299,7 +299,7 @@ pub struct ScanMetadata {
 /// This summary is sent to the signing server for telemetry purposes.
 /// It contains only statistical counts - no sensitive information like
 /// target URLs, payloads, or vulnerability descriptions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct FindingsSummary {
     /// Total number of findings (just a count)
@@ -311,15 +311,6 @@ pub struct FindingsSummary {
 }
 
 impl FindingsSummary {
-    /// Create a new empty findings summary
-    pub fn new() -> Self {
-        Self {
-            total: 0,
-            by_severity: SeverityCounts::new(),
-            by_module: HashMap::new(),
-        }
-    }
-
     /// Normalize module/category name for consistent grouping
     fn normalize_module_name(name: &str) -> String {
         name.trim().to_lowercase()
@@ -327,7 +318,7 @@ impl FindingsSummary {
 
     /// Collect ONLY counts from vulnerabilities - no URLs, no finding content
     pub fn from_vulnerabilities(vulnerabilities: &[crate::types::Vulnerability]) -> Self {
-        let mut summary = Self::new();
+        let mut summary = Self::default();
 
         for vuln in vulnerabilities {
             summary.total += 1;
@@ -341,14 +332,8 @@ impl FindingsSummary {
     }
 }
 
-impl Default for FindingsSummary {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Counts by severity level for findings summary
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SeverityCounts {
     pub critical: u32,
@@ -359,17 +344,6 @@ pub struct SeverityCounts {
 }
 
 impl SeverityCounts {
-    /// Create new severity counts initialized to zero
-    pub fn new() -> Self {
-        Self {
-            critical: 0,
-            high: 0,
-            medium: 0,
-            low: 0,
-            info: 0,
-        }
-    }
-
     /// Increment the appropriate severity counter
     pub fn increment(&mut self, severity: &crate::types::Severity) {
         match severity {
@@ -379,12 +353,6 @@ impl SeverityCounts {
             crate::types::Severity::Low => self.low += 1,
             crate::types::Severity::Info => self.info += 1,
         }
-    }
-}
-
-impl Default for SeverityCounts {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -876,7 +844,7 @@ mod tests {
 
     #[test]
     fn test_severity_counts_new() {
-        let counts = SeverityCounts::new();
+        let counts = SeverityCounts::default();
         assert_eq!(counts.critical, 0);
         assert_eq!(counts.high, 0);
         assert_eq!(counts.medium, 0);
@@ -886,7 +854,7 @@ mod tests {
 
     #[test]
     fn test_severity_counts_increment() {
-        let mut counts = SeverityCounts::new();
+        let mut counts = SeverityCounts::default();
 
         counts.increment(&crate::types::Severity::Critical);
         counts.increment(&crate::types::Severity::Critical);
@@ -907,7 +875,7 @@ mod tests {
 
     #[test]
     fn test_findings_summary_new() {
-        let summary = FindingsSummary::new();
+        let summary = FindingsSummary::default();
         assert_eq!(summary.total, 0);
         assert_eq!(summary.by_severity.critical, 0);
         assert_eq!(summary.by_severity.high, 0);
@@ -1005,7 +973,7 @@ mod tests {
 
     #[test]
     fn test_findings_summary_serialization() {
-        let mut summary = FindingsSummary::new();
+        let mut summary = FindingsSummary::default();
         summary.total = 5;
         summary.by_severity.critical = 1;
         summary.by_severity.high = 2;
