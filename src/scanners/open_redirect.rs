@@ -1380,10 +1380,12 @@ impl OpenRedirectScanner {
         let is_fast_mode = config.scan_mode == crate::types::ScanMode::Fast;
 
         // Test all common redirect parameters IN PARALLEL
-        let params = Self::get_redirect_params_static();
+        // OPTIMIZATION: Only test TOP 20 most common params to avoid excessive testing
+        let all_params = Self::get_redirect_params_static();
+        let params: Vec<&str> = all_params.iter().take(20).copied().collect();
         let param_count = params.len();
 
-        info!("[OpenRedirect] Testing {} parameters in parallel with 200x concurrency", param_count);
+        info!("[OpenRedirect] Testing {} most common redirect parameters in parallel", param_count);
 
         // ============================================================
         // PERFORMANCE OPTIMIZATION: Test all parameters concurrently

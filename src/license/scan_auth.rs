@@ -102,10 +102,13 @@ impl ScanAuthorization {
             .into_iter()
             .collect();
 
-        // Log denied modules as warnings
+        // Log denied modules summary (individual denials at debug level)
         if let Some(denied) = &response.denied_modules {
-            for d in denied {
-                warn!("[Auth] Module '{}' denied: {}", d.module, d.reason);
+            if !denied.is_empty() {
+                debug!("[Auth] {} modules denied (requires license upgrade)", denied.len());
+                for d in denied {
+                    debug!("[Auth] Module '{}' denied: {}", d.module, d.reason);
+                }
             }
         }
 

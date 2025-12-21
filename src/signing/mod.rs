@@ -518,10 +518,13 @@ pub async fn authorize_scan(
         return Err(SigningError::Banned(ban_reason));
     }
 
-    // Log denied modules
+    // Log denied modules summary (individual denials logged at debug level)
     if let Some(ref denied) = auth_response.denied_modules {
-        for d in denied {
-            warn!("[Auth] Module '{}' denied: {}", d.module, d.reason);
+        if denied.len() > 0 {
+            debug!("[Auth] {} modules denied (requires license upgrade)", denied.len());
+            for d in denied {
+                debug!("[Auth] Module '{}' denied: {}", d.module, d.reason);
+            }
         }
     }
 
