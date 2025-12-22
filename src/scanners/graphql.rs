@@ -165,6 +165,7 @@ impl GraphQlScanner {
                 Confidence::High,
                 "GraphQL introspection is publicly accessible - exposes entire API schema",
                 "Introspection query returned full schema with types and fields".to_string(),
+                r#"query IntrospectionQuery { __schema { types { name kind description fields { name type { name kind ofType { name kind } } } } } }"#.to_string(),
                 6.5,
             ));
             return true;
@@ -198,6 +199,7 @@ impl GraphQlScanner {
                 Confidence::Medium,
                 "GraphQL API does not enforce query depth limits - vulnerable to DoS",
                 "Deeply nested query (20+ levels) was accepted without error".to_string(),
+                r#"query { user { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { name } } } } } } } } } } } } } } } } } } } }"#.to_string(),
                 5.3,
             ));
         }
@@ -233,6 +235,7 @@ impl GraphQlScanner {
                 Confidence::High,
                 "GraphQL API allows query batching - can be used for DoS or brute force",
                 "Multiple queries in single request were executed".to_string(),
+                r#"[{"query":"query{__typename}"},{"query":"query{__typename}"},{"query":"query{__typename}"},{"query":"query{__typename}"},{"query":"query{__typename}"}]"#.to_string(),
                 5.0,
             ));
         }
@@ -262,6 +265,7 @@ impl GraphQlScanner {
                 Confidence::Medium,
                 "GraphQL allows unlimited field duplication - potential resource exhaustion",
                 "Same field was queried multiple times in single query".to_string(),
+                "query { __typename __typename __typename __typename __typename __typename __typename __typename __typename __typename }".to_string(),
                 4.0,
             ));
         }
@@ -300,6 +304,7 @@ impl GraphQlScanner {
                     Confidence::Medium,
                     "GraphQL exposes sensitive fields without proper authorization",
                     format!("Sensitive field '{}' accessible without authentication", indicator),
+                    "query { users { id email password } admin { id email } }".to_string(),
                     8.2,
                 ));
                 break;
@@ -347,6 +352,7 @@ impl GraphQlScanner {
                 Confidence::High,
                 "GraphQL returns verbose error messages - information disclosure",
                 format!("Error response contains: {:?}", found_indicators),
+                "query { invalid_field_xyz_123 }".to_string(),
                 3.7,
             ));
         }
@@ -361,6 +367,7 @@ impl GraphQlScanner {
         confidence: Confidence,
         description: &str,
         evidence: String,
+        payload: String,
         cvss: f32,
     ) -> Vulnerability {
         Vulnerability {
@@ -371,7 +378,7 @@ impl GraphQlScanner {
             category: "API Security".to_string(),
             url: url.to_string(),
             parameter: None,
-            payload: String::new(),
+            payload,
             description: description.to_string(),
             evidence: Some(evidence),
             cwe: "CWE-285".to_string(), // Improper Authorization

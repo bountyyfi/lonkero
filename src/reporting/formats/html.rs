@@ -56,9 +56,11 @@ impl HtmlReportGenerator {
         )
     }
 
-    fn get_css(&self, branding: &BrandingConfig) -> String {
+    fn get_css(&self, _branding: &BrandingConfig) -> String {
         format!(
             r#"
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
         * {{
             margin: 0;
             padding: 0;
@@ -66,10 +68,10 @@ impl HtmlReportGenerator {
         }}
 
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-family: 'JetBrains Mono', monospace;
             line-height: 1.6;
-            color: #333;
-            background-color: #f5f5f5;
+            color: #e0e0e0;
+            background-color: #0a0a0a;
         }}
 
         .container {{
@@ -79,37 +81,43 @@ impl HtmlReportGenerator {
         }}
 
         .header {{
-            background: linear-gradient(135deg, {} 0%, {} 100%);
-            color: white;
+            background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+            color: #39ff14;
             padding: 40px;
             border-radius: 10px;
             margin-bottom: 30px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 0 30px rgba(57, 255, 20, 0.15);
+            border: 1px solid #39ff14;
         }}
 
         .header h1 {{
             font-size: 2.5em;
             margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(57, 255, 20, 0.5);
+            font-weight: 700;
         }}
 
         .header p {{
             font-size: 1.1em;
             opacity: 0.9;
+            color: #b0b0b0;
         }}
 
         .section {{
-            background: white;
+            background: #111111;
             padding: 30px;
             margin-bottom: 20px;
             border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            border: 1px solid #2a2a2a;
         }}
 
         .section h2 {{
-            color: {};
+            color: #39ff14;
             margin-bottom: 20px;
             padding-bottom: 10px;
-            border-bottom: 3px solid {};
+            border-bottom: 2px solid #39ff14;
+            text-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
         }}
 
         .stats-grid {{
@@ -123,43 +131,46 @@ impl HtmlReportGenerator {
             text-align: center;
             padding: 20px;
             border-radius: 8px;
-            background: #f8f9fa;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
         }}
 
         .stat-card.critical {{
-            background: #fee;
-            border-left: 4px solid #dc3545;
+            background: #1a0808;
+            border-left: 4px solid #ff4444;
         }}
 
         .stat-card.high {{
-            background: #fff3cd;
-            border-left: 4px solid #fd7e14;
+            background: #1a1208;
+            border-left: 4px solid #ff8c00;
         }}
 
         .stat-card.medium {{
-            background: #fff9e6;
+            background: #1a1a08;
             border-left: 4px solid #ffc107;
         }}
 
         .stat-card.low {{
-            background: #e7f3ff;
-            border-left: 4px solid #0dcaf0;
+            background: #081a1a;
+            border-left: 4px solid #00bcd4;
         }}
 
         .stat-card.info {{
-            background: #e7f5ff;
-            border-left: 4px solid #0d6efd;
+            background: #08101a;
+            border-left: 4px solid #39ff14;
         }}
 
         .stat-number {{
             font-size: 2.5em;
             font-weight: bold;
             display: block;
+            color: #39ff14;
+            text-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
         }}
 
         .stat-label {{
             font-size: 0.9em;
-            color: #666;
+            color: #888;
             text-transform: uppercase;
         }}
 
@@ -195,17 +206,19 @@ impl HtmlReportGenerator {
         th, td {{
             padding: 12px;
             text-align: left;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid #2a2a2a;
+            color: #e0e0e0;
         }}
 
         th {{
-            background-color: {};
-            color: white;
+            background-color: #1a1a1a;
+            color: #39ff14;
             font-weight: 600;
+            border-bottom: 2px solid #39ff14;
         }}
 
         tr:hover {{
-            background-color: #f5f5f5;
+            background-color: #1a1a1a;
         }}
 
         .severity-badge {{
@@ -268,9 +281,9 @@ impl HtmlReportGenerator {
         .vuln-details {{
             display: none;
             padding: 15px;
-            background: #f8f9fa;
+            background: #0f0f0f;
             margin-top: 10px;
-            border-left: 4px solid {};
+            border-left: 4px solid #39ff14;
             border-radius: 4px;
         }}
 
@@ -279,18 +292,19 @@ impl HtmlReportGenerator {
         }}
 
         .code-block {{
-            background: #2d2d2d;
-            color: #f8f8f2;
+            background: #0a0a0a;
+            color: #39ff14;
             padding: 15px;
             border-radius: 4px;
             overflow-x: auto;
-            font-family: 'Courier New', monospace;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
             font-size: 0.9em;
             margin: 10px 0;
+            border: 1px solid #2a2a2a;
         }}
 
         .poc-section {{
-            background: #fff3cd;
+            background: #1a1a08;
             border: 1px solid #ffc107;
             border-radius: 4px;
             padding: 15px;
@@ -299,26 +313,27 @@ impl HtmlReportGenerator {
 
         .poc-section p {{
             margin: 0 0 10px 0;
-            color: #856404;
+            color: #ffc107;
             font-weight: bold;
         }}
 
         .poc-code {{
-            background: #1e1e1e;
-            color: #d4d4d4;
+            background: #0a0a0a;
+            color: #ffc107;
             padding: 15px;
             border-radius: 4px;
             overflow-x: auto;
-            font-family: 'Courier New', Consolas, monospace;
+            font-family: 'JetBrains Mono', Consolas, monospace;
             font-size: 0.85em;
             margin: 0;
             white-space: pre-wrap;
             word-wrap: break-word;
+            border: 1px solid #2a2a2a;
         }}
 
         .evidence-section {{
-            background: #d1ecf1;
-            border: 1px solid #bee5eb;
+            background: #081a1a;
+            border: 1px solid #00bcd4;
             border-radius: 4px;
             padding: 15px;
             margin: 15px 0;
@@ -326,23 +341,24 @@ impl HtmlReportGenerator {
 
         .evidence-section p {{
             margin: 0 0 10px 0;
-            color: #0c5460;
+            color: #00bcd4;
             font-weight: bold;
         }}
 
         .evidence-code {{
-            background: #1e1e1e;
-            color: #d4d4d4;
+            background: #0a0a0a;
+            color: #00bcd4;
             padding: 15px;
             border-radius: 4px;
             overflow-x: auto;
-            font-family: 'Courier New', Consolas, monospace;
+            font-family: 'JetBrains Mono', Consolas, monospace;
             font-size: 0.85em;
             margin: 0;
             white-space: pre-wrap;
             word-wrap: break-word;
             max-height: 300px;
             overflow-y: auto;
+            border: 1px solid #2a2a2a;
         }}
 
         .chart-container {{
@@ -353,13 +369,13 @@ impl HtmlReportGenerator {
         .owasp-item {{
             padding: 15px;
             margin: 10px 0;
-            background: #f8f9fa;
-            border-left: 4px solid {};
+            background: #1a1a1a;
+            border-left: 4px solid #39ff14;
             border-radius: 4px;
         }}
 
         .owasp-item h3 {{
-            color: {};
+            color: #39ff14;
             margin-bottom: 10px;
         }}
 
@@ -372,13 +388,14 @@ impl HtmlReportGenerator {
 
         .compliance-card {{
             padding: 20px;
-            background: #f8f9fa;
+            background: #1a1a1a;
             border-radius: 8px;
-            border-top: 4px solid {};
+            border-top: 4px solid #39ff14;
+            border: 1px solid #2a2a2a;
         }}
 
         .compliance-card h3 {{
-            color: {};
+            color: #39ff14;
             margin-bottom: 15px;
         }}
 
@@ -388,7 +405,8 @@ impl HtmlReportGenerator {
 
         .compliance-card li {{
             padding: 8px 0;
-            border-bottom: 1px solid #dee2e6;
+            border-bottom: 1px solid #2a2a2a;
+            color: #b0b0b0;
         }}
 
         .compliance-card li:last-child {{
@@ -398,8 +416,10 @@ impl HtmlReportGenerator {
         .footer {{
             text-align: center;
             padding: 20px;
-            color: #666;
+            color: #39ff14;
             font-size: 0.9em;
+            border-top: 1px solid #2a2a2a;
+            margin-top: 20px;
         }}
 
         .expandable {{
@@ -407,15 +427,19 @@ impl HtmlReportGenerator {
         }}
 
         .expandable:hover {{
-            background-color: #f0f0f0;
+            background-color: #1a1a1a;
         }}
 
         .key-findings {{
-            background: #fff9e6;
+            background: #1a1a08;
             border-left: 4px solid #ffc107;
             padding: 20px;
             margin: 20px 0;
             border-radius: 4px;
+        }}
+
+        .key-findings h3 {{
+            color: #ffc107;
         }}
 
         .key-findings ul {{
@@ -425,14 +449,19 @@ impl HtmlReportGenerator {
 
         .key-findings li {{
             margin: 8px 0;
+            color: #b0b0b0;
         }}
 
         .recommendations {{
-            background: #e7f5ff;
-            border-left: 4px solid #0d6efd;
+            background: #081a10;
+            border-left: 4px solid #39ff14;
             padding: 20px;
             margin: 20px 0;
             border-radius: 4px;
+        }}
+
+        .recommendations h3 {{
+            color: #39ff14;
         }}
 
         .recommendations ul {{
@@ -442,6 +471,7 @@ impl HtmlReportGenerator {
 
         .recommendations li {{
             margin: 8px 0;
+            color: #b0b0b0;
         }}
 
         @media print {{
@@ -452,18 +482,18 @@ impl HtmlReportGenerator {
             .vuln-details {{
                 display: block !important;
             }}
+
+            body {{
+                background-color: white;
+                color: #333;
+            }}
+
+            .section {{
+                background: white;
+                border: 1px solid #ddd;
+            }}
         }}
-        "#,
-            branding.primary_color,
-            branding.secondary_color,
-            branding.primary_color,
-            branding.primary_color,
-            branding.primary_color,
-            branding.primary_color,
-            branding.primary_color,
-            branding.primary_color,
-            branding.primary_color,
-            branding.primary_color
+        "#
         )
     }
 
@@ -762,11 +792,10 @@ impl HtmlReportGenerator {
             r#"
     <div class="footer">
         <p>{}</p>
-        <p>Generated by {} | Report Version 1.0.0</p>
+        <p>Generated by <a href="https://lonkero.bountyy.fi/en" target="_blank" style="color: #39ff14; text-decoration: none;">Lonkero</a> - Wraps around your attack surface</p>
     </div>
             "#,
-            branding.footer_text.as_ref().unwrap_or(&"Confidential - For Internal Use Only".to_string()),
-            branding.company_name
+            branding.footer_text.as_ref().unwrap_or(&"Confidential - For Internal Use Only".to_string())
         )
     }
 

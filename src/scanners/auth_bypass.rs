@@ -13,7 +13,7 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct AuthBypassScanner {
     http_client: Arc<HttpClient>,
@@ -114,6 +114,11 @@ impl AuthBypassScanner {
         tests_run += 1;
         let debug_method_results = self.test_http_debug_method(url).await;
         vulnerabilities.extend(debug_method_results);
+
+        // Test 15: 403 Bypass - try various techniques to bypass 403 Forbidden
+        tests_run += 1;
+        let bypass_403_results = self.test_403_bypass(url).await;
+        vulnerabilities.extend(bypass_403_results);
 
         info!(
             "[SUCCESS] [AuthBypass] Completed {} tests, found {} issues",
@@ -1533,6 +1538,304 @@ References:
         //         }
         //     }
         // }
+
+        vulnerabilities
+    }
+
+    /// Test 403 Bypass - dynamically extract paths from source and try bypass techniques
+    async fn test_403_bypass(&self, url: &str) -> Vec<Vulnerability> {
+        let mut vulnerabilities = Vec::new();
+
+        // First, fetch the page to extract paths from source
+        let Ok(response) = self.http_client.get(url).await else {
+            return vulnerabilities;
+        };
+
+        let body = &response.body;
+        let parsed_url = match url::Url::parse(url) {
+            Ok(u) => u,
+            Err(_) => return vulnerabilities,
+        };
+        let base_url = format!("{}://{}", parsed_url.scheme(), parsed_url.host_str().unwrap_or(""));
+
+        // Extract paths from HTML/JS
+        let mut paths_to_test: Vec<String> = Vec::new();
+
+        // Extract href values
+        let href_re = regex::Regex::new(r#"href\s*=\s*["']([^"']*?)["']"#).unwrap();
+        for cap in href_re.captures_iter(body) {
+            if let Some(path) = cap.get(1) {
+                let p = path.as_str();
+                if p.starts_with('/') && !p.starts_with("//") && !p.contains('.') {
+                    paths_to_test.push(p.to_string());
+                }
+            }
+        }
+
+        // Extract router paths from Vue/React/Angular
+        let router_patterns = [
+            r#"path\s*:\s*["']([^"']+)["']"#,
+            r#"route\s*:\s*["']([^"']+)["']"#,
+            r#"to\s*=\s*["']([^"']+)["']"#,
+            r#"navigate\s*\(\s*["']([^"']+)["']"#,
+            r#"push\s*\(\s*["']([^"']+)["']"#,
+            r#"replace\s*\(\s*["']([^"']+)["']"#,
+            // More aggressive JS extraction
+            r#"["'](/[a-zA-Z][a-zA-Z0-9_/-]*)["']"#,          // Any path-like string "/something"
+            r#"url\s*:\s*["']([^"']+)["']"#,                   // url: "/path"
+            r#"endpoint\s*:\s*["']([^"']+)["']"#,              // endpoint: "/api/..."
+            r#"api\s*:\s*["']([^"']+)["']"#,                   // api: "/api/..."
+            r#"fetch\s*\(\s*["']([^"']+)["']"#,                // fetch("/api/...")
+            r#"axios\.[a-z]+\s*\(\s*["']([^"']+)["']"#,        // axios.get("/api/...")
+            r#"\$http\.[a-z]+\s*\(\s*["']([^"']+)["']"#,       // $http.get("/api/...")
+            r#"redirect\s*:\s*["']([^"']+)["']"#,              // redirect: "/login"
+        ];
+        for pattern in router_patterns {
+            if let Ok(re) = regex::Regex::new(pattern) {
+                for cap in re.captures_iter(body) {
+                    if let Some(path) = cap.get(1) {
+                        let p = path.as_str();
+                        // Include paths that start with / but exclude static assets
+                        if p.starts_with('/') && !p.starts_with("//") {
+                            // Skip common static file extensions
+                            let skip_extensions = [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".eot"];
+                            let is_static = skip_extensions.iter().any(|ext| p.ends_with(ext));
+                            if !is_static && p.len() > 1 && p.len() < 100 {
+                                paths_to_test.push(p.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also extract paths from JS bundles (vendor.js, app.js, etc.)
+        let js_url_re = regex::Regex::new(r#"src\s*=\s*["']([^"']*\.js)["']"#).unwrap();
+        let mut js_urls: Vec<String> = Vec::new();
+        for cap in js_url_re.captures_iter(body) {
+            if let Some(js_path) = cap.get(1) {
+                let js_src = js_path.as_str();
+                let js_url = if js_src.starts_with("http") {
+                    js_src.to_string()
+                } else if js_src.starts_with('/') {
+                    format!("{}{}", base_url, js_src)
+                } else {
+                    format!("{}/{}", base_url, js_src)
+                };
+                js_urls.push(js_url);
+            }
+        }
+
+        // Fetch and extract paths from JS bundles
+        for js_url in js_urls.iter().take(5) {  // Limit to 5 JS files
+            if let Ok(js_response) = self.http_client.get(js_url).await {
+                let js_body = &js_response.body;
+                // Extract path strings from JS
+                if let Ok(re) = regex::Regex::new(r#"["'](/[a-zA-Z][a-zA-Z0-9_/-]{2,50})["']"#) {
+                    for cap in re.captures_iter(js_body) {
+                        if let Some(path) = cap.get(1) {
+                            let p = path.as_str();
+                            let skip_extensions = [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".eot", ".map"];
+                            let is_static = skip_extensions.iter().any(|ext| p.ends_with(ext));
+                            if !is_static && p.len() > 1 && p.len() < 100 {
+                                paths_to_test.push(p.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also add common admin/protected paths
+        let common_paths = [
+            "/admin", "/dashboard", "/api/admin", "/management", "/panel",
+            "/config", "/settings", "/users", "/internal", "/private",
+            "/driver", "/drivers", "/reports", "/export", "/imports",
+            "/system", "/console", "/backend", "/portal", "/secure",
+        ];
+        for p in common_paths {
+            if !paths_to_test.contains(&p.to_string()) {
+                paths_to_test.push(p.to_string());
+            }
+        }
+
+        // Deduplicate
+        paths_to_test.sort();
+        paths_to_test.dedup();
+
+        info!("[403-Bypass] Extracted {} unique paths for access testing", paths_to_test.len());
+
+        // 403 Bypass techniques
+        let bypass_techniques: Vec<(&str, Box<dyn Fn(&str) -> String + Send + Sync>)> = vec![
+            // Path manipulation
+            ("trailing slash", Box::new(|p: &str| format!("{}/", p.trim_end_matches('/')))),
+            ("double slash", Box::new(|p: &str| format!("/{}", p.trim_start_matches('/')))),
+            ("dot segment", Box::new(|p: &str| format!("{}/..", p))),
+            ("dot bypass", Box::new(|p: &str| format!("{}/.", p))),
+            ("semicolon", Box::new(|p: &str| format!("{};/", p))),
+            ("null byte", Box::new(|p: &str| format!("{}%00", p))),
+            ("percent20", Box::new(|p: &str| format!("{}%20", p))),
+            ("tab char", Box::new(|p: &str| format!("{}%09", p))),
+            ("url encode", Box::new(|p: &str| {
+                let encoded: String = p.chars().map(|c| format!("%{:02X}", c as u8)).collect();
+                encoded
+            })),
+            ("double url encode", Box::new(|p: &str| {
+                let encoded: String = p.chars().map(|c| format!("%25{:02X}", c as u8)).collect();
+                encoded
+            })),
+            ("unicode bypass", Box::new(|p: &str| p.replace('/', "%c0%af"))),
+            ("case variation", Box::new(|p: &str| {
+                p.chars().enumerate().map(|(i, c)| {
+                    if i % 2 == 0 { c.to_uppercase().next().unwrap_or(c) }
+                    else { c.to_lowercase().next().unwrap_or(c) }
+                }).collect()
+            })),
+            ("backslash", Box::new(|p: &str| p.replace('/', "\\"))),
+            ("mixed slash", Box::new(|p: &str| format!("/{}/\\", p.trim_matches('/')))),
+        ];
+
+        // Header-based bypass techniques
+        let bypass_headers = [
+            ("X-Original-URL", ""),  // Will be set to the path
+            ("X-Rewrite-URL", ""),
+            ("X-Forwarded-For", "127.0.0.1"),
+            ("X-Forwarded-Host", "localhost"),
+            ("X-Real-IP", "127.0.0.1"),
+            ("X-Custom-IP-Authorization", "127.0.0.1"),
+            ("X-Originating-IP", "127.0.0.1"),
+            ("X-Client-IP", "127.0.0.1"),
+            ("Client-IP", "127.0.0.1"),
+            ("True-Client-IP", "127.0.0.1"),
+            ("Cluster-Client-IP", "127.0.0.1"),
+            ("X-ProxyUser-Ip", "127.0.0.1"),
+            ("Host", "localhost"),
+        ];
+
+        // Test each path
+        for path in paths_to_test.iter().take(50) {  // Limit to 50 paths
+            let original_url = format!("{}{}", base_url, path);
+
+            // First check if path returns 403
+            let Ok(original_response) = self.http_client.get(&original_url).await else {
+                continue;
+            };
+
+            if original_response.status_code != 403 && original_response.status_code != 401 {
+                continue;  // Only test 403/401 paths
+            }
+
+            debug!("[403-Bypass] Path {} returns {}, testing bypasses...", path, original_response.status_code);
+
+            // Try path-based bypasses
+            for (technique_name, transform) in &bypass_techniques {
+                let bypass_path = transform(path);
+                let bypass_url = format!("{}{}", base_url, bypass_path);
+
+                if let Ok(bypass_response) = self.http_client.get(&bypass_url).await {
+                    // Bypass successful if we get 200 where we got 403/401
+                    if bypass_response.status_code == 200 {
+                        let body_len = bypass_response.body.len();
+                        // Verify it's not just an error page (should have substantial content)
+                        if body_len > 500 && !bypass_response.body.to_lowercase().contains("forbidden") {
+                            vulnerabilities.push(Vulnerability {
+                                id: format!("403_bypass_{}", rand::random::<u16>()),
+                                vuln_type: "403 Forbidden Bypass".to_string(),
+                                severity: Severity::High,
+                                confidence: Confidence::High,
+                                category: "Access Control".to_string(),
+                                url: bypass_url.clone(),
+                                parameter: None,
+                                payload: format!("{}: {} -> {}", technique_name, path, bypass_path),
+                                description: format!(
+                                    "The 403 Forbidden restriction on '{}' can be bypassed using {} technique.\n\n\
+                                    Original path '{}' returns HTTP 403.\n\
+                                    Bypass path '{}' returns HTTP 200 with {} bytes of content.",
+                                    path, technique_name, path, bypass_path, body_len
+                                ),
+                                evidence: Some(format!(
+                                    "Original: GET {} -> HTTP {}\nBypass: GET {} -> HTTP 200",
+                                    original_url, original_response.status_code, bypass_url
+                                )),
+                                cwe: "CWE-863".to_string(), // Incorrect Authorization
+                                cvss: 8.6,
+                                verified: true,
+                                false_positive: false,
+                                remediation: format!(
+                                    "1. Normalize paths in your application before authorization checks\n\
+                                    2. Use a Web Application Firewall (WAF) to detect path manipulation\n\
+                                    3. Implement proper path canonicalization:\n\n\
+                                    For Nginx:\n\
+                                    merge_slashes on;\n\
+                                    location = {} {{\n    # proper auth check\n}}\n\n\
+                                    For application code, always normalize paths before auth checks.",
+                                    path
+                                ),
+                                discovered_at: chrono::Utc::now().to_rfc3339(),
+                            });
+                            break; // One bypass found for this path is enough
+                        }
+                    }
+                }
+            }
+
+            // Try header-based bypasses
+            for (header_name, header_value) in &bypass_headers {
+                let value = if header_value.is_empty() { path.as_str() } else { *header_value };
+                let headers = vec![(header_name.to_string(), value.to_string())];
+
+                // For X-Original-URL/X-Rewrite-URL, request the root but with header pointing to path
+                let request_url = if *header_name == "X-Original-URL" || *header_name == "X-Rewrite-URL" {
+                    format!("{}/", base_url)
+                } else {
+                    original_url.clone()
+                };
+
+                if let Ok(bypass_response) = self.http_client.get_with_headers(&request_url, headers).await {
+                    if bypass_response.status_code == 200 {
+                        let body_len = bypass_response.body.len();
+                        if body_len > 500 && !bypass_response.body.to_lowercase().contains("forbidden") {
+                            vulnerabilities.push(Vulnerability {
+                                id: format!("403_header_bypass_{}", rand::random::<u16>()),
+                                vuln_type: "403 Forbidden Bypass via Header".to_string(),
+                                severity: Severity::Critical,
+                                confidence: Confidence::High,
+                                category: "Access Control".to_string(),
+                                url: original_url.clone(),
+                                parameter: None,
+                                payload: format!("{}: {}", header_name, value),
+                                description: format!(
+                                    "The 403 Forbidden restriction on '{}' can be bypassed using the {} header.\n\n\
+                                    This is a critical vulnerability often caused by misconfigured reverse proxies \
+                                    that trust headers like X-Original-URL for routing decisions.",
+                                    path, header_name
+                                ),
+                                evidence: Some(format!(
+                                    "Original: GET {} -> HTTP {}\nBypass: GET {} with header {} -> HTTP 200",
+                                    original_url, original_response.status_code, request_url, header_name
+                                )),
+                                cwe: "CWE-863".to_string(),
+                                cvss: 9.8,
+                                verified: true,
+                                false_positive: false,
+                                remediation: format!(
+                                    "1. Remove or ignore {} header in your web server/proxy config\n\n\
+                                    For Nginx:\n\
+                                    proxy_set_header {} \"\";\n\n\
+                                    For Apache:\n\
+                                    RequestHeader unset {}\n\n\
+                                    2. Ensure authorization checks happen after path canonicalization\n\
+                                    3. Configure your reverse proxy to not pass through these headers",
+                                    header_name, header_name, header_name
+                                ),
+                                discovered_at: chrono::Utc::now().to_rfc3339(),
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         vulnerabilities
     }

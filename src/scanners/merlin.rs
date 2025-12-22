@@ -361,6 +361,14 @@ impl VulnerabilityDatabase {
                 severity: Severity::High,
                 description: "SSRF vulnerability".to_string(),
             },
+            VersionRange {
+                from_version: None,
+                to_version: "1.6.8".to_string(),
+                cves: vec!["CVE-2025-27152".to_string()],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2025-27152".to_string(), "https://github.com/axios/axios/pull/6300".to_string()],
+                severity: Severity::Medium,
+                description: "SSRF and credential leakage via absolute URL - depends on follow-redirects before 1.15.6".to_string(),
+            },
         ]);
 
         // Vue.js vulnerabilities
@@ -374,12 +382,12 @@ impl VulnerabilityDatabase {
                 description: "XSS vulnerability in Vue".to_string(),
             },
             VersionRange {
-                from_version: Some("2.0.0-alpha.1".to_string()),
-                to_version: "3.0.0-alpha.0".to_string(),
+                from_version: Some("2.0.0".to_string()),
+                to_version: "2.7.17".to_string(),
                 cves: vec!["CVE-2024-9506".to_string()],
                 references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2024-9506".to_string()],
                 severity: Severity::Medium,
-                description: "XSS vulnerability in Vue 2".to_string(),
+                description: "ReDoS vulnerability exploitable through inefficient regex evaluation in parseHTML function".to_string(),
             },
         ]);
 
@@ -2047,21 +2055,27 @@ impl MerlinScanner {
 
         // Vue 2.x special: search for known vulnerable version strings with Vue context
         if !detected.iter().any(|(lib, _)| lib == "vue") {
-            // Check for Vue 2.6.x (CVE-2024-9506 affected)
-            if js.contains("Vue") || js.contains("__vue") || js.contains("_Vue") {
+            // Check for Vue 2.x (CVE-2024-9506 affected)
+            if js.contains("Vue") || js.contains("__vue") || js.contains("_Vue") || js.contains("$mount") || js.contains("createApp") {
                 let vue2_versions = [
                     r#"['"](2\.6\.1[0-4]|2\.6\.[0-9]|2\.[0-5]\.\d+)['"]\s*[,;}]"#,
                     r#"version['"]\s*:\s*['"](2\.6\.1[0-4]|2\.6\.[0-9]|2\.[0-5]\.\d+)['"]\s*"#,
+                    // Webpack minified patterns: t.version="2.6.14" or e.version="2.6.14"
+                    r#"\.\s*version\s*=\s*['"](2\.\d+\.\d+)['"]"#,
+                    // minified: n("2.6.14"),Vue
+                    r#"[("'](2\.\d+\.\d+)['")\]][^}]{0,50}Vue"#,
+                    // Vue 2 often has: VERSION:"2.6.14" nearby $mount or __patch__
+                    r#"VERSION\s*:\s*['"](2\.\d+\.\d+)['"]"#,
                 ];
                 for pattern in vue2_versions {
                     if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
                         if let Some(version) = caps.get(1) {
                             // Double-check Vue context nearby (within 500 chars)
                             let version_pos = js.find(version.as_str()).unwrap_or(0);
-                            let context_start = version_pos.saturating_sub(250);
-                            let context_end = (version_pos + 250).min(js.len());
+                            let context_start = version_pos.saturating_sub(300);
+                            let context_end = (version_pos + 300).min(js.len());
                             let context = &js[context_start..context_end];
-                            if context.contains("Vue") || context.contains("__vue") || context.contains("createApp") {
+                            if context.contains("Vue") || context.contains("__vue") || context.contains("createApp") || context.contains("$mount") || context.contains("__patch__") || context.contains("_init") {
                                 detected.push(("vue".to_string(), version.as_str().to_string()));
                                 break;
                             }
@@ -2156,21 +2170,26 @@ impl MerlinScanner {
 
         // Axios special: search for known vulnerable versions with axios context
         if !detected.iter().any(|(lib, _)| lib == "axios") {
-            if js.contains("axios") || js.contains("Axios") || js.contains("interceptors") {
+            if js.contains("axios") || js.contains("Axios") || js.contains("interceptors") || js.contains("XMLHttpRequest") {
                 let axios_versions = [
                     r#"['"](0\.2[01]\.[0-4]|0\.1[89]\.\d+|1\.[0-6]\.\d+)['"]\s*[,;}]"#, // Known vuln versions
                     r#"VERSION['"]\s*:\s*['"](0\.2[01]\.[0-4]|0\.1[89]\.\d+)['"]\s*"#,
+                    // Webpack minified: t.version="0.21.4" near http/request
+                    r#"\.\s*version\s*=\s*['"](0\.\d+\.\d+|1\.[0-6]\.\d+)['"]"#,
+                    // minified: n("0.21.4"),axios
+                    r#"[("'](0\.\d+\.\d+)['")\]][^}]{0,50}(?:axios|interceptors)"#,
                 ];
                 for pattern in axios_versions {
                     if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
                         if let Some(version) = caps.get(1) {
                             // Double-check axios context nearby
                             let version_pos = js.find(version.as_str()).unwrap_or(0);
-                            let context_start = version_pos.saturating_sub(300);
-                            let context_end = (version_pos + 300).min(js.len());
+                            let context_start = version_pos.saturating_sub(400);
+                            let context_end = (version_pos + 400).min(js.len());
                             let context = &js[context_start..context_end];
                             if context.contains("axios") || context.contains("Axios") ||
-                               (context.contains("interceptors") && context.contains("request")) {
+                               (context.contains("interceptors") && context.contains("request")) ||
+                               context.contains("XMLHttpRequest") {
                                 detected.push(("axios".to_string(), version.as_str().to_string()));
                                 break;
                             }
