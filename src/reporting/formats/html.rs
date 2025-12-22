@@ -289,6 +289,62 @@ impl HtmlReportGenerator {
             margin: 10px 0;
         }}
 
+        .poc-section {{
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+        }}
+
+        .poc-section p {{
+            margin: 0 0 10px 0;
+            color: #856404;
+            font-weight: bold;
+        }}
+
+        .poc-code {{
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 0.85em;
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }}
+
+        .evidence-section {{
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+        }}
+
+        .evidence-section p {{
+            margin: 0 0 10px 0;
+            color: #0c5460;
+            font-weight: bold;
+        }}
+
+        .evidence-code {{
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 0.85em;
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+        }}
+
         .chart-container {{
             height: 300px;
             margin: 30px 0;
@@ -556,6 +612,7 @@ impl HtmlReportGenerator {
                     <p><strong>URL:</strong> <code>{}</code></p>
                     {}
                     {}
+                    {}
                     <p><strong>Remediation:</strong></p>
                     <div class="code-block">{}</div>
                 </div>
@@ -575,8 +632,13 @@ impl HtmlReportGenerator {
                     idx,
                     self.escape_html(&v.description),
                     self.escape_html(&v.url),
-                    v.parameter.as_ref().map(|p| format!("<p><strong>Parameter:</strong> {}</p>", self.escape_html(p))).unwrap_or_default(),
-                    v.evidence.as_ref().map(|e| format!("<p><strong>Evidence:</strong> {}</p>", self.escape_html(e))).unwrap_or_default(),
+                    v.parameter.as_ref().map(|p| format!("<p><strong>Parameter:</strong> <code>{}</code></p>", self.escape_html(p))).unwrap_or_default(),
+                    if !v.payload.is_empty() && v.payload != "-" {
+                        format!("<div class=\"poc-section\"><p><strong>Proof of Concept (PoC):</strong></p><pre class=\"poc-code\">{}</pre></div>", self.escape_html(&v.payload))
+                    } else {
+                        String::new()
+                    },
+                    v.evidence.as_ref().map(|e| format!("<div class=\"evidence-section\"><p><strong>Evidence:</strong></p><pre class=\"evidence-code\">{}</pre></div>", self.escape_html(e))).unwrap_or_default(),
                     self.escape_html(&v.remediation)
                 )
             })
