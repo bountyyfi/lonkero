@@ -132,10 +132,21 @@ impl CrawlResults {
         all_params
     }
 
-    /// Check if a parameter name is a UUID-like auto-generated ID
+    /// Check if a parameter name is an auto-generated field ID that shouldn't be tested
     fn is_uuid_param(name: &str) -> bool {
         // Skip empty names
         if name.is_empty() {
+            return true;
+        }
+
+        // Skip auto-generated field names like checkbox_field_0, radio_field_1, etc.
+        if name.starts_with("checkbox_field_") || name.starts_with("radio_field_") {
+            return true;
+        }
+
+        // Skip generic indexed fields like field_0, input_1, etc.
+        if (name.starts_with("field_") || name.starts_with("input_"))
+            && name.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false) {
             return true;
         }
 
