@@ -119,14 +119,56 @@ impl ParameterFilter {
                 skip
             }
             ScannerType::NoSQL => {
-                // Similar to SQLi - skip boolean flags
-                let skip = param_lower.starts_with("is") ||
-                           param_lower.starts_with("has") ||
-                           param_lower.starts_with("enable");
-                if skip {
+                // NoSQL injection targets database query parameters
+                // Skip parameters that are clearly not used in database queries
+
+                // Skip boolean flags
+                if param_lower.starts_with("is") ||
+                   param_lower.starts_with("has") ||
+                   param_lower.starts_with("enable") ||
+                   param_lower.starts_with("disable") ||
+                   param_lower.starts_with("show") ||
+                   param_lower.starts_with("hide") {
                     debug!("[ParameterFilter] Skipping boolean-like parameter for NoSQL: {}", param_name);
+                    return true;
                 }
-                skip
+
+                // Skip address/location fields - these are display/form data, not queries
+                let address_fields = [
+                    "street", "street2", "address", "locality", "city", "postcode",
+                    "zipcode", "zip", "country", "state", "province", "region",
+                    "phone", "mobile", "puhelin", "telephone", "fax",
+                    "contactname", "contactemail", "contactphone",
+                    "pickupcountry", "destinationcountry", "countryfilter",
+                    "postcodefilter", "licenseplate", "licenseplat"
+                ];
+                if address_fields.iter().any(|f| param_lower == *f || param_lower.replace("_", "") == *f) {
+                    debug!("[ParameterFilter] Skipping address/location field for NoSQL: {}", param_name);
+                    return true;
+                }
+
+                // Skip invoice/billing display fields (not query fields)
+                let invoice_fields = [
+                    "einvoicename", "einvoiceaddress", "einvoicebroker", "einvoicebrokerid",
+                    "emailinvoicename", "emailinvoiceaddress",
+                    "price", "priceafterfirst", "pricingtype"
+                ];
+                if invoice_fields.iter().any(|f| param_lower == *f || param_lower.replace("_", "") == *f) {
+                    debug!("[ParameterFilter] Skipping invoice/billing field for NoSQL: {}", param_name);
+                    return true;
+                }
+
+                // Skip UI/form fields
+                let ui_fields = [
+                    "sortdirection", "pagination", "before", "after", "range",
+                    "defaultdepth", "defaultweight", "day", "offset", "limit"
+                ];
+                if ui_fields.iter().any(|f| param_lower == *f || param_lower.replace("_", "") == *f) {
+                    debug!("[ParameterFilter] Skipping UI/pagination field for NoSQL: {}", param_name);
+                    return true;
+                }
+
+                false
             }
             ScannerType::CommandInjection => {
                 // Command injection typically targets file/path/command parameters
@@ -163,17 +205,53 @@ impl ParameterFilter {
                 skip
             }
             ScannerType::ReDoS => {
-                // ReDoS targets string inputs - skip boolean flags and numeric params
-                let skip = param_lower.starts_with("is") ||
-                           param_lower.starts_with("has") ||
-                           param_lower.starts_with("enable") ||
-                           param_lower.starts_with("skip") ||
-                           param_lower.ends_with("count") ||
-                           param_lower.ends_with("id");
-                if skip {
-                    debug!("[ParameterFilter] Skipping non-string parameter for ReDoS: {}", param_name);
+                // ReDoS only matters for regex-validated inputs like email, phone, URL patterns
+                // Skip boolean flags and params unlikely to have regex validation
+                if param_lower.starts_with("is") ||
+                   param_lower.starts_with("has") ||
+                   param_lower.starts_with("enable") ||
+                   param_lower.starts_with("disable") ||
+                   param_lower.starts_with("skip") ||
+                   param_lower.ends_with("count") {
+                    debug!("[ParameterFilter] Skipping boolean/numeric parameter for ReDoS: {}", param_name);
+                    return true;
                 }
-                skip
+
+                // Skip address/location display fields - unlikely to have regex
+                let skip_fields = [
+                    "street", "street2", "address", "locality", "city",
+                    "state", "province", "region", "country",
+                    "pickupcountry", "destinationcountry", "countryfilter",
+                    "contactname", "contactphone", "licenseplate",
+                    "einvoicename", "einvoiceaddress", "einvoicebroker",
+                    "emailinvoicename", "emailinvoiceaddress",
+                    "price", "priceafterfirst", "pricingtype",
+                    "sortdirection", "pagination", "before", "after",
+                    "defaultdepth", "defaultweight", "day", "range",
+                    "product", "productid", "subcontractorproduct",
+                    "routename", "workshiftid", "companyid", "office",
+                    "client", "login", "data", "mobile", "puhelin"
+                ];
+                if skip_fields.iter().any(|f| param_lower == *f || param_lower.replace("_", "") == *f) {
+                    debug!("[ParameterFilter] Skipping display field for ReDoS: {}", param_name);
+                    return true;
+                }
+
+                // Only test params likely to have regex validation
+                let regex_likely = [
+                    "email", "mail", "phone", "url", "uri", "pattern",
+                    "postcode", "zipcode", "zip", "ssn", "username",
+                    "search", "query", "filter", "input", "text", "name"
+                ];
+                if !regex_likely.iter().any(|f| param_lower.contains(f)) {
+                    // If not a common regex-validated field and ends with id, skip
+                    if param_lower.ends_with("id") {
+                        debug!("[ParameterFilter] Skipping ID field for ReDoS: {}", param_name);
+                        return true;
+                    }
+                }
+
+                false
             }
             ScannerType::Other => false, // Other scanners test everything
         }

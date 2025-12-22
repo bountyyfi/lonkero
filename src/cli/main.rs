@@ -2608,16 +2608,30 @@ fn print_vulnerability_summary(results: &ScanResults) {
 }
 
 fn write_results(results: &[ScanResults], path: &PathBuf, format: OutputFormat) -> Result<()> {
-    let content = match format {
-        OutputFormat::Json => serde_json::to_string_pretty(results)?,
-        OutputFormat::Html => generate_html_report(results)?,
-        OutputFormat::Markdown => generate_markdown_report(results)?,
-        OutputFormat::Sarif => generate_sarif_report(results)?,
-        OutputFormat::Csv => generate_csv_report(results)?,
-        _ => serde_json::to_string_pretty(results)?, // Fallback to JSON
-    };
-
-    std::fs::write(path, content)?;
+    match format {
+        OutputFormat::Pdf => {
+            // PDF requires binary output
+            let pdf_data = generate_pdf_report(results)?;
+            std::fs::write(path, pdf_data)?;
+        }
+        OutputFormat::Xlsx => {
+            // XLSX requires binary output
+            let xlsx_data = generate_xlsx_report(results)?;
+            std::fs::write(path, xlsx_data)?;
+        }
+        _ => {
+            let content = match format {
+                OutputFormat::Json => serde_json::to_string_pretty(results)?,
+                OutputFormat::Html => generate_html_report(results)?,
+                OutputFormat::Markdown => generate_markdown_report(results)?,
+                OutputFormat::Sarif => generate_sarif_report(results)?,
+                OutputFormat::Csv => generate_csv_report(results)?,
+                OutputFormat::Junit => generate_junit_report(results)?,
+                _ => serde_json::to_string_pretty(results)?, // Fallback to JSON
+            };
+            std::fs::write(path, content)?;
+        }
+    }
     Ok(())
 }
 
@@ -3254,6 +3268,249 @@ fn generate_csv_report(results: &[ScanResults]) -> Result<String> {
     }
 
     Ok(csv)
+}
+
+fn generate_pdf_report(results: &[ScanResults]) -> Result<Vec<u8>> {
+    use lonkero_scanner::reporting::types::{
+        BrandingConfig, EnhancedReport, ExecutiveSummary, VulnerabilityBreakdown,
+        ComplianceMapping, RiskAssessment,
+    };
+    use lonkero_scanner::reporting::formats::pdf::PdfReportGenerator;
+    use std::collections::HashMap;
+
+    // Aggregate all vulnerabilities
+    let mut all_vulns = Vec::new();
+    let mut target = String::new();
+    let mut scan_id = String::new();
+
+    for result in results {
+        if target.is_empty() {
+            target = result.target.clone();
+            scan_id = result.scan_id.clone();
+        }
+        all_vulns.extend(result.vulnerabilities.clone());
+    }
+
+    // Count severities
+    let critical_count = all_vulns.iter().filter(|v| matches!(v.severity, lonkero_scanner::types::Severity::Critical)).count();
+    let high_count = all_vulns.iter().filter(|v| matches!(v.severity, lonkero_scanner::types::Severity::High)).count();
+    let medium_count = all_vulns.iter().filter(|v| matches!(v.severity, lonkero_scanner::types::Severity::Medium)).count();
+    let low_count = all_vulns.iter().filter(|v| matches!(v.severity, lonkero_scanner::types::Severity::Low)).count();
+    let info_count = all_vulns.iter().filter(|v| matches!(v.severity, lonkero_scanner::types::Severity::Info)).count();
+
+    let risk_score = (critical_count as f64 * 10.0 + high_count as f64 * 7.0 + medium_count as f64 * 4.0 + low_count as f64 * 1.0) / 10.0;
+    let risk_level = if critical_count > 0 { "Critical" } else if high_count > 0 { "High" } else if medium_count > 0 { "Medium" } else if low_count > 0 { "Low" } else { "Info" };
+
+    let scan_results = lonkero_scanner::types::ScanResults {
+        scan_id: scan_id.clone(),
+        target: target.clone(),
+        tests_run: results.iter().map(|r| r.tests_run).sum(),
+        vulnerabilities: all_vulns,
+        started_at: results.first().map(|r| r.started_at.clone()).unwrap_or_default(),
+        completed_at: results.last().map(|r| r.completed_at.clone()).unwrap_or_default(),
+        duration_seconds: results.iter().map(|r| r.duration_seconds).sum(),
+        early_terminated: false,
+        termination_reason: None,
+        scanner_version: Some("2.0.0".to_string()),
+        license_signature: Some(String::new()),
+        quantum_signature: None,
+        authorization_token_id: None,
+    };
+
+    let enhanced_report = EnhancedReport {
+        scan_results,
+        executive_summary: ExecutiveSummary {
+            target: target.clone(),
+            scan_date: chrono::Utc::now().to_rfc3339(),
+            total_vulnerabilities: critical_count + high_count + medium_count + low_count + info_count,
+            critical_count,
+            high_count,
+            medium_count,
+            low_count,
+            info_count,
+            risk_score,
+            risk_level: risk_level.to_string(),
+            key_findings: Vec::new(),
+            recommendations: Vec::new(),
+            duration_seconds: results.iter().map(|r| r.duration_seconds).sum(),
+        },
+        vulnerability_breakdown: VulnerabilityBreakdown {
+            by_severity: HashMap::new(),
+            by_category: HashMap::new(),
+            by_confidence: HashMap::new(),
+            verified_count: 0,
+            unverified_count: 0,
+        },
+        owasp_mapping: HashMap::new(),
+        cwe_mapping: HashMap::new(),
+        compliance_mapping: ComplianceMapping {
+            pci_dss: HashMap::new(),
+            hipaa: HashMap::new(),
+            soc2: HashMap::new(),
+            iso27001: HashMap::new(),
+            gdpr: HashMap::new(),
+            nist_csf: HashMap::new(),
+            dora: HashMap::new(),
+            nis2: HashMap::new(),
+        },
+        risk_assessment: RiskAssessment {
+            overall_risk_score: risk_score,
+            risk_level: risk_level.to_string(),
+            risk_matrix: Vec::new(),
+            attack_surface_score: 0.0,
+            exploitability_score: 0.0,
+            business_impact_score: 0.0,
+        },
+        trends: None,
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        report_version: "1.0".to_string(),
+    };
+
+    let branding = BrandingConfig::default();
+    let pdf_generator = PdfReportGenerator::new();
+
+    // Use tokio runtime for async
+    let rt = tokio::runtime::Runtime::new()?;
+    let pdf_data = rt.block_on(pdf_generator.generate(&enhanced_report, &branding))?;
+
+    Ok(pdf_data)
+}
+
+fn generate_xlsx_report(results: &[ScanResults]) -> Result<Vec<u8>> {
+    use rust_xlsxwriter::*;
+
+    let mut workbook = Workbook::new();
+    let worksheet = workbook.add_worksheet();
+    worksheet.set_name("Vulnerabilities")?;
+
+    let header_format = Format::new()
+        .set_bold()
+        .set_background_color(Color::RGB(0x2563eb));
+
+    // Headers
+    worksheet.write_with_format(0, 0, "Target", &header_format)?;
+    worksheet.write_with_format(0, 1, "Type", &header_format)?;
+    worksheet.write_with_format(0, 2, "Severity", &header_format)?;
+    worksheet.write_with_format(0, 3, "URL", &header_format)?;
+    worksheet.write_with_format(0, 4, "Parameter", &header_format)?;
+    worksheet.write_with_format(0, 5, "Payload", &header_format)?;
+    worksheet.write_with_format(0, 6, "CWE", &header_format)?;
+    worksheet.write_with_format(0, 7, "CVSS", &header_format)?;
+    worksheet.write_with_format(0, 8, "Description", &header_format)?;
+    worksheet.write_with_format(0, 9, "Remediation", &header_format)?;
+
+    let mut row = 1u32;
+    for result in results {
+        for vuln in &result.vulnerabilities {
+            worksheet.write(row, 0, &result.target)?;
+            worksheet.write(row, 1, &vuln.vuln_type)?;
+            worksheet.write(row, 2, &format!("{:?}", vuln.severity))?;
+            worksheet.write(row, 3, &vuln.url)?;
+            worksheet.write(row, 4, vuln.parameter.as_deref().unwrap_or(""))?;
+            worksheet.write(row, 5, &vuln.payload)?;
+            worksheet.write(row, 6, &vuln.cwe)?;
+            worksheet.write(row, 7, vuln.cvss)?;
+            worksheet.write(row, 8, &vuln.description)?;
+            worksheet.write(row, 9, &vuln.remediation)?;
+            row += 1;
+        }
+    }
+
+    // Set column widths
+    worksheet.set_column_width(0, 30)?;
+    worksheet.set_column_width(1, 35)?;
+    worksheet.set_column_width(2, 12)?;
+    worksheet.set_column_width(3, 50)?;
+    worksheet.set_column_width(4, 20)?;
+    worksheet.set_column_width(5, 40)?;
+    worksheet.set_column_width(6, 12)?;
+    worksheet.set_column_width(7, 8)?;
+    worksheet.set_column_width(8, 60)?;
+    worksheet.set_column_width(9, 60)?;
+
+    let temp_path = format!("/tmp/lonkero_report_{}.xlsx", std::process::id());
+    workbook.save(&temp_path)?;
+    let data = std::fs::read(&temp_path)?;
+    let _ = std::fs::remove_file(&temp_path);
+
+    Ok(data)
+}
+
+fn generate_junit_report(results: &[ScanResults]) -> Result<String> {
+    let mut total_tests = 0usize;
+    let mut total_failures = 0usize;
+
+    for result in results {
+        total_tests += result.vulnerabilities.len().max(1);
+        total_failures += result.vulnerabilities.len();
+    }
+
+    let mut xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="Lonkero Security Scan" tests="{}" failures="{}" time="{}">
+"#,
+        total_tests,
+        total_failures,
+        results.iter().map(|r| r.duration_seconds).sum::<f64>()
+    );
+
+    for result in results {
+        let failures = result.vulnerabilities.len();
+        xml.push_str(&format!(
+            r#"  <testsuite name="{}" tests="{}" failures="{}" time="{}">
+"#,
+            xml_escape(&result.target),
+            result.vulnerabilities.len().max(1),
+            failures,
+            result.duration_seconds
+        ));
+
+        if result.vulnerabilities.is_empty() {
+            xml.push_str(&format!(
+                r#"    <testcase name="Security Scan" classname="{}" time="{}" />
+"#,
+                xml_escape(&result.target),
+                result.duration_seconds
+            ));
+        } else {
+            for vuln in &result.vulnerabilities {
+                xml.push_str(&format!(
+                    r#"    <testcase name="{}" classname="{}" time="0">
+      <failure message="{}" type="{:?}"><![CDATA[
+URL: {}
+CWE: {}
+CVSS: {:.1}
+Description: {}
+Remediation: {}
+]]></failure>
+    </testcase>
+"#,
+                    xml_escape(&vuln.vuln_type),
+                    xml_escape(&result.target),
+                    xml_escape(&vuln.description),
+                    vuln.severity,
+                    vuln.url,
+                    vuln.cwe,
+                    vuln.cvss,
+                    vuln.description,
+                    vuln.remediation
+                ));
+            }
+        }
+
+        xml.push_str("  </testsuite>\n");
+    }
+
+    xml.push_str("</testsuites>\n");
+    Ok(xml)
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn list_scanners(verbose: bool, category: Option<String>) -> Result<()> {
