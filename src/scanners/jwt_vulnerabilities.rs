@@ -30,20 +30,29 @@ impl JwtVulnerabilitiesScanner {
     pub async fn scan(
         &self,
         url: &str,
-        _config: &ScanConfig,
+        config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         info!("Starting JWT vulnerabilities scan on {}", url);
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
 
-        // Check if JWT is actually used before testing
-        let baseline_response = self.http_client.get(url).await?;
-        let characteristics = AppCharacteristics::from_response(&baseline_response, url);
+        // If user provided an auth_token, assume JWT is used
+        let has_user_jwt = config.auth_token.as_ref()
+            .map(|t| t.matches('.').count() == 2)
+            .unwrap_or(false);
 
-        if !characteristics.has_jwt {
-            info!("[JWT-Vuln] No JWT usage detected - skipping JWT vulnerability tests");
-            return Ok((all_vulnerabilities, total_tests));
+        if !has_user_jwt {
+            // Check if JWT is actually used before testing
+            let baseline_response = self.http_client.get(url).await?;
+            let characteristics = AppCharacteristics::from_response(&baseline_response, url);
+
+            if !characteristics.has_jwt {
+                info!("[JWT-Vuln] No JWT usage detected - skipping JWT vulnerability tests");
+                return Ok((all_vulnerabilities, total_tests));
+            }
+        } else {
+            info!("[JWT-Vuln] User provided JWT token - running JWT vulnerability tests");
         }
 
         // Test none algorithm

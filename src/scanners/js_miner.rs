@@ -25,12 +25,27 @@ pub struct JsMinerResults {
     pub form_actions: HashSet<String>,
     /// GraphQL endpoints
     pub graphql_endpoints: HashSet<String>,
+    /// GraphQL operations discovered in JS (queries, mutations, subscriptions)
+    pub graphql_operations: Vec<GraphQLOperationInfo>,
     /// Discovered S3 bucket URLs (for automatic scanning)
     pub s3_buckets: HashSet<String>,
     /// Discovered Azure Blob Storage URLs
     pub azure_blobs: HashSet<String>,
     /// Discovered GCS bucket URLs
     pub gcs_buckets: HashSet<String>,
+}
+
+/// Discovered GraphQL operation from JS analysis
+#[derive(Debug, Clone)]
+pub struct GraphQLOperationInfo {
+    /// Operation type: query, mutation, subscription
+    pub operation_type: String,
+    /// Operation name (if available)
+    pub name: String,
+    /// Raw operation string (truncated)
+    pub raw: String,
+    /// Source JS file
+    pub source: String,
 }
 
 impl JsMinerResults {
@@ -42,6 +57,7 @@ impl JsMinerResults {
             parameters: HashMap::new(),
             form_actions: HashSet::new(),
             graphql_endpoints: HashSet::new(),
+            graphql_operations: Vec::new(),
             s3_buckets: HashSet::new(),
             azure_blobs: HashSet::new(),
             gcs_buckets: HashSet::new(),
@@ -389,17 +405,66 @@ impl JsMinerScanner {
             }
         }
 
-        // Extract GraphQL endpoints
-        if let Ok(regex) = Regex::new(r#"["'`](https?://[^"'`]+/graphql[^"'`]*)"#) {
-            for cap in regex.captures_iter(content) {
-                if let Some(url) = cap.get(1) {
-                    let url_str = url.as_str().to_string();
-                    if !Self::is_documentation_url(&url_str) {
-                        results.graphql_endpoints.insert(url_str);
+        // Extract GraphQL endpoints - comprehensive patterns for all frameworks
+        let graphql_patterns = [
+            // Full URLs with graphql in path
+            r#"["'`](https?://[^"'`\s]+/graphql[^"'`\s]*)"#,
+            // Relative paths
+            r#"["'`](/graphql[^"'`\s]*)"#,
+            r#"["'`](/api/graphql[^"'`\s]*)"#,
+            r#"["'`](/v\d+/graphql[^"'`\s]*)"#,
+            r#"["'`](/gql[^"'`\s]*)"#,
+            // Configuration objects - Apollo, urql, etc.
+            r#"(?:uri|endpoint|url|href)\s*[:=]\s*["'`](https?://[^"'`\s]+(?:/graphql|/gql)[^"'`\s]*)"#,
+            r#"(?:uri|endpoint|url|href)\s*[:=]\s*["'`](/(?:api/)?graphql[^"'`\s]*)"#,
+            // Apollo Client patterns
+            r#"ApolloClient\s*\(\s*\{[^}]*uri\s*:\s*["'`]([^"'`]+)"#,
+            r#"HttpLink\s*\(\s*\{[^}]*uri\s*:\s*["'`]([^"'`]+)"#,
+            r#"createHttpLink\s*\(\s*\{[^}]*uri\s*:\s*["'`]([^"'`]+)"#,
+            // urql patterns
+            r#"createClient\s*\(\s*\{[^}]*url\s*:\s*["'`]([^"'`]+)"#,
+            r#"Client\s*\(\s*\{[^}]*url\s*:\s*["'`]([^"'`]+)"#,
+            // Vue Apollo patterns
+            r#"VueApollo\s*\(\s*\{[^}]*uri\s*:\s*["'`]([^"'`]+)"#,
+            r#"apolloProvider[^}]*httpEndpoint\s*:\s*["'`]([^"'`]+)"#,
+            r#"GRAPHQL_ENDPOINT\s*[:=]\s*["'`]([^"'`]+)"#,
+            r#"GQL_ENDPOINT\s*[:=]\s*["'`]([^"'`]+)"#,
+            r#"API_GRAPHQL\s*[:=]\s*["'`]([^"'`]+)"#,
+            // Environment variable patterns
+            r#"NEXT_PUBLIC_GRAPHQL[^"'`]*["'`]([^"'`]+)"#,
+            r#"NUXT_PUBLIC_GRAPHQL[^"'`]*["'`]([^"'`]+)"#,
+            r#"VUE_APP_GRAPHQL[^"'`]*["'`]([^"'`]+)"#,
+            r#"REACT_APP_GRAPHQL[^"'`]*["'`]([^"'`]+)"#,
+            // Relay patterns
+            r#"RelayEnvironment[^}]*url\s*:\s*["'`]([^"'`]+)"#,
+            r#"fetchQuery[^}]*["'`](https?://[^"'`]+)"#,
+            // Generic graphql URL detection
+            r#"["'`](https?://[^"'`\s]*graphql[^"'`\s]*)"#,
+            r#"["'`](https?://[^"'`\s]*/gql[^"'`\s]*)"#,
+        ];
+
+        for pattern in &graphql_patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                for cap in regex.captures_iter(content) {
+                    if let Some(url) = cap.get(1) {
+                        let url_str = url.as_str().to_string();
+                        if !Self::is_documentation_url(&url_str) && !url_str.is_empty() {
+                            // For relative paths, mark them for later resolution
+                            if url_str.starts_with('/') {
+                                results.graphql_endpoints.insert(format!("RELATIVE:{}", url_str));
+                            } else if url_str.starts_with("http") {
+                                results.graphql_endpoints.insert(url_str);
+                            } else if url_str.contains("graphql") || url_str.contains("/gql") {
+                                results.graphql_endpoints.insert(url_str);
+                            }
+                        }
                     }
                 }
             }
         }
+
+        // Extract GraphQL operations (queries, mutations, subscriptions) from JS bundles
+        self.extract_graphql_operations(content, "js_bundle", results);
 
         // Extract S3 bucket URLs (multiple patterns)
         let s3_patterns = [
@@ -1412,6 +1477,132 @@ impl JsMinerScanner {
         }
     }
 
+    /// Extract GraphQL operations (queries, mutations, subscriptions) from JavaScript content
+    /// These provide additional testing surface for the GraphQL scanner
+    fn extract_graphql_operations(&self, content: &str, source: &str, results: &mut JsMinerResults) {
+        // Pattern 1: gql` or graphql` tagged template literals with operation
+        // Matches: gql`query GetUsers { ... }` or gql`mutation CreateUser($input: UserInput!) { ... }`
+        let gql_template_pattern = r#"(?:gql|graphql)\s*`\s*((?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)[^`]{0,2000})`"#;
+
+        if let Ok(re) = Regex::new(gql_template_pattern) {
+            for cap in re.captures_iter(content) {
+                if let (Some(full), Some(name)) = (cap.get(1), cap.get(2)) {
+                    let operation_type = if full.as_str().trim().starts_with("mutation") {
+                        "mutation"
+                    } else if full.as_str().trim().starts_with("subscription") {
+                        "subscription"
+                    } else {
+                        "query"
+                    };
+
+                    results.graphql_operations.push(GraphQLOperationInfo {
+                        operation_type: operation_type.to_string(),
+                        name: name.as_str().to_string(),
+                        raw: full.as_str().chars().take(500).collect(),
+                        source: source.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Pattern 2: Standalone GraphQL operations (query Name { or mutation Name()
+        // Common in .graphql files inlined or string concatenation
+        let standalone_pattern = r#"(?:^|[^a-zA-Z_])(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*\{"#;
+
+        if let Ok(re) = Regex::new(standalone_pattern) {
+            for cap in re.captures_iter(content) {
+                if let (Some(op_type), Some(name)) = (cap.get(1), cap.get(2)) {
+                    let name_str = name.as_str();
+                    // Skip if already captured
+                    if results.graphql_operations.iter().any(|op| op.name == name_str) {
+                        continue;
+                    }
+
+                    results.graphql_operations.push(GraphQLOperationInfo {
+                        operation_type: op_type.as_str().to_string(),
+                        name: name_str.to_string(),
+                        raw: cap.get(0).map(|m| m.as_str().chars().take(200).collect()).unwrap_or_default(),
+                        source: source.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Pattern 3: Apollo/urql mutation/query hooks - extract operation name from document
+        // useQuery(GET_USERS_QUERY) or useMutation(CREATE_USER_MUTATION)
+        let hook_patterns = [
+            r#"use(?:Query|Mutation|Subscription)\s*\(\s*([A-Z][A-Z0-9_]*(?:_QUERY|_MUTATION|_SUBSCRIPTION)?)\s*[,)]"#,
+            r#"use(?:Query|Mutation|Subscription)\s*\(\s*\{\s*query\s*:\s*([A-Z][A-Z0-9_]*)"#,
+            r#"useLazyQuery\s*\(\s*([A-Z][A-Z0-9_]*)"#,
+        ];
+
+        for pattern in hook_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                for cap in re.captures_iter(content) {
+                    if let Some(const_name) = cap.get(1) {
+                        let name = const_name.as_str();
+                        // Derive operation type from naming convention
+                        let operation_type = if name.contains("MUTATION") || name.starts_with("CREATE") ||
+                                               name.starts_with("UPDATE") || name.starts_with("DELETE") {
+                            "mutation"
+                        } else if name.contains("SUBSCRIPTION") {
+                            "subscription"
+                        } else {
+                            "query"
+                        };
+
+                        // Check if already captured
+                        if results.graphql_operations.iter().any(|op| op.name == name) {
+                            continue;
+                        }
+
+                        results.graphql_operations.push(GraphQLOperationInfo {
+                            operation_type: operation_type.to_string(),
+                            name: name.to_string(),
+                            raw: format!("{}({})", if operation_type == "mutation" { "mutation" } else { "query" }, name),
+                            source: source.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Pattern 4: Vue Apollo patterns - this.$apollo.mutate({ mutation: ... })
+        let vue_apollo_patterns = [
+            r#"\$apollo\.(?:query|mutate)\s*\(\s*\{[^}]*(?:query|mutation)\s*:\s*([A-Z][A-Z0-9_]*)"#,
+            r#"apolloClient\.(?:query|mutate)\s*\(\s*\{[^}]*(?:query|mutation)\s*:\s*([A-Z][A-Z0-9_]*)"#,
+        ];
+
+        for pattern in vue_apollo_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                for cap in re.captures_iter(content) {
+                    if let Some(const_name) = cap.get(1) {
+                        let name = const_name.as_str();
+                        if results.graphql_operations.iter().any(|op| op.name == name) {
+                            continue;
+                        }
+
+                        let operation_type = if name.contains("MUTATION") { "mutation" } else { "query" };
+                        results.graphql_operations.push(GraphQLOperationInfo {
+                            operation_type: operation_type.to_string(),
+                            name: name.to_string(),
+                            raw: format!("vue-apollo: {}", name),
+                            source: source.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Log if we found operations
+        if !results.graphql_operations.is_empty() {
+            let queries = results.graphql_operations.iter().filter(|op| op.operation_type == "query").count();
+            let mutations = results.graphql_operations.iter().filter(|op| op.operation_type == "mutation").count();
+            info!("[JS-Miner] Extracted {} GraphQL operations ({} queries, {} mutations) from {}",
+                results.graphql_operations.len(), queries, mutations, source);
+        }
+    }
+
     /// Extract form fields from ANY JavaScript file (works for all frameworks)
     /// Looks for common form field names appearing as string literals
     fn extract_form_fields_from_js(&self, content: &str, results: &mut JsMinerResults) {
@@ -1493,6 +1684,32 @@ impl JsMinerScanner {
         // Too short - likely minified
         if name.len() < 3 {
             return true;
+        }
+
+        // Skip UUID-like parameters (e.g., f_719771a0-d35e-4857-9c31-41e656da6325)
+        // Matches: prefix_UUID or just UUID patterns
+        if name.contains('-') {
+            let uuid_pattern = regex::Regex::new(r"^[a-zA-Z_]*[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$").ok();
+            if let Some(re) = uuid_pattern {
+                if re.is_match(name) || name.split('_').any(|part| re.is_match(part)) {
+                    return true;
+                }
+            }
+            // Also check for partial UUIDs or random hex strings with dashes
+            let dash_count = name.chars().filter(|c| *c == '-').count();
+            let hex_chars = name.chars().filter(|c| c.is_ascii_hexdigit()).count();
+            // If it has 4+ dashes and mostly hex chars, it's likely a UUID
+            if dash_count >= 4 && hex_chars > name.len() / 2 {
+                return true;
+            }
+        }
+
+        // Skip parameters that are just random hex strings (generated IDs)
+        if name.len() > 20 && name.chars().all(|c| c.is_ascii_hexdigit() || c == '_') {
+            let hex_only = name.replace('_', "");
+            if hex_only.chars().all(|c| c.is_ascii_hexdigit()) && hex_only.len() > 16 {
+                return true;
+            }
         }
 
         // Skip common framework/meta params that aren't user input

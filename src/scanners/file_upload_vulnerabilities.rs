@@ -241,6 +241,30 @@ impl FileUploadVulnerabilitiesScanner {
                                     ));
                                     return Ok((vulnerabilities, tests_run));
                                 } else if verify_response.status_code == 200 {
+                                    // Check for soft 404 - server returns 200 but body shows error
+                                    let body_lower = verify_response.body.to_lowercase();
+                                    let is_soft_404 = body_lower.contains("not found") ||
+                                        body_lower.contains("404") ||
+                                        body_lower.contains("does not exist") ||
+                                        body_lower.contains("file not found") ||
+                                        body_lower.contains("page not found") ||
+                                        body_lower.contains("resource not found") ||
+                                        body_lower.contains("cannot be found") ||
+                                        // Multi-language 404 patterns
+                                        body_lower.contains("sivua ei löydy") ||  // Finnish
+                                        body_lower.contains("sivu ei löytynyt") ||  // Finnish variant
+                                        body_lower.contains("seite nicht gefunden") ||  // German
+                                        body_lower.contains("página no encontrada") ||  // Spanish
+                                        body_lower.contains("page introuvable") ||  // French
+                                        body_lower.contains("pagina niet gevonden") ||  // Dutch
+                                        (body_lower.contains("error") && body_lower.len() < 1000);
+
+                                    if is_soft_404 {
+                                        // This is a soft 404 - file doesn't actually exist
+                                        info!("[FileUpload] Soft 404 detected at {} - not a real file", upload_path);
+                                        continue;
+                                    }
+
                                     // File exists but didn't execute - still a vulnerability but lower severity
                                     info!("File uploaded but not executed at {}", upload_path);
                                     vulnerabilities.push(self.create_vulnerability(

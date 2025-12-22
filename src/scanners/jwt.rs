@@ -39,30 +39,35 @@ impl JwtScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // CRITICAL: First check if JWT is actually used by the application
-        // Don't waste time testing JWT if the site doesn't use it
-        tests_run += 1;
-        let baseline_response = match self.http_client.get(base_url).await {
-            Ok(r) => r,
-            Err(e) => {
-                warn!("[JWT] Failed to fetch baseline: {}", e);
+        // If user provided a JWT token, use it regardless of auto-detection
+        // The user knows their app uses JWT, so trust them
+        let has_user_provided_jwt = !jwt_token.is_empty() && jwt_token.matches('.').count() == 2;
+
+        if !has_user_provided_jwt {
+            // No user-provided token, check if site seems to use JWT
+            tests_run += 1;
+            let baseline_response = match self.http_client.get(base_url).await {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("[JWT] Failed to fetch baseline: {}", e);
+                    return Ok((vulnerabilities, tests_run));
+                }
+            };
+
+            let characteristics = AppCharacteristics::from_response(&baseline_response, base_url);
+
+            if !characteristics.has_jwt {
+                info!("[JWT] No JWT usage detected - skipping JWT tests (likely doesn't use JWT auth)");
                 return Ok((vulnerabilities, tests_run));
             }
-        };
 
-        let characteristics = AppCharacteristics::from_response(&baseline_response, base_url);
-
-        if !characteristics.has_jwt {
-            info!("[JWT] No JWT usage detected - skipping JWT tests (likely doesn't use JWT auth)");
-            return Ok((vulnerabilities, tests_run));
+            if characteristics.should_skip_injection_tests() {
+                info!("[JWT] Site is SPA/static - skipping JWT tests (no server-side auth)");
+                return Ok((vulnerabilities, tests_run));
+            }
         }
 
-        if characteristics.should_skip_injection_tests() {
-            info!("[JWT] Site is SPA/static - skipping JWT tests (no server-side auth)");
-            return Ok((vulnerabilities, tests_run));
-        }
-
-        info!("[JWT] JWT usage confirmed - proceeding with vulnerability tests");
+        info!("[JWT] JWT token provided - proceeding with vulnerability tests");
 
         // Parse the original JWT
         let parts: Vec<&str> = jwt_token.split('.').collect();

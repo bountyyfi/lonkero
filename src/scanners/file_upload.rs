@@ -1086,6 +1086,32 @@ impl FileUploadScanner {
 
     /// Check if upload was accepted based on response
     fn is_upload_accepted(&self, body: &str, status: u16) -> bool {
+        // First check for soft 404 - server returns 200 but body shows error
+        let body_lower = body.to_lowercase();
+        let is_soft_error = body_lower.contains("not found") ||
+            body_lower.contains("404") ||
+            body_lower.contains("does not exist") ||
+            body_lower.contains("file not found") ||
+            body_lower.contains("page not found") ||
+            body_lower.contains("resource not found") ||
+            body_lower.contains("cannot be found") ||
+            body_lower.contains("forbidden") ||
+            body_lower.contains("access denied") ||
+            body_lower.contains("unauthorized") ||
+            body_lower.contains("not allowed") ||
+            // Multi-language 404 patterns
+            body_lower.contains("sivua ei löydy") ||  // Finnish
+            body_lower.contains("sivu ei löytynyt") ||  // Finnish variant
+            body_lower.contains("seite nicht gefunden") ||  // German
+            body_lower.contains("página no encontrada") ||  // Spanish
+            body_lower.contains("page introuvable") ||  // French
+            body_lower.contains("pagina niet gevonden") ||  // Dutch
+            (body_lower.contains("error") && body.len() < 1000 && !body_lower.contains("success"));
+
+        if is_soft_error {
+            return false;
+        }
+
         // Check status codes
         if matches!(status, 200 | 201 | 204) {
             return true;

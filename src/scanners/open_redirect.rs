@@ -117,13 +117,10 @@ impl OpenRedirectScanner {
     fn generate_evil_domains(&self) -> Vec<(String, &'static str)> {
         let mut domains = Vec::new();
 
-        // Base evil domains
+        // Base evil domains - reduced set for speed
         let base_domains = vec![
             "evil.com",
             "attacker.com",
-            "malicious.com",
-            "hacker.com",
-            "pwned.com",
         ];
 
         // Add base domains
@@ -131,42 +128,15 @@ impl OpenRedirectScanner {
             domains.push((domain.to_string(), "Base evil domain"));
         }
 
-        // Unicode homoglyph variations for "evil.com"
-        // Cyrillic homoglyphs
+        // Key Unicode homoglyph variations - reduced to most effective
         domains.push(("еvil.com".to_string(), "Cyrillic 'е' (U+0435)"));
-        domains.push(("evіl.com".to_string(), "Cyrillic 'і' (U+0456)"));
-        domains.push(("еvіl.com".to_string(), "Cyrillic 'е' and 'і'"));
-        domains.push(("ꬲvil.com".to_string(), "Latin small letter blackletter e"));
-        domains.push(("ẹvil.com".to_string(), "Latin 'e' with dot below"));
-        domains.push(("évil.com".to_string(), "Latin 'e' with acute"));
-        domains.push(("ëvil.com".to_string(), "Latin 'e' with diaeresis"));
-        domains.push(("ēvil.com".to_string(), "Latin 'e' with macron"));
-
-        // Different dot characters
         domains.push(("evil。com".to_string(), "Ideographic full stop (U+3002)"));
-        domains.push(("evil．com".to_string(), "Fullwidth full stop (U+FF0E)"));
-        domains.push(("evil٫com".to_string(), "Arabic decimal separator (U+066B)"));
-        domains.push(("evil·com".to_string(), "Middle dot (U+00B7)"));
-        domains.push(("evil․com".to_string(), "One dot leader (U+2024)"));
-        domains.push(("evil‧com".to_string(), "Hyphenation point (U+2027)"));
-        domains.push(("evil•com".to_string(), "Bullet (U+2022)"));
-        domains.push(("evil︒com".to_string(), "Presentation form (U+FE52)"));
 
-        // Zero-width character injections
+        // Zero-width character injection - one example
         domains.push(("evil\u{200B}.com".to_string(), "Zero-width space"));
-        domains.push(("evil\u{200C}.com".to_string(), "Zero-width non-joiner"));
-        domains.push(("evil\u{200D}.com".to_string(), "Zero-width joiner"));
-        domains.push(("evil\u{FEFF}.com".to_string(), "Zero-width no-break space"));
-        domains.push(("evi\u{200B}l.com".to_string(), "ZWSP in domain"));
 
-        // Mixed scripts
-        domains.push(("ℯvil.com".to_string(), "Script small e (U+212F)"));
-        domains.push(("ⅇvil.com".to_string(), "Double-struck e (U+2147)"));
-
-        // Punycode equivalents (IDN)
+        // Punycode - one example
         domains.push(("xn--vil-epa.com".to_string(), "Punycode for еvil.com"));
-        domains.push(("xn--vi-yia.com".to_string(), "Punycode variant"));
-        domains.push(("xn--evil-4ve.com".to_string(), "Punycode with special char"));
 
         // OOB detection canary domain
         domains.push(("redirect-test.bountyy.fi".to_string(), "OOB canary domain"));
@@ -174,60 +144,35 @@ impl OpenRedirectScanner {
         domains
     }
 
-    /// Generate protocol variations
+    /// Generate protocol variations - reduced for speed
     fn generate_protocols(&self) -> Vec<(String, BypassCategory, &'static str)> {
         vec![
-            // Standard protocols
+            // Standard protocols (essential)
             ("https://".to_string(), BypassCategory::Basic, "HTTPS"),
             ("http://".to_string(), BypassCategory::Basic, "HTTP"),
             ("//".to_string(), BypassCategory::ProtocolRelative, "Protocol-relative"),
 
-            // Multiple slashes
+            // Multiple slashes (key bypasses)
             ("///".to_string(), BypassCategory::SlashManipulation, "Triple slash"),
-            ("////".to_string(), BypassCategory::SlashManipulation, "Quad slash"),
-            ("/////".to_string(), BypassCategory::SlashManipulation, "Five slashes"),
-            ("//////".to_string(), BypassCategory::SlashManipulation, "Six slashes"),
 
-            // Backslash variations
+            // Backslash variations (key bypasses)
             ("/\\".to_string(), BypassCategory::BackslashTrick, "Slash-backslash"),
-            ("\\/".to_string(), BypassCategory::BackslashTrick, "Backslash-slash"),
             ("\\\\".to_string(), BypassCategory::BackslashTrick, "Double backslash (UNC)"),
-            ("/\\/".to_string(), BypassCategory::BackslashTrick, "Mixed slashes"),
 
-            // Protocol with variations
+            // Protocol variations (key bypasses)
             ("https:/".to_string(), BypassCategory::ParserDifferential, "Single slash HTTPS"),
             ("https:\\\\".to_string(), BypassCategory::ParserDifferential, "Backslash HTTPS"),
-            ("https:\\/".to_string(), BypassCategory::ParserDifferential, "Mixed HTTPS"),
-            ("https:/\\".to_string(), BypassCategory::ParserDifferential, "Slash-back HTTPS"),
-            ("https:///".to_string(), BypassCategory::ParserDifferential, "Triple slash HTTPS"),
-            ("https:////".to_string(), BypassCategory::ParserDifferential, "Quad slash HTTPS"),
-            ("http:/".to_string(), BypassCategory::ParserDifferential, "Single slash HTTP"),
-            ("http:\\\\".to_string(), BypassCategory::ParserDifferential, "Backslash HTTP"),
 
-            // Case mutations
+            // Case mutations (one example)
             ("HTTPS://".to_string(), BypassCategory::CaseMutation, "Uppercase HTTPS"),
-            ("HTTP://".to_string(), BypassCategory::CaseMutation, "Uppercase HTTP"),
-            ("hTtPs://".to_string(), BypassCategory::CaseMutation, "Mixed case HTTPS"),
-            ("HtTp://".to_string(), BypassCategory::CaseMutation, "Mixed case HTTP"),
-            ("hTTps://".to_string(), BypassCategory::CaseMutation, "Mixed case 2"),
-            ("HTtpS://".to_string(), BypassCategory::CaseMutation, "Mixed case 3"),
 
             // Dangerous protocols
             ("javascript:".to_string(), BypassCategory::DangerousProtocol, "JavaScript protocol"),
-            ("javascript://".to_string(), BypassCategory::DangerousProtocol, "JavaScript with slashes"),
             ("data:text/html,".to_string(), BypassCategory::DataUri, "Data URI HTML"),
-            ("data:text/html;base64,".to_string(), BypassCategory::DataUri, "Data URI base64"),
-            ("vbscript:".to_string(), BypassCategory::DangerousProtocol, "VBScript"),
-            ("file://".to_string(), BypassCategory::DangerousProtocol, "File protocol"),
-            ("file:///".to_string(), BypassCategory::DangerousProtocol, "File triple slash"),
 
-            // Protocol confusion
+            // Protocol confusion (key examples)
             ("https:".to_string(), BypassCategory::ProtocolConfusion, "HTTPS no slashes"),
-            ("http:".to_string(), BypassCategory::ProtocolConfusion, "HTTP no slashes"),
-            ("https: //".to_string(), BypassCategory::ProtocolConfusion, "Space before slashes"),
-            ("https :// ".to_string(), BypassCategory::ProtocolConfusion, "Spaces around"),
             ("https:%0a//".to_string(), BypassCategory::ProtocolConfusion, "Newline in protocol"),
-            ("https:%09//".to_string(), BypassCategory::ProtocolConfusion, "Tab in protocol"),
         ]
     }
 
@@ -579,7 +524,8 @@ impl OpenRedirectScanner {
         }
 
         // === PHASE 2: Encoding variations for each evil domain ===
-        for (evil_domain, _) in &evil_domains[..5] { // Use first 5 to avoid explosion
+        let max_encoding = evil_domains.len().min(5);
+        for (evil_domain, _) in &evil_domains[..max_encoding] {
             let encoding_variations = self.generate_encoding_variations(evil_domain);
             for (payload, category, desc) in encoding_variations {
                 payloads.push(RedirectPayload {
@@ -591,7 +537,8 @@ impl OpenRedirectScanner {
         }
 
         // === PHASE 3: Whitelist bypasses ===
-        for (evil_domain, _) in &evil_domains[..8] { // First 8 evil domains
+        let max_whitelist = evil_domains.len().min(5);
+        for (evil_domain, _) in &evil_domains[..max_whitelist] {
             let whitelist_bypasses = self.generate_whitelist_bypasses(target_domain, evil_domain);
             for (payload, category, desc) in whitelist_bypasses {
                 payloads.push(RedirectPayload {
@@ -613,7 +560,8 @@ impl OpenRedirectScanner {
         }
 
         // === PHASE 5: CRLF injections ===
-        for (evil_domain, _) in &evil_domains[..3] { // First 3 evil domains
+        let max_crlf = evil_domains.len().min(3);
+        for (evil_domain, _) in &evil_domains[..max_crlf] {
             let crlf_injections = self.generate_crlf_injections(evil_domain);
             for (payload, category, desc) in crlf_injections {
                 payloads.push(RedirectPayload {
@@ -625,7 +573,8 @@ impl OpenRedirectScanner {
         }
 
         // === PHASE 6: OAuth/OIDC bypasses ===
-        for (evil_domain, _) in &evil_domains[..5] {
+        let max_oauth = evil_domains.len().min(5);
+        for (evil_domain, _) in &evil_domains[..max_oauth] {
             let oauth_bypasses = self.generate_oauth_bypasses(target_domain, evil_domain);
             for (payload, category, desc) in oauth_bypasses {
                 payloads.push(RedirectPayload {
@@ -657,7 +606,8 @@ impl OpenRedirectScanner {
         }
 
         // === PHASE 9: Port manipulation ===
-        for (evil_domain, _) in &evil_domains[..5] {
+        let max_port = evil_domains.len().min(5);
+        for (evil_domain, _) in &evil_domains[..max_port] {
             let port_payloads = self.generate_port_payloads(evil_domain);
             for (payload, category, desc) in port_payloads {
                 payloads.push(RedirectPayload {
