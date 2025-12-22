@@ -201,6 +201,34 @@ pub struct SarifDriver {
     pub name: String,
     pub version: String,
     pub information_uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rules: Option<Vec<SarifRule>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifRule {
+    pub id: String,
+    pub name: String,
+    pub short_description: SarifMessage,
+    pub full_description: SarifMessage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<SarifMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<SarifRuleProperties>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifRuleProperties {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security_severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +238,18 @@ pub struct SarifResult {
     pub level: String,
     pub message: SarifMessage,
     pub locations: Vec<SarifLocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprints: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_fingerprints: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixes: Option<Vec<SarifFix>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifFix {
+    pub description: SarifMessage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

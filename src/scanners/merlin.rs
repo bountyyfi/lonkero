@@ -1559,17 +1559,8 @@ impl VulnerabilityDatabase {
             },
         ]);
 
-        // minimist vulnerabilities
-        self.add_library("minimist", vec![
-            VersionRange {
-                from_version: None,
-                to_version: "1.2.6".to_string(),
-                cves: vec!["CVE-2021-44906".to_string()],
-                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2021-44906".to_string()],
-                severity: Severity::Critical,
-                description: "Prototype pollution vulnerability".to_string(),
-            },
-        ]);
+        // NOTE: minimist removed - it's a Node.js CLI argument parser, not exploitable in browsers
+        // The library parses process.argv which doesn't exist in browser context
 
         // qs vulnerabilities
         self.add_library("qs", vec![
@@ -1972,18 +1963,39 @@ impl MerlinScanner {
             }
         }
 
-        // Final deduplication by library+version+CVE combination
-        let mut unique_vulns: Vec<Vulnerability> = Vec::new();
-        let mut vuln_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Consolidate findings by library+version - combine multiple CVEs into one finding
+        let mut consolidated: std::collections::HashMap<String, Vulnerability> = std::collections::HashMap::new();
 
         for vuln in vulnerabilities {
-            // Create unique key from library, version, and CVEs in evidence
-            let key = format!("{}|{}", vuln.payload, vuln.evidence.as_deref().unwrap_or(""));
-            if !vuln_keys.contains(&key) {
-                vuln_keys.insert(key);
-                unique_vulns.push(vuln);
+            // Key by vuln_type which contains "library vX.Y.Z"
+            let lib_version_key = vuln.vuln_type.clone();
+
+            if let Some(existing) = consolidated.get_mut(&lib_version_key) {
+                // Merge evidence (CVE lists)
+                if let (Some(existing_evidence), Some(new_evidence)) = (&existing.evidence, &vuln.evidence) {
+                    // Extract CVEs from both and combine
+                    let mut combined = existing_evidence.clone();
+                    // Only add if the CVE isn't already present
+                    if !combined.contains(&new_evidence.split('|').next().unwrap_or("")) {
+                        combined = format!("{} | {}", combined, new_evidence);
+                        existing.evidence = Some(combined);
+                    }
+                }
+                // Keep highest severity
+                if vuln.cvss > existing.cvss {
+                    existing.severity = vuln.severity;
+                    existing.cvss = vuln.cvss;
+                }
+                // Combine descriptions
+                if !existing.description.contains(&vuln.description) {
+                    existing.description = format!("{}; {}", existing.description, vuln.description);
+                }
+            } else {
+                consolidated.insert(lib_version_key, vuln);
             }
         }
+
+        let unique_vulns: Vec<Vulnerability> = consolidated.into_values().collect();
 
         info!(
             "[Merlin] Scan complete: {} vulnerable libraries found",
@@ -2522,9 +2534,10 @@ impl MerlinScanner {
         let mut detected = Vec::new();
 
         // Known vulnerable libraries to look for in package.json format
+        // EXCLUDES Node.js-only libraries like minimist, yargs-parser that can't be exploited in browsers
         let vulnerable_libs = [
             "vue", "axios", "lodash", "jquery", "angular", "react", "react-dom",
-            "moment", "handlebars", "express", "bootstrap", "underscore",
+            "moment", "handlebars", "bootstrap", "underscore",
             "dompurify", "marked", "showdown", "highlight.js", "prismjs",
             "socket.io", "socket.io-client", "chart.js", "d3", "three",
             "sweetalert", "sweetalert2", "tinymce", "ckeditor", "quill",
@@ -2532,13 +2545,20 @@ impl MerlinScanner {
             "summernote", "froala-editor", "datatables.net", "select2",
             "jquery-ui", "jquery-validation", "jquery-mobile", "jquery.terminal",
             "backbone", "knockout", "mustache", "pug", "ejs", "nunjucks",
-            "ua-parser-js", "serialize-javascript", "node-forge", "js-yaml",
-            "fast-xml-parser", "xml2js", "ajv", "minimist", "yargs-parser",
+            "ua-parser-js", "serialize-javascript", "js-yaml",
+            "fast-xml-parser", "xml2js", "ajv",
             "immer", "xlsx", "mathjax", "video.js", "plyr", "dropzone",
-            "sanitize-html", "follow-redirects", "webpack-dev-server",
-            "karma", "grunt", "gulp", "easyxdm", "prototype", "yui",
+            "sanitize-html", "easyxdm", "prototype", "yui",
             "prettyphoto", "extjs", "markdown-it", "tableexport", "jplayer",
             "flowplayer",
+        ];
+
+        // Node.js-only packages that can't be exploited in browser context
+        // These are often bundled in devDependencies metadata but not actually used
+        let nodejs_only_packages = [
+            "minimist", "yargs-parser", "yargs", "commander", "express",
+            "node-forge", "follow-redirects", "webpack-dev-server",
+            "karma", "grunt", "gulp", "mocha", "jest", "chai",
         ];
 
         // Pattern: "package-name":"^1.2.3" or "package-name":"~1.2.3" or "package-name":"1.2.3"
@@ -2828,7 +2848,7 @@ impl MerlinScanner {
             (r#"gatsby[/@.-](\d+\.\d+(?:\.\d+)?)"#, "gatsby"),
             (r#"immer[/@.-](\d+\.\d+(?:\.\d+)?)"#, "immer"),
             (r#"json-schema[/@.-](\d+\.\d+(?:\.\d+)?)"#, "json-schema"),
-            (r#"minimist[/@.-](\d+\.\d+(?:\.\d+)?)"#, "minimist"),
+            // minimist removed - Node.js CLI parser, not browser-exploitable
             (r#"qs[/@.-](\d+\.\d+(?:\.\d+)?)"#, "qs"),
             (r#"path-parse[/@.-](\d+\.\d+(?:\.\d+)?)"#, "path-parse"),
             (r#"glob-parent[/@.-](\d+\.\d+(?:\.\d+)?)"#, "glob-parent"),
@@ -2926,11 +2946,12 @@ impl MerlinScanner {
             category: "Component with Known Vulnerability".to_string(),
             url: url.to_string(),
             parameter: None,
-            payload: format!("{} v{}", library, version),
+            payload: "-".to_string(), // No PoC for version detection findings
             description: format!(
-                "{}. Detected version {} is vulnerable. Fixed in version {}.",
-                vuln.description,
+                "{} v{} detected - {}. Fixed in version {}.",
+                library,
                 version,
+                vuln.description,
                 vuln.to_version
             ),
             evidence: Some(format!(

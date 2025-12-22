@@ -293,7 +293,7 @@ impl HtmlReportGenerator {
 
         .code-block {{
             background: #0a0a0a;
-            color: #39ff14;
+            color: #e0e0e0;
             padding: 15px;
             border-radius: 4px;
             overflow-x: auto;
@@ -301,6 +301,37 @@ impl HtmlReportGenerator {
             font-size: 0.9em;
             margin: 10px 0;
             border: 1px solid #2a2a2a;
+        }}
+
+        .code-block ol.remediation-list,
+        .code-block ul.remediation-list {{
+            margin: 0;
+            padding-left: 25px;
+            color: #e0e0e0;
+        }}
+
+        .code-block ol.remediation-list li,
+        .code-block ul.remediation-list li {{
+            margin: 8px 0;
+            line-height: 1.5;
+        }}
+
+        .code-block p {{
+            margin: 10px 0;
+            line-height: 1.5;
+        }}
+
+        .code-block pre {{
+            background: #050505;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }}
+
+        .code-block code {{
+            color: #39ff14;
+            font-family: 'JetBrains Mono', Consolas, monospace;
         }}
 
         .poc-section {{
@@ -669,7 +700,7 @@ impl HtmlReportGenerator {
                         String::new()
                     },
                     v.evidence.as_ref().map(|e| format!("<div class=\"evidence-section\"><p><strong>Evidence:</strong></p><pre class=\"evidence-code\">{}</pre></div>", self.escape_html(e))).unwrap_or_default(),
-                    self.escape_html(&v.remediation)
+                    self.format_remediation(&v.remediation)
                 )
             })
             .collect::<Vec<_>>()
@@ -821,6 +852,84 @@ impl HtmlReportGenerator {
             .replace('>', "&gt;")
             .replace('"', "&quot;")
             .replace('\'', "&#x27;")
+    }
+
+    /// Format remediation text with proper HTML structure
+    /// Handles numbered lists, code blocks, and newlines
+    fn format_remediation(&self, text: &str) -> String {
+        let escaped = self.escape_html(text);
+        let lines: Vec<&str> = escaped.lines().collect();
+
+        if lines.is_empty() {
+            return escaped;
+        }
+
+        let mut result = String::new();
+        let mut in_code_block = false;
+        let mut in_list = false;
+
+        for line in lines {
+            let trimmed = line.trim();
+
+            // Check for code block markers (```)
+            if trimmed.starts_with("```") {
+                if in_code_block {
+                    result.push_str("</code></pre>");
+                    in_code_block = false;
+                } else {
+                    result.push_str("<pre><code>");
+                    in_code_block = true;
+                }
+                continue;
+            }
+
+            if in_code_block {
+                result.push_str(line);
+                result.push('\n');
+                continue;
+            }
+
+            // Check for numbered list items (1. 2. 3. etc.)
+            if trimmed.len() > 2 && trimmed.chars().next().map_or(false, |c| c.is_numeric()) &&
+               (trimmed.contains(". ") || trimmed.starts_with("- ")) {
+                if !in_list {
+                    result.push_str("<ol class=\"remediation-list\">");
+                    in_list = true;
+                }
+                // Extract the list item content (after "1. " or "- ")
+                let content = if let Some(pos) = trimmed.find(". ") {
+                    &trimmed[pos + 2..]
+                } else if trimmed.starts_with("- ") {
+                    &trimmed[2..]
+                } else {
+                    trimmed
+                };
+                result.push_str(&format!("<li>{}</li>", content));
+            } else if trimmed.starts_with("- ") {
+                if !in_list {
+                    result.push_str("<ul class=\"remediation-list\">");
+                    in_list = true;
+                }
+                result.push_str(&format!("<li>{}</li>", &trimmed[2..]));
+            } else {
+                if in_list {
+                    result.push_str("</ol>");
+                    in_list = false;
+                }
+                if !trimmed.is_empty() {
+                    result.push_str(&format!("<p>{}</p>", trimmed));
+                }
+            }
+        }
+
+        if in_list {
+            result.push_str("</ol>");
+        }
+        if in_code_block {
+            result.push_str("</code></pre>");
+        }
+
+        result
     }
 }
 

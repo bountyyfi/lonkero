@@ -222,6 +222,20 @@ impl JsMinerScanner {
         url_lower.contains("/reference/") || url_lower.contains("/api-reference/")
     }
 
+    /// Extract GraphQL operation name from a matched string
+    /// Input: "query company(" or "mutation saveOrder(" or "gql`...query dailyRoute..."
+    /// Output: "query company" or "mutation saveOrder" or "query dailyRoute"
+    fn extract_graphql_operation_name(match_str: &str) -> Option<String> {
+        // Try to extract "query/mutation/subscription Name" pattern
+        let re = regex::Regex::new(r"(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)").ok()?;
+        if let Some(caps) = re.captures(match_str) {
+            let op_type = caps.get(1)?.as_str();
+            let op_name = caps.get(2)?.as_str();
+            return Some(format!("{} {}", op_type, op_name));
+        }
+        None
+    }
+
     /// Run JavaScript mining scan (legacy method for backward compatibility)
     pub async fn scan(
         &self,
@@ -2262,37 +2276,48 @@ impl JsMinerScanner {
             }
         }
 
-        // GraphQL Queries/Mutations/Fragments - require actual GraphQL syntax
-        // Must have either gql`/graphql` template, or query/mutation with { or ( following
+        // GraphQL Queries/Mutations/Fragments - consolidate all into single finding
+        // Collect all operations from both patterns and report once
+        let mut graphql_operations: Vec<String> = Vec::new();
+
         // Pattern 1: gql` or graphql` template literals
         if let Some(findings) = self.scan_pattern(content, r#"(?:gql|graphql)\s*`[^`]*(?:query|mutation|subscription|fragment)\s+[A-Za-z_][A-Za-z0-9_]*"#, "GraphQL Operation") {
-            for evidence in findings.into_iter().take(5) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "GraphQL Operation Discovered",
-                    location,
-                    &evidence,
-                    Severity::Info,
-                    "CWE-200",
-                    "GraphQL operations expose API schema. Ensure proper authorization on all queries/mutations.",
-                ));
+            for evidence in findings.into_iter().take(10) {
+                // Extract just the operation name from the match
+                if let Some(op_name) = Self::extract_graphql_operation_name(&evidence) {
+                    if !graphql_operations.contains(&op_name) {
+                        graphql_operations.push(op_name);
+                    }
+                }
             }
         }
 
         // Pattern 2: Standalone GraphQL operations with typical syntax (query Name { or mutation Name(
         if let Some(findings) = self.scan_pattern(content, r#"(?:query|mutation|subscription)\s+[A-Za-z_][A-Za-z0-9_]*\s*[\(\{]"#, "GraphQL Operation") {
-            for evidence in findings.into_iter().take(5) {
+            for evidence in findings.into_iter().take(10) {
                 // Skip common false positives
                 if !evidence.contains("querySelector") && !evidence.contains("querystring") {
-                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                        "GraphQL Operation Discovered",
-                        location,
-                        &evidence,
-                        Severity::Info,
-                        "CWE-200",
-                        "GraphQL operations expose API schema. Ensure proper authorization on all queries/mutations.",
-                    ));
+                    if let Some(op_name) = Self::extract_graphql_operation_name(&evidence) {
+                        if !graphql_operations.contains(&op_name) {
+                            graphql_operations.push(op_name);
+                        }
+                    }
                 }
             }
+        }
+
+        // Report all GraphQL operations as a single consolidated finding
+        if !graphql_operations.is_empty() {
+            let operations_list = graphql_operations.join(", ");
+            let evidence = format!("Found {} GraphQL operations: {}", graphql_operations.len(), operations_list);
+            self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
+                "GraphQL Operations Discovered",
+                location,
+                &evidence,
+                Severity::Info,
+                "CWE-200",
+                "GraphQL operations expose API schema. Ensure proper authorization on all queries/mutations.",
+            ));
         }
 
         // GraphQL Endpoint URLs (handles various formats)

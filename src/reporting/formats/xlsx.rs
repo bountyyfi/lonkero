@@ -112,11 +112,13 @@ impl XlsxReportGenerator {
         worksheet.write_with_format(row, 4, "Category", &header_format)?;
         worksheet.write_with_format(row, 5, "URL", &header_format)?;
         worksheet.write_with_format(row, 6, "Parameter", &header_format)?;
-        worksheet.write_with_format(row, 7, "CWE", &header_format)?;
-        worksheet.write_with_format(row, 8, "CVSS", &header_format)?;
-        worksheet.write_with_format(row, 9, "Verified", &header_format)?;
-        worksheet.write_with_format(row, 10, "Description", &header_format)?;
-        worksheet.write_with_format(row, 11, "Remediation", &header_format)?;
+        worksheet.write_with_format(row, 7, "Payload", &header_format)?;
+        worksheet.write_with_format(row, 8, "CWE", &header_format)?;
+        worksheet.write_with_format(row, 9, "CVSS", &header_format)?;
+        worksheet.write_with_format(row, 10, "Verified", &header_format)?;
+        worksheet.write_with_format(row, 11, "Evidence", &header_format)?;
+        worksheet.write_with_format(row, 12, "Description", &header_format)?;
+        worksheet.write_with_format(row, 13, "Remediation", &header_format)?;
 
         row += 1;
 
@@ -128,11 +130,13 @@ impl XlsxReportGenerator {
             worksheet.write(row, 4, &vuln.category)?;
             worksheet.write(row, 5, &vuln.url)?;
             worksheet.write(row, 6, &vuln.parameter.clone().unwrap_or_default())?;
-            worksheet.write(row, 7, &vuln.cwe)?;
-            worksheet.write(row, 8, vuln.cvss)?;
-            worksheet.write(row, 9, vuln.verified)?;
-            worksheet.write(row, 10, &vuln.description)?;
-            worksheet.write(row, 11, &vuln.remediation)?;
+            worksheet.write(row, 7, &vuln.payload)?;
+            worksheet.write(row, 8, &vuln.cwe)?;
+            worksheet.write(row, 9, vuln.cvss)?;
+            worksheet.write(row, 10, vuln.verified)?;
+            worksheet.write(row, 11, &vuln.evidence.clone().unwrap_or_default())?;
+            worksheet.write(row, 12, &vuln.description)?;
+            worksheet.write(row, 13, &vuln.remediation)?;
 
             row += 1;
         }
@@ -144,11 +148,13 @@ impl XlsxReportGenerator {
         worksheet.set_column_width(4, 15)?;
         worksheet.set_column_width(5, 50)?;
         worksheet.set_column_width(6, 15)?;
-        worksheet.set_column_width(7, 10)?;
-        worksheet.set_column_width(8, 8)?;
-        worksheet.set_column_width(9, 10)?;
-        worksheet.set_column_width(10, 60)?;
-        worksheet.set_column_width(11, 60)?;
+        worksheet.set_column_width(7, 40)?;
+        worksheet.set_column_width(8, 10)?;
+        worksheet.set_column_width(9, 8)?;
+        worksheet.set_column_width(10, 10)?;
+        worksheet.set_column_width(11, 40)?;
+        worksheet.set_column_width(12, 60)?;
+        worksheet.set_column_width(13, 60)?;
 
         Ok(())
     }

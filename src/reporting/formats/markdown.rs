@@ -124,6 +124,10 @@ impl MarkdownReportGenerator {
                 md.push_str(&format!("**Parameter:** `{}`\n\n", param));
             }
 
+            if !vuln.payload.is_empty() {
+                md.push_str(&format!("**Payload:**\n\n```\n{}\n```\n\n", vuln.payload));
+            }
+
             md.push_str(&format!("**Description:**\n\n{}\n\n", vuln.description));
 
             if let Some(evidence) = &vuln.evidence {

@@ -59,7 +59,7 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 - **Compliance** - OWASP Top 10 2025, PCI DSS, GDPR, NIS2, DORA
 - **CI/CD** - GitHub Actions, GitLab SAST, SARIF output
-- **Reporting** - JSON, HTML, SARIF formats with detailed remediation
+- **Reporting** - PDF, HTML, JSON, XLSX, CSV, SARIF, Markdown formats with detailed remediation
 
 ---
 
@@ -479,11 +479,19 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Run Lonkero
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Clone and Build Lonkero
         run: |
-          wget https://github.com/bountyyfi/lonkero/releases/latest/download/lonkero-linux
-          chmod +x lonkero-linux
-          ./lonkero-linux scan https://staging.example.com \
+          git clone https://github.com/bountyyfi/lonkero.git /tmp/lonkero
+          cd /tmp/lonkero
+          cargo build --release
+          sudo cp target/release/lonkero /usr/local/bin/
+
+      - name: Run Lonkero Scan
+        run: |
+          lonkero scan https://staging.example.com \
             --format sarif \
             -o results.sarif \
             --license-key ${{ secrets.LONKERO_LICENSE }}
@@ -501,8 +509,9 @@ lonkero-scan:
   stage: security
   image: rust:1.75
   script:
-    - cargo install --git https://github.com/bountyyfi/lonkero
-    - lonkero scan $CI_ENVIRONMENT_URL --format json -o gl-sast-report.json
+    - git clone https://github.com/bountyyfi/lonkero.git /tmp/lonkero
+    - cd /tmp/lonkero && cargo build --release
+    - /tmp/lonkero/target/release/lonkero scan $CI_ENVIRONMENT_URL --format json -o gl-sast-report.json
   artifacts:
     reports:
       sast: gl-sast-report.json
@@ -536,13 +545,29 @@ lonkero-scan:
 }
 ```
 
+### PDF
+
+Professional PDF reports with executive summary, severity-colored findings, and detailed remediation steps.
+
+```bash
+lonkero scan https://example.com -o report.pdf
+```
+
 ### SARIF (GitHub Security Tab)
 
 Compatible with GitHub Advanced Security for automated PR comments and security alerts.
 
 ### HTML
 
-Interactive report with filtering, sorting, and vulnerability details.
+Interactive dark-themed report with filtering, sorting, and vulnerability details.
+
+### XLSX / CSV
+
+Spreadsheet exports for integration with ticketing systems and spreadsheet analysis.
+
+### Markdown
+
+Plain text reports for documentation and version control.
 
 ---
 

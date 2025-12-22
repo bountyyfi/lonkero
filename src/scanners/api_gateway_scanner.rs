@@ -77,29 +77,71 @@ impl ApiGatewayScanner {
     }
 
     /// Test rate limit bypass via header manipulation
+    /// Only reports if we can demonstrate rate limiting exists AND can be bypassed
     async fn test_rate_limit_bypass(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 15;
+        let tests_run = 25;
 
         info!("Testing rate limit bypass via header manipulation");
 
+        // Step 1: First establish that rate limiting EXISTS by making requests without bypass headers
+        // Look for 429 response or rate limit headers
+        let mut rate_limit_detected = false;
+        let mut rate_limit_header = String::new();
+
+        // Make baseline requests to detect rate limiting
+        for _ in 0..10 {
+            match self.http_client.get(url).await {
+                Ok(response) => {
+                    // Check for 429 status
+                    if response.status_code == 429 {
+                        rate_limit_detected = true;
+                        break;
+                    }
+                    // Check for rate limit headers (X-RateLimit-*, RateLimit-*, Retry-After)
+                    for (key, value) in &response.headers {
+                        let key_lower = key.to_lowercase();
+                        if key_lower.contains("ratelimit") || key_lower.contains("rate-limit") ||
+                           key_lower == "retry-after" || key_lower.contains("x-rate") {
+                            rate_limit_header = format!("{}: {}", key, value);
+                            rate_limit_detected = true;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
+
+        // If no rate limiting detected, don't report false positive
+        if !rate_limit_detected {
+            debug!("No rate limiting detected on {} - skipping bypass test", url);
+            return Ok((vulnerabilities, tests_run));
+        }
+
+        info!("Rate limiting detected ({}), testing header bypass",
+              if rate_limit_header.is_empty() { "429 response" } else { &rate_limit_header });
+
+        // Step 2: Now test if headers can bypass the rate limit
         let bypass_headers = vec![
             vec![("X-Forwarded-For".to_string(), "127.0.0.1".to_string())],
             vec![("X-Originating-IP".to_string(), "127.0.0.1".to_string())],
-            vec![("X-Remote-IP".to_string(), "127.0.0.1".to_string())],
-            vec![("X-Client-IP".to_string(), "127.0.0.1".to_string())],
             vec![("X-Real-IP".to_string(), "127.0.0.1".to_string())],
+            vec![("X-Client-IP".to_string(), "127.0.0.1".to_string())],
         ];
 
         for headers in bypass_headers {
             let mut success_count = 0;
+            let mut got_429 = false;
 
-            for i in 0..3 {
+            // Make multiple requests with bypass header
+            for i in 0..5 {
                 match self.http_client.get_with_headers(url, headers.clone()).await {
                     Ok(response) => {
-                        if response.status_code == 200 {
+                        if response.status_code == 200 || response.status_code == 304 {
                             success_count += 1;
                         } else if response.status_code == 429 {
+                            got_429 = true;
                             break;
                         }
                     }
@@ -108,19 +150,21 @@ impl ApiGatewayScanner {
                         break;
                     }
                 }
-
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
             }
 
-            if success_count == 3 {
+            // Only report if we got 5 successful responses without hitting rate limit
+            // AND we previously confirmed rate limiting exists
+            if success_count >= 5 && !got_429 {
                 let header_name = &headers[0].0;
-                info!("Rate limit bypass detected via {} header", header_name);
+                info!("Rate limit bypass confirmed via {} header", header_name);
                 vulnerabilities.push(self.create_vulnerability(
                     url,
                     "Rate Limit Bypass via Header Manipulation",
                     &format!("{}: 127.0.0.1", header_name),
-                    &format!("Rate limiting can be bypassed by spoofing the '{}' header", header_name),
-                    &format!("Successfully bypassed rate limit using {} header", header_name),
+                    &format!("Rate limiting can be bypassed by spoofing the '{}' header. Baseline rate limiting was detected ({}), but header manipulation allows unlimited requests.",
+                        header_name, if rate_limit_header.is_empty() { "429 response" } else { &rate_limit_header }),
+                    &format!("Rate limit bypassed: {} requests succeeded with {} header after rate limit was detected", success_count, header_name),
                     Severity::High,
                     "CWE-770",
                     7.5,
