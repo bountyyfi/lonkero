@@ -113,16 +113,60 @@ impl CrawlResults {
         // From forms
         for form in &self.forms {
             for input in &form.inputs {
-                all_params.insert(input.name.clone());
+                // Skip UUID-like parameters (auto-generated form field IDs)
+                if !Self::is_uuid_param(&input.name) {
+                    all_params.insert(input.name.clone());
+                }
             }
         }
 
         // From URL parameters
         for params in self.parameters.values() {
-            all_params.extend(params.clone());
+            for param in params {
+                if !Self::is_uuid_param(param) {
+                    all_params.insert(param.clone());
+                }
+            }
         }
 
         all_params
+    }
+
+    /// Check if a parameter name is a UUID-like auto-generated ID
+    fn is_uuid_param(name: &str) -> bool {
+        // Skip empty names
+        if name.is_empty() {
+            return true;
+        }
+
+        // Check for UUID pattern: f_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        if name.contains('-') {
+            let dash_count = name.chars().filter(|c| *c == '-').count();
+            let hex_chars = name.chars().filter(|c| c.is_ascii_hexdigit()).count();
+
+            // UUID has 4 dashes and 32 hex chars
+            if dash_count >= 4 && hex_chars >= 20 {
+                return true;
+            }
+
+            // Check if it's a prefixed UUID like f_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+            if let Some(uuid_part) = name.split('_').last() {
+                let parts: Vec<&str> = uuid_part.split('-').collect();
+                if parts.len() == 5 {
+                    let is_uuid = parts[0].len() == 8
+                        && parts[1].len() == 4
+                        && parts[2].len() == 4
+                        && parts[3].len() == 4
+                        && parts[4].len() == 12
+                        && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()));
+                    if is_uuid {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     /// Deduplicate forms based on their signature
