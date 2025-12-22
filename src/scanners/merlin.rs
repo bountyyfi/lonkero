@@ -2043,6 +2043,10 @@ impl MerlinScanner {
             r#"createApp[^}]{0,200}version:\s*['"](\d+\.\d+(?:\.\d+)?)"#, // Vue 3 pattern
             r#"Vue,\s*\{[^}]*version:\s*['"](\d+\.\d+(?:\.\d+)?)"#,      // export Vue,{version:"2.6.14"
             r#"['"]\s*2\.6\.(?:14|13|12|11|10|9|8|7|6|5|4|3|2|1|0)\s*['"]\s*[,}][^}]{0,50}(?:Vue|_vue|__vue)"#, // Known vuln versions near Vue identifier
+            // Quasar/webpack minified Vue patterns
+            r#"n\["a"\]\.extend\([^)]+\).*version.*['"](2\.\d+\.\d+)['"]"#, // Quasar Vue extend pattern
+            r#"\$mount.*version.*['"](2\.\d+\.\d+)['"]"#,               // $mount with version
+            r#"['"]QIcon['"][^}]*Vue[^}]*['"](2\.\d+\.\d+)['"]"#,       // Quasar QIcon with Vue
         ];
         for pattern in vue_patterns {
             if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
@@ -2056,7 +2060,7 @@ impl MerlinScanner {
         // Vue 2.x special: search for known vulnerable version strings with Vue context
         if !detected.iter().any(|(lib, _)| lib == "vue") {
             // Check for Vue 2.x (CVE-2024-9506 affected)
-            if js.contains("Vue") || js.contains("__vue") || js.contains("_Vue") || js.contains("$mount") || js.contains("createApp") {
+            if js.contains("Vue") || js.contains("__vue") || js.contains("_Vue") || js.contains("$mount") || js.contains("createApp") || js.contains("QIcon") {
                 let vue2_versions = [
                     r#"['"](2\.6\.1[0-4]|2\.6\.[0-9]|2\.[0-5]\.\d+)['"]\s*[,;}]"#,
                     r#"version['"]\s*:\s*['"](2\.6\.1[0-4]|2\.6\.[0-9]|2\.[0-5]\.\d+)['"]\s*"#,
@@ -2066,6 +2070,8 @@ impl MerlinScanner {
                     r#"[("'](2\.\d+\.\d+)['")\]][^}]{0,50}Vue"#,
                     // Vue 2 often has: VERSION:"2.6.14" nearby $mount or __patch__
                     r#"VERSION\s*:\s*['"](2\.\d+\.\d+)['"]"#,
+                    // Quasar components use Vue.extend - look for version nearby
+                    r#"extend\([^)]+\)[^}]{0,500}['"](2\.\d+\.\d+)['"]"#,
                 ];
                 for pattern in vue2_versions {
                     if let Some(caps) = Regex::new(pattern).ok().and_then(|re| re.captures(js)) {
@@ -2075,8 +2081,36 @@ impl MerlinScanner {
                             let context_start = version_pos.saturating_sub(300);
                             let context_end = (version_pos + 300).min(js.len());
                             let context = &js[context_start..context_end];
-                            if context.contains("Vue") || context.contains("__vue") || context.contains("createApp") || context.contains("$mount") || context.contains("__patch__") || context.contains("_init") {
+                            if context.contains("Vue") || context.contains("__vue") || context.contains("createApp") || context.contains("$mount") || context.contains("__patch__") || context.contains("_init") || context.contains("QIcon") || context.contains("extend") {
                                 detected.push(("vue".to_string(), version.as_str().to_string()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Brute-force Vue version extraction: Search for semver strings near Vue keywords
+        if !detected.iter().any(|(lib, _)| lib == "vue") && (js.contains("Vue") || js.contains("$mount") || js.contains("QIcon")) {
+            // Look for any 2.x.x version string
+            if let Some(caps) = Regex::new(r#"['"](\d+\.\d+\.\d+)['"]"#).ok() {
+                for cap in caps.captures_iter(js) {
+                    if let Some(version) = cap.get(1) {
+                        let v = version.as_str();
+                        // Only check Vue 2.x versions
+                        if v.starts_with("2.") {
+                            let version_pos = version.start();
+                            let context_start = version_pos.saturating_sub(500);
+                            let context_end = (version_pos + 500).min(js.len());
+                            let context = &js[context_start..context_end];
+                            // Broad Vue fingerprints
+                            if context.contains("Vue") || context.contains("$mount") ||
+                               context.contains("__patch__") || context.contains("_init") ||
+                               context.contains("$emit") || context.contains("$on") ||
+                               context.contains("computed") || context.contains("mixins") {
+                                info!("[Merlin] Detected Vue {} via context fingerprinting", v);
+                                detected.push(("vue".to_string(), v.to_string()));
                                 break;
                             }
                         }
@@ -2191,6 +2225,32 @@ impl MerlinScanner {
                                (context.contains("interceptors") && context.contains("request")) ||
                                context.contains("XMLHttpRequest") {
                                 detected.push(("axios".to_string(), version.as_str().to_string()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Brute-force axios version extraction: Search for semver strings near axios keywords
+        if !detected.iter().any(|(lib, _)| lib == "axios") && (js.contains("axios") || js.contains("interceptors")) {
+            if let Some(caps) = Regex::new(r#"['"](\d+\.\d+\.\d+)['"]"#).ok() {
+                for cap in caps.captures_iter(js) {
+                    if let Some(version) = cap.get(1) {
+                        let v = version.as_str();
+                        // Only check axios-like versions (0.x.x or 1.x.x)
+                        if v.starts_with("0.") || v.starts_with("1.") {
+                            let version_pos = version.start();
+                            let context_start = version_pos.saturating_sub(500);
+                            let context_end = (version_pos + 500).min(js.len());
+                            let context = &js[context_start..context_end];
+                            // Axios fingerprints
+                            if context.contains("axios") || context.contains("Axios") ||
+                               context.contains("interceptors") ||
+                               (context.contains("request") && context.contains("response") && context.contains("headers")) {
+                                info!("[Merlin] Detected axios {} via context fingerprinting", v);
+                                detected.push(("axios".to_string(), v.to_string()));
                                 break;
                             }
                         }
