@@ -64,7 +64,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.31", features = ["metrics", "trace"] }
-opentelemetry-prometheus = "0.29"
+opentelemetry-prometheus = "0.31"
 prometheus = "0.14"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
