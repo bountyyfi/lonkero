@@ -3369,9 +3369,12 @@ fn generate_pdf_report(results: &[ScanResults]) -> Result<Vec<u8>> {
     let branding = BrandingConfig::default();
     let pdf_generator = PdfReportGenerator::new();
 
-    // Use tokio runtime for async
-    let rt = tokio::runtime::Runtime::new()?;
-    let pdf_data = rt.block_on(pdf_generator.generate(&enhanced_report, &branding))?;
+    // Use block_in_place to run async code from sync context within existing runtime
+    let pdf_data = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(
+            pdf_generator.generate(&enhanced_report, &branding)
+        )
+    })?;
 
     Ok(pdf_data)
 }
