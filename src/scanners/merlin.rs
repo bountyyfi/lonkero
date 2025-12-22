@@ -1921,10 +1921,22 @@ impl MerlinScanner {
 
                 // Extract and check external JS files
                 let js_urls = self.extract_js_urls(&response.body, url);
+                info!("[Merlin] Found {} JavaScript files to analyze", js_urls.len());
+                for js_url in &js_urls {
+                    debug!("[Merlin] JS file: {}", js_url);
+                }
+
                 for js_url in js_urls.iter().take(20) {
                     tests_run += 1;
                     if let Ok(js_response) = self.http_client.get(js_url).await {
+                        info!("[Merlin] Analyzing {} ({} bytes)", js_url, js_response.body.len());
                         let js_detected = self.extract_libraries_from_js(&js_response.body);
+
+                        if js_detected.is_empty() {
+                            debug!("[Merlin] No libraries detected in {}", js_url);
+                        } else {
+                            info!("[Merlin] Found {} potential libraries in {}", js_detected.len(), js_url);
+                        }
 
                         for (library, version) in &js_detected {
                             // Validate detection
@@ -2851,7 +2863,8 @@ impl MerlinScanner {
     fn extract_js_urls(&self, html: &str, base_url: &str) -> Vec<String> {
         let mut urls = Vec::new();
 
-        if let Ok(re) = Regex::new(r#"<script[^>]*src=["']([^"']+)["']"#) {
+        // Match script src with or without quotes: src="...", src='...', or src=/path/to/file.js
+        if let Ok(re) = Regex::new(r#"<script[^>]*\ssrc=["']?([^"'\s>]+)["']?"#) {
             for caps in re.captures_iter(html) {
                 if let Some(src) = caps.get(1) {
                     let url = src.as_str();

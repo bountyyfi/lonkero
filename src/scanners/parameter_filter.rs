@@ -61,6 +61,26 @@ impl ParameterFilter {
             return true;
         }
 
+        // Skip form builder auto-generated field IDs (UUID-style: f_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+        if (param_lower.starts_with("f_") || param_lower.starts_with("field_")) &&
+           param_name.chars().filter(|c| *c == '-').count() >= 3 &&
+           param_name.len() > 30 {
+            debug!("[ParameterFilter] Skipping form builder UUID field: {}", param_name);
+            return true;
+        }
+
+        // Skip auto-generated form field names like checkbox_field_0, radio_field_1, etc.
+        if (param_lower.starts_with("checkbox_field_") ||
+            param_lower.starts_with("radio_field_") ||
+            param_lower.starts_with("input_field_") ||
+            param_lower.starts_with("text_field_") ||
+            param_lower.starts_with("select_field_") ||
+            param_lower.starts_with("button_field_")) &&
+           param_name.chars().last().map_or(false, |c| c.is_numeric()) {
+            debug!("[ParameterFilter] Skipping auto-generated form field: {}", param_name);
+            return true;
+        }
+
         // Scanner-specific skipping
         match scanner_type {
             ScannerType::XXE | ScannerType::XML => {

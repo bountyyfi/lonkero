@@ -2326,23 +2326,37 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
     }
 
-    // Merlin Scanner (general security checks) - only if JavaScript detected (Professional+)
+    // Get baseline response for various scanners
     let baseline_response = match engine.http_client.get(target).await {
         Ok(r) => Some(r),
         Err(_) => None,
     };
 
+    // Merlin Scanner - JavaScript Library Vulnerability Detection (Professional+)
+    // Always run for SPAs and sites with JavaScript - detects Vue, React, axios, jQuery, etc.
     if scan_token.is_module_authorized(module_ids::advanced_scanning::MERLIN_SCANNER) {
-        if let Some(ref response) = baseline_response {
-            let has_js = response.body.contains("<script") || response.body.contains(".js\"");
-            if has_js {
-                info!("  - Running Merlin Security Checks");
-                let (vulns, tests) = engine.merlin_scanner.scan(target, scan_config).await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
-            } else {
-                info!("  - Skipping Merlin (no JavaScript detected)");
+        // For SPAs, we already detected JS files via headless browser or crawler
+        // Also check baseline response for any JS indicators
+        let has_js = baseline_response.as_ref().map_or(false, |r| {
+            r.body.contains("<script") ||
+            r.body.contains(".js\"") ||
+            r.body.contains(".js'") ||
+            r.body.contains("application/javascript") ||
+            r.body.contains("text/javascript")
+        });
+
+        // Run Merlin if: detected JS, is SPA/Node.js stack, or discovered any scripts during crawl
+        if has_js || is_spa_detected || is_nodejs_stack {
+            info!("  - Running Merlin JS Library Vulnerability Scanner");
+            let (vulns, tests) = engine.merlin_scanner.scan(target, scan_config).await?;
+            let vuln_count = vulns.len();
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+            if vuln_count > 0 {
+                info!("[SUCCESS] [Merlin] Found {} vulnerable JavaScript libraries", vuln_count);
             }
+        } else {
+            info!("  - Skipping Merlin (no JavaScript detected)");
         }
     }
 

@@ -243,6 +243,22 @@ impl FileUploadVulnerabilitiesScanner {
                                 } else if verify_response.status_code == 200 {
                                     // Check for soft 404 - server returns 200 but body shows error
                                     let body_lower = verify_response.body.to_lowercase();
+
+                                    // SPAs often return main page HTML even for missing files
+                                    let is_spa_page = body_lower.contains("<!doctype html") ||
+                                        body_lower.contains("<div id=\"app\"") ||
+                                        body_lower.contains("<div id=\"q-app\"") ||
+                                        body_lower.contains("<div id=\"root\"") ||
+                                        (body_lower.contains("<html") && !body_lower.contains(&self.test_marker.to_lowercase()));
+
+                                    // JSON error responses
+                                    let is_json_error = (body_lower.starts_with("{") || body_lower.starts_with("[")) &&
+                                        (body_lower.contains("\"error\"") ||
+                                         body_lower.contains("\"message\"") ||
+                                         body_lower.contains("not found") ||
+                                         body_lower.contains("\"status\":404") ||
+                                         body_lower.contains("\"code\":404"));
+
                                     let is_soft_404 = body_lower.contains("not found") ||
                                         body_lower.contains("404") ||
                                         body_lower.contains("does not exist") ||
@@ -250,14 +266,18 @@ impl FileUploadVulnerabilitiesScanner {
                                         body_lower.contains("page not found") ||
                                         body_lower.contains("resource not found") ||
                                         body_lower.contains("cannot be found") ||
+                                        body_lower.contains("no such file") ||
                                         // Multi-language 404 patterns
                                         body_lower.contains("sivua ei löydy") ||  // Finnish
                                         body_lower.contains("sivu ei löytynyt") ||  // Finnish variant
+                                        body_lower.contains("ei löydy") ||  // Finnish generic "not found"
                                         body_lower.contains("seite nicht gefunden") ||  // German
                                         body_lower.contains("página no encontrada") ||  // Spanish
                                         body_lower.contains("page introuvable") ||  // French
                                         body_lower.contains("pagina niet gevonden") ||  // Dutch
-                                        (body_lower.contains("error") && body_lower.len() < 1000);
+                                        (body_lower.contains("error") && body_lower.len() < 1000) ||
+                                        is_spa_page ||
+                                        is_json_error;
 
                                     if is_soft_404 {
                                         // This is a soft 404 - file doesn't actually exist
