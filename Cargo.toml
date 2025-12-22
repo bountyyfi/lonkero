@@ -210,14 +210,6 @@ inherits = "release"
 strip = false
 debug = true
 
-[[bench]]
-name = "scanner_benchmarks"
-harness = false
-
-[[bench]]
-name = "optimization_benchmarks"
-harness = false
-
 [build-dependencies]
 napi-build = "2.3.1"
 

@@ -2607,163 +2607,388 @@ fn write_results(results: &[ScanResults], path: &PathBuf, format: OutputFormat) 
     Ok(())
 }
 
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
 fn generate_html_report(results: &[ScanResults]) -> Result<String> {
     let mut html = String::from(r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lonkero Security Scan Report - Bountyy</title>
+    <title>Lonkero Security Scan Report</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --terminal-green: #00ff00;
+            --neon-green: #39ff14;
+            --neon-green-dim: rgba(57, 255, 20, 0.3);
+            --neon-glow: 0 0 20px rgba(57, 255, 20, 0.4), 0 0 40px rgba(57, 255, 20, 0.2);
             --bg-dark: #0a0a0a;
-            --bg-card: #111111;
-            --bg-card-hover: #1a1a1a;
-            --border-color: #222222;
+            --bg-darker: #050505;
+            --bg-card: #0f0f0f;
+            --bg-card-alt: #141414;
+            --border-color: #1a1a1a;
+            --border-glow: #39ff14;
             --text-primary: #e0e0e0;
-            --text-secondary: #888888;
+            --text-secondary: #666666;
+            --critical: #ff3366;
+            --critical-bg: rgba(255, 51, 102, 0.15);
+            --high: #ff6b35;
+            --high-bg: rgba(255, 107, 53, 0.15);
+            --medium: #ffcc00;
+            --medium-bg: rgba(255, 204, 0, 0.15);
+            --low: #00b4d8;
+            --low-bg: rgba(0, 180, 216, 0.15);
+            --info: #6c757d;
+            --info-bg: rgba(108, 117, 125, 0.15);
         }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
         body {
-            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
-            margin: 0;
-            padding: 40px;
+            font-family: 'JetBrains Mono', monospace;
             background: var(--bg-dark);
+            background-image:
+                radial-gradient(ellipse at top, rgba(57, 255, 20, 0.03) 0%, transparent 50%),
+                radial-gradient(ellipse at bottom, rgba(57, 255, 20, 0.02) 0%, transparent 50%);
             color: var(--text-primary);
-            line-height: 1.6;
+            line-height: 1.7;
+            min-height: 100vh;
+            padding: 40px 20px;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            background: var(--bg-card);
-            padding: 40px;
-            border-radius: 12px;
-            border: 1px solid var(--border-color);
-            box-shadow: 0 4px 30px rgba(0, 255, 0, 0.05);
         }
         .header {
+            background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-darker) 100%);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px 50px;
+            margin-bottom: 30px;
+            position: relative;
+            overflow: hidden;
+        }
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--neon-green), transparent);
+            opacity: 0.8;
+        }
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .brand {
             display: flex;
             align-items: center;
             gap: 20px;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
         }
-        .logo { height: 50px; }
-        h1 {
-            color: var(--terminal-green);
-            font-size: 1.8em;
-            margin: 0;
-            text-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+        .logo {
+            height: 45px;
+            filter: drop-shadow(0 0 8px rgba(57, 255, 20, 0.3));
         }
-        h2 {
-            color: var(--terminal-green);
-            font-size: 1.3em;
-            margin-top: 30px;
-            padding: 10px 0;
-            border-bottom: 1px solid var(--border-color);
+        .title-group h1 {
+            font-size: 2em;
+            font-weight: 700;
+            color: var(--neon-green);
+            text-shadow: var(--neon-glow);
+            letter-spacing: -0.5px;
         }
-        .summary {
-            display: flex;
-            gap: 15px;
-            margin: 25px 0;
-            flex-wrap: wrap;
-        }
-        .stat {
-            padding: 15px 25px;
-            border-radius: 8px;
-            text-align: center;
-            font-weight: bold;
-            min-width: 100px;
-            border: 1px solid var(--border-color);
-        }
-        .critical { background: rgba(231, 76, 60, 0.2); color: #e74c3c; border-color: #e74c3c; }
-        .high { background: rgba(230, 126, 34, 0.2); color: #e67e22; border-color: #e67e22; }
-        .medium { background: rgba(243, 156, 18, 0.2); color: #f39c12; border-color: #f39c12; }
-        .low { background: rgba(52, 152, 219, 0.2); color: #3498db; border-color: #3498db; }
-        .info { background: rgba(149, 165, 166, 0.2); color: #95a5a6; border-color: #95a5a6; }
-        .meta {
+        .title-group .subtitle {
             color: var(--text-secondary);
-            font-size: 0.9em;
+            font-size: 0.85em;
+            margin-top: 4px;
+        }
+        .scan-meta {
+            display: flex;
+            gap: 30px;
+            font-size: 0.8em;
+            color: var(--text-secondary);
+        }
+        .scan-meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .scan-meta-label { color: var(--text-secondary); font-size: 0.9em; }
+        .scan-meta-value { color: var(--neon-green); font-weight: 500; }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin: 30px 0;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            border-radius: 12px 12px 0 0;
+        }
+        .stat-card.critical::before { background: var(--critical); box-shadow: 0 0 15px var(--critical); }
+        .stat-card.high::before { background: var(--high); box-shadow: 0 0 15px var(--high); }
+        .stat-card.medium::before { background: var(--medium); box-shadow: 0 0 15px var(--medium); }
+        .stat-card.low::before { background: var(--low); box-shadow: 0 0 15px var(--low); }
+        .stat-card.info::before { background: var(--info); }
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: 700;
+            display: block;
+            margin-bottom: 8px;
+        }
+        .stat-card.critical .stat-number { color: var(--critical); text-shadow: 0 0 20px var(--critical); }
+        .stat-card.high .stat-number { color: var(--high); text-shadow: 0 0 20px var(--high); }
+        .stat-card.medium .stat-number { color: var(--medium); text-shadow: 0 0 20px var(--medium); }
+        .stat-card.low .stat-number { color: var(--low); text-shadow: 0 0 20px var(--low); }
+        .stat-card.info .stat-number { color: var(--info); }
+        .stat-label {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Section */
+        .section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 24px;
+        }
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .section-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: var(--neon-green);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .target-badge {
+            background: var(--bg-darker);
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+        .meta-info {
+            display: flex;
+            gap: 24px;
+            font-size: 0.8em;
+            color: var(--text-secondary);
             margin-bottom: 20px;
         }
-        .meta span { color: var(--terminal-green); }
-        .vuln {
+        .meta-info span { color: var(--neon-green); }
+
+        /* Vulnerability Cards */
+        .vuln-list { display: flex; flex-direction: column; gap: 12px; }
+        .vuln-card {
+            background: var(--bg-darker);
             border: 1px solid var(--border-color);
-            margin: 15px 0;
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
             transition: all 0.2s ease;
         }
-        .vuln:hover { border-color: var(--terminal-green); box-shadow: 0 0 15px rgba(0, 255, 0, 0.1); }
+        .vuln-card:hover {
+            border-color: var(--neon-green-dim);
+            box-shadow: 0 0 20px rgba(57, 255, 20, 0.08);
+        }
         .vuln-header {
-            padding: 15px 20px;
-            font-weight: bold;
+            padding: 16px 20px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            cursor: pointer;
+            border-left: 4px solid transparent;
+        }
+        .vuln-critical .vuln-header { border-left-color: var(--critical); background: var(--critical-bg); }
+        .vuln-high .vuln-header { border-left-color: var(--high); background: var(--high-bg); }
+        .vuln-medium .vuln-header { border-left-color: var(--medium); background: var(--medium-bg); }
+        .vuln-low .vuln-header { border-left-color: var(--low); background: var(--low-bg); }
+        .vuln-info .vuln-header { border-left-color: var(--info); background: var(--info-bg); }
+        .vuln-title-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+        }
+        .severity-badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.7em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .vuln-critical .severity-badge { background: var(--critical); color: #fff; }
+        .vuln-high .severity-badge { background: var(--high); color: #fff; }
+        .vuln-medium .severity-badge { background: var(--medium); color: #000; }
+        .vuln-low .severity-badge { background: var(--low); color: #fff; }
+        .vuln-info .severity-badge { background: var(--info); color: #fff; }
+        .vuln-type {
+            font-weight: 600;
+            font-size: 0.95em;
+            color: var(--text-primary);
         }
         .vuln-body {
-            padding: 20px;
-            background: var(--bg-dark);
-        }
-        .vuln-critical .vuln-header { background: rgba(231, 76, 60, 0.3); color: #ff6b6b; border-left: 4px solid #e74c3c; }
-        .vuln-high .vuln-header { background: rgba(230, 126, 34, 0.3); color: #ffa94d; border-left: 4px solid #e67e22; }
-        .vuln-medium .vuln-header { background: rgba(243, 156, 18, 0.3); color: #ffd43b; border-left: 4px solid #f39c12; }
-        .vuln-low .vuln-header { background: rgba(52, 152, 219, 0.3); color: #74c0fc; border-left: 4px solid #3498db; }
-        .vuln-info .vuln-header { background: rgba(149, 165, 166, 0.3); color: #adb5bd; border-left: 4px solid #95a5a6; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid var(--border-color);
-        }
-        th {
+            padding: 20px 24px;
             background: var(--bg-card);
-            color: var(--terminal-green);
-            width: 150px;
-            font-weight: normal;
-        }
-        td { color: var(--text-primary); }
-        code {
-            background: var(--bg-card);
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            color: var(--terminal-green);
-            border: 1px solid var(--border-color);
-            word-break: break-all;
-        }
-        .badge {
-            font-size: 0.75em;
-            padding: 4px 10px;
-            border-radius: 4px;
-            text-transform: uppercase;
-        }
-        footer {
-            margin-top: 40px;
-            padding-top: 20px;
             border-top: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            text-align: center;
+        }
+        .vuln-details {
+            display: grid;
+            gap: 16px;
+        }
+        .detail-row {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 16px;
             font-size: 0.85em;
         }
-        footer a { color: var(--terminal-green); text-decoration: none; }
-        footer a:hover { text-decoration: underline; }
-        .no-vulns {
+        .detail-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .detail-value {
+            color: var(--text-primary);
+            word-break: break-word;
+        }
+        .detail-value code {
+            background: var(--bg-darker);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: var(--neon-green);
+            border: 1px solid var(--border-color);
+        }
+        .cvss-score {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .cvss-value {
+            background: var(--bg-darker);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        /* PoC Code Blocks */
+        .poc-code, .evidence-code {
+            background: var(--bg-darker);
+            border: 1px solid var(--border-color);
+            border-left: 3px solid var(--neon-green);
+            border-radius: 6px;
+            padding: 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            color: var(--neon-green);
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin: 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .evidence-code {
+            border-left-color: var(--medium);
+            color: var(--text-primary);
+        }
+
+        /* Footer */
+        footer {
             text-align: center;
-            padding: 40px;
-            color: var(--terminal-green);
-            font-size: 1.2em;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+        footer a {
+            color: var(--neon-green);
+            text-decoration: none;
+            font-weight: 500;
+            transition: text-shadow 0.2s ease;
+        }
+        footer a:hover {
+            text-shadow: 0 0 10px var(--neon-green);
+        }
+        footer .footer-brand {
+            font-size: 1.1em;
+            margin-bottom: 8px;
+        }
+
+        /* Animations */
+        @keyframes glow-pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body { padding: 20px 10px; }
+            .header { padding: 24px; }
+            .header-content { flex-direction: column; align-items: flex-start; }
+            .title-group h1 { font-size: 1.5em; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .detail-row { grid-template-columns: 1fr; gap: 4px; }
+            .scan-meta { flex-wrap: wrap; gap: 16px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <img src="https://bountyyfi.s3.eu-north-1.amazonaws.com/bountyy.fi-2.png" alt="Bountyy" class="logo">
-            <h1>Lonkero Security Scan Report</h1>
+            <div class="header-content">
+                <div class="brand">
+                    <img src="https://bountyyfi.s3.eu-north-1.amazonaws.com/bountyy.fi-2.png" alt="Bountyy" class="logo">
+                    <div class="title-group">
+                        <h1>Lonkero</h1>
+                        <div class="subtitle">Security Scan Report</div>
+                    </div>
+                </div>
+            </div>
         </div>
 "#);
 
@@ -2775,15 +3000,40 @@ fn generate_html_report(results: &[ScanResults]) -> Result<String> {
         let info = result.vulnerabilities.iter().filter(|v| v.severity == lonkero_scanner::types::Severity::Info).count();
 
         html.push_str(&format!(r#"
-        <h2>Target: <code>{}</code></h2>
-        <div class="summary">
-            <div class="stat critical">Critical<br><strong>{}</strong></div>
-            <div class="stat high">High<br><strong>{}</strong></div>
-            <div class="stat medium">Medium<br><strong>{}</strong></div>
-            <div class="stat low">Low<br><strong>{}</strong></div>
-            <div class="stat info">Info<br><strong>{}</strong></div>
-        </div>
-        <p class="meta">Tests run: <span>{}</span> | Duration: <span>{:.2}s</span> | Scan completed: <span>{}</span></p>
+        <div class="section">
+            <div class="section-header">
+                <h2 class="section-title">Target</h2>
+                <span class="target-badge">{}</span>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card critical">
+                    <span class="stat-number">{}</span>
+                    <span class="stat-label">Critical</span>
+                </div>
+                <div class="stat-card high">
+                    <span class="stat-number">{}</span>
+                    <span class="stat-label">High</span>
+                </div>
+                <div class="stat-card medium">
+                    <span class="stat-number">{}</span>
+                    <span class="stat-label">Medium</span>
+                </div>
+                <div class="stat-card low">
+                    <span class="stat-number">{}</span>
+                    <span class="stat-label">Low</span>
+                </div>
+                <div class="stat-card info">
+                    <span class="stat-number">{}</span>
+                    <span class="stat-label">Info</span>
+                </div>
+            </div>
+
+            <div class="meta-info">
+                Tests: <span>{}</span> &nbsp;|&nbsp; Duration: <span>{:.2}s</span> &nbsp;|&nbsp; Completed: <span>{}</span>
+            </div>
+
+            <div class="vuln-list">
 "#, result.target, critical, high, medium, low, info, result.tests_run, result.duration_seconds, result.completed_at));
 
         for vuln in &result.vulnerabilities {
@@ -2794,29 +3044,92 @@ fn generate_html_report(results: &[ScanResults]) -> Result<String> {
                 lonkero_scanner::types::Severity::Low => "vuln-low",
                 lonkero_scanner::types::Severity::Info => "vuln-info",
             };
+            let severity_label = match vuln.severity {
+                lonkero_scanner::types::Severity::Critical => "Critical",
+                lonkero_scanner::types::Severity::High => "High",
+                lonkero_scanner::types::Severity::Medium => "Medium",
+                lonkero_scanner::types::Severity::Low => "Low",
+                lonkero_scanner::types::Severity::Info => "Info",
+            };
+
+            // Build PoC/Payload section if payload exists
+            let poc_section = if !vuln.payload.is_empty() {
+                format!(r#"
+                            <div class="detail-row">
+                                <span class="detail-label">PoC Payload</span>
+                                <span class="detail-value"><pre class="poc-code">{}</pre></span>
+                            </div>"#, html_escape(&vuln.payload))
+            } else {
+                String::new()
+            };
+
+            // Build Evidence section if evidence exists
+            let evidence_section = if let Some(ref evidence) = vuln.evidence {
+                if !evidence.is_empty() {
+                    format!(r#"
+                            <div class="detail-row">
+                                <span class="detail-label">Evidence</span>
+                                <span class="detail-value"><pre class="evidence-code">{}</pre></span>
+                            </div>"#, html_escape(evidence))
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
 
             html.push_str(&format!(r#"
-        <div class="vuln {}">
-            <div class="vuln-header">{:?} - {}</div>
-            <div class="vuln-body">
-                <table>
-                    <tr><th>URL</th><td><code>{}</code></td></tr>
-                    <tr><th>Parameter</th><td>{}</td></tr>
-                    <tr><th>CWE</th><td>{}</td></tr>
-                    <tr><th>CVSS</th><td>{:.1}</td></tr>
-                    <tr><th>Description</th><td>{}</td></tr>
-                    <tr><th>Remediation</th><td>{}</td></tr>
-                </table>
+                <div class="vuln-card {}">
+                    <div class="vuln-header">
+                        <div class="vuln-title-row">
+                            <span class="severity-badge">{}</span>
+                            <span class="vuln-type">{}</span>
+                        </div>
+                    </div>
+                    <div class="vuln-body">
+                        <div class="vuln-details">
+                            <div class="detail-row">
+                                <span class="detail-label">URL</span>
+                                <span class="detail-value"><code>{}</code></span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Parameter</span>
+                                <span class="detail-value">{}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">CWE</span>
+                                <span class="detail-value">{}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">CVSS</span>
+                                <span class="detail-value cvss-score"><span class="cvss-value">{:.1}</span></span>
+                            </div>{}{}
+                            <div class="detail-row">
+                                <span class="detail-label">Description</span>
+                                <span class="detail-value">{}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Remediation</span>
+                                <span class="detail-value">{}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+"#, severity_class, severity_label, vuln.vuln_type, vuln.url, vuln.parameter.as_deref().unwrap_or("-"), vuln.cwe, vuln.cvss, poc_section, evidence_section, vuln.description, vuln.remediation));
+        }
+
+        html.push_str(r#"
             </div>
         </div>
-"#, severity_class, vuln.severity, vuln.vuln_type, vuln.url, vuln.parameter.as_deref().unwrap_or("-"), vuln.cwe, vuln.cvss, vuln.description, vuln.remediation));
-        }
+"#);
     }
 
     html.push_str(r#"
         <footer>
-            <p>Generated by <strong>Lonkero v1.0.0</strong> - Enterprise Web Security Scanner</p>
-            <p>&copy; 2025 <a href="https://bountyy.fi" target="_blank">Bountyy Oy</a> | All rights reserved</p>
+            <div class="footer-brand">
+                Generated by <a href="https://lonkero.bountyy.fi/en" target="_blank"><strong>Lonkero</strong></a> - Wraps around your attack surface
+            </div>
+            <div>&copy; 2025 <a href="https://bountyy.fi" target="_blank">Bountyy Oy</a> | All rights reserved</div>
         </footer>
     </div>
 </body>

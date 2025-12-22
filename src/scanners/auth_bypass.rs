@@ -1725,7 +1725,7 @@ References:
                 continue;  // Only test 403/401 paths
             }
 
-            debug!("[403-Bypass] Path {} returns {}, testing bypasses...", path, original_response.status_code);
+            info!("[403-Bypass] Testing {} bypass techniques on: {} (HTTP {})", bypass_techniques.len() + bypass_headers.len(), path, original_response.status_code);
 
             // Try path-based bypasses
             for (technique_name, transform) in &bypass_techniques {
