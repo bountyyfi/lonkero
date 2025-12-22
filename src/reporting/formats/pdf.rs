@@ -30,8 +30,9 @@ impl PdfReportGenerator {
         let page_width = 210.0_f32;
         let page_height = 297.0_f32;
 
-        // Helper to estimate space needed for a vulnerability entry (increased for more details)
-        let vuln_height = 100.0_f32; // Approximate height for one vulnerability with all fields
+        // Helper to estimate space needed for a vulnerability entry
+        // Title (7) + URL (7) + Category (7) + CVSS (7) + Desc header (7) + 3 desc lines (21) + Remed header (7) + 3 remed lines (21) + spacing (10) = ~94
+        let vuln_height = 95.0_f32;
 
         // Add watermark to first page
         self.add_watermark(&mut current_ops, page_width, page_height);
@@ -81,16 +82,8 @@ impl PdfReportGenerator {
         });
         y_pos -= section_gap * 1.5;
 
-        // Horizontal line separator
-        current_ops.push(Op::EndTextSection);
-        current_ops.push(Op::SetOutlineColor { col: Color::Rgb(Rgb { r: 0.2, g: 0.8, b: 0.1, icc_profile: None }) });
-        current_ops.push(Op::SetOutlineThickness { pt: Pt(1.0) });
-        current_ops.push(Op::DrawLine { line: Line { points: vec![
-            LinePoint { p: Point::new(Mm(left_margin), Mm(y_pos)), bezier: false },
-            LinePoint { p: Point::new(Mm(page_width - left_margin), Mm(y_pos)), bezier: false }
-        ], is_closed: false }});
+        // Section separator - just add spacing
         y_pos -= section_gap;
-        current_ops.push(Op::StartTextSection);
 
         // Executive Summary Header
         current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin), Mm(y_pos)) });
@@ -293,12 +286,12 @@ impl PdfReportGenerator {
 
             // URL - full width
             current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 3.0), Mm(y_pos)) });
-            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(9.0) });
+            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(10.0) });
             current_ops.push(Op::WriteTextBuiltinFont {
-                items: vec![TextItem::Text(format!("URL: {}", self.truncate(&vuln.url, 90)))],
+                items: vec![TextItem::Text(format!("URL: {}", self.truncate(&vuln.url, 85)))],
                 font: BuiltinFont::Helvetica,
             });
-            y_pos -= line_height_small;
+            y_pos -= line_height_medium;
 
             // Parameter if present
             if let Some(param) = &vuln.parameter {
@@ -307,7 +300,7 @@ impl PdfReportGenerator {
                     items: vec![TextItem::Text(format!("Parameter: {}", param))],
                     font: BuiltinFont::Helvetica,
                 });
-                y_pos -= line_height_small;
+                y_pos -= line_height_medium;
             }
 
             // Category and CWE
@@ -316,7 +309,7 @@ impl PdfReportGenerator {
                 items: vec![TextItem::Text(format!("Category: {}  |  CWE: {}", vuln.category, vuln.cwe))],
                 font: BuiltinFont::Helvetica,
             });
-            y_pos -= line_height_small;
+            y_pos -= line_height_medium;
 
             // CVSS/Confidence/Verified
             let verified_str = if vuln.verified { "Yes" } else { "No" };
@@ -325,110 +318,78 @@ impl PdfReportGenerator {
                 items: vec![TextItem::Text(format!("CVSS: {:.1}  |  Confidence: {}  |  Verified: {}", vuln.cvss, vuln.confidence, verified_str))],
                 font: BuiltinFont::Helvetica,
             });
-            y_pos -= line_height_small * 1.5;
+            y_pos -= line_height_medium;
 
             // Payload if present
             if !vuln.payload.is_empty() && vuln.payload != "-" {
                 current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 3.0), Mm(y_pos)) });
-                current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(9.0) });
+                current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(10.0) });
                 current_ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.9, g: 0.6, b: 0.0, icc_profile: None }) });
                 current_ops.push(Op::WriteTextBuiltinFont {
                     items: vec![TextItem::Text("Payload/PoC:".to_string())],
                     font: BuiltinFont::HelveticaBold,
                 });
                 current_ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }) });
-                y_pos -= line_height_small;
+                y_pos -= line_height_medium;
 
-                current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(8.0) });
-                let payload_lines = self.wrap_text(&vuln.payload, 100);
-                for line in payload_lines.iter().take(3) {
+                current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(9.0) });
+                let payload_lines = self.wrap_text(&vuln.payload, 90);
+                for line in payload_lines.iter().take(2) {
                     current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 6.0), Mm(y_pos)) });
                     current_ops.push(Op::WriteTextBuiltinFont {
                         items: vec![TextItem::Text(line.clone())],
                         font: BuiltinFont::Helvetica,
                     });
-                    y_pos -= line_height_small;
+                    y_pos -= line_height_medium;
                 }
             }
 
             // Description - wrap to multiple lines
             current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 3.0), Mm(y_pos)) });
-            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(9.0) });
+            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(10.0) });
             current_ops.push(Op::WriteTextBuiltinFont {
                 items: vec![TextItem::Text("Description:".to_string())],
                 font: BuiltinFont::HelveticaBold,
             });
-            y_pos -= line_height_small;
+            y_pos -= line_height_medium;
 
-            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(9.0) });
-            let desc_lines = self.wrap_text(&vuln.description, 100);
-            for line in desc_lines.iter().take(4) {
+            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(10.0) });
+            let desc_lines = self.wrap_text(&vuln.description, 90);
+            for line in desc_lines.iter().take(3) {
                 current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 6.0), Mm(y_pos)) });
                 current_ops.push(Op::WriteTextBuiltinFont {
                     items: vec![TextItem::Text(line.clone())],
                     font: BuiltinFont::Helvetica,
                 });
-                y_pos -= line_height_small;
-            }
-
-            // Evidence if present
-            if let Some(evidence) = &vuln.evidence {
-                if !evidence.is_empty() {
-                    current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 3.0), Mm(y_pos)) });
-                    current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(9.0) });
-                    current_ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.0, g: 0.7, b: 0.8, icc_profile: None }) });
-                    current_ops.push(Op::WriteTextBuiltinFont {
-                        items: vec![TextItem::Text("Evidence:".to_string())],
-                        font: BuiltinFont::HelveticaBold,
-                    });
-                    current_ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }) });
-                    y_pos -= line_height_small;
-
-                    current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(8.0) });
-                    let evidence_lines = self.wrap_text(evidence, 100);
-                    for line in evidence_lines.iter().take(2) {
-                        current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 6.0), Mm(y_pos)) });
-                        current_ops.push(Op::WriteTextBuiltinFont {
-                            items: vec![TextItem::Text(line.clone())],
-                            font: BuiltinFont::Helvetica,
-                        });
-                        y_pos -= line_height_small;
-                    }
-                }
+                y_pos -= line_height_medium;
             }
 
             // Remediation - wrap to multiple lines
             current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 3.0), Mm(y_pos)) });
-            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(9.0) });
+            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(10.0) });
             current_ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.2, g: 0.8, b: 0.1, icc_profile: None }) });
             current_ops.push(Op::WriteTextBuiltinFont {
                 items: vec![TextItem::Text("Remediation:".to_string())],
                 font: BuiltinFont::HelveticaBold,
             });
             current_ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }) });
-            y_pos -= line_height_small;
+            y_pos -= line_height_medium;
 
-            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(9.0) });
-            let remediation_lines = self.wrap_text(&vuln.remediation, 100);
-            for line in remediation_lines.iter().take(4) {
+            current_ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::Helvetica, size: Pt(10.0) });
+            let remediation_lines = self.wrap_text(&vuln.remediation, 90);
+            for line in remediation_lines.iter().take(3) {
                 current_ops.push(Op::SetTextCursor { pos: Point::new(Mm(left_margin + 6.0), Mm(y_pos)) });
                 current_ops.push(Op::WriteTextBuiltinFont {
                     items: vec![TextItem::Text(line.clone())],
                     font: BuiltinFont::Helvetica,
                 });
-                y_pos -= line_height_small;
+                y_pos -= line_height_medium;
             }
 
             y_pos -= line_height_large;
 
-            // Visual separator between vulnerabilities
+            // Visual separator between vulnerabilities - skip drawing line, just add spacing
             current_ops.push(Op::EndTextSection);
-            current_ops.push(Op::SetOutlineColor { col: Color::Rgb(Rgb { r: 0.3, g: 0.3, b: 0.3, icc_profile: None }) });
-            current_ops.push(Op::SetOutlineThickness { pt: Pt(0.5) });
-            current_ops.push(Op::DrawLine { line: Line { points: vec![
-                LinePoint { p: Point::new(Mm(left_margin + 10.0), Mm(y_pos)), bezier: false },
-                LinePoint { p: Point::new(Mm(page_width - left_margin - 10.0), Mm(y_pos)), bezier: false }
-            ], is_closed: false }});
             y_pos -= line_height_medium;
         }
 
@@ -518,12 +479,12 @@ impl PdfReportGenerator {
         lines
     }
 
-    fn add_watermark(&self, ops: &mut Vec<Op>, page_width: f32, page_height: f32) {
-        // Add diagonal watermark "LONKERO" across the page - very faint
+    fn add_watermark(&self, ops: &mut Vec<Op>, _page_width: f32, _page_height: f32) {
+        // Add watermark at the bottom of the page - very faint, won't interfere with content
         ops.push(Op::StartTextSection);
-        ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.92, g: 0.92, b: 0.92, icc_profile: None }) });
-        ops.push(Op::SetTextCursor { pos: Point::new(Mm(page_width / 4.0), Mm(page_height / 2.0)) });
-        ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(72.0) });
+        ops.push(Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.95, g: 0.95, b: 0.95, icc_profile: None }) });
+        ops.push(Op::SetTextCursor { pos: Point::new(Mm(60.0), Mm(25.0)) });
+        ops.push(Op::SetFontSizeBuiltinFont { font: BuiltinFont::HelveticaBold, size: Pt(48.0) });
         ops.push(Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("LONKERO".to_string())],
             font: BuiltinFont::HelveticaBold,
