@@ -113,8 +113,36 @@ impl BaselineDetector {
             sim_1_2, sim_1_3, sim_2_3, avg_similarity
         );
 
-        // If all responses are > 95% similar, it's a static responder
-        let is_static = avg_similarity > 0.95;
+        // If all responses are > 95% similar, it might be a static responder
+        // BUT we should check if it's a SPA (Single Page Application) first
+        let mut is_static = avg_similarity > 0.95;
+
+        // Check if it's a SPA - SPAs return the same HTML shell for all routes
+        // but the actual content is loaded dynamically via JavaScript
+        if is_static {
+            let body = response1.body.to_lowercase();
+            let is_spa = body.contains("id=\"app\"") ||  // Vue/React common
+                body.contains("id=\"root\"") ||  // React common
+                body.contains("ng-app") ||  // Angular
+                body.contains("data-v-") ||  // Vue scoped styles
+                body.contains("__nuxt") ||  // Nuxt.js
+                body.contains("__next") ||  // Next.js
+                body.contains("_app.js") ||  // Next.js
+                body.contains("vue.") ||  // Vue.js
+                body.contains("react.") ||  // React
+                body.contains("angular.") ||  // Angular
+                body.contains("/graphql") ||  // GraphQL endpoint reference
+                body.contains("apolloclient") ||  // Apollo GraphQL client
+                body.contains("__apollo");  // Apollo state
+
+            if is_spa {
+                debug!(
+                    "SPA DETECTED: Site is a Single Page Application - not treating as static responder despite {:.1}% similarity",
+                    avg_similarity * 100.0
+                );
+                is_static = false;
+            }
+        }
 
         if is_static {
             debug!(
