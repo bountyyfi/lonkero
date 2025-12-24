@@ -36,7 +36,7 @@ futures = "0.3"
 futures-util = "0.3"
 
 # HTTP client with HTTP/2 support
-reqwest = { version = "0.12.24", features = ["json", "cookies", "stream", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12.28", features = ["json", "cookies", "stream", "rustls-tls-native-roots"] }
 hyper = { version = "1.8.1", features = ["http2", "server", "client"] }
 h2 = "0.4"
 
