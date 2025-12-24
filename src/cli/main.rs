@@ -677,7 +677,7 @@ async fn run_scan(
 
     print_banner();
 
-    info!("Initializing Lonkero Scanner v1.0.0");
+    info!("Initializing Lonkero Scanner v2.0.0");
     info!("Scan mode: {:?}", mode);
     info!("Targets: {}", targets.len());
 
@@ -1352,25 +1352,12 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
 
         // Test discovered GraphQL endpoints from crawl/JS mining
-        let backend_graphql = "https://netlux-stage-backend.valmistumassa.fi/graphql";
         for ep in &intercepted_endpoints {
-            if ep.to_lowercase().contains("graphql") && ep != backend_graphql {
+            if ep.to_lowercase().contains("graphql") {
                 info!("  - Testing discovered GraphQL endpoint: {}", ep);
                 let (vulns, tests) = engine.graphql_scanner.scan(ep, scan_config).await?;
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
-            }
-        }
-
-        // Also test intercepted backend GraphQL
-        if intercepted_endpoints.iter().any(|e| e.contains("graphql")) {
-            for ep in &intercepted_endpoints {
-                if ep.to_lowercase().contains("graphql") {
-                    info!("  - Testing intercepted GraphQL: {}", ep);
-                    let (vulns, tests) = engine.graphql_scanner.scan(ep, scan_config).await?;
-                    all_vulnerabilities.extend(vulns);
-                    total_tests += tests as u64;
-                }
             }
         }
 
@@ -3218,7 +3205,7 @@ fn generate_sarif_report(results: &[ScanResults]) -> Result<String> {
                 "tool": {
                     "driver": {
                         "name": "Lonkero",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                         "informationUri": "https://github.com/bountyyfi/lonkero"
                     }
                 },
