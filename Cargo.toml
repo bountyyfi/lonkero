@@ -141,7 +141,7 @@ signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 
 # Health checks
-axum = "0.8.7"
+axum = "0.8.8"
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["trace"] }
 
