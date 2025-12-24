@@ -677,7 +677,7 @@ async fn run_scan(
 
     print_banner();
 
-    info!("Initializing Lonkero Scanner v1.0.0");
+    info!("Initializing Lonkero Scanner v2.0.0");
     info!("Scan mode: {:?}", mode);
     info!("Targets: {}", targets.len());
 
@@ -3205,7 +3205,7 @@ fn generate_sarif_report(results: &[ScanResults]) -> Result<String> {
                 "tool": {
                     "driver": {
                         "name": "Lonkero",
-                        "version": "1.0.0",
+                        "version": "2.0.0",
                         "informationUri": "https://github.com/bountyyfi/lonkero"
                     }
                 },
