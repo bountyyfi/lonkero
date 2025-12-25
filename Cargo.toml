@@ -37,7 +37,6 @@ futures-util = "0.3"
 
 # HTTP client with HTTP/2 support
 reqwest = { version = "0.12.28", features = ["json", "cookies", "stream", "rustls-tls-native-roots"] }
-hyper = { version = "1.8.1", features = ["http2", "server", "client"] }
 h2 = "0.4"
 
 # Redis for queue and caching (use version compatible with deadpool-redis)
@@ -62,12 +61,8 @@ regex = "1.10"
 # Logging & Tracing & Metrics
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.32"
-opentelemetry = { version = "0.31", features = ["metrics", "trace"] }
-opentelemetry-prometheus = "0.29"
 prometheus = "0.14"
 metrics = "0.24"
-metrics-exporter-prometheus = "0.18"
 
 # Error handling
 anyhow = "1.0"
@@ -89,12 +84,8 @@ base64 = "0.22.1"
 # Bytes for efficient memory handling
 bytes = "1.5"
 
-# String interning for memory optimization
-string-interner = "0.19"
-
 # Smart pointers and optimized collections
 ahash = "0.8"
-smallvec = "1.13"
 
 # Cryptography (for JWT testing and quantum-safe signing)
 hmac = "0.12"
@@ -129,25 +120,11 @@ nonzero_ext = "0.3"
 # Caching
 moka = { version = "0.12", features = ["future"] }
 
-# Connection pooling
-bb8 = "0.9"
-
-# Machine Learning for payload selection
-smartcore = { version = "0.4", features = ["serde"] }
-
-# Graceful shutdown
-tokio-util = "0.7"
-signal-hook = "0.3"
-signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
-
 # Health checks
 axum = "0.8.8"
-tower = "0.5.2"
-tower-http = { version = "0.6.2", features = ["trace"] }
 
 # Configuration
 config = "0.15"
-dotenvy = "0.15"
 toml = "0.9"
 serde_yaml = "0.9"
 notify = "8.2"
@@ -165,23 +142,9 @@ uuid = { version = "1.18.1", features = ["v4", "serde"] }
 
 # N-API bindings for Node.js
 napi = { version = "3.7.1", features = ["async", "tokio_rt", "serde-json"] }
-napi-derive = "3.3.3"
-
-# Compression
-flate2 = "1.0"
-
-# Priority queue
-priority-queue = "2.7"
-
-# PDF generation
-printpdf = "0.8"
 
 # CSV generation
 csv = "1.3"
-
-# HTML templating
-tera = "1.20"
-minify-html = "0.18"
 
 # Email sending
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
@@ -190,7 +153,6 @@ lettre = { version = "0.11", default-features = false, features = ["tokio1-rustl
 rust_xlsxwriter = "0.92.1"
 
 # Additional security dependencies
-sha1 = "0.10"
 hex = "0.4"
 
 # License and configuration directories
