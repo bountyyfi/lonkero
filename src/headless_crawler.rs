@@ -634,13 +634,34 @@ impl HeadlessCrawler {
                         }
 
                         if !inputs.is_empty() {
-                            debug!("[Headless] Form at {} with {} inputs", action, inputs.len());
-                            forms.push(DiscoveredForm {
-                                action,
-                                method,
-                                inputs,
-                                discovered_at: original_url.to_string(),
+                            // Filter out language/locale selectors and navigation elements
+                            let is_language_selector = inputs.len() == 1
+                                && inputs[0].input_type == "select"
+                                && Self::is_language_selector(&inputs[0]);
+
+                            // Skip forms with only a single select (likely nav/filter elements)
+                            let is_single_select = inputs.len() == 1 && inputs[0].input_type == "select";
+
+                            // Skip forms with auto-generated names like "input_1", "select_field_0"
+                            let has_only_generated_names = inputs.iter().all(|i| {
+                                i.name.starts_with("input_") ||
+                                i.name.starts_with("select_") ||
+                                i.name.contains("_field_")
                             });
+
+                            if is_language_selector {
+                                debug!("[Headless] Skipping language selector at {}", action);
+                            } else if is_single_select && has_only_generated_names {
+                                debug!("[Headless] Skipping standalone select without proper name at {}", action);
+                            } else {
+                                debug!("[Headless] Form at {} with {} inputs", action, inputs.len());
+                                forms.push(DiscoveredForm {
+                                    action,
+                                    method,
+                                    inputs,
+                                    discovered_at: original_url.to_string(),
+                                });
+                            }
                         }
                     }
                 }
@@ -648,6 +669,37 @@ impl HeadlessCrawler {
         }
 
         Ok(forms)
+    }
+
+    /// Check if a form input looks like a language/locale selector
+    fn is_language_selector(input: &FormInput) -> bool {
+        let name_lower = input.name.to_lowercase();
+
+        // Check name patterns
+        let lang_name_patterns = [
+            "lang", "language", "locale", "i18n", "l10n",
+            "country", "region", "culture", "lng", "idioma",
+            "sprache", "langue", "kieli", // Finnish
+        ];
+
+        let has_lang_name = lang_name_patterns.iter().any(|p| name_lower.contains(p));
+
+        // Check if options look like language codes or names
+        let has_lang_options = if let Some(options) = &input.options {
+            let lang_patterns = [
+                "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ru", "zh", "ja", "ko",
+                "english", "finnish", "swedish", "german", "french", "spanish", "suomi",
+                "svenska", "deutsch", "français", "español",
+            ];
+            options.iter().any(|opt| {
+                let opt_lower = opt.to_lowercase();
+                lang_patterns.iter().any(|p| opt_lower == *p || opt_lower.contains(p))
+            })
+        } else {
+            false
+        };
+
+        has_lang_name || has_lang_options
     }
 
     /// Discover the actual API endpoint for SPA forms by intercepting network requests

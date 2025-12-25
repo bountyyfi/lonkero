@@ -1407,8 +1407,13 @@ async fn execute_standalone_scan(
     }
 
     // Add parameters discovered from JavaScript analysis
-    // JS miner finds API endpoints, sensitive tokens, etc. - always valuable
-    for param_set in js_miner_results.parameters.values() {
+    // ONLY add JS miner params if they're tied to actual API endpoints, not generic "global" ones
+    // Generic params like "email", "username" from security_params cause false positives
+    for (endpoint, param_set) in js_miner_results.parameters.iter() {
+        // Skip "global" and "*" params - these are generic guesses, not discovered from forms
+        if endpoint == "global" || endpoint == "*" {
+            continue;
+        }
         for param in param_set {
             if !test_params.iter().any(|(name, _)| name == param) {
                 test_params.push((param.clone(), "test".to_string()));
