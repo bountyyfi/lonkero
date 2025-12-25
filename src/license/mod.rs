@@ -2,6 +2,7 @@
 // This software is proprietary and confidential.
 // License verification and killswitch module.
 
+pub mod anti_tamper;
 pub mod scan_auth;
 pub use scan_auth::{DeniedModule, ModuleAuthorizeResponse, ScanAuthorization};
 
@@ -156,8 +157,28 @@ pub fn get_scan_counter() -> u64 {
 }
 
 /// Verify scan is authorized - combines multiple checks
+/// Protected by hardcore anti-tampering system
+#[inline(never)]
 pub fn verify_scan_authorized() -> bool {
-    // Check 0: Binary integrity (tamper detection)
+    // LAYER 0: Anti-tamper system check (new hardcore protection)
+    if anti_tamper::was_tampered() {
+        error!("Scan blocked: Tampering detected");
+        return false;
+    }
+
+    // LAYER 1: Full anti-tamper integrity check
+    if !anti_tamper::full_integrity_check() {
+        error!("Scan blocked: Integrity check failed");
+        return false;
+    }
+
+    // LAYER 2: Verify this function isn't hooked
+    if !anti_tamper::verify_no_hook(verify_scan_authorized as *const ()) {
+        error!("Scan blocked: Function hook detected");
+        return false;
+    }
+
+    // LAYER 3: Legacy binary integrity (tamper detection)
     if !verify_binary_integrity() {
         error!("Scan blocked: Binary integrity check failed");
         return false;
@@ -168,24 +189,33 @@ pub fn verify_scan_authorized() -> bool {
         return false;
     }
 
-    // Check 1: Killswitch not active
+    // LAYER 4: Killswitch not active
     if is_killswitch_active() {
         return false;
     }
 
-    // Check 2: License was validated (token set)
-    if KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
-        let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
-        if token == 0 {
-            return false;
+    // LAYER 5: Anti-tamper validation state
+    if !anti_tamper::is_validated() {
+        // Fall back to legacy token check
+        if KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
+            let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
+            if token == 0 {
+                return false;
+            }
         }
     }
 
-    // Check 3: Global license exists and is valid
+    // LAYER 6: Global license exists and is valid
     if let Some(license) = get_global_license() {
         if !license.valid || license.killswitch_active {
             return false;
         }
+    }
+
+    // LAYER 7: Final magic constant verification
+    if !anti_tamper::verify_magic_constants() {
+        error!("Scan blocked: Binary modification detected");
+        return false;
     }
 
     true
@@ -237,33 +267,73 @@ const PREMIUM_FEATURES: &[&str] = &[
 ];
 
 /// Check if a premium feature is available for the current license
+/// Protected by multi-layer anti-tampering system
+#[inline(never)]
 pub fn is_feature_available(feature: &str) -> bool {
-    // Always allow basic features
+    // LAYER 1: Anti-tamper check - if tampering detected, deny all
+    if anti_tamper::was_tampered() {
+        return false;
+    }
+
+    // LAYER 2: Full integrity verification (periodic)
+    // Run full check every ~100 calls
+    let check_count = SCAN_COUNTER.fetch_add(1, Ordering::SeqCst);
+    if check_count % 100 == 0 {
+        if !anti_tamper::full_integrity_check() {
+            return false;
+        }
+    }
+
+    // LAYER 3: Verify this function hasn't been hooked
+    if !anti_tamper::verify_no_hook(is_feature_available as *const ()) {
+        return false;
+    }
+
+    // LAYER 4: Always allow basic features
     if !PREMIUM_FEATURES.contains(&feature) {
         return true;
     }
 
-    // Check license status
+    // LAYER 5: Verify anti-tamper validation state
+    if !anti_tamper::is_validated() {
+        // Double-check with legacy token system
+        let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
+        if token == 0 && KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
+            return false;
+        }
+    }
+
+    // LAYER 6: Check license status
     if let Some(license) = get_global_license() {
         // Enterprise and Team get all features
         if let Some(license_type) = license.license_type {
             match license_type {
-                LicenseType::Enterprise | LicenseType::Team => return true,
+                LicenseType::Enterprise | LicenseType::Team => {
+                    // Final verification before granting premium access
+                    return anti_tamper::verify_magic_constants();
+                }
                 LicenseType::Professional => {
                     // Professional gets most features except team/enterprise-only
                     let enterprise_only = &["team_sharing", "custom_integrations", "dedicated_support"];
-                    return !enterprise_only.contains(&feature);
+                    if enterprise_only.contains(&feature) {
+                        return false;
+                    }
+                    return anti_tamper::verify_magic_constants();
                 }
                 LicenseType::Personal => {
                     // Personal/Free gets limited premium features
                     // Check if explicitly granted in features list
-                    return license.features.iter().any(|f| f == feature);
+                    let granted = license.features.iter().any(|f| f == feature);
+                    if granted {
+                        return anti_tamper::verify_magic_constants();
+                    }
+                    return false;
                 }
             }
         }
     }
 
-    // If no license, check token validity (anti-tampering)
+    // LAYER 7: If no license, check token validity (anti-tampering)
     // This ensures removing license check doesn't grant access
     let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
     if token == 0 && KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
@@ -588,6 +658,12 @@ impl LicenseManager {
     }
 
     pub fn set_license_key(&mut self, key: String) {
+        // ANTI-TAMPER: Check for honeypot/cracked keys
+        if anti_tamper::check_honeypot_key(&key) {
+            error!("Invalid license key detected");
+            // Don't set the key, trigger lockdown
+            return;
+        }
         self.license_key = Some(key);
     }
 
@@ -622,10 +698,27 @@ impl LicenseManager {
                 let token = generate_token(&status);
                 VALIDATION_TOKEN.store(token, Ordering::SeqCst);
 
+                // ANTI-TAMPER: Initialize protection and set validated state
+                anti_tamper::initialize_protection();
+                if status.valid && !status.killswitch_active {
+                    // Generate license hash for anti-tamper validation
+                    let license_hash = {
+                        let mut hasher = Sha256::new();
+                        hasher.update(format!("{:?}", status.license_type).as_bytes());
+                        hasher.update(status.licensee.as_deref().unwrap_or("").as_bytes());
+                        hasher.update(&token.to_le_bytes());
+                        let hash = hasher.finalize();
+                        u64::from_le_bytes(hash[0..8].try_into().unwrap())
+                    };
+                    anti_tamper::set_validated(license_hash);
+                }
+
                 if status.killswitch_active {
                     error!("KILLSWITCH ACTIVE: {}", status.killswitch_reason.as_deref().unwrap_or("Unknown"));
                     // Clear token on killswitch
                     VALIDATION_TOKEN.store(0, Ordering::SeqCst);
+                    // Trigger tamper response to lock everything down
+                    anti_tamper::trigger_tamper_response("killswitch_active");
                 }
 
                 Ok(status)
@@ -643,6 +736,12 @@ impl LicenseManager {
                 let offline_status = LicenseStatus::default();
                 let token = generate_token(&offline_status);
                 VALIDATION_TOKEN.store(token, Ordering::SeqCst);
+
+                // ANTI-TAMPER: Initialize but DON'T set validated for offline mode
+                // This ensures premium features remain locked
+                anti_tamper::initialize_protection();
+                // Offline mode gets minimal validation - basic features only
+                anti_tamper::set_validated(0); // Zero hash = minimal access
 
                 Ok(offline_status)
             }
