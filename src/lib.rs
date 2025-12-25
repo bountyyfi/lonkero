@@ -43,7 +43,6 @@ pub mod http_client;
 pub mod errors;
 pub mod retry;
 pub mod metrics;
-pub mod health;
 
 // Validation modules
 pub mod validation;
@@ -74,9 +73,6 @@ pub mod analysis;
 
 // Discovery module
 pub mod discovery;
-
-// N-API exports for Node.js integration
-pub mod napi_bridge;
 
 // License verification and killswitch module
 pub mod license;
