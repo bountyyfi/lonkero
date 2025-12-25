@@ -3,6 +3,8 @@
 // License verification and killswitch module.
 
 pub mod anti_tamper;
+#[cfg(test)]
+mod anti_tamper_test;
 pub mod scan_auth;
 pub use scan_auth::{DeniedModule, ModuleAuthorizeResponse, ScanAuthorization};
 
