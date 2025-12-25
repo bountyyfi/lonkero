@@ -19,11 +19,6 @@ crate-type = ["rlib"]
 name = "lonkero"
 path = "src/cli/main.rs"
 
-# Distributed worker for queue-based scanning
-[[bin]]
-name = "lonkero-worker"
-path = "src/bin/scanner-worker.rs"
-
 # Internal network agent
 [[bin]]
 name = "lonkero-agent"

@@ -62,9 +62,6 @@ pub mod retest;
 // Nuclei custom template management
 pub mod nuclei;
 
-// Distributed worker module
-pub mod worker;
-
 // Internal network agent
 pub mod agent;
 

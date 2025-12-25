@@ -8,7 +8,6 @@ pub mod deduplication;
 pub mod mappings;
 pub mod templates;
 pub mod delivery;
-pub mod api;
 
 pub use engine::ReportEngine;
 pub use types::{ReportConfig, ReportFormat, ReportOutput};
