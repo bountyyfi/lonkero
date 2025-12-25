@@ -1469,6 +1469,47 @@ async fn execute_standalone_scan(
               js_miner_results.graphql_endpoints.len());
     }
 
+    // Get baseline response early for context building
+    let baseline_response = match engine.http_client.get(target).await {
+        Ok(r) => Some(r),
+        Err(_) => None,
+    };
+
+    // Extract server and content-type from baseline response for ScanContext
+    let detected_server = baseline_response.as_ref()
+        .and_then(|r| r.headers.get("server"))
+        .cloned();
+
+    let content_type = baseline_response.as_ref()
+        .and_then(|r| r.headers.get("content-type"))
+        .cloned();
+
+    // Determine primary framework from detected technologies
+    let primary_framework = if is_nodejs_stack {
+        detected_technologies.iter()
+            .find(|t| t.contains("next") || t.contains("nuxt") || t.contains("gatsby"))
+            .or_else(|| detected_technologies.iter().find(|t| t.contains("react") || t.contains("vue") || t.contains("angular")))
+            .or_else(|| detected_technologies.iter().find(|t| t.contains("express") || t.contains("node")))
+            .cloned()
+    } else if is_php_stack {
+        detected_technologies.iter()
+            .find(|t| t.contains("laravel") || t.contains("wordpress") || t.contains("drupal") || t.contains("magento"))
+            .or_else(|| detected_technologies.iter().find(|t| t.contains("php")))
+            .cloned()
+    } else if is_python_stack {
+        detected_technologies.iter()
+            .find(|t| t.contains("django") || t.contains("flask") || t.contains("fastapi"))
+            .or_else(|| detected_technologies.iter().find(|t| t.contains("python")))
+            .cloned()
+    } else if is_java_stack {
+        detected_technologies.iter()
+            .find(|t| t.contains("spring") || t.contains("struts") || t.contains("jsp"))
+            .or_else(|| detected_technologies.iter().find(|t| t.contains("tomcat") || t.contains("java")))
+            .cloned()
+    } else {
+        None
+    };
+
     // Only run parameter injection tests if we have REAL parameters to test
     if has_real_params {
         // FIRST: Test discovered forms with POST (full form body)
@@ -1588,6 +1629,56 @@ async fn execute_standalone_scan(
             info!("  - Skipping {} form POST tests (GraphQL backend uses mutations)", discovered_forms.len());
         }
 
+        // Build ScanContext for parameter testing
+        // This provides context-aware information to scanners for intelligent testing
+        let build_scan_context = |param_name: &str| -> lonkero_scanner::types::ScanContext {
+            use lonkero_scanner::types::{ScanContext, ParameterSource, EndpointType};
+
+            // Determine parameter source
+            let parameter_source = if discovered_params.contains(&param_name.to_string()) {
+                ParameterSource::HtmlForm
+            } else if parsed_url.query_pairs().any(|(k, _)| k == param_name) {
+                ParameterSource::UrlQueryString
+            } else if js_miner_results.parameters.values().any(|params| params.contains(param_name)) {
+                ParameterSource::JavaScriptMined
+            } else {
+                ParameterSource::Unknown
+            };
+
+            // Determine endpoint type
+            let endpoint_type = if is_graphql_only || !js_miner_results.graphql_endpoints.is_empty() {
+                EndpointType::GraphQlApi
+            } else if !js_miner_results.api_endpoints.is_empty() {
+                EndpointType::RestApi
+            } else if !discovered_forms.is_empty() {
+                EndpointType::FormSubmission
+            } else {
+                EndpointType::Unknown
+            };
+
+            // Determine if JSON API based on content-type or discovered endpoints
+            let is_json_api = content_type.as_ref()
+                .map(|ct| ct.contains("application/json"))
+                .unwrap_or(false)
+                || !js_miner_results.api_endpoints.is_empty();
+
+            ScanContext {
+                parameter_source,
+                endpoint_type,
+                detected_tech: detected_technologies.iter().cloned().collect(),
+                framework: primary_framework.clone(),
+                server: detected_server.clone(),
+                other_parameters: test_params.iter()
+                    .map(|(name, _)| name.clone())
+                    .filter(|name| name != param_name)
+                    .collect(),
+                is_json_api,
+                is_graphql: !js_miner_results.graphql_endpoints.is_empty(),
+                form_fields: discovered_params.clone(),
+                content_type: content_type.clone(),
+            }
+        };
+
         // THEN: Test URL parameters with GET (original behavior)
         // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
         // GraphQL APIs return JSON, not HTML, so XSS payloads won't be reflected
@@ -1596,7 +1687,8 @@ async fn execute_standalone_scan(
             if !is_graphql_only {
                 info!("  - Testing XSS ({} parameters)", test_params.len());
                 for (param_name, _) in &test_params {
-                    let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config).await?;
+                    let context = build_scan_context(param_name);
+                    let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config, Some(&context)).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
                 }
@@ -1615,7 +1707,8 @@ async fn execute_standalone_scan(
             if !is_static_site && !is_graphql_only {
                 info!("  - Testing SQL Injection ({} parameters)", test_params.len());
                 for (param_name, _) in &test_params {
-                    let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config).await?;
+                    let context = build_scan_context(param_name);
+                    let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config, Some(&context)).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
                 }
@@ -2317,12 +2410,6 @@ async fn execute_standalone_scan(
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
     }
-
-    // Get baseline response for various scanners
-    let baseline_response = match engine.http_client.get(target).await {
-        Ok(r) => Some(r),
-        Err(_) => None,
-    };
 
     // Merlin Scanner - JavaScript Library Vulnerability Detection (Professional+)
     // Always run for SPAs and sites with JavaScript - detects Vue, React, axios, jQuery, etc.

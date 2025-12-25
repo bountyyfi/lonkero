@@ -244,3 +244,94 @@ impl Serialize for ScanProgress {
         state.end()
     }
 }
+
+/// Source of a discovered parameter
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ParameterSource {
+    HtmlForm,
+    UrlQueryString,
+    JavaScriptMined,
+    ApiEndpoint,
+    GraphQL,
+    RequestHeader,
+    Cookie,
+    Unknown,
+}
+
+/// Type of endpoint being tested
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EndpointType {
+    FormSubmission,
+    RestApi,
+    GraphQlApi,
+    JsonRpc,
+    StaticContent,
+    Unknown,
+}
+
+/// Context passed to scanners for intelligent testing
+#[derive(Debug, Clone)]
+pub struct ScanContext {
+    /// Where this parameter was discovered
+    pub parameter_source: ParameterSource,
+
+    /// Type of endpoint
+    pub endpoint_type: EndpointType,
+
+    /// Detected technologies (framework, server, language)
+    pub detected_tech: Vec<String>,
+
+    /// Primary framework if detected (e.g., "Django", "Laravel", "Next.js")
+    pub framework: Option<String>,
+
+    /// Server type (e.g., "nginx", "Apache")
+    pub server: Option<String>,
+
+    /// Other parameters discovered on this endpoint
+    pub other_parameters: Vec<String>,
+
+    /// Is this a JSON API endpoint
+    pub is_json_api: bool,
+
+    /// Is this a GraphQL endpoint
+    pub is_graphql: bool,
+
+    /// Form structure if from a form
+    pub form_fields: Vec<String>,
+
+    /// Content-Type of responses
+    pub content_type: Option<String>,
+}
+
+impl Default for ScanContext {
+    fn default() -> Self {
+        Self {
+            parameter_source: ParameterSource::Unknown,
+            endpoint_type: EndpointType::Unknown,
+            detected_tech: Vec::new(),
+            framework: None,
+            server: None,
+            other_parameters: Vec::new(),
+            is_json_api: false,
+            is_graphql: false,
+            form_fields: Vec::new(),
+            content_type: None,
+        }
+    }
+}
+
+impl ScanContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Check if a specific technology is detected
+    pub fn has_tech(&self, tech: &str) -> bool {
+        self.detected_tech.iter().any(|t| t.to_lowercase().contains(&tech.to_lowercase()))
+    }
+
+    /// Check if framework matches
+    pub fn is_framework(&self, name: &str) -> bool {
+        self.framework.as_ref().map(|f| f.to_lowercase().contains(&name.to_lowercase())).unwrap_or(false)
+    }
+}
