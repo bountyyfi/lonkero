@@ -34,6 +34,16 @@ jobs:
         with:
           category: "/language:rust"
 
+  security-checks:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Cargo Audit
         run: |
           cargo install cargo-audit
