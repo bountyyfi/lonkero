@@ -130,27 +130,9 @@ impl CrlfInjectionScanner {
         url: &str,
         config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        let mut all_vulnerabilities = Vec::new();
-        let mut total_tests = 0;
-
-        // Test common CRLF-vulnerable parameter names
-        let common_params = vec![
-            "url".to_string(), "redirect".to_string(), "return".to_string(), "dest".to_string(), "page".to_string(), "location".to_string(),
-            "uri".to_string(), "next".to_string(), "target".to_string(), "link".to_string(), "redir".to_string(), "forward".to_string(),
-        ];
-
-        for param in common_params {
-            let (vulns, tests) = self.scan_parameter(url, &param, config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests;
-
-            // If we found a vulnerability, we can stop testing
-            if !all_vulnerabilities.is_empty() {
-                break;
-            }
-        }
-
-        Ok((all_vulnerabilities, total_tests))
+        // Only test parameters discovered from actual forms/URLs - no spray-and-pray
+        // The main scanner will call scan_parameter() with discovered params
+        Ok((Vec::new(), 0))
     }
 
     /// Analyze response for CRLF injection indicators

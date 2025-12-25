@@ -107,27 +107,9 @@ impl TemplateInjectionScanner {
         url: &str,
         config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        let mut all_vulnerabilities = Vec::new();
-        let mut total_tests = 0;
-
-        // Common parameters vulnerable to SSTI
-        let common_params = vec![
-            "template".to_string(), "view".to_string(), "page".to_string(), "name".to_string(), "user".to_string(), "message".to_string(),
-            "comment".to_string(), "content".to_string(), "text".to_string(), "data".to_string(), "input".to_string(), "email".to_string(),
-        ];
-
-        for param in common_params {
-            let (vulns, tests) = self.scan_parameter(url, &param, config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests;
-
-            // If we found a vulnerability, stop testing
-            if !all_vulnerabilities.is_empty() {
-                break;
-            }
-        }
-
-        Ok((all_vulnerabilities, total_tests))
+        // Only test parameters discovered from actual forms/URLs - no spray-and-pray
+        // The main scanner will call scan_parameter() with discovered params
+        Ok((Vec::new(), 0))
     }
 
     /// Get payloads for specific template engine

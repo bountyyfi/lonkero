@@ -96,26 +96,9 @@ impl DeserializationScanner {
         url: &str,
         config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        let mut all_vulnerabilities = Vec::new();
-        let mut total_tests = 0;
-
-        // Common parameters for deserialization
-        let common_params = vec![
-            "data".to_string(), "object".to_string(), "session".to_string(), "serialized".to_string(), "state".to_string(),
-            "payload".to_string(), "cookie".to_string(), "token".to_string(), "user".to_string(), "profile".to_string(),
-        ];
-
-        for param in common_params {
-            let (vulns, tests) = self.scan_parameter(url, &param, config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests;
-
-            if !all_vulnerabilities.is_empty() {
-                break;
-            }
-        }
-
-        Ok((all_vulnerabilities, total_tests))
+        // Only test parameters discovered from actual forms/URLs - no spray-and-pray
+        // The main scanner will call scan_parameter() with discovered params
+        Ok((Vec::new(), 0))
     }
 
     /// Test a deserialization payload

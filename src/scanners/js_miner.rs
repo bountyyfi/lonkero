@@ -548,38 +548,9 @@ impl JsMinerScanner {
             r#"\{\s*name\s*:\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#,
         ];
 
-        // Security-relevant parameter names to specifically look for
-        let security_params = [
-            // Authentication/Authorization
-            "id", "user_id", "userId", "uid", "account_id", "accountId",
-            "email", "username", "password", "passwd", "pass", "pwd",
-            "token", "access_token", "accessToken", "refresh_token", "refreshToken",
-            "session", "sessionId", "session_id", "auth", "authorization",
-            "api_key", "apiKey", "api_token", "apiToken", "secret", "key",
-            // User input fields
-            "name", "first_name", "firstName", "last_name", "lastName",
-            "phone", "address", "comment", "message", "text", "content", "body",
-            "title", "description", "subject", "note", "feedback",
-            // Search/Filter
-            "query", "search", "q", "s", "keyword", "term", "filter",
-            // Pagination
-            "page", "limit", "offset", "size", "per_page", "perPage",
-            "sort", "order", "orderBy", "sortBy",
-            // Navigation/Redirect (SSRF/Open Redirect)
-            "url", "uri", "link", "href", "src", "dest", "destination",
-            "redirect", "redirect_uri", "redirectUri", "return", "returnUrl",
-            "return_to", "returnTo", "next", "goto", "target", "continue",
-            "callback", "callbackUrl", "callback_url",
-            // File operations (Path Traversal/LFI)
-            "file", "filename", "path", "filepath", "dir", "directory",
-            "template", "include", "page", "view", "load",
-            // Data manipulation
-            "data", "input", "value", "param", "args", "payload",
-            "json", "xml", "action", "cmd", "command", "exec",
-            // IDs and references
-            "ref", "reference", "code", "status", "type", "category",
-            "product_id", "productId", "item_id", "itemId", "order_id", "orderId",
-        ];
+        // NOTE: Removed hardcoded security_params wordlist - spray-and-pray approach
+        // causes false positives. Scanner should be context-aware and only test
+        // parameters actually discovered from forms, URLs, and API endpoints.
 
         // Use "global" as key for parameters not tied to a specific endpoint
         let global_params = results.parameters.entry("global".to_string()).or_insert_with(HashSet::new);
@@ -950,25 +921,7 @@ impl JsMinerScanner {
             }
         }
 
-        // Only add security-relevant params if they appear in likely input contexts
-        for param in security_params {
-            // Look for params in likely input contexts, not just any occurrence
-            let input_patterns = [
-                format!(r#"name\s*[=:]\s*["']{}["']"#, param),
-                format!(r#"[?&]{}="#, param),
-                format!(r#"\${}[^a-zA-Z0-9_]"#, param),
-            ];
-            for pat in &input_patterns {
-                if let Ok(re) = Regex::new(&pat) {
-                    if re.is_match(content) {
-                        global_params.insert(param.to_string());
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Extract form field definitions (React/Vue style) - add to global params
+        // Extract form field definitions (React/Vue style) - these are REAL form fields
         let form_field_patterns = [
             r#"<input[^>]*name\s*=\s*["']([^"']+)["']"#,
             r#"<textarea[^>]*name\s*=\s*["']([^"']+)["']"#,
