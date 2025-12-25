@@ -53,7 +53,7 @@ jobs:
 
       - name: Detect suspicious Unicode
         run: |
-          if grep -P "[\u200B-\u200F\u202A-\u202E\u2066-\u2069]" -n src/**/*.rs; then
-            echo "❌ Suspicious Unicode control characters detected"
+          if grep -rP "[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]" -n src/; then
+            echo "Suspicious Unicode control characters detected"
             exit 1
           fi
