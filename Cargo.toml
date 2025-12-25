@@ -61,7 +61,6 @@ regex = "1.10"
 # Logging & Tracing & Metrics
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-prometheus = "0.14"
 metrics = "0.24"
 
 # Error handling
