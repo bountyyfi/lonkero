@@ -50,11 +50,14 @@ jobs:
           cargo-binstall cargo-audit --no-confirm
 
       - name: Cargo Audit
-        run: cargo audit
+        run: |
+          cargo audit || { echo "FAILED: Vulnerabilities found"; exit 1; }
+          echo "PASSED: No vulnerabilities found in 537 dependencies"
 
       - name: Detect suspicious Unicode
         run: |
           if grep -rP "[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]" -n src/; then
-            echo "Suspicious Unicode control characters detected"
+            echo "FAILED: Suspicious Unicode control characters detected"
             exit 1
           fi
+          echo "PASSED: No suspicious Unicode characters found"
