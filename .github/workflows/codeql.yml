@@ -44,10 +44,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Cargo Audit
+      - name: Install cargo-audit
         run: |
-          cargo install cargo-audit
-          cargo audit
+          curl -fsSL https://github.com/rustsec/rustsec/releases/latest/download/cargo-audit-x86_64-unknown-linux-musl.tgz | tar xzf - -C /usr/local/bin --strip-components=1
+
+      - name: Cargo Audit
+        run: cargo audit
 
       - name: Detect suspicious Unicode
         run: |
