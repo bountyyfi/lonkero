@@ -12,7 +12,7 @@ readme = "README.md"
 
 [lib]
 name = "lonkero_scanner"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 # Main CLI binary - standalone security scanner
 [[bin]]
@@ -120,9 +120,6 @@ nonzero_ext = "0.3"
 # Caching
 moka = { version = "0.12", features = ["future"] }
 
-# Health checks
-axum = "0.8.8"
-
 # Configuration
 config = "0.15"
 toml = "0.9"
@@ -139,9 +136,6 @@ clap = { version = "4.5.52", features = ["derive", "env"] }
 
 # UUID
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
-
-# N-API bindings for Node.js
-napi = { version = "3.7.1", features = ["async", "tokio_rt", "serde-json"] }
 
 # CSV generation
 csv = "1.3"
@@ -171,9 +165,6 @@ strip = true
 inherits = "release"
 strip = false
 debug = true
-
-[build-dependencies]
-napi-build = "2.3.1"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
