@@ -3151,7 +3151,7 @@ fn generate_html_report(results: &[ScanResults]) -> Result<String> {
             </div>
 
             <div class="vuln-list">
-"#, result.target, critical, high, medium, low, info, result.tests_run, result.duration_seconds, result.completed_at));
+"#, html_escape(&result.target), critical, high, medium, low, info, result.tests_run, result.duration_seconds, html_escape(&result.completed_at)));
 
         for vuln in &result.vulnerabilities {
             let severity_class = match vuln.severity {
@@ -3232,7 +3232,7 @@ fn generate_html_report(results: &[ScanResults]) -> Result<String> {
                         </div>
                     </div>
                 </div>
-"#, severity_class, severity_label, vuln.vuln_type, vuln.url, vuln.parameter.as_deref().unwrap_or("-"), vuln.cwe, vuln.cvss, poc_section, evidence_section, vuln.description, vuln.remediation));
+"#, severity_class, severity_label, html_escape(&vuln.vuln_type), html_escape(&vuln.url), html_escape(vuln.parameter.as_deref().unwrap_or("-")), html_escape(&vuln.cwe), vuln.cvss, poc_section, evidence_section, html_escape(&vuln.description), html_escape(&vuln.remediation)));
         }
 
         html.push_str(r#"
