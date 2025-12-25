@@ -1293,22 +1293,29 @@ impl OpenRedirectScanner {
         }
     }
 
-    /// Scan endpoint for open redirect (general scan) - OPTIMIZED FOR PERFORMANCE
+    /// Scan endpoint for open redirect (general scan)
+    /// NOTE: This method does NOT spray-and-pray with hardcoded param lists.
+    /// Only test parameters discovered from actual forms/URLs via scan_parameter().
     pub async fn scan(
+        self: &Arc<Self>,
+        _url: &str,
+        _config: &ScanConfig,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Only test parameters discovered from actual forms/URLs - no spray-and-pray
+        // The main scanner will call scan_parameter() with discovered params
+        Ok((Vec::new(), 0))
+    }
+
+    /// DEPRECATED: This was the old spray-and-pray scan method
+    /// Kept for reference but no longer used
+    #[allow(dead_code)]
+    async fn scan_spray_deprecated(
         self: &Arc<Self>,
         url: &str,
         config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        // ============================================================
-        // PERFORMANCE OPTIMIZATION: Generate payloads ONCE, reuse for ALL parameters
-        // OLD: 100 parameters × 1618 payloads = 161,800 payload generations
-        // NEW: 1618 payloads × 1 generation = 1618 payload generations
-        // SPEEDUP: 100x faster payload generation
-        // ============================================================
-
         let target_domain = self.extract_domain(url);
 
-        // Generate payloads once based on license level
         let payloads = Arc::new(if crate::license::is_feature_available("enterprise_open_redirect") {
             self.generate_enterprise_payloads(&target_domain)
         } else if crate::license::is_feature_available("advanced_redirect") {
@@ -1319,18 +1326,14 @@ impl OpenRedirectScanner {
 
         info!("[OpenRedirect] Generated {} payloads (will be reused across all parameters)", payloads.len());
 
-        // Get baseline once for false positive detection
         let baseline = Arc::new(self.get_baseline_for_url(url).await);
 
-        // Shared state for results
         let all_vulnerabilities = Arc::new(Mutex::new(Vec::new()));
         let total_tests = Arc::new(AtomicUsize::new(0));
         let found_params = Arc::new(Mutex::new(HashSet::new()));
         let found_vuln_global = Arc::new(AtomicBool::new(false));
         let is_fast_mode = config.scan_mode == crate::types::ScanMode::Fast;
 
-        // Test all common redirect parameters IN PARALLEL
-        // OPTIMIZATION: Only test TOP 20 most common params to avoid excessive testing
         let all_params = Self::get_redirect_params_static();
         let params: Vec<&str> = all_params.iter().take(20).copied().collect();
         let param_count = params.len();

@@ -2490,34 +2490,44 @@ async fn execute_standalone_scan(
             all_vulnerabilities.extend(vulns);
             total_tests += tests as u64;
 
-            // Scan discovered S3 buckets from JS Mining
+            // Scan discovered S3 buckets from JS Mining - DEDUPLICATE by bucket name
             if !js_miner_results.s3_buckets.is_empty() {
-                info!("  - Scanning {} discovered S3 bucket URLs", js_miner_results.s3_buckets.len());
-                for s3_url in &js_miner_results.s3_buckets {
-                    info!("    Scanning S3: {}", s3_url);
-                    let (vulns, tests) = engine.cloud_storage_scanner.scan(s3_url, scan_config).await?;
+                // Extract unique bucket names from S3 URLs to avoid scanning same bucket multiple times
+                let unique_s3_buckets: std::collections::HashSet<String> = js_miner_results.s3_buckets.iter()
+                    .filter_map(|url| extract_s3_bucket_url(url))
+                    .collect();
+                info!("  - Scanning {} unique S3 buckets (from {} URLs)", unique_s3_buckets.len(), js_miner_results.s3_buckets.len());
+                for s3_bucket_url in unique_s3_buckets {
+                    info!("    Scanning S3 bucket: {}", s3_bucket_url);
+                    let (vulns, tests) = engine.cloud_storage_scanner.scan(&s3_bucket_url, scan_config).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
                 }
             }
 
-            // Scan discovered Azure Blob URLs from JS Mining
+            // Scan discovered Azure Blob URLs from JS Mining - DEDUPLICATE by container
             if !js_miner_results.azure_blobs.is_empty() {
-                info!("  - Scanning {} discovered Azure Blob URLs", js_miner_results.azure_blobs.len());
-                for azure_url in &js_miner_results.azure_blobs {
-                    info!("    Scanning Azure Blob: {}", azure_url);
-                    let (vulns, tests) = engine.cloud_storage_scanner.scan(azure_url, scan_config).await?;
+                let unique_azure_containers: std::collections::HashSet<String> = js_miner_results.azure_blobs.iter()
+                    .filter_map(|url| extract_azure_container_url(url))
+                    .collect();
+                info!("  - Scanning {} unique Azure containers (from {} URLs)", unique_azure_containers.len(), js_miner_results.azure_blobs.len());
+                for azure_url in unique_azure_containers {
+                    info!("    Scanning Azure container: {}", azure_url);
+                    let (vulns, tests) = engine.cloud_storage_scanner.scan(&azure_url, scan_config).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
                 }
             }
 
-            // Scan discovered GCS bucket URLs from JS Mining
+            // Scan discovered GCS bucket URLs from JS Mining - DEDUPLICATE by bucket name
             if !js_miner_results.gcs_buckets.is_empty() {
-                info!("  - Scanning {} discovered GCS bucket URLs", js_miner_results.gcs_buckets.len());
-                for gcs_url in &js_miner_results.gcs_buckets {
-                    info!("    Scanning GCS: {}", gcs_url);
-                    let (vulns, tests) = engine.cloud_storage_scanner.scan(gcs_url, scan_config).await?;
+                let unique_gcs_buckets: std::collections::HashSet<String> = js_miner_results.gcs_buckets.iter()
+                    .filter_map(|url| extract_gcs_bucket_url(url))
+                    .collect();
+                info!("  - Scanning {} unique GCS buckets (from {} URLs)", unique_gcs_buckets.len(), js_miner_results.gcs_buckets.len());
+                for gcs_url in unique_gcs_buckets {
+                    info!("    Scanning GCS bucket: {}", gcs_url);
+                    let (vulns, tests) = engine.cloud_storage_scanner.scan(&gcs_url, scan_config).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
                 }
@@ -3593,6 +3603,62 @@ fn xml_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+/// Extract unique S3 bucket URL from a full S3 object URL
+/// e.g., "https://bucket.s3.region.amazonaws.com/path/file.png" -> "https://bucket.s3.region.amazonaws.com/"
+fn extract_s3_bucket_url(url: &str) -> Option<String> {
+    // Handle both path-style and virtual-hosted-style S3 URLs
+    // Virtual-hosted: https://bucket.s3.region.amazonaws.com/key
+    // Path-style: https://s3.region.amazonaws.com/bucket/key
+    if url.contains(".s3.") && url.contains("amazonaws.com") {
+        // Virtual-hosted style
+        if let Some(pos) = url.find("amazonaws.com") {
+            let base = &url[..pos + "amazonaws.com".len()];
+            return Some(format!("{}/", base.trim_end_matches('\\')));
+        }
+    } else if url.contains("s3.amazonaws.com") || url.contains("s3-") {
+        // Path-style or regional
+        if let Ok(parsed) = url::Url::parse(url.trim_end_matches('\\')) {
+            let host = parsed.host_str()?;
+            return Some(format!("https://{}/", host));
+        }
+    }
+    None
+}
+
+/// Extract unique Azure Blob container URL from a full blob URL
+/// e.g., "https://account.blob.core.windows.net/container/path/file" -> "https://account.blob.core.windows.net/container/"
+fn extract_azure_container_url(url: &str) -> Option<String> {
+    if url.contains(".blob.core.windows.net") {
+        if let Ok(parsed) = url::Url::parse(url.trim_end_matches('\\')) {
+            let host = parsed.host_str()?;
+            let path_segments: Vec<&str> = parsed.path().split('/').filter(|s| !s.is_empty()).collect();
+            if !path_segments.is_empty() {
+                return Some(format!("https://{}/{}/", host, path_segments[0]));
+            } else {
+                return Some(format!("https://{}/", host));
+            }
+        }
+    }
+    None
+}
+
+/// Extract unique GCS bucket URL from a full GCS object URL
+/// e.g., "https://storage.googleapis.com/bucket/path/file" -> "https://storage.googleapis.com/bucket/"
+fn extract_gcs_bucket_url(url: &str) -> Option<String> {
+    if url.contains("storage.googleapis.com") || url.contains("storage.cloud.google.com") {
+        if let Ok(parsed) = url::Url::parse(url.trim_end_matches('\\')) {
+            let host = parsed.host_str()?;
+            let path_segments: Vec<&str> = parsed.path().split('/').filter(|s| !s.is_empty()).collect();
+            if !path_segments.is_empty() {
+                return Some(format!("https://{}/{}/", host, path_segments[0]));
+            } else {
+                return Some(format!("https://{}/", host));
+            }
+        }
+    }
+    None
 }
 
 fn list_scanners(verbose: bool, category: Option<String>) -> Result<()> {

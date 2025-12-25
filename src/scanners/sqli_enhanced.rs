@@ -1837,15 +1837,27 @@ impl EnhancedSqliScanner {
             if let Some((payload, response, test_url, baseline, technique)) = result {
                 // Check for successful injection
                 let similarity = self.calculate_similarity(&baseline, &response);
-                let has_json_error = response.body.to_lowercase().contains("json")
-                    || response.body.to_lowercase().contains("jsonb")
-                    || response.body.to_lowercase().contains("pg_");
+                let body_lower = response.body.to_lowercase();
 
-                // Boolean logic detected or error-based detection
-                if similarity > 0.85 || has_json_error {
-                    let confidence = if has_json_error && similarity < 0.50 {
+                // Check for ACTUAL PostgreSQL error messages (not just "json" in API responses)
+                // These are specific error patterns that indicate SQL injection worked
+                let has_pg_error = body_lower.contains("pg_catalog")
+                    || body_lower.contains("pg_class")
+                    || body_lower.contains("pg_proc")
+                    || body_lower.contains("pg_type")
+                    || body_lower.contains("invalid input syntax for type json")
+                    || body_lower.contains("cannot cast type")
+                    || body_lower.contains("operator does not exist")
+                    || body_lower.contains("jsonb_")  // jsonb functions exposed
+                    || (body_lower.contains("error") && body_lower.contains("jsonb @>"))
+                    || (body_lower.contains("error") && body_lower.contains("jsonb <@"));
+
+                // Require BOTH high similarity AND specific error indicator
+                // Just having "json" in response is NOT enough (most APIs return JSON!)
+                if has_pg_error && similarity > 0.70 {
+                    let confidence = if similarity > 0.90 && has_pg_error {
                         Confidence::High
-                    } else if similarity > 0.90 {
+                    } else if similarity > 0.80 {
                         Confidence::Medium
                     } else {
                         Confidence::Low
@@ -1856,12 +1868,12 @@ impl EnhancedSqliScanner {
                         - Technique: {}\n\
                         - Payload: {}\n\
                         - Response similarity: {:.1}%\n\
-                        - JSON error detected: {}\n\
+                        - PostgreSQL error detected: {}\n\
                         - Status: {}",
                         technique,
                         payload,
                         similarity * 100.0,
-                        has_json_error,
+                        has_pg_error,
                         response.status_code
                     );
 

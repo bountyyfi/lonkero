@@ -35,40 +35,125 @@ impl CloudSecurityScanner {
     }
 
     /// Scan endpoint for cloud security vulnerabilities
+    /// NOTE: This method does NOT spray-and-pray with hardcoded param lists.
+    /// Only test parameters discovered from actual forms/URLs via scan_parameter().
     pub async fn scan(
         &self,
+        _url: &str,
+        _config: &ScanConfig,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Only test parameters discovered from actual forms/URLs - no spray-and-pray
+        // The main scanner will call scan_parameter() with discovered URL-like params
+        Ok((Vec::new(), 0))
+    }
+
+    /// Scan a specific parameter for cloud metadata SSRF
+    pub async fn scan_parameter(
+        &self,
         url: &str,
+        param_name: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing cloud security vulnerabilities");
+        // Only test URL-like parameters
+        let url_params = ["url", "uri", "path", "redirect", "target", "dest", "link", "site", "file", "page", "src", "href", "callback", "return", "next"];
+        let param_lower = param_name.to_lowercase();
+        if !url_params.iter().any(|p| param_lower.contains(p)) {
+            return Ok((Vec::new(), 0));
+        }
 
-        let (vulns, tests) = self.test_aws_metadata_ssrf(url).await?;
+        info!("[Cloud] Testing cloud metadata SSRF on parameter: {}", param_name);
+
+        // Test AWS metadata
+        let (vulns, tests) = self.test_metadata_ssrf_on_param(url, param_name, "aws").await?;
         vulnerabilities.extend(vulns);
         tests_run += tests;
 
         if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_gcp_metadata_ssrf(url).await?;
+            let (vulns, tests) = self.test_metadata_ssrf_on_param(url, param_name, "gcp").await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_azure_imds_ssrf(url).await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-        }
-
-        if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_cloud_credential_exposure(url).await?;
+            let (vulns, tests) = self.test_metadata_ssrf_on_param(url, param_name, "azure").await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         Ok((vulnerabilities, tests_run))
     }
+
+    /// Test cloud metadata SSRF on a specific parameter
+    async fn test_metadata_ssrf_on_param(
+        &self,
+        url: &str,
+        param_name: &str,
+        cloud: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let payloads: Vec<&str> = match cloud {
+            "aws" => vec![
+                "http://169.254.169.254/latest/meta-data/",
+                "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+            ],
+            "gcp" => vec![
+                "http://metadata.google.internal/computeMetadata/v1/",
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+            ],
+            "azure" => vec![
+                "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+                "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/",
+            ],
+            _ => vec![],
+        };
+
+        for payload in payloads {
+            tests_run += 1;
+            let test_url = if url.contains('?') {
+                format!("{}&{}={}", url, param_name, urlencoding::encode(payload))
+            } else {
+                format!("{}?{}={}", url, param_name, urlencoding::encode(payload))
+            };
+
+            match self.http_client.get(&test_url).await {
+                Ok(response) => {
+                    let detected = match cloud {
+                        "aws" => self.detect_aws_metadata(&response.body),
+                        "gcp" => self.detect_gcp_metadata(&response.body),
+                        "azure" => self.detect_azure_metadata(&response.body),
+                        _ => false,
+                    };
+                    if detected {
+                        let cloud_upper = cloud.to_uppercase();
+                        info!("{} metadata SSRF detected via parameter: {}", cloud_upper, param_name);
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            &format!("{} Metadata Service SSRF", cloud_upper),
+                            &format!("{}={}", param_name, payload),
+                            &format!("SSRF vulnerability allows access to {} metadata service via '{}' parameter", cloud_upper, param_name),
+                            &format!("{} instance metadata exposed - credentials may be compromised", cloud_upper),
+                            Severity::Critical,
+                            "CWE-918",
+                            9.8,
+                        ));
+                        return Ok((vulnerabilities, tests_run));
+                    }
+                }
+                Err(e) => {
+                    debug!("Request failed: {}", e);
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// DEPRECATED: Old spray-and-pray methods below (kept for reference)
 
     /// Test AWS metadata service SSRF
     async fn test_aws_metadata_ssrf(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {

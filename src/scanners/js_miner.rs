@@ -711,6 +711,29 @@ impl JsMinerScanner {
             "add", "remove", "insert", "delete", "update", "edit", "save", "load",
             "show", "hide", "toggle", "enable", "disable", "lock", "unlock",
             "on", "off", "yes", "no", "ok", "cancel", "confirm", "submit", "abort",
+
+            // HTML meta tag names (NOT form parameters - these are SEO/metadata)
+            "author", "publisher", "creator", "robots", "keywords", "description",
+            "viewport", "charset", "generator", "application", "rating", "revisit",
+            "distribution", "copyright", "language", "content", "expires", "pragma",
+            "refresh", "theme", "color", "canonical", "alternate", "icon", "manifest",
+            // Open Graph / social meta (og:, twitter:, fb:, etc.)
+            "og", "twitter", "fb", "article", "profile", "book", "video", "music",
+            "site", "card", "image", "title", "url", "locale", "type", "determiner",
+            "section", "tag", "published", "modified", "expiration", "first", "last",
+            // Schema.org / JSON-LD structured data (NOT form inputs)
+            "context", "graph", "organizationType", "personType", "productType",
+            "eventType", "placeType", "articleType", "webpageType", "breadcrumbType",
+            "faqType", "howToType", "recipeType", "reviewType", "ratingType",
+            "addressType", "geoType", "postalAddress", "streetAddress", "locality",
+            // Common HTML attribute names that aren't form parameters
+            "class", "href", "src", "alt", "title", "rel", "target", "method", "action",
+            "enctype", "autocomplete", "novalidate", "placeholder", "pattern", "required",
+            "readonly", "disabled", "checked", "selected", "multiple", "accept", "maxlength",
+            "minlength", "rows", "cols", "wrap", "spellcheck", "tabindex", "accesskey",
+            "role", "aria", "data", "draggable", "contenteditable", "hidden", "translate",
+            // Font/styling attributes (from CSS/font imports)
+            "family", "weight", "style", "display", "swap", "subset", "text", "preconnect",
             "handler", "handlers", "listener", "listeners", "callback", "callbacks",
             "event", "events", "trigger", "emit", "fire", "notify", "broadcast",
             "model", "models", "view", "views", "controller", "controllers",

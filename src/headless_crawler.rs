@@ -281,13 +281,34 @@ impl HeadlessCrawler {
                         }
 
                         if !inputs.is_empty() {
-                            debug!("[Headless] Form at {} with {} inputs", action, inputs.len());
-                            forms.push(DiscoveredForm {
-                                action,
-                                method,
-                                inputs,
-                                discovered_at: url.to_string(),
+                            // Filter out language/locale selectors and navigation elements
+                            let is_language_selector = inputs.len() == 1
+                                && inputs[0].input_type == "select"
+                                && Self::is_language_selector(&inputs[0]);
+
+                            // Skip forms with only a single select (likely nav/filter elements)
+                            let is_single_select = inputs.len() == 1 && inputs[0].input_type == "select";
+
+                            // Skip forms with auto-generated names like "input_1", "select_field_0"
+                            let has_only_generated_names = inputs.iter().all(|i| {
+                                i.name.starts_with("input_") ||
+                                i.name.starts_with("select_") ||
+                                i.name.contains("_field_")
                             });
+
+                            if is_language_selector {
+                                debug!("[Headless] Skipping language selector at {}", action);
+                            } else if is_single_select && has_only_generated_names {
+                                debug!("[Headless] Skipping standalone select without proper name at {}", action);
+                            } else {
+                                debug!("[Headless] Form at {} with {} inputs", action, inputs.len());
+                                forms.push(DiscoveredForm {
+                                    action,
+                                    method,
+                                    inputs,
+                                    discovered_at: url.to_string(),
+                                });
+                            }
                         }
                     }
                 }

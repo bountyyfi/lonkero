@@ -144,7 +144,13 @@ impl FrameworkVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        if !html.contains("react") && !html.contains("React") {
+        // Check for SPECIFIC React indicators, not just the word "react"
+        // Note: Don't run if already detected Next.js (which is React-based)
+        let has_react_root = html.contains("data-reactroot") || html.contains("data-react-");
+        let has_react_bundle = html.contains("/react.") || html.contains("/react-dom.");
+        let has_react_devtools = html.contains("__REACT_DEVTOOLS_GLOBAL_HOOK__");
+
+        if !has_react_root && !has_react_bundle && !has_react_devtools {
             return Ok((vulnerabilities, 0));
         }
 
@@ -180,7 +186,14 @@ impl FrameworkVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        if !html.contains("Vue") && !html.contains("v-") {
+        // Check for SPECIFIC Vue indicators
+        // Must have Vue-specific patterns, not just "v-" (which could be any attribute)
+        let has_vue_app = html.contains("data-v-") || html.contains("[data-v-");
+        let has_vue_bundle = html.contains("/vue.") || html.contains("/vue@") || html.contains("vue.runtime");
+        let has_vue_devtools = html.contains("__VUE_DEVTOOLS_GLOBAL_HOOK__");
+        let has_vue_specific = html.contains("v-cloak") || html.contains("v-model") || html.contains("v-bind");
+
+        if !has_vue_app && !has_vue_bundle && !has_vue_devtools && !has_vue_specific {
             return Ok((vulnerabilities, 0));
         }
 
@@ -216,7 +229,14 @@ impl FrameworkVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        if !html.contains("ng-") && !html.contains("Angular") {
+        // Check for SPECIFIC Angular indicators
+        // Must have Angular-specific patterns, not just "ng-" (which could be other things)
+        let has_ng_app = html.contains("ng-app=") || html.contains("ng-controller=");
+        let has_angular_bundle = html.contains("/angular.") || html.contains("angular.min.js") || html.contains("@angular/");
+        let has_ng_version = html.contains("ng-version=");
+        let has_ng_csp = html.contains("ng-csp") || html.contains("ng-strict-di");
+
+        if !has_ng_app && !has_angular_bundle && !has_ng_version && !has_ng_csp {
             return Ok((vulnerabilities, 0));
         }
 
@@ -241,7 +261,14 @@ impl FrameworkVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        if !html.contains("django") && !html.contains("Django") {
+        // Check for SPECIFIC Django indicators - not just the word "django"
+        // Many sites mention Django in comments or meta without actually using it
+        let has_django_csrf = html.contains("csrfmiddlewaretoken");
+        let has_django_debug = html.contains("Django Debug") || html.contains("django.setup");
+        let has_django_admin = html.contains("/admin/login/") && html.contains("Django");
+        let has_django_error = html.contains("django.core") || html.contains("django.db");
+
+        if !has_django_csrf && !has_django_debug && !has_django_admin && !has_django_error {
             return Ok((vulnerabilities, 0));
         }
 
@@ -280,7 +307,14 @@ impl FrameworkVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        if !html.contains("laravel") && !html.contains("Laravel") {
+        // Check for SPECIFIC Laravel indicators - not just the word "laravel"
+        // Must have Laravel-specific patterns in the HTML/response
+        let has_laravel_csrf = html.contains("csrf_token()") || html.contains("X-CSRF-TOKEN");
+        let has_laravel_errors = html.contains("Whoops!") && html.contains("Laravel");
+        let has_laravel_session = html.contains("laravel_session");
+        let has_laravel_specific = html.contains("Laravel Mix") || html.contains("@vite") && html.contains("resources/");
+
+        if !has_laravel_csrf && !has_laravel_errors && !has_laravel_session && !has_laravel_specific {
             return Ok((vulnerabilities, 0));
         }
 
