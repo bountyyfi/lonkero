@@ -80,9 +80,6 @@ headless_chrome = { version = "1.0", features = ["fetch"] }
 # Base64
 base64 = "0.22.1"
 
-# Bytes for efficient memory handling
-bytes = "1.5"
-
 # Smart pointers and optimized collections
 ahash = "0.8"
 
@@ -125,7 +122,6 @@ toml = "0.9"
 serde_yaml = "0.9"
 notify = "8.2"
 validator = { version = "0.20", features = ["derive"] }
-lazy_static = "1.5"
 once_cell = "1.20"
 parking_lot = "0.12"
 num_cpus = "1.16"
