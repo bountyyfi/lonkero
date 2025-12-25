@@ -1,615 +1,458 @@
 // Copyright (c) 2025 Bountyy Oy. All rights reserved.
-// This software is proprietary and confidential.
-//
-// ANTI-TAMPERING MODULE - Hardcore Protection Layer
-//
-// This module implements multiple layers of protection against:
-// - Binary patching
-// - Memory manipulation
-// - Debugger attachment
-// - Function hooking
-// - Atomic value tampering
-//
-// Design principles:
-// 1. Defense in depth - multiple redundant checks
-// 2. Distributed verification - checks scattered throughout codebase
-// 3. Fail-closed - any anomaly triggers lockdown
-// 4. Honeypots - fake targets that trigger on tampering
-// 5. Obfuscation - make reverse engineering harder
 
 use std::sync::atomic::{AtomicU64, AtomicBool, AtomicUsize, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
-use sha2::{Sha256, Digest};
+use std::time::{SystemTime, UNIX_EPOCH, Instant};
+use sha2::{Sha256, Sha512, Digest};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
-// ============================================================================
-// SECTION 1: Obfuscated State Storage
-// Values are XOR'd with runtime-generated keys to prevent memory scanning
-// ============================================================================
+static V_A: AtomicU64 = AtomicU64::new(0);
+static V_B: AtomicU64 = AtomicU64::new(0);
+static V_C: AtomicU64 = AtomicU64::new(0);
+static V_D: AtomicU64 = AtomicU64::new(0);
+static V_E: AtomicU64 = AtomicU64::new(0);
+static K_0: AtomicU64 = AtomicU64::new(0);
+static K_1: AtomicU64 = AtomicU64::new(0);
+static K_2: AtomicU64 = AtomicU64::new(0);
+static I_A: AtomicUsize = AtomicUsize::new(0);
+static I_B: AtomicUsize = AtomicUsize::new(0);
+static I_C: AtomicUsize = AtomicUsize::new(0);
+static I_D: AtomicUsize = AtomicUsize::new(0);
+static T_F: AtomicBool = AtomicBool::new(false);
+static K_I: AtomicBool = AtomicBool::new(false);
+static C_C: AtomicU64 = AtomicU64::new(0);
+static L_T: AtomicU64 = AtomicU64::new(0);
+static S_H: AtomicU64 = AtomicU64::new(0);
+static R_V: AtomicU64 = AtomicU64::new(0);
+static X_0: AtomicU64 = AtomicU64::new(0x8F3A2B1C4D5E6F70);
+static X_1: AtomicU64 = AtomicU64::new(0x1A2B3C4D5E6F7A8B);
+static X_2: AtomicU64 = AtomicU64::new(0xDEADBEEFCAFEBABE);
+static X_3: AtomicU64 = AtomicU64::new(0x0123456789ABCDEF);
 
-/// Primary validation state - XOR'd with OBFUSCATION_KEY
-static VALIDATION_STATE_A: AtomicU64 = AtomicU64::new(0);
-/// Secondary validation state - must match A after XOR
-static VALIDATION_STATE_B: AtomicU64 = AtomicU64::new(0);
-/// Tertiary state for triple redundancy
-static VALIDATION_STATE_C: AtomicU64 = AtomicU64::new(0);
+const M_A: u64 = 0x426F756E747979_u64;
+const M_B: u64 = 0x4C6F6E6B65726F_u64;
+const M_C: u64 = 0x536563757265_u64;
+const M_D: u64 = 0x50726F74656374_u64;
+const M_E: u64 = 0x416E7469_u64;
+const M_S: u64 = M_A.wrapping_add(M_B).wrapping_add(M_C).wrapping_add(M_D).wrapping_add(M_E);
+const P_0: [u8; 16] = [0x4C, 0x4F, 0x4E, 0x4B, 0x45, 0x52, 0x4F, 0x2D, 0x55, 0x4E, 0x4C, 0x49, 0x4D, 0x49, 0x54, 0x45];
+const P_1: [u8; 8] = [0x43, 0x52, 0x41, 0x43, 0x4B, 0x45, 0x44, 0x00];
+const P_2: [u8; 8] = [0x4B, 0x45, 0x59, 0x47, 0x45, 0x4E, 0x00, 0x00];
+const P_3: [u8; 8] = [0x50, 0x41, 0x54, 0x43, 0x48, 0x45, 0x44, 0x00];
+const P_4: [u8; 8] = [0x46, 0x52, 0x45, 0x45, 0x00, 0x00, 0x00, 0x00];
 
-/// Obfuscation key - generated at first use, stored obfuscated
-static OBFUSCATION_KEY: AtomicU64 = AtomicU64::new(0);
-static KEY_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
-/// Integrity counters - must always match
-static INTEGRITY_COUNTER_A: AtomicUsize = AtomicUsize::new(0);
-static INTEGRITY_COUNTER_B: AtomicUsize = AtomicUsize::new(0);
-
-/// Tamper detection flag - once set, never cleared
-static TAMPER_DETECTED: AtomicBool = AtomicBool::new(false);
-
-/// Check counter - tracks how many integrity checks passed
-static CHECK_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-// Magic constants - if these don't match expected, binary was patched
-const MAGIC_A: u64 = 0x426F756E747979_u64;  // "Bountyy"
-const MAGIC_B: u64 = 0x4C6F6E6B65726F_u64;  // "Lonkero"
-const MAGIC_C: u64 = 0x536563757265_u64;    // "Secure"
-const EXPECTED_MAGIC_SUM: u64 = MAGIC_A.wrapping_add(MAGIC_B).wrapping_add(MAGIC_C);
-
-// ============================================================================
-// SECTION 2: Initialization with Runtime Key Generation
-// ============================================================================
-
-/// Initialize the anti-tampering system with a runtime-generated key
-/// This MUST be called before any license checks
 #[inline(never)]
-pub fn initialize_protection() -> bool {
-    if KEY_INITIALIZED.load(Ordering::SeqCst) {
-        return verify_state_consistency();
-    }
-
-    // Generate obfuscation key from multiple entropy sources
-    let key = generate_obfuscation_key();
-    OBFUSCATION_KEY.store(key, Ordering::SeqCst);
-
-    // Initialize validation states with obfuscated "invalid" value
-    let invalid_marker = 0xDEAD_BEEF_CAFE_BABEu64 ^ key;
-    VALIDATION_STATE_A.store(invalid_marker, Ordering::SeqCst);
-    VALIDATION_STATE_B.store(invalid_marker, Ordering::SeqCst);
-    VALIDATION_STATE_C.store(invalid_marker, Ordering::SeqCst);
-
-    // Initialize counters
-    INTEGRITY_COUNTER_A.store(0, Ordering::SeqCst);
-    INTEGRITY_COUNTER_B.store(0, Ordering::SeqCst);
-
-    KEY_INITIALIZED.store(true, Ordering::SeqCst);
-
-    // Verify magic constants weren't patched
-    verify_magic_constants()
+fn g_k() -> u64 {
+    let mut h = Sha512::new();
+    let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    h.update(&t.to_le_bytes());
+    let f1 = g_k as *const () as u64;
+    let f2 = v_s as *const () as u64;
+    let f3 = s_v as *const () as u64;
+    let f4 = i_v as *const () as u64;
+    let f5 = f_i as *const () as u64;
+    h.update(&f1.to_le_bytes());
+    h.update(&f2.to_le_bytes());
+    h.update(&f3.to_le_bytes());
+    h.update(&f4.to_le_bytes());
+    h.update(&f5.to_le_bytes());
+    let sv: u64 = 0;
+    let sa = &sv as *const u64 as u64;
+    h.update(&sa.to_le_bytes());
+    h.update(&std::process::id().to_le_bytes());
+    let r = h.finalize();
+    u64::from_le_bytes(r[0..8].try_into().unwrap()) ^ u64::from_le_bytes(r[24..32].try_into().unwrap())
 }
 
-/// Generate obfuscation key from multiple sources
 #[inline(never)]
-fn generate_obfuscation_key() -> u64 {
-    let mut hasher = Sha256::new();
-
-    // Source 1: Current timestamp
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    hasher.update(&timestamp.to_le_bytes());
-
-    // Source 2: Function pointer addresses (ASLR entropy)
-    let fn_ptr_1 = initialize_protection as *const () as u64;
-    let fn_ptr_2 = verify_state_consistency as *const () as u64;
-    let fn_ptr_3 = generate_obfuscation_key as *const () as u64;
-    hasher.update(&fn_ptr_1.to_le_bytes());
-    hasher.update(&fn_ptr_2.to_le_bytes());
-    hasher.update(&fn_ptr_3.to_le_bytes());
-
-    // Source 3: Stack address (additional ASLR entropy)
-    let stack_var: u64 = 0;
-    let stack_addr = &stack_var as *const u64 as u64;
-    hasher.update(&stack_addr.to_le_bytes());
-
-    // Source 4: Process-specific data
-    hasher.update(&std::process::id().to_le_bytes());
-
-    let hash = hasher.finalize();
-    u64::from_le_bytes(hash[0..8].try_into().unwrap())
+fn g_k2() -> u64 {
+    let mut h = Sha256::new();
+    let i = Instant::now();
+    let f1 = t_r as *const () as u64;
+    let f2 = w_t as *const () as u64;
+    h.update(&f1.to_le_bytes());
+    h.update(&f2.to_le_bytes());
+    h.update(&(i.elapsed().as_nanos() as u64).to_le_bytes());
+    let mut hs = DefaultHasher::new();
+    std::thread::current().id().hash(&mut hs);
+    h.update(&hs.finish().to_le_bytes());
+    let r = h.finalize();
+    u64::from_le_bytes(r[8..16].try_into().unwrap())
 }
 
-// ============================================================================
-// SECTION 3: State Management with Triple Redundancy
-// ============================================================================
-
-/// Set validation state to "valid" - called after successful license check
-/// Uses triple redundancy with different XOR keys
 #[inline(never)]
-pub fn set_validated(license_hash: u64) {
-    if TAMPER_DETECTED.load(Ordering::SeqCst) {
-        return; // Silently fail if tampered
+fn g_k3() -> u64 {
+    let mut v: u64 = 0x123456789ABCDEF0;
+    for i in 0..64 {
+        v = v.rotate_left(7).wrapping_add(M_A.rotate_right(i as u32));
+        v ^= M_B.rotate_left((i * 3) as u32);
     }
-
-    let key = OBFUSCATION_KEY.load(Ordering::SeqCst);
-    if key == 0 {
-        return; // Not initialized
-    }
-
-    // Valid marker with license-specific component
-    let valid_marker = 0x56414C4944_u64 ^ license_hash; // "VALID" ^ hash
-
-    // Store with different XOR patterns for each state
-    VALIDATION_STATE_A.store(valid_marker ^ key, Ordering::SeqCst);
-    VALIDATION_STATE_B.store(valid_marker ^ key.rotate_left(13), Ordering::SeqCst);
-    VALIDATION_STATE_C.store(valid_marker ^ key.rotate_right(17), Ordering::SeqCst);
-
-    // Increment integrity counters (must stay in sync)
-    INTEGRITY_COUNTER_A.fetch_add(1, Ordering::SeqCst);
-    INTEGRITY_COUNTER_B.fetch_add(1, Ordering::SeqCst);
+    v ^ (std::process::id() as u64).wrapping_mul(0xDEADBEEF)
 }
 
-/// Check if validation state is valid
-/// Verifies all three redundant states match
 #[inline(never)]
-pub fn is_validated() -> bool {
-    if TAMPER_DETECTED.load(Ordering::SeqCst) {
-        return false;
-    }
-
-    let key = OBFUSCATION_KEY.load(Ordering::SeqCst);
-    if key == 0 || !KEY_INITIALIZED.load(Ordering::SeqCst) {
-        return false;
-    }
-
-    // Decode all three states
-    let state_a = VALIDATION_STATE_A.load(Ordering::SeqCst) ^ key;
-    let state_b = VALIDATION_STATE_B.load(Ordering::SeqCst) ^ key.rotate_left(13);
-    let state_c = VALIDATION_STATE_C.load(Ordering::SeqCst) ^ key.rotate_right(17);
-
-    // All three must match
-    if state_a != state_b || state_b != state_c {
-        // Tampering detected! States don't match
-        trigger_tamper_response("state_mismatch");
-        return false;
-    }
-
-    // Check it's a valid marker (contains "VALID" signature)
-    let is_valid = (state_a & 0xFF_FFFF_FFFF) != 0xDEAD_BEEF_CAFE_BABEu64;
-
-    // Verify counters still match
-    if !verify_counter_integrity() {
-        return false;
-    }
-
-    if is_valid {
-        CHECK_COUNTER.fetch_add(1, Ordering::SeqCst);
-    }
-
-    is_valid
+pub fn i_p() -> bool {
+    if K_I.load(Ordering::SeqCst) { return v_s(); }
+    let k0 = g_k();
+    let k1 = g_k2();
+    let k2 = g_k3();
+    K_0.store(k0, Ordering::SeqCst);
+    K_1.store(k1, Ordering::SeqCst);
+    K_2.store(k2, Ordering::SeqCst);
+    let im = 0xDEAD_BEEF_CAFE_BABEu64;
+    V_A.store(im ^ k0, Ordering::SeqCst);
+    V_B.store(im ^ k0.rotate_left(13), Ordering::SeqCst);
+    V_C.store(im ^ k0.rotate_right(17), Ordering::SeqCst);
+    V_D.store(im ^ k1, Ordering::SeqCst);
+    V_E.store(im ^ k1.rotate_left(23).wrapping_add(k2), Ordering::SeqCst);
+    I_A.store(0, Ordering::SeqCst);
+    I_B.store(0, Ordering::SeqCst);
+    I_C.store(0, Ordering::SeqCst);
+    I_D.store(0, Ordering::SeqCst);
+    L_T.store(SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0), Ordering::SeqCst);
+    let sh = c_s_h();
+    S_H.store(sh, Ordering::SeqCst);
+    K_I.store(true, Ordering::SeqCst);
+    v_m()
 }
 
-/// Verify state consistency without full validation check
 #[inline(never)]
-fn verify_state_consistency() -> bool {
-    let key = OBFUSCATION_KEY.load(Ordering::SeqCst);
-    if key == 0 {
-        return false;
-    }
-
-    let state_a = VALIDATION_STATE_A.load(Ordering::SeqCst) ^ key;
-    let state_b = VALIDATION_STATE_B.load(Ordering::SeqCst) ^ key.rotate_left(13);
-    let state_c = VALIDATION_STATE_C.load(Ordering::SeqCst) ^ key.rotate_right(17);
-
-    state_a == state_b && state_b == state_c
+fn c_s_h() -> u64 {
+    let mut h = Sha256::new();
+    let fns: [*const (); 12] = [
+        i_p as *const (), s_v as *const (), i_v as *const (), v_s as *const (),
+        v_c as *const (), v_f as *const (), v_n as *const (), f_i as *const (),
+        t_r as *const (), w_t as *const (), c_h as *const (), d_d as *const (),
+    ];
+    for f in fns { h.update(&(f as u64).to_le_bytes()); }
+    h.update(&M_A.to_le_bytes());
+    h.update(&M_B.to_le_bytes());
+    h.update(&M_C.to_le_bytes());
+    let r = h.finalize();
+    u64::from_le_bytes(r[0..8].try_into().unwrap())
 }
 
-/// Verify integrity counters match
 #[inline(never)]
-fn verify_counter_integrity() -> bool {
-    let a = INTEGRITY_COUNTER_A.load(Ordering::SeqCst);
-    let b = INTEGRITY_COUNTER_B.load(Ordering::SeqCst);
-
-    if a != b {
-        trigger_tamper_response("counter_mismatch");
-        return false;
-    }
+fn v_s_h() -> bool {
+    let stored = S_H.load(Ordering::SeqCst);
+    if stored == 0 { return true; }
+    let current = c_s_h();
+    if stored != current { t_r("sh"); return false; }
     true
 }
 
-// ============================================================================
-// SECTION 4: Magic Constant Verification (Detects Binary Patching)
-// ============================================================================
-
-/// Verify magic constants haven't been patched
-/// If anyone modifies the binary, these won't match
 #[inline(never)]
-pub fn verify_magic_constants() -> bool {
-    let sum = MAGIC_A.wrapping_add(MAGIC_B).wrapping_add(MAGIC_C);
+pub fn s_v(lh: u64) {
+    if T_F.load(Ordering::SeqCst) { return; }
+    let k0 = K_0.load(Ordering::SeqCst);
+    let k1 = K_1.load(Ordering::SeqCst);
+    let k2 = K_2.load(Ordering::SeqCst);
+    if k0 == 0 { return; }
+    let vm = 0x56414C4944_u64 ^ lh;
+    V_A.store(vm ^ k0, Ordering::SeqCst);
+    V_B.store(vm ^ k0.rotate_left(13), Ordering::SeqCst);
+    V_C.store(vm ^ k0.rotate_right(17), Ordering::SeqCst);
+    V_D.store(vm ^ k1, Ordering::SeqCst);
+    V_E.store(vm ^ k1.rotate_left(23).wrapping_add(k2), Ordering::SeqCst);
+    I_A.fetch_add(1, Ordering::SeqCst);
+    I_B.fetch_add(1, Ordering::SeqCst);
+    I_C.fetch_add(1, Ordering::SeqCst);
+    I_D.fetch_add(1, Ordering::SeqCst);
+    R_V.store(lh.rotate_left(7) ^ k0.rotate_right(11), Ordering::SeqCst);
+    let xv = X_0.load(Ordering::SeqCst) ^ lh;
+    X_0.store(xv, Ordering::SeqCst);
+    X_1.store(X_1.load(Ordering::SeqCst).wrapping_add(lh), Ordering::SeqCst);
+}
 
-    if sum != EXPECTED_MAGIC_SUM {
-        trigger_tamper_response("magic_mismatch");
-        return false;
-    }
+#[inline(never)]
+pub fn i_v() -> bool {
+    if T_F.load(Ordering::SeqCst) { return false; }
+    let k0 = K_0.load(Ordering::SeqCst);
+    let k1 = K_1.load(Ordering::SeqCst);
+    let k2 = K_2.load(Ordering::SeqCst);
+    if k0 == 0 || !K_I.load(Ordering::SeqCst) { return false; }
+    let sa = V_A.load(Ordering::SeqCst) ^ k0;
+    let sb = V_B.load(Ordering::SeqCst) ^ k0.rotate_left(13);
+    let sc = V_C.load(Ordering::SeqCst) ^ k0.rotate_right(17);
+    let sd = V_D.load(Ordering::SeqCst) ^ k1;
+    let se = V_E.load(Ordering::SeqCst) ^ k1.rotate_left(23).wrapping_add(k2);
+    if sa != sb || sb != sc || sc != sd || sd != se { t_r("sm"); return false; }
+    let iv = (sa & 0xFF_FFFF_FFFF) != 0xDEAD_BEEF_CAFE_BABEu64;
+    if !v_c() { return false; }
+    if !v_x() { return false; }
+    if iv { C_C.fetch_add(1, Ordering::SeqCst); }
+    iv
+}
 
-    // Additional check: verify the constants contain expected patterns
-    if MAGIC_A & 0xFF != 0x79 {  // Last byte of "Bountyy"
-        trigger_tamper_response("magic_a_corrupted");
-        return false;
-    }
+#[inline(never)]
+fn v_s() -> bool {
+    let k0 = K_0.load(Ordering::SeqCst);
+    if k0 == 0 { return false; }
+    let sa = V_A.load(Ordering::SeqCst) ^ k0;
+    let sb = V_B.load(Ordering::SeqCst) ^ k0.rotate_left(13);
+    let sc = V_C.load(Ordering::SeqCst) ^ k0.rotate_right(17);
+    sa == sb && sb == sc
+}
 
-    if MAGIC_B & 0xFF != 0x6F {  // Last byte of "Lonkero"
-        trigger_tamper_response("magic_b_corrupted");
-        return false;
-    }
-
+#[inline(never)]
+fn v_c() -> bool {
+    let a = I_A.load(Ordering::SeqCst);
+    let b = I_B.load(Ordering::SeqCst);
+    let c = I_C.load(Ordering::SeqCst);
+    let d = I_D.load(Ordering::SeqCst);
+    if a != b || b != c || c != d { t_r("cm"); return false; }
     true
 }
 
-// ============================================================================
-// SECTION 5: Function Integrity Verification
-// ============================================================================
-
-/// Function pointer table - verified at runtime
-struct FunctionIntegrity {
-    /// Expected relative offsets between functions
-    expected_offsets: [i64; 4],
-}
-
-/// Verify critical function pointers haven't been hooked
 #[inline(never)]
-pub fn verify_function_integrity() -> bool {
-    // Get function addresses
-    let fn_validate = is_validated as *const () as usize;
-    let fn_set = set_validated as *const () as usize;
-    let fn_init = initialize_protection as *const () as usize;
-    let fn_tamper = trigger_tamper_response as *const () as usize;
-
-    // Verify all pointers are in valid code range (not NULL, not max)
-    for &addr in &[fn_validate, fn_set, fn_init, fn_tamper] {
-        if addr == 0 || addr == usize::MAX {
-            trigger_tamper_response("null_function_ptr");
-            return false;
-        }
-
-        // Check alignment (functions should be at least 4-byte aligned)
-        if addr & 0x3 != 0 {
-            trigger_tamper_response("misaligned_function");
-            return false;
-        }
-    }
-
-    // Verify functions are in same general memory region (not scattered by hooks)
-    let min_addr = fn_validate.min(fn_set).min(fn_init).min(fn_tamper);
-    let max_addr = fn_validate.max(fn_set).max(fn_init).max(fn_tamper);
-
-    // Functions in same module should be within ~16MB of each other
-    if max_addr - min_addr > 16 * 1024 * 1024 {
-        trigger_tamper_response("function_scatter");
-        return false;
-    }
-
+fn v_x() -> bool {
+    let x0 = X_0.load(Ordering::SeqCst);
+    let x1 = X_1.load(Ordering::SeqCst);
+    let x2 = X_2.load(Ordering::SeqCst);
+    let x3 = X_3.load(Ordering::SeqCst);
+    if x2 != 0xDEADBEEFCAFEBABE { t_r("x2"); return false; }
+    if x3 != 0x0123456789ABCDEF { t_r("x3"); return false; }
+    let combined = x0 ^ x1;
+    if combined == 0 && I_A.load(Ordering::SeqCst) > 0 { t_r("xc"); return false; }
     true
 }
 
-/// Verify a specific function hasn't been patched with a JMP hook
-/// Checks first bytes for common hook patterns
 #[inline(never)]
-pub fn verify_no_hook(func_ptr: *const ()) -> bool {
-    if func_ptr.is_null() {
-        return false;
-    }
-
-    // Read first 16 bytes of function
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts(func_ptr as *const u8, 16)
-    };
-
-    // Check for common x86_64 hook patterns:
-    // JMP rel32: 0xE9 xx xx xx xx
-    // JMP [rip+rel32]: 0xFF 0x25 xx xx xx xx
-    // MOV RAX, imm64; JMP RAX: 0x48 0xB8 ... 0xFF 0xE0
-
-    // Pattern 1: Direct JMP
-    if bytes[0] == 0xE9 {
-        trigger_tamper_response("jmp_hook_detected");
-        return false;
-    }
-
-    // Pattern 2: Indirect JMP
-    if bytes[0] == 0xFF && bytes[1] == 0x25 {
-        trigger_tamper_response("indirect_jmp_hook");
-        return false;
-    }
-
-    // Pattern 3: MOV RAX, imm; JMP RAX
-    if bytes[0] == 0x48 && bytes[1] == 0xB8 {
-        // Check if followed by JMP RAX
-        if bytes[10] == 0xFF && bytes[11] == 0xE0 {
-            trigger_tamper_response("mov_jmp_hook");
-            return false;
-        }
-    }
-
-    // Pattern 4: INT3 breakpoint
-    if bytes[0] == 0xCC {
-        trigger_tamper_response("breakpoint_detected");
-        return false;
-    }
-
+pub fn v_m() -> bool {
+    let sum = M_A.wrapping_add(M_B).wrapping_add(M_C).wrapping_add(M_D).wrapping_add(M_E);
+    if sum != M_S { t_r("mm"); return false; }
+    if M_A & 0xFF != 0x79 { t_r("ma"); return false; }
+    if M_B & 0xFF != 0x6F { t_r("mb"); return false; }
+    if M_C & 0xFF != 0x65 { t_r("mc"); return false; }
+    if M_D & 0xFF != 0x74 { t_r("md"); return false; }
+    if M_A.count_ones() < 20 { t_r("mp"); return false; }
     true
 }
 
-// ============================================================================
-// SECTION 6: Anti-Debugging
-// ============================================================================
-
-/// Check if a debugger is attached
 #[inline(never)]
-pub fn detect_debugger() -> bool {
-    // Method 1: Check /proc/self/status for TracerPid (Linux)
+pub fn v_f() -> bool {
+    let fns: [*const (); 8] = [
+        i_v as *const (), s_v as *const (), i_p as *const (), t_r as *const (),
+        v_m as *const (), v_f as *const (), f_i as *const (), v_n as *const (),
+    ];
+    for &addr in &fns {
+        let a = addr as usize;
+        if a == 0 || a == usize::MAX { t_r("fp"); return false; }
+        if a & 0x3 != 0 { t_r("fa"); return false; }
+    }
+    let min = fns.iter().map(|&p| p as usize).min().unwrap();
+    let max = fns.iter().map(|&p| p as usize).max().unwrap();
+    if max - min > 32 * 1024 * 1024 { t_r("fs"); return false; }
+    true
+}
+
+#[inline(never)]
+pub fn v_n(fp: *const ()) -> bool {
+    if fp.is_null() { return false; }
+    let b: &[u8] = unsafe { std::slice::from_raw_parts(fp as *const u8, 32) };
+    if b[0] == 0xE9 { t_r("jh"); return false; }
+    if b[0] == 0xFF && b[1] == 0x25 { t_r("ih"); return false; }
+    if b[0] == 0x48 && b[1] == 0xB8 && b[10] == 0xFF && b[11] == 0xE0 { t_r("mh"); return false; }
+    if b[0] == 0xCC { t_r("bp"); return false; }
+    if b[0] == 0x90 && b[1] == 0x90 && b[2] == 0x90 { t_r("np"); return false; }
+    if b[0] == 0xEB { t_r("sh"); return false; }
+    if b[0] == 0xE8 && b[5] == 0xE9 { t_r("ch"); return false; }
+    for i in 0..16 {
+        if b[i] == 0xCC && b[i+1] == 0xCC { t_r("db"); return false; }
+    }
+    let mut zeros = 0;
+    for i in 0..16 { if b[i] == 0x00 { zeros += 1; } }
+    if zeros > 8 { t_r("zp"); return false; }
+    true
+}
+
+#[inline(never)]
+pub fn d_d() -> bool {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-            for line in status.lines() {
-                if line.starts_with("TracerPid:") {
-                    let pid: i32 = line
-                        .split_whitespace()
-                        .nth(1)
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or(0);
-                    if pid != 0 {
-                        return true; // Debugger attached!
-                    }
+        if let Ok(s) = std::fs::read_to_string("/proc/self/status") {
+            for l in s.lines() {
+                if l.starts_with("TracerPid:") {
+                    let p: i32 = l.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+                    if p != 0 { return true; }
                 }
             }
         }
+        if std::fs::metadata("/proc/self/fd/0").map(|m| m.is_file()).unwrap_or(false) {
+            if let Ok(l) = std::fs::read_link("/proc/self/fd/0") {
+                let ls = l.to_string_lossy();
+                if ls.contains("gdb") || ls.contains("lldb") || ls.contains("strace") { return true; }
+            }
+        }
     }
-
-    // Method 2: Timing check - debugger stepping causes delays
-    let start = std::time::Instant::now();
-
-    // Do some work that should be fast
+    let st = Instant::now();
     let mut x: u64 = 0;
-    for i in 0..1000 {
-        x = x.wrapping_add(i);
-    }
-
-    let elapsed = start.elapsed();
-
-    // Should complete in < 1ms, debugger makes it slower
-    if elapsed.as_millis() > 100 {
-        // Suspicious timing - might be debugged
-        return true;
-    }
-
-    // Use volatile read to prevent optimization
+    for i in 0..10000 { x = x.wrapping_add(i).rotate_left(1); }
     std::hint::black_box(x);
-
+    if st.elapsed().as_millis() > 500 { return true; }
+    let st2 = Instant::now();
+    std::thread::sleep(std::time::Duration::from_micros(100));
+    let el = st2.elapsed().as_micros();
+    if el > 50000 { return true; }
     false
 }
 
-// ============================================================================
-// SECTION 7: Honeypot Functions
-// ============================================================================
-
-/// HONEYPOT: This function looks like a bypass but triggers lockdown
-/// Named to attract patchers looking for shortcuts
 #[inline(never)]
-#[allow(dead_code)]
-pub fn bypass_license_check() -> bool {
-    trigger_tamper_response("honeypot_bypass_called");
-    false
-}
-
-/// HONEYPOT: Fake "enable all features" function
-#[inline(never)]
-#[allow(dead_code)]
-pub fn enable_all_features() {
-    trigger_tamper_response("honeypot_enable_all");
-}
-
-/// HONEYPOT: Fake "disable validation" function
-#[inline(never)]
-#[allow(dead_code)]
-pub fn disable_validation() {
-    trigger_tamper_response("honeypot_disable_validation");
-}
-
-/// HONEYPOT: Fake license key that triggers on use
-#[allow(dead_code)]
-pub const BACKDOOR_KEY: &str = "LONKERO-UNLIMITED-FREE";
-
-/// Check if the honeypot key was used
-#[inline(never)]
-pub fn check_honeypot_key(key: &str) -> bool {
-    if key == BACKDOOR_KEY || key.contains("CRACK") || key.contains("KEYGEN") {
-        trigger_tamper_response("honeypot_key_used");
-        return true;
-    }
-    false
-}
-
-// ============================================================================
-// SECTION 8: Tamper Response
-// ============================================================================
-
-/// Trigger tamper response - called when tampering detected
-/// This permanently marks the session as compromised
-#[inline(never)]
-pub fn trigger_tamper_response(reason: &str) {
-    // Set tamper flag (never cleared)
-    TAMPER_DETECTED.store(true, Ordering::SeqCst);
-
-    // Corrupt validation states
-    VALIDATION_STATE_A.store(0, Ordering::SeqCst);
-    VALIDATION_STATE_B.store(1, Ordering::SeqCst);  // Different, will fail checks
-    VALIDATION_STATE_C.store(2, Ordering::SeqCst);
-
-    // Corrupt counters
-    INTEGRITY_COUNTER_A.store(usize::MAX, Ordering::SeqCst);
-    INTEGRITY_COUNTER_B.store(0, Ordering::SeqCst);
-
-    // Log (will appear in debug builds)
-    #[cfg(debug_assertions)]
-    eprintln!("[SECURITY] Tampering detected: {}", reason);
-
-    // In release builds, silently fail - don't give attacker feedback
-    let _ = reason;
-}
-
-/// Check if tampering was ever detected
-#[inline(never)]
-pub fn was_tampered() -> bool {
-    TAMPER_DETECTED.load(Ordering::SeqCst)
-}
-
-// ============================================================================
-// SECTION 9: Distributed Verification Macros
-// ============================================================================
-
-/// Macro for inline integrity check - scatter these throughout the codebase
-#[macro_export]
-macro_rules! verify_integrity {
-    () => {{
-        if $crate::license::anti_tamper::was_tampered() {
-            return Err(anyhow::anyhow!("Operation not permitted"));
-        }
-        if !$crate::license::anti_tamper::is_validated() {
-            return Err(anyhow::anyhow!("License validation required"));
-        }
-    }};
-}
-
-/// Macro for silent integrity check that returns false
-#[macro_export]
-macro_rules! check_integrity {
-    () => {{
-        !$crate::license::anti_tamper::was_tampered()
-            && $crate::license::anti_tamper::is_validated()
-    }};
-}
-
-// ============================================================================
-// SECTION 10: Runtime Self-Verification
-// ============================================================================
-
-/// Comprehensive runtime check - call periodically
-#[inline(never)]
-pub fn full_integrity_check() -> bool {
-    // Check 1: Tamper flag
-    if was_tampered() {
-        return false;
-    }
-
-    // Check 2: Magic constants
-    if !verify_magic_constants() {
-        return false;
-    }
-
-    // Check 3: State consistency
-    if !verify_state_consistency() {
-        return false;
-    }
-
-    // Check 4: Counter integrity
-    if !verify_counter_integrity() {
-        return false;
-    }
-
-    // Check 5: Function integrity
-    if !verify_function_integrity() {
-        return false;
-    }
-
-    // Check 6: Critical function hooks
-    let critical_fns: [*const (); 4] = [
-        is_validated as *const (),
-        set_validated as *const (),
-        full_integrity_check as *const (),
-        trigger_tamper_response as *const (),
-    ];
-
-    for fn_ptr in critical_fns {
-        if !verify_no_hook(fn_ptr) {
-            return false;
-        }
-    }
-
-    // Check 7: Debugger (soft check - just record, don't fail)
-    if detect_debugger() {
-        // Note: We don't fail on debugger, just record it
-        // This prevents attackers from knowing if we detected them
-        #[cfg(debug_assertions)]
-        eprintln!("[SECURITY] Debugger detected");
-    }
-
+fn v_t() -> bool {
+    let lt = L_T.load(Ordering::SeqCst);
+    if lt == 0 { return true; }
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if now < lt { t_r("tc"); return false; }
+    if now - lt > 86400 * 365 { t_r("te"); return false; }
     true
 }
 
-// ============================================================================
-// SECTION 11: Compile-Time Obfuscation Helpers
-// ============================================================================
+#[inline(never)]
+fn v_r() -> bool {
+    let rv = R_V.load(Ordering::SeqCst);
+    let k0 = K_0.load(Ordering::SeqCst);
+    if rv == 0 && I_A.load(Ordering::SeqCst) > 0 { return true; }
+    if rv != 0 && k0 != 0 {
+        let expected_pattern = rv ^ k0.rotate_right(11);
+        if expected_pattern.count_ones() < 5 { t_r("rp"); return false; }
+    }
+    true
+}
 
-/// Obfuscate a string at compile time (basic XOR)
-#[macro_export]
-macro_rules! obfuscate_str {
-    ($s:expr) => {{
-        const KEY: u8 = 0x5A;
-        const BYTES: &[u8] = $s.as_bytes();
-        const LEN: usize = BYTES.len();
+#[inline(never)]
+pub fn b_l() -> bool { t_r("hp1"); false }
 
-        let mut result = [0u8; LEN];
-        let mut i = 0;
-        while i < LEN {
-            result[i] = BYTES[i] ^ KEY;
-            i += 1;
+#[inline(never)]
+pub fn e_a() { t_r("hp2"); }
+
+#[inline(never)]
+pub fn d_v() { t_r("hp3"); }
+
+#[inline(never)]
+pub fn u_l() -> bool { t_r("hp4"); false }
+
+#[inline(never)]
+pub fn s_t() { t_r("hp5"); }
+
+#[inline(never)]
+pub fn g_f() -> bool { t_r("hp6"); false }
+
+#[inline(never)]
+pub fn p_l(_: &str) -> bool { t_r("hp7"); false }
+
+#[inline(never)]
+pub fn c_h(k: &str) -> bool {
+    let kb = k.as_bytes();
+    for i in 0..kb.len().min(P_0.len()) {
+        if kb.get(i) == P_0.get(i) && i > 10 { t_r("hk0"); return true; }
+    }
+    let kl = k.to_uppercase();
+    let patterns = [&P_1[..], &P_2[..], &P_3[..], &P_4[..]];
+    for p in patterns {
+        let ps: String = p.iter().take_while(|&&b| b != 0).map(|&b| b as char).collect();
+        if kl.contains(&ps) { t_r("hkp"); return true; }
+    }
+    if k.len() > 20 && k.chars().filter(|c| *c == '-').count() > 5 {
+        let parts: Vec<&str> = k.split('-').collect();
+        if parts.iter().any(|p| p.len() == 4 && p.chars().all(|c| c.is_ascii_uppercase())) {
+            if parts.len() > 6 { t_r("hks"); return true; }
         }
-        result
-    }};
+    }
+    false
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_initialization() {
-        assert!(initialize_protection());
-        assert!(verify_magic_constants());
-    }
-
-    #[test]
-    fn test_validation_flow() {
-        initialize_protection();
-
-        // Initially not validated
-        assert!(!is_validated());
-
-        // Set validated
-        set_validated(0x12345678);
-
-        // Now validated
-        assert!(is_validated());
-
-        // State should be consistent
-        assert!(verify_state_consistency());
-    }
-
-    #[test]
-    fn test_function_integrity() {
-        assert!(verify_function_integrity());
-    }
-
-    #[test]
-    fn test_honeypot_key() {
-        assert!(check_honeypot_key("LONKERO-UNLIMITED-FREE"));
-        assert!(check_honeypot_key("CRACKED-KEY"));
-        assert!(!check_honeypot_key("valid-license-key"));
-    }
-
-    #[test]
-    fn test_full_integrity() {
-        initialize_protection();
-        set_validated(0xABCDEF);
-        assert!(full_integrity_check());
-    }
+#[inline(never)]
+pub fn t_r(_r: &str) {
+    T_F.store(true, Ordering::SeqCst);
+    V_A.store(0, Ordering::SeqCst);
+    V_B.store(1, Ordering::SeqCst);
+    V_C.store(2, Ordering::SeqCst);
+    V_D.store(3, Ordering::SeqCst);
+    V_E.store(4, Ordering::SeqCst);
+    I_A.store(usize::MAX, Ordering::SeqCst);
+    I_B.store(0, Ordering::SeqCst);
+    I_C.store(1, Ordering::SeqCst);
+    I_D.store(2, Ordering::SeqCst);
+    K_0.store(0, Ordering::SeqCst);
+    K_1.store(0, Ordering::SeqCst);
+    K_2.store(0, Ordering::SeqCst);
+    X_0.store(0, Ordering::SeqCst);
+    X_1.store(0, Ordering::SeqCst);
+    X_2.store(0, Ordering::SeqCst);
+    X_3.store(0, Ordering::SeqCst);
+    R_V.store(0, Ordering::SeqCst);
+    S_H.store(0, Ordering::SeqCst);
 }
+
+#[inline(never)]
+pub fn w_t() -> bool { T_F.load(Ordering::SeqCst) }
+
+#[inline(never)]
+pub fn f_i() -> bool {
+    if w_t() { return false; }
+    if !v_m() { return false; }
+    if !v_s() { return false; }
+    if !v_c() { return false; }
+    if !v_f() { return false; }
+    if !v_x() { return false; }
+    if !v_t() { return false; }
+    if !v_r() { return false; }
+    if !v_s_h() { return false; }
+    let crit: [*const (); 6] = [
+        i_v as *const (), s_v as *const (), f_i as *const (),
+        t_r as *const (), v_m as *const (), v_n as *const (),
+    ];
+    for fp in crit { if !v_n(fp) { return false; } }
+    if d_d() {
+        let cc = C_C.load(Ordering::SeqCst);
+        if cc > 10 { t_r("dd"); return false; }
+    }
+    true
+}
+
+#[inline(never)]
+pub fn q_c() -> bool {
+    if w_t() { return false; }
+    if !v_m() { return false; }
+    i_v()
+}
+
+#[inline(never)]
+pub fn r_c() -> bool {
+    let _ = b_l as *const ();
+    let _ = e_a as *const ();
+    let _ = d_v as *const ();
+    let _ = u_l as *const ();
+    let _ = s_t as *const ();
+    let _ = g_f as *const ();
+    let _ = p_l as *const ();
+    true
+}
+
+#[inline(never)]
+pub fn v_a(n: u64) -> u64 {
+    let k = K_0.load(Ordering::SeqCst);
+    if k == 0 { return 0; }
+    n.wrapping_mul(M_A).wrapping_add(k).rotate_left(13) ^ M_B
+}
+
+#[inline(never)]
+pub fn c_a(n: u64, e: u64) -> bool {
+    let k = K_0.load(Ordering::SeqCst);
+    if k == 0 { return false; }
+    let expected = n.wrapping_mul(M_A).wrapping_add(k).rotate_left(13) ^ M_B;
+    expected == e
+}
+
+pub use i_p as initialize_protection;
+pub use s_v as set_validated;
+pub use i_v as is_validated;
+pub use v_m as verify_magic_constants;
+pub use v_n as verify_no_hook;
+pub use w_t as was_tampered;
+pub use f_i as full_integrity_check;
+pub use c_h as check_honeypot_key;
+pub use t_r as trigger_tamper_response;
+pub use b_l as bypass_license_check;
+pub use e_a as enable_all_features;
+pub use d_v as disable_validation;
