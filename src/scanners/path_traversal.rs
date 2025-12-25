@@ -972,6 +972,8 @@ impl PathTraversalScanner {
         ];
 
         // Windows indicators - enhanced detection
+        // NOTE: Removed generic strings like "127.0.0.1", "::1", "localhost" which appear on many normal pages
+        // Hosts file detection is handled separately with proper format validation below
         let windows_indicators = [
             ("[extensions]", "win.ini"),
             ("[fonts]", "win.ini"),
@@ -979,9 +981,6 @@ impl PathTraversalScanner {
             ("for 16-bit app support", "win.ini"),
             ("[boot loader]", "boot.ini"),
             ("[drivers]", "system.ini"),
-            ("127.0.0.1", "hosts file"),
-            ("::1", "hosts file (IPv6)"),
-            ("localhost", "hosts file"),
         ];
 
         // Process indicators
@@ -992,47 +991,83 @@ impl PathTraversalScanner {
             ("linux version", "proc/version"),
         ];
 
-        // Config file indicators
-        let config_indicators = [
-            ("<?php", "PHP file"),
-            ("<?=", "PHP file"),
-            ("define(", "config file"),
-            ("db_password", "config file"),
-            ("database", "config file"),
-            ("connectionstring", "config file"),
+        // Config file indicators - must be specific to avoid matching documentation
+        // These should only match if we're actually reading PHP source code / config files
+        let config_indicators: [(&str, &str); 0] = [
+            // Removed these as they cause too many false positives:
+            // - "<?php" appears in docs/tutorials
+            // - "define(" is too generic
+            // - "database" and "connectionstring" appear everywhere
+            // PHP filter detection will catch base64-encoded source code
         ];
 
         // Check for specific file patterns based on target
         let target_lower = payload.target_file.to_lowercase();
 
-        // Enhanced hosts file detection
+        // Enhanced hosts file detection - must be VERY strict to avoid false positives
+        // Static websites often contain "localhost", "127.0.0.1", or "::1" in normal content
         if target_lower.contains("hosts") && !target_lower.contains("hostname") {
-            // Check for IPv4 pattern (127.0.0.1 or other IPs followed by hostname)
-            if body.contains("127.0.0.1") ||
-               (body.contains("::1") && body_lower.contains("localhost")) ||
-               body.matches(|c: char| c == '.').count() >= 3 {
-                // Additional validation - check for typical hosts file format
-                let lines: Vec<&str> = body.lines().collect();
-                for line in lines {
-                    let trimmed = line.trim();
-                    // Skip comments
-                    if trimmed.starts_with('#') || trimmed.is_empty() {
-                        continue;
-                    }
-                    // Check if line matches IP + hostname pattern
-                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        // First part should look like an IP
-                        let first = parts[0];
-                        if first.contains('.') || first.contains(':') {
-                            return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
-                                &format!("Windows hosts file content found via {}", payload.category.as_str()),
-                                Confidence::High,
-                                format!("Detected hosts file format: {}", trimmed.chars().take(100).collect::<String>()),
-                                &payload.category));
+            // Look for ACTUAL hosts file format lines:
+            // - Must have IP address (valid IPv4 or IPv6) followed by whitespace and hostname(s)
+            // - Must see multiple such lines OR the exact standard format
+            let lines: Vec<&str> = body.lines().collect();
+            let mut hosts_format_lines = 0;
+            let mut evidence_line: Option<String> = None;
+
+            for line in &lines {
+                let trimmed = line.trim();
+
+                // Skip empty lines and comments
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+
+                // Skip HTML/JS content - hosts file is plain text
+                if trimmed.contains('<') || trimmed.contains('>') ||
+                   trimmed.contains('{') || trimmed.contains('}') ||
+                   trimmed.contains('(') || trimmed.contains(')') ||
+                   trimmed.contains(';') || trimmed.contains(',') {
+                    continue;
+                }
+
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let potential_ip = parts[0];
+                    let potential_hostname = parts[1];
+
+                    // Validate as proper IPv4 (X.X.X.X format)
+                    let is_ipv4 = potential_ip.split('.')
+                        .filter_map(|p| p.parse::<u8>().ok())
+                        .count() == 4;
+
+                    // Validate as proper IPv6 (contains : and looks like IPv6)
+                    let is_ipv6 = potential_ip.contains(':') &&
+                        potential_ip.chars().all(|c| c.is_ascii_hexdigit() || c == ':') &&
+                        potential_ip.len() >= 2;
+
+                    // Hostname must look like a hostname (alphanumeric, dots, hyphens only)
+                    let valid_hostname = potential_hostname.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') &&
+                        potential_hostname.len() >= 1;
+
+                    if (is_ipv4 || is_ipv6) && valid_hostname {
+                        hosts_format_lines += 1;
+                        if evidence_line.is_none() {
+                            evidence_line = Some(trimmed.to_string());
                         }
                     }
                 }
+            }
+
+            // Only flag if we found MULTIPLE hosts file format lines
+            // A single "127.0.0.1 localhost" could be coincidental
+            if hosts_format_lines >= 2 {
+                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
+                    &format!("Hosts file content found via {}", payload.category.as_str()),
+                    Confidence::High,
+                    format!("Found {} hosts file format lines. Example: {}",
+                        hosts_format_lines, evidence_line.unwrap_or_default()),
+                    &payload.category));
             }
         }
 

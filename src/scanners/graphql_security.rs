@@ -785,6 +785,16 @@ impl GraphqlSecurityScanner {
                 ("Content-Type".to_string(), "application/json".to_string())
             ]).await {
                 Ok(response) => {
+                    // Must be a valid GraphQL response (200 OK with data), not 404/500
+                    if response.status_code != 200 {
+                        continue;
+                    }
+
+                    // Must look like a GraphQL response
+                    if !response.body.contains("data") && !response.body.contains("subscription") {
+                        continue;
+                    }
+
                     let no_limit = !response.body.to_lowercase().contains("limit")
                         && !response.body.to_lowercase().contains("max")
                         && !response.body.to_lowercase().contains("too many");
@@ -836,6 +846,16 @@ impl GraphqlSecurityScanner {
                 match self.http_client.post_with_headers(endpoint, payload, headers).await {
                     Ok(response) => {
                         let elapsed = start.elapsed();
+
+                        // Must be a valid GraphQL response (200 OK), not 404/500
+                        if response.status_code != 200 {
+                            continue;
+                        }
+
+                        // Must look like a GraphQL response (has "data" field)
+                        if !response.body.contains("\"data\"") {
+                            continue;
+                        }
 
                         let no_limits = !response.body.to_lowercase().contains("fragment")
                             && !response.body.to_lowercase().contains("depth")

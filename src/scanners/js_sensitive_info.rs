@@ -102,7 +102,9 @@ impl JsSensitiveInfoScanner {
             jira_patterns: vec![
                 CompiledPattern {
                     name: "Jira Ticket Reference".to_string(),
-                    regex: Regex::new(r#"(?i)\b([A-Z]{2,10}-\d{1,6})\b"#).unwrap(),
+                    // Must be uppercase letters followed by dash and number, and NOT match common CSS/JS patterns
+                    // Require at least 3 letters to avoid matching CSS like "fi-2", and number >= 10 to avoid "north-1"
+                    regex: Regex::new(r#"\b([A-Z]{3,10}-\d{2,6})\b"#).unwrap(),
                     severity: Severity::Low,
                     description: "Jira ticket reference found - may reveal project names and internal tracking".to_string(),
                     cwe: "CWE-200".to_string(),
@@ -506,7 +508,9 @@ impl JsSensitiveInfoScanner {
                 },
                 CompiledPattern {
                     name: "Active Directory/LDAP Reference".to_string(),
-                    regex: Regex::new(r#"(?i)(ldap|active[_-]?directory|ad[_-]?user|cn=|dc=|ou=)[^\s\"'<>]+"#).unwrap(),
+                    // Must be in LDAP context - look for actual LDAP DN patterns, not minified JS like oU=!0
+                    // Require proper LDAP format: CN=value, DC=value, OU=value (with actual values, not JS)
+                    regex: Regex::new(r#"(?i)(?:ldap://[^\s\"'<>]+|active[_-]?directory[^\s\"'<>]*|(?:CN|DC|OU)=[a-zA-Z][a-zA-Z0-9_\- ]{2,}(?:,\s*(?:CN|DC|OU)=[a-zA-Z][a-zA-Z0-9_\- ]+)*)"#).unwrap(),
                     severity: Severity::Medium,
                     description: "Active Directory/LDAP reference found - reveals internal identity infrastructure".to_string(),
                     cwe: "CWE-200".to_string(),
@@ -820,13 +824,40 @@ impl JsSensitiveInfoScanner {
             }
         }
 
-        // Skip Jira patterns that are too generic (2-3 letter projects with low numbers)
+        // Skip Jira patterns that are common CSS/JS/web false positives
         if pattern_name == "Jira Ticket Reference" {
             let parts: Vec<&str> = matched.split('-').collect();
             if parts.len() == 2 {
-                // Skip common false positives like ISO codes, etc.
-                let common_fp = ["UTF-8", "ISO-8859", "US-ASCII", "GB-2312", "EUC-KR"];
-                if common_fp.iter().any(|fp| matched.eq_ignore_ascii_case(fp)) {
+                let prefix = parts[0].to_uppercase();
+
+                // Skip common false positives like ISO codes, CSS classes, etc.
+                let common_fp_prefixes = [
+                    "UTF", "ISO", "ASCII", "EUC", // Character encodings
+                    "CSS", "HTML", "SVG", "XML",   // Web standards
+                    "RGB", "HSL", "HEX",           // Color formats
+                    "GET", "POST", "PUT", "DELETE", // HTTP methods
+                    "PNG", "JPG", "GIF", "WEBP",   // Image formats
+                    "MP3", "MP4", "WAV", "AVI",    // Media formats
+                    "NORTH", "SOUTH", "EAST", "WEST", // Directions
+                    "TOP", "BOTTOM", "LEFT", "RIGHT", // Positions
+                    "SCRIPT", "STYLE", "LINK",     // HTML tags
+                    "INSET", "OUTSET",             // CSS values
+                    "INDEX", "LENGTH", "LAST",     // JS properties
+                    "PANOSE",                       // Font metadata
+                ];
+                if common_fp_prefixes.iter().any(|fp| prefix == *fp) {
+                    return true;
+                }
+
+                // Also check for common CSS/Tailwind patterns
+                let matched_lower = matched.to_lowercase();
+                let css_patterns = [
+                    "col-", "row-", "flex-", "grid-", "gap-", "space-",
+                    "text-", "font-", "bg-", "border-", "rounded-",
+                    "px-", "py-", "pt-", "pb-", "pl-", "pr-", "mx-", "my-",
+                    "w-", "h-", "min-", "max-",
+                ];
+                if css_patterns.iter().any(|p| matched_lower.starts_with(p)) {
                     return true;
                 }
             }
@@ -1019,12 +1050,16 @@ mod tests {
 
     #[test]
     fn test_jira_ticket_pattern() {
-        let pattern = Regex::new(r#"(?i)\b([A-Z]{2,10}-\d{1,6})\b"#).unwrap();
+        // Pattern requires 3+ letter prefix and 2+ digit number to avoid CSS/JS false positives
+        let pattern = Regex::new(r#"\b([A-Z]{3,10}-\d{2,6})\b"#).unwrap();
 
         assert!(pattern.is_match("PROJ-123"));
-        assert!(pattern.is_match("SEC-1"));
+        assert!(pattern.is_match("SEC-12"));
         assert!(pattern.is_match("MYPROJECT-99999"));
         assert!(!pattern.is_match("A-1")); // Too short prefix
+        assert!(!pattern.is_match("FI-2")); // Too short prefix (CSS false positive)
+        assert!(!pattern.is_match("NORTH-1")); // Single digit (CSS false positive)
+        assert!(!pattern.is_match("inset-0")); // CSS value
     }
 
     #[test]

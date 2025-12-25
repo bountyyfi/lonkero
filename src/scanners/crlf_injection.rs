@@ -136,6 +136,7 @@ impl CrlfInjectionScanner {
     }
 
     /// Analyze response for CRLF injection indicators
+    /// Returns Some(Vulnerability) only if we can VERIFY that our payload affected the response headers
     fn analyze_response(
         &self,
         headers: &[(String, String)],
@@ -145,11 +146,15 @@ impl CrlfInjectionScanner {
         url: &str,
         param_name: &str,
     ) -> Option<Vulnerability> {
-        // Check for injected Set-Cookie header
+        // IMPORTANT: We must verify that our injected values actually appear in the response headers.
+        // Simply sending a payload is not enough - the server must actually be vulnerable.
+        // Many modern frameworks/servers block CRLF injection, so we need concrete proof.
+
+        // Check for injected Set-Cookie header with our specific injected values
         if payload.contains("Set-Cookie") {
             for (key, value) in headers {
                 if key.to_lowercase() == "set-cookie" {
-                    // Check for injected cookie values
+                    // Only flag if our EXACT injected cookie value is present
                     if value.contains("admin=true")
                         || value.contains("session=hijacked")
                         || value.contains("token=stolen")
@@ -159,33 +164,38 @@ impl CrlfInjectionScanner {
                             param_name,
                             payload,
                             "CRLF injection - Cookie injection",
-                            &format!("Injected cookie detected: {}", value),
+                            &format!("Injected cookie detected in response headers: {}", value),
                             Confidence::High,
                         ));
                     }
                 }
             }
+            // If payload contains Set-Cookie but we didn't find our injected value, NOT vulnerable
+            return None;
         }
 
-        // Check for injected Location header
+        // Check for injected Location header with our specific injected URL
         if payload.contains("Location") {
             for (key, value) in headers {
                 if key.to_lowercase() == "location" {
+                    // Only flag if our EXACT injected location is present
                     if value.contains("evil.com") || value.contains("attacker") {
                         return Some(self.create_vulnerability(
                             url,
                             param_name,
                             payload,
                             "CRLF injection - Location header injection",
-                            &format!("Injected Location header: {}", value),
+                            &format!("Injected Location header in response: {}", value),
                             Confidence::High,
                         ));
                     }
                 }
             }
+            // If payload contains Location but we didn't find our injected value, NOT vulnerable
+            return None;
         }
 
-        // Check for injected custom headers
+        // Check for injected custom headers - these should ONLY exist if we successfully injected them
         let injected_header_names = vec![
             "x-custom-header",
             "x-injected",
@@ -193,67 +203,89 @@ impl CrlfInjectionScanner {
             "x-header2",
         ];
 
-        for (key, value) in headers {
-            let key_lower = key.to_lowercase();
-            for injected_name in &injected_header_names {
-                if key_lower == *injected_name {
-                    return Some(self.create_vulnerability(
-                        url,
-                        param_name,
-                        payload,
-                        "CRLF injection - Arbitrary header injection",
-                        &format!("Injected header detected: {}: {}", key, value),
-                        Confidence::High,
-                    ));
+        if payload.contains("X-Custom-Header") || payload.contains("X-Injected")
+            || payload.contains("X-Header1") || payload.contains("X-Header2") {
+            for (key, value) in headers {
+                let key_lower = key.to_lowercase();
+                for injected_name in &injected_header_names {
+                    if key_lower == *injected_name {
+                        // Verify the value matches what we tried to inject
+                        if value == "injected" || value == "true" || value == "value1" || value == "value2" {
+                            return Some(self.create_vulnerability(
+                                url,
+                                param_name,
+                                payload,
+                                "CRLF injection - Arbitrary header injection",
+                                &format!("Injected header found in response: {}: {}", key, value),
+                                Confidence::High,
+                            ));
+                        }
+                    }
                 }
             }
+            // If payload contains custom headers but we didn't find them in response, NOT vulnerable
+            return None;
         }
 
-        // Check for HTTP response splitting in body
-        if payload.contains("HTTP/1.1") && body.contains("HTTP/1.1 200 OK") {
-            return Some(self.create_vulnerability(
-                url,
-                param_name,
-                payload,
-                "CRLF injection - HTTP response splitting",
-                "Multiple HTTP responses detected - response splitting successful",
-                Confidence::Medium,
-            ));
-        }
-
-        // Check for CRLF characters reflected in headers
-        let headers_string = format!("{:?}", headers);
-        if headers_string.contains("\\r\\n")
-            || headers_string.contains("%0d%0a")
-            || headers_string.contains("\r\n")
-        {
-            // Check if it's actually from our payload
-            if payload.contains("%0d%0a") || payload.contains("\r\n") {
+        // Check for HTTP response splitting - body must contain our injected HTTP response
+        if payload.contains("HTTP/1.1") {
+            // The body should contain literal "HTTP/1.1 200 OK" at start of a line (response splitting)
+            // AND this should be in addition to normal body content (indicating two responses)
+            if body.lines().any(|line| line.trim().starts_with("HTTP/1.1 200 OK")) {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
                     payload,
-                    "CRLF injection - CRLF characters in headers",
-                    "CRLF characters detected in response headers",
+                    "CRLF injection - HTTP response splitting",
+                    "Multiple HTTP responses detected - injected HTTP response found in body",
                     Confidence::Medium,
                 ));
             }
+            // If payload contains HTTP/1.1 but no response splitting detected, NOT vulnerable
+            return None;
         }
 
-        // Check for XSS via CRLF injection
-        if payload.contains("<script>") && body.contains("<script>") {
-            if body.contains("alert(1)") || body.contains("alert(") {
+        // Check for XSS via CRLF injection - body must contain our EXACT injected script
+        if payload.contains("<script>alert(1)</script>") {
+            // Only vulnerable if our exact script appears (not just any script tag)
+            if body.contains("<script>alert(1)</script>") {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
                     payload,
                     "CRLF injection with XSS",
-                    "CRLF injection allows script injection in response",
+                    "Injected script tag found in response body via CRLF injection",
                     Confidence::High,
                 ));
             }
+            // If we tried to inject script but it's not in response, NOT vulnerable
+            return None;
         }
 
+        // Check for Content-Type injection
+        if payload.contains("Content-Type") {
+            for (key, value) in headers {
+                // Look for unusual Content-Type that matches our injection attempt
+                if key.to_lowercase() == "content-type" {
+                    // If we see multiple Content-Type values or our injected value
+                    if value.matches("text/html").count() > 1 {
+                        return Some(self.create_vulnerability(
+                            url,
+                            param_name,
+                            payload,
+                            "CRLF injection - Content-Type header injection",
+                            &format!("Injected Content-Type detected: {}", value),
+                            Confidence::Medium,
+                        ));
+                    }
+                }
+            }
+            // Content-Type injection attempt but no evidence, NOT vulnerable
+            return None;
+        }
+
+        // Default: no vulnerability detected
+        // We do NOT report based on just sending a payload - we must see evidence in the response
         None
     }
 

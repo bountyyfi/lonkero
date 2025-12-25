@@ -22,7 +22,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{error, info, warn, Level};
+use tracing::{debug, error, info, warn, Level};
 
 use std::collections::HashSet;
 
@@ -962,6 +962,88 @@ fn get_form_input_value(input: &lonkero_scanner::crawler::FormInput) -> String {
     get_dummy_value(&input.name)
 }
 
+/// Check if a form looks like a language/locale selector
+/// These forms typically:
+/// - Have only one select input
+/// - Have auto-generated names like "input_1", "select_field_0"
+/// - The action URL contains language paths like /en/, /fi/, /sv/
+/// - Options contain language codes or locale values
+fn is_language_selector_form(form_inputs: &[lonkero_scanner::crawler::FormInput], action: &str) -> bool {
+    // Must have exactly one input
+    if form_inputs.len() != 1 {
+        return false;
+    }
+
+    let input = &form_inputs[0];
+
+    // Must be a select element
+    if !input.input_type.eq_ignore_ascii_case("select") {
+        return false;
+    }
+
+    // Check for auto-generated names (input_N, select_N, field_N, etc.)
+    let name_lower = input.name.to_lowercase();
+    let is_auto_generated_name = name_lower.starts_with("input_")
+        || name_lower.starts_with("select_")
+        || name_lower.starts_with("field_")
+        || name_lower.starts_with("form_")
+        || name_lower == "input"
+        || name_lower == "select"
+        || name_lower.chars().all(|c| c.is_ascii_digit() || c == '_');
+
+    // Check if action URL looks like a language page
+    let action_lower = action.to_lowercase();
+    let is_language_url = action_lower.contains("/en/")
+        || action_lower.contains("/fi/")
+        || action_lower.contains("/sv/")
+        || action_lower.contains("/de/")
+        || action_lower.contains("/fr/")
+        || action_lower.contains("/es/")
+        || action_lower.contains("/it/")
+        || action_lower.contains("/nl/")
+        || action_lower.contains("/pt/")
+        || action_lower.contains("/ja/")
+        || action_lower.contains("/zh/")
+        || action_lower.contains("/ko/")
+        || action_lower.contains("/ru/")
+        || action_lower.ends_with("/en")
+        || action_lower.ends_with("/fi")
+        || action_lower.ends_with("/sv")
+        || action_lower.ends_with("/de")
+        || action_lower.ends_with("/fr");
+
+    // Check if options look like language codes
+    let has_language_options = if let Some(options) = &input.options {
+        let lang_codes = ["en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru",
+                         "en-us", "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es",
+                         "english", "finnish", "swedish", "german", "french", "spanish"];
+        options.iter().any(|opt| {
+            let opt_lower = opt.to_lowercase();
+            lang_codes.iter().any(|lc| opt_lower == *lc || opt_lower.starts_with(&format!("{}-", lc)))
+        })
+    } else {
+        false
+    };
+
+    // If it has auto-generated name AND (language URL or language options), it's a language selector
+    if is_auto_generated_name && (is_language_url || has_language_options) {
+        return true;
+    }
+
+    // Also check common language selector field names
+    let is_lang_field_name = name_lower.contains("lang")
+        || name_lower.contains("locale")
+        || name_lower.contains("language")
+        || name_lower.contains("country")
+        || name_lower.contains("region");
+
+    if is_lang_field_name {
+        return true;
+    }
+
+    false
+}
+
 async fn execute_standalone_scan(
     engine: Arc<ScanEngine>,
     job: Arc<ScanJob>,
@@ -1034,6 +1116,13 @@ async fn execute_standalone_scan(
                                        !input.name.is_empty())
                         .cloned()
                         .collect();
+
+                    // Skip language selector forms - these have a single select with auto-generated name
+                    // and typically have language code options (en, fi, sv, de, etc.)
+                    if is_language_selector_form(&form_inputs, &form.action) {
+                        debug!("[Crawler] Skipping language selector form at {}", form.action);
+                        continue;
+                    }
 
                     if !form_inputs.is_empty() {
                         let action_url = if form.action.is_empty() {
@@ -1130,6 +1219,12 @@ async fn execute_standalone_scan(
                             .cloned()
                             .collect();
 
+                        // Skip language selector forms
+                        if is_language_selector_form(&form_inputs, &form.action) {
+                            debug!("[Headless] Skipping language selector form at {}", form.action);
+                            continue;
+                        }
+
                         if !form_inputs.is_empty() {
                             let action_url = if form.action.is_empty() {
                                 form.discovered_at.clone()
@@ -1216,6 +1311,12 @@ async fn execute_standalone_scan(
                                                !input.name.is_empty())
                                 .cloned()
                                 .collect();
+
+                            // Skip language selector forms
+                            if is_language_selector_form(&form_inputs, &form.action) {
+                                debug!("[Headless] Skipping language selector form at {}", form.action);
+                                continue;
+                            }
 
                             if !form_inputs.is_empty() {
                                 // Use intercepted endpoint if available, otherwise fall back to form.action
