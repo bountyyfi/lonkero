@@ -35,7 +35,9 @@ jobs:
           category: "/language:rust"
 
       - name: Cargo Audit
-        uses: actions-rs/audit@v1
+        run: |
+          cargo install cargo-audit
+          cargo audit
 
       - name: Detect suspicious Unicode
         run: |
