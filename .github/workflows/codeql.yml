@@ -46,7 +46,8 @@ jobs:
 
       - name: Install cargo-audit
         run: |
-          curl -fsSL https://github.com/rustsec/rustsec/releases/latest/download/cargo-audit-x86_64-unknown-linux-musl.tgz | tar xzf - -C /usr/local/bin --strip-components=1
+          curl -fsSL https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz | tar xzf - -C /usr/local/bin
+          cargo-binstall cargo-audit --no-confirm
 
       - name: Cargo Audit
         run: cargo audit
