@@ -454,7 +454,7 @@ impl EnhancedSqliScanner {
             ("1'--", false),    // String injection attempt - different error
         ];
 
-        let baseline_status = baseline.status;
+        let baseline_status = baseline.status_code;
         let mut valid_count = 0;
         let mut error_count = 0;
 
@@ -468,13 +468,13 @@ impl EnhancedSqliScanner {
             if let Ok(response) = self.http_client.get(&test_url).await {
                 // Check for ORDER BY pattern: 200 OK for valid, 500 for invalid column
                 if expect_success {
-                    if response.status == 200 || response.status == baseline_status {
+                    if response.status_code == 200 || response.status_code == baseline_status {
                         valid_count += 1;
                     }
                 } else {
                     // Expect 500 Internal Server Error for invalid column
-                    if response.status == 500
-                        || response.status == 400
+                    if response.status_code == 500
+                        || response.status_code == 400
                         || self.has_sql_error(&response)
                     {
                         error_count += 1;

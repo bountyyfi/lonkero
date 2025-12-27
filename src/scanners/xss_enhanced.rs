@@ -446,6 +446,9 @@ impl EnhancedXssScanner {
             InjectionContext::JsonValue => {
                 "Encode user input in JSON values. Ensure JSON is not rendered directly as HTML.".to_string()
             }
+            InjectionContext::EmailAddress => {
+                "Sanitize email addresses before display. Encode special characters in the local-part. Never render email fields as HTML without encoding.".to_string()
+            }
             InjectionContext::Unknown => {
                 "Apply context-appropriate encoding for all user input. Implement Content Security Policy.".to_string()
             }

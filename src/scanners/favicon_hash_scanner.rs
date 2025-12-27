@@ -462,6 +462,11 @@ impl FaviconHashScanner {
 
     /// Create vulnerability for known favicon
     fn create_vulnerability_known(&self, url: &str, hash: i32, sig: FaviconSignature) -> Vulnerability {
+        let cvss = match &sig.severity {
+            Severity::Medium => 5.3,
+            Severity::Low => 3.1,
+            _ => 0.0,
+        };
         Vulnerability {
             id: format!("favicon_known_{}", Self::generate_id()),
             vuln_type: format!("Technology Detected: {}", sig.technology),
@@ -480,11 +485,7 @@ impl FaviconHashScanner {
                 url, hash, hash
             )),
             cwe: "CWE-200".to_string(),
-            cvss: match sig.severity {
-                Severity::Medium => 5.3,
-                Severity::Low => 3.1,
-                _ => 0.0,
-            },
+            cvss,
             verified: true,
             false_positive: false,
             remediation: "1. Consider using a custom favicon instead of defaults\n\

@@ -469,6 +469,10 @@ impl XssDetector {
                 "\"><script>alert(1)</script>".to_string(),
                 "</script><script>alert(1)</script>".to_string(),
             ],
+            InjectionContext::EmailAddress => {
+                // Use specialized email XSS payloads
+                get_email_xss_payloads()
+            },
             InjectionContext::Unknown => vec![
                 "<script>alert(1)</script>".to_string(),
             ],

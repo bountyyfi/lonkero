@@ -102,6 +102,10 @@ pub mod advanced_scanning {
     pub const MASS_ASSIGNMENT: &str = "mass_assignment";
     /// Deserialization scanner
     pub const DESERIALIZATION: &str = "deserialization";
+    /// Prototype pollution scanner
+    pub const PROTOTYPE_POLLUTION: &str = "prototype_pollution";
+    /// Host header injection scanner
+    pub const HOST_HEADER_INJECTION: &str = "host_header_injection";
     /// Source map detection scanner
     pub const SOURCE_MAP_DETECTION: &str = "source_map_detection";
     /// Favicon hash fingerprinting scanner

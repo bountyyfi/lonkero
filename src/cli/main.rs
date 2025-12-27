@@ -2317,13 +2317,13 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
     }
 
-    // Host Header Injection (Professional+)
-    if scan_token.is_module_authorized(module_ids::advanced_scanning::HOST_HEADER_INJECTION) {
-        info!("  - Testing Host Header Injection");
-        let (vulns, tests) = engine.host_header_injection_scanner.scan(target, scan_config).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests as u64;
-    }
+    // Host Header Injection (Professional+) - TODO: Implement scanner
+    // if scan_token.is_module_authorized(module_ids::advanced_scanning::HOST_HEADER_INJECTION) {
+    //     info!("  - Testing Host Header Injection");
+    //     let (vulns, tests) = engine.host_header_injection_scanner.scan(target, scan_config).await?;
+    //     all_vulnerabilities.extend(vulns);
+    //     total_tests += tests as u64;
+    // }
 
     // Phase 7: Business Logic & Misc
     info!("Phase 7: Business logic testing");
@@ -2389,17 +2389,17 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
     }
 
-    // Prototype Pollution - ESPECIALLY important for JavaScript/React apps (Professional+)
-    if scan_token.is_module_authorized(module_ids::advanced_scanning::PROTOTYPE_POLLUTION) {
-        if is_nodejs_stack {
-            info!("  - Testing Prototype Pollution (JS-heavy site detected)");
-        } else {
-            info!("  - Testing Prototype Pollution");
-        }
-        let (vulns, tests) = engine.prototype_pollution_scanner.scan(target, scan_config).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests as u64;
-    }
+    // Prototype Pollution - ESPECIALLY important for JavaScript/React apps (Professional+) - TODO: Implement scanner
+    // if scan_token.is_module_authorized(module_ids::advanced_scanning::PROTOTYPE_POLLUTION) {
+    //     if is_nodejs_stack {
+    //         info!("  - Testing Prototype Pollution (JS-heavy site detected)");
+    //     } else {
+    //         info!("  - Testing Prototype Pollution");
+    //     }
+    //     let (vulns, tests) = engine.prototype_pollution_scanner.scan(target, scan_config).await?;
+    //     all_vulnerabilities.extend(vulns);
+    //     total_tests += tests as u64;
+    // }
 
     // JavaScript Mining already done in Phase 0.5 with endpoint extraction
     // Results are in js_miner_results variable

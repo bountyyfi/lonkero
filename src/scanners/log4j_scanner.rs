@@ -113,8 +113,9 @@ impl Log4jScanner {
 
         for payload in &payloads {
             for header_name in &vulnerable_headers {
-                let mut headers = HashMap::new();
-                headers.insert(header_name.to_string(), payload.clone());
+                let headers: Vec<(String, String)> = vec![
+                    (header_name.to_string(), payload.clone())
+                ];
 
                 match self.http_client.get_with_headers(url, headers).await {
                     Ok(response) => {

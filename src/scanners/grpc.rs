@@ -197,33 +197,55 @@ impl GrpcScanner {
     }
 
     /// Check metadata security
+    ///
+    /// NOTE: This check is ONLY meaningful for confirmed gRPC endpoints.
+    /// We look for gRPC-specific metadata handling patterns, NOT generic words.
     fn check_metadata_security(
         &self,
         response: &crate::http_client::HttpResponse,
         url: &str,
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let body = &response.body;
+        // Only check if we have actual gRPC-specific headers in response
+        // Generic words like "metadata" or "headers" appear on ANY website
+        let has_grpc_metadata_header = response.header("grpc-metadata-bin").is_some()
+            || response.header("grpc-metadata").is_some();
 
-        // Check if metadata is processed without validation
-        let processes_metadata = body.contains("metadata")
-            || body.contains("grpc-metadata")
-            || body.contains("headers");
+        // Check for gRPC-specific metadata patterns in body (must be in gRPC context)
+        let body_lower = response.body.to_lowercase();
 
-        let validates_metadata = body.contains("validate")
-            || body.contains("sanitize")
-            || body.contains("whitelist");
+        // These are SPECIFIC gRPC metadata patterns, not generic words
+        let grpc_metadata_patterns = [
+            "grpc-metadata-",           // gRPC metadata header prefix
+            "metadata.get(",            // gRPC metadata API call
+            "metadata.set(",            // gRPC metadata API call
+            "frommetadata",             // gRPC metadata extraction
+            "incomingmetadata",         // gRPC incoming metadata
+            "outgoingmetadata",         // gRPC outgoing metadata
+            "grpc.metadata",            // gRPC metadata object
+        ];
 
-        if processes_metadata && !validates_metadata {
-            vulnerabilities.push(self.create_vulnerability(
-                "gRPC Metadata Injection Risk",
-                url,
-                Severity::Medium,
-                Confidence::Low,
-                "gRPC metadata may not be validated - potential injection attacks",
-                "Metadata processing without apparent validation".to_string(),
-                5.3,
-            ));
+        let has_grpc_metadata_code = grpc_metadata_patterns.iter()
+            .any(|p| body_lower.contains(p));
+
+        // Only flag if we see actual gRPC metadata handling without validation
+        if has_grpc_metadata_header || has_grpc_metadata_code {
+            // Check for validation patterns
+            let validates_metadata = body_lower.contains("validatemetadata")
+                || body_lower.contains("metadata.validate")
+                || body_lower.contains("sanitizemetadata");
+
+            if !validates_metadata {
+                vulnerabilities.push(self.create_vulnerability(
+                    "gRPC Metadata Injection Risk",
+                    url,
+                    Severity::Medium,
+                    Confidence::Low,
+                    "gRPC metadata may not be validated - potential injection attacks",
+                    "gRPC metadata handling detected without apparent validation".to_string(),
+                    5.3,
+                ));
+            }
         }
     }
 
