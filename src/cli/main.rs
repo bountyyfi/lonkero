@@ -1038,31 +1038,35 @@ fn is_language_selector_form(form_inputs: &[lonkero_scanner::crawler::FormInput]
         || name_lower.chars().all(|c| c.is_ascii_digit() || c == '_');
 
     // Check if action URL looks like a language page
-    // Strip fragment (e.g., #pricing) before checking
+    // Strip fragment (e.g., #pricing) and query string before checking
     let action_lower = action.to_lowercase();
     let action_no_fragment = action_lower.split('#').next().unwrap_or(&action_lower);
-    let is_language_url = action_no_fragment.contains("/en/")
-        || action_no_fragment.contains("/fi/")
-        || action_no_fragment.contains("/sv/")
-        || action_no_fragment.contains("/de/")
-        || action_no_fragment.contains("/fr/")
-        || action_no_fragment.contains("/es/")
-        || action_no_fragment.contains("/it/")
-        || action_no_fragment.contains("/nl/")
-        || action_no_fragment.contains("/pt/")
-        || action_no_fragment.contains("/ja/")
-        || action_no_fragment.contains("/zh/")
-        || action_no_fragment.contains("/ko/")
-        || action_no_fragment.contains("/ru/")
-        || action_no_fragment.ends_with("/en")
-        || action_no_fragment.ends_with("/fi")
-        || action_no_fragment.ends_with("/sv")
-        || action_no_fragment.ends_with("/de")
-        || action_no_fragment.ends_with("/fr")
-        || action_no_fragment.ends_with("/es")
-        || action_no_fragment.ends_with("/it")
-        || action_no_fragment.ends_with("/nl")
-        || action_no_fragment.ends_with("/pt");
+    let action_clean = action_no_fragment.split('?').next().unwrap_or(action_no_fragment);
+
+    // Extract path from URL for checking
+    let path = if let Some(pos) = action_clean.find("://") {
+        // Skip scheme and host
+        let after_scheme = &action_clean[pos + 3..];
+        after_scheme.find('/').map(|p| &after_scheme[p..]).unwrap_or("")
+    } else {
+        action_clean
+    };
+
+    let is_language_url = path.contains("/en/")
+        || path.contains("/fi/")
+        || path.contains("/sv/")
+        || path.contains("/de/")
+        || path.contains("/fr/")
+        || path.contains("/es/")
+        || path.contains("/it/")
+        || path.contains("/nl/")
+        || path.contains("/pt/")
+        || path.contains("/ja/")
+        || path.contains("/zh/")
+        || path.contains("/ko/")
+        || path.contains("/ru/")
+        || path == "/en" || path == "/fi" || path == "/sv" || path == "/de"
+        || path == "/fr" || path == "/es" || path == "/it" || path == "/nl" || path == "/pt";
 
     // Check if options look like language codes
     let has_language_options = if let Some(options) = &input.options {

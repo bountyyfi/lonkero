@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**96+ Advanced Scanners** | **16 Premium Features** | **Context-Aware** | **5% False Positives**
+**97+ Advanced Scanners** | **16 Premium Features** | **Context-Aware** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -36,7 +36,7 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ## Core Capabilities
 
-### 96 Security Scanners
+### 97 Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
@@ -322,7 +322,7 @@ lonkero scan --config lonkero.yml
 - **Source Map Detection** - Exposed JavaScript source maps revealing original source code
 - **Favicon Hash Detection** - Technology fingerprinting via favicon hash (Shodan-compatible)
 
-### Specialized Scanners (7 scanners)
+### Specialized Scanners (8 scanners)
 
 - **CVE-2025-55182** - Specific vulnerability scanner
 - **CVE-2025-55183** - Specific vulnerability scanner
@@ -331,6 +331,7 @@ lonkero scan --config lonkero.yml
 - **Merlin** - Version detection and vulnerability mapping
 - **ReDoS** - Regular expression denial of service
 - **Google Dorking** - Search engine reconnaissance (use `--dork` flag)
+- **Endpoint Discovery** - Multilingual path brute-force (Finnish, Swedish, German, French, Spanish, etc.)
 
 ---
 
