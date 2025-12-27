@@ -380,15 +380,21 @@ impl EmailHeaderInjectionScanner {
         }
 
         // Check for Content-Type injection with HTML/script content
-        if payload.contains("<script>") && body.contains("<script>") {
-            return Some(self.create_vulnerability(
-                url,
-                param_name,
-                payload,
-                "Email header injection with XSS",
-                "Email header injection allows script injection via Content-Type header",
-                Confidence::High,
-            ));
+        // IMPORTANT: Only flag if our EXACT injected script appears, not just any <script> tag
+        // Normal websites have <script> tags - that's not a vulnerability!
+        if payload.contains("<script>alert(1)</script>") && body.contains("<script>alert(1)</script>") {
+            // Also verify that the payload was actually processed (not just in a static page)
+            // Check if this is NOT a normal HTML page that would already have scripts
+            if !body.contains("<!DOCTYPE") && !body.contains("<html") {
+                return Some(self.create_vulnerability(
+                    url,
+                    param_name,
+                    payload,
+                    "Email header injection with XSS",
+                    "Email header injection allows script injection via Content-Type header",
+                    Confidence::High,
+                ));
+            }
         }
 
         // Check for HTML injection via Content-Type

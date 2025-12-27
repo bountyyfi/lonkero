@@ -87,18 +87,11 @@ impl GrpcScanner {
     }
 
     /// Detect gRPC endpoint
+    /// IMPORTANT: This must be STRICT to avoid false positives on normal web pages
     fn detect_grpc_endpoint(&self, response: &crate::http_client::HttpResponse, url: &str) -> bool {
-        let body_lower = response.body.to_lowercase();
         let url_lower = url.to_lowercase();
 
-        // Check URL patterns
-        if url_lower.contains(":50051")  // Common gRPC port
-            || url_lower.contains("grpc")
-        {
-            return true;
-        }
-
-        // Check response headers for gRPC indicators
+        // Check response headers for gRPC indicators - this is the DEFINITIVE check
         if let Some(content_type) = response.header("content-type") {
             if content_type.contains("application/grpc")
                 || content_type.contains("application/grpc+proto")
@@ -107,12 +100,25 @@ impl GrpcScanner {
             }
         }
 
-        // Check body for gRPC/Protocol Buffers indicators
-        body_lower.contains("grpc")
-            || body_lower.contains("protobuf")
-            || body_lower.contains("proto3")
-            || body_lower.contains("grpc-status")
-            || body_lower.contains("grpc-message")
+        // Check for gRPC-specific headers that are ONLY present in actual gRPC responses
+        if response.header("grpc-status").is_some()
+            || response.header("grpc-message").is_some()
+            || response.header("grpc-encoding").is_some()
+        {
+            return true;
+        }
+
+        // URL must explicitly contain gRPC port (very specific)
+        if url_lower.contains(":50051") {
+            return true;
+        }
+
+        // Do NOT detect based on body content alone!
+        // Words like "grpc", "protobuf", "proto3" can appear in documentation,
+        // Next.js pages, or any web page discussing these technologies.
+        // This causes massive false positives on tech company websites.
+
+        false
     }
 
     /// Check for gRPC reflection enabled

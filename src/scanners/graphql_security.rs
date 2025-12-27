@@ -790,8 +790,14 @@ impl GraphqlSecurityScanner {
                         continue;
                     }
 
-                    // Must look like a GraphQL response
-                    if !response.body.contains("data") && !response.body.contains("subscription") {
+                    // Must be ACTUAL GraphQL JSON response, not just a webpage containing "data"
+                    // Real GraphQL responses are JSON starting with { and containing "data" or "errors" key
+                    let body_trimmed = response.body.trim();
+                    let is_graphql_json = body_trimmed.starts_with('{') &&
+                        (body_trimmed.contains("\"data\"") || body_trimmed.contains("\"errors\""));
+
+                    // Also reject if it looks like HTML (static page)
+                    if !is_graphql_json || body_trimmed.contains("<!DOCTYPE") || body_trimmed.contains("<html") {
                         continue;
                     }
 
@@ -799,7 +805,7 @@ impl GraphqlSecurityScanner {
                         && !response.body.to_lowercase().contains("max")
                         && !response.body.to_lowercase().contains("too many");
 
-                    if no_limit && !response.body.contains("error") {
+                    if no_limit && !response.body.contains("\"errors\"") {
                         vulnerabilities.push(self.create_vulnerability(
                             "GraphQL Subscription DoS Risk",
                             endpoint,

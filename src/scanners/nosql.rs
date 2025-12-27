@@ -177,29 +177,26 @@ impl NoSqlScanner {
         }
 
         // SECONDARY DETECTION: Database error messages (Medium confidence)
+        // NOTE: These must be SPECIFIC error messages from MongoDB/NoSQL databases
+        // Do NOT use generic words that could appear anywhere
         let error_indicators = [
-            "mongodb",
-            "mongoose",
-            "nosql",
-            "query error",
-            "syntax error",
-            "parsing error",
-            "cast error",
-            "validation error",
-            "bson",
-            "objectid",
-            "$where",
-            "$gt",
-            "$ne",
-            "$nin",
-            "cast to objectid failed",
-            "invalid operator",
+            "mongoerror",              // Actual MongoDB error class
+            "mongoose validat",        // Mongoose validation error (partial to catch variations)
+            "bsonerror",               // BSON parsing error
+            "cast to objectid failed", // MongoDB casting error
+            "invalid bson",            // BSON validation error
+            "unknown query operator",  // MongoDB unknown operator
+            "$where is not allowed",   // MongoDB $where restriction
+            "illegal $",               // MongoDB illegal operator
+            "cannot apply $where",     // MongoDB $where error
         ];
 
         let mut found_error = false;
         let mut error_type = String::new();
         for indicator in &error_indicators {
             if body_lower.contains(indicator) {
+                // IMPORTANT: Make sure we're not matching our own payload marker
+                // Our markers look like "nosql_xxx" but these specific error patterns won't match that
                 found_error = true;
                 error_type = indicator.to_string();
                 break;
