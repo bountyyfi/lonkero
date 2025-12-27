@@ -431,6 +431,789 @@ impl JsSensitiveInfoScanner {
                     description: "Mailgun API key found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // Firebase
+                CompiledPattern {
+                    name: "Firebase URL".to_string(),
+                    regex: Regex::new(r#"https://[a-zA-Z0-9_-]+\.firebaseio\.com"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Firebase database URL found - check for unauthenticated read/write access".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                CompiledPattern {
+                    name: "Firebase API Key".to_string(),
+                    regex: Regex::new(r#"(?i)firebase[_-]?api[_-]?key\s*[=:]\s*['\"][a-zA-Z0-9_-]{20,}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Firebase API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Heroku
+                CompiledPattern {
+                    name: "Heroku API Key".to_string(),
+                    regex: Regex::new(r#"(?i)heroku[_-]?api[_-]?key\s*[=:]\s*['\"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Heroku API key found - allows full account access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Azure
+                CompiledPattern {
+                    name: "Azure Storage Key".to_string(),
+                    regex: Regex::new(r#"(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[a-zA-Z0-9+/=]{88}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Azure Storage connection string with account key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Azure SAS Token".to_string(),
+                    regex: Regex::new(r#"[?&]sig=[a-zA-Z0-9%]{43,}(&|$)"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Azure SAS token found - check expiration and permissions".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // DigitalOcean
+                CompiledPattern {
+                    name: "DigitalOcean Token".to_string(),
+                    regex: Regex::new(r#"dop_v1_[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "DigitalOcean personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "DigitalOcean OAuth Token".to_string(),
+                    regex: Regex::new(r#"doo_v1_[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "DigitalOcean OAuth token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "DigitalOcean Refresh Token".to_string(),
+                    regex: Regex::new(r#"dor_v1_[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "DigitalOcean refresh token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitLab
+                CompiledPattern {
+                    name: "GitLab Personal Access Token".to_string(),
+                    regex: Regex::new(r#"glpat-[a-zA-Z0-9_-]{20}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitLab personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "GitLab Pipeline Token".to_string(),
+                    regex: Regex::new(r#"glptt-[a-f0-9]{40}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitLab pipeline trigger token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "GitLab Runner Token".to_string(),
+                    regex: Regex::new(r#"glrt-[a-zA-Z0-9_-]{20}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitLab runner registration token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Bitbucket
+                CompiledPattern {
+                    name: "Bitbucket App Password".to_string(),
+                    regex: Regex::new(r#"(?i)bitbucket[_-]?(?:app[_-]?)?password\s*[=:]\s*['\"][a-zA-Z0-9]{20,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Bitbucket app password found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Telegram
+                CompiledPattern {
+                    name: "Telegram Bot Token".to_string(),
+                    regex: Regex::new(r#"\d{8,10}:[a-zA-Z0-9_-]{35}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Telegram bot token found - allows bot control and message access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Facebook
+                CompiledPattern {
+                    name: "Facebook Access Token".to_string(),
+                    regex: Regex::new(r#"EAA[a-zA-Z0-9]{100,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Facebook access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Facebook App Secret".to_string(),
+                    regex: Regex::new(r#"(?i)fb[_-]?(?:app[_-]?)?secret\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Facebook app secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Twitter
+                CompiledPattern {
+                    name: "Twitter Bearer Token".to_string(),
+                    regex: Regex::new(r#"AAAAAAAAAAAAAAAAAAA[a-zA-Z0-9%]{30,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Twitter bearer token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Twitter API Key".to_string(),
+                    regex: Regex::new(r#"(?i)twitter[_-]?(?:api[_-]?)?(?:key|consumer)\s*[=:]\s*['\"][a-zA-Z0-9]{25}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Twitter API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Shopify
+                CompiledPattern {
+                    name: "Shopify Access Token".to_string(),
+                    regex: Regex::new(r#"shpat_[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Shopify access token found - allows store API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Shopify Private App Token".to_string(),
+                    regex: Regex::new(r#"shppa_[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Shopify private app access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Shopify Shared Secret".to_string(),
+                    regex: Regex::new(r#"shpss_[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Shopify shared secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PayPal/Braintree
+                CompiledPattern {
+                    name: "PayPal/Braintree Access Token".to_string(),
+                    regex: Regex::new(r#"access_token\$production\$[a-z0-9]{16}\$[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PayPal/Braintree production access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Square
+                CompiledPattern {
+                    name: "Square Access Token".to_string(),
+                    regex: Regex::new(r#"sq0atp-[a-zA-Z0-9_-]{22}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Square access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Square OAuth Secret".to_string(),
+                    regex: Regex::new(r#"sq0csp-[a-zA-Z0-9_-]{43}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Square OAuth secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Algolia
+                CompiledPattern {
+                    name: "Algolia Admin API Key".to_string(),
+                    regex: Regex::new(r#"(?i)algolia[_-]?(?:admin[_-]?)?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Algolia admin API key found - allows index modification".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Cloudinary
+                CompiledPattern {
+                    name: "Cloudinary URL".to_string(),
+                    regex: Regex::new(r#"cloudinary://[0-9]+:[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Cloudinary URL with API secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Sentry
+                CompiledPattern {
+                    name: "Sentry DSN".to_string(),
+                    regex: Regex::new(r#"https://[a-f0-9]{32}@[a-z0-9]+\.ingest\.sentry\.io/[0-9]+"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Sentry DSN found - may allow error injection".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                CompiledPattern {
+                    name: "Sentry Auth Token".to_string(),
+                    regex: Regex::new(r#"sntrys_[a-zA-Z0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Sentry auth token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Datadog
+                CompiledPattern {
+                    name: "Datadog API Key".to_string(),
+                    regex: Regex::new(r#"(?i)datadog[_-]?api[_-]?key\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Datadog API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Datadog App Key".to_string(),
+                    regex: Regex::new(r#"(?i)datadog[_-]?app[_-]?key\s*[=:]\s*['\"][a-f0-9]{40}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Datadog app key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // New Relic
+                CompiledPattern {
+                    name: "New Relic License Key".to_string(),
+                    regex: Regex::new(r#"(?i)new[_-]?relic[_-]?license\s*[=:]\s*['\"][a-f0-9]{40}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "New Relic license key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "New Relic API Key".to_string(),
+                    regex: Regex::new(r#"NRAK-[A-Z0-9]{27}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "New Relic API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Anthropic
+                CompiledPattern {
+                    name: "Anthropic API Key".to_string(),
+                    regex: Regex::new(r#"sk-ant-api[a-zA-Z0-9_-]{32,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Anthropic API key found - can be exploited for billing abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Cohere
+                CompiledPattern {
+                    name: "Cohere API Key".to_string(),
+                    regex: Regex::new(r#"(?i)cohere[_-]?api[_-]?key\s*[=:]\s*['\"][a-zA-Z0-9]{40}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Cohere API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Notion
+                CompiledPattern {
+                    name: "Notion Integration Token".to_string(),
+                    regex: Regex::new(r#"secret_[a-zA-Z0-9]{43}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Notion integration token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Asana
+                CompiledPattern {
+                    name: "Asana Personal Access Token".to_string(),
+                    regex: Regex::new(r#"[01]/[0-9]{16}:[a-f0-9]{32}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Asana personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Linear
+                CompiledPattern {
+                    name: "Linear API Key".to_string(),
+                    regex: Regex::new(r#"lin_api_[a-zA-Z0-9]{40}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Linear API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Doppler
+                CompiledPattern {
+                    name: "Doppler API Key".to_string(),
+                    regex: Regex::new(r#"dp\.pt\.[a-zA-Z0-9]{43}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Doppler API key found - secrets manager access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Postman
+                CompiledPattern {
+                    name: "Postman API Key".to_string(),
+                    regex: Regex::new(r#"PMAK-[a-f0-9]{24}-[a-f0-9]{34}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Postman API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Supabase
+                CompiledPattern {
+                    name: "Supabase Service Key".to_string(),
+                    regex: Regex::new(r#"sbp_[a-f0-9]{40}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Supabase service key found - bypasses RLS".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PlanetScale
+                CompiledPattern {
+                    name: "PlanetScale Token".to_string(),
+                    regex: Regex::new(r#"pscale_tkn_[a-zA-Z0-9_-]{43}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PlanetScale database token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "PlanetScale Password".to_string(),
+                    regex: Regex::new(r#"pscale_pw_[a-zA-Z0-9_-]{43}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PlanetScale database password found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Vercel
+                CompiledPattern {
+                    name: "Vercel Token".to_string(),
+                    regex: Regex::new(r#"(?i)vercel[_-]?token\s*[=:]\s*['\"][a-zA-Z0-9]{24}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Vercel authentication token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Netlify
+                CompiledPattern {
+                    name: "Netlify Personal Access Token".to_string(),
+                    regex: Regex::new(r#"nfp_[a-zA-Z0-9]{40}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Netlify personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Contentful
+                CompiledPattern {
+                    name: "Contentful Delivery Token".to_string(),
+                    regex: Regex::new(r#"(?i)contentful[_-]?(?:delivery[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9_-]{43}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Contentful delivery/preview token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Airtable
+                CompiledPattern {
+                    name: "Airtable API Key".to_string(),
+                    regex: Regex::new(r#"key[a-zA-Z0-9]{14}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Airtable API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Airtable Personal Access Token".to_string(),
+                    regex: Regex::new(r#"pat[a-zA-Z0-9]{14}\.[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Airtable personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Okta
+                CompiledPattern {
+                    name: "Okta API Token".to_string(),
+                    regex: Regex::new(r#"00[a-zA-Z0-9_-]{40}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Okta API token found - identity provider access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Auth0
+                CompiledPattern {
+                    name: "Auth0 Client Secret".to_string(),
+                    regex: Regex::new(r#"(?i)auth0[_-]?client[_-]?secret\s*[=:]\s*['\"][a-zA-Z0-9_-]{32,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Auth0 client secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Pusher
+                CompiledPattern {
+                    name: "Pusher App Key".to_string(),
+                    regex: Regex::new(r#"(?i)pusher[_-]?(?:app[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{20}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Pusher app key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PGP Private Key
+                CompiledPattern {
+                    name: "PGP Private Key".to_string(),
+                    regex: Regex::new(r#"-----BEGIN PGP PRIVATE KEY BLOCK-----"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PGP private key found".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
+                // SSH Private Key
+                CompiledPattern {
+                    name: "SSH Private Key (OpenSSH)".to_string(),
+                    regex: Regex::new(r#"-----BEGIN OPENSSH PRIVATE KEY-----"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenSSH private key found".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
+                CompiledPattern {
+                    name: "SSH Private Key (DSA)".to_string(),
+                    regex: Regex::new(r#"-----BEGIN DSA PRIVATE KEY-----"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "DSA private key found".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
+                CompiledPattern {
+                    name: "SSH Private Key (EC)".to_string(),
+                    regex: Regex::new(r#"-----BEGIN EC PRIVATE KEY-----"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "EC private key found".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
+                // Generic high-entropy secrets
+                CompiledPattern {
+                    name: "Hardcoded Basic Auth".to_string(),
+                    regex: Regex::new(r#"(?i)authorization\s*[=:]\s*['\"]basic\s+[a-zA-Z0-9+/=]{20,}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Hardcoded Basic authentication header found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // MongoDB Atlas
+                CompiledPattern {
+                    name: "MongoDB Atlas Connection String".to_string(),
+                    regex: Regex::new(r#"mongodb\+srv://[^:]+:[^@]+@[a-zA-Z0-9.-]+\.mongodb\.net"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "MongoDB Atlas connection string with credentials found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Redis
+                CompiledPattern {
+                    name: "Redis URL with Password".to_string(),
+                    regex: Regex::new(r#"redis://[^:]+:[^@]+@[^\s\"'<>]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Redis connection URL with password found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // MySQL/PostgreSQL
+                CompiledPattern {
+                    name: "MySQL Connection String".to_string(),
+                    regex: Regex::new(r#"mysql://[^:]+:[^@]+@[^\s\"'<>]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "MySQL connection string with credentials found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "PostgreSQL Connection String".to_string(),
+                    regex: Regex::new(r#"postgres(?:ql)?://[^:]+:[^@]+@[^\s\"'<>]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PostgreSQL connection string with credentials found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // RabbitMQ/AMQP
+                CompiledPattern {
+                    name: "AMQP Connection String".to_string(),
+                    regex: Regex::new(r#"amqps?://[^:]+:[^@]+@[^\s\"'<>]+"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "AMQP/RabbitMQ connection string with credentials found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Instagram
+                CompiledPattern {
+                    name: "Instagram Access Token".to_string(),
+                    regex: Regex::new(r#"(?i)instagram[_-]?(?:access[_-]?)?token\s*[=:]\s*['\"][0-9]{5,}[.][a-zA-Z0-9_-]+['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Instagram access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Dropbox
+                CompiledPattern {
+                    name: "Dropbox Access Token".to_string(),
+                    regex: Regex::new(r#"sl\.[a-zA-Z0-9_-]{130,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Dropbox access token found - allows file access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Dropbox App Secret".to_string(),
+                    regex: Regex::new(r#"(?i)dropbox[_-]?(?:app[_-]?)?secret\s*[=:]\s*['\"][a-z0-9]{15}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Dropbox app secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Zoom
+                CompiledPattern {
+                    name: "Zoom JWT Token".to_string(),
+                    regex: Regex::new(r#"(?i)zoom[_-]?(?:jwt[_-]?)?token\s*[=:]\s*['\"]eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Zoom JWT token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // CircleCI
+                CompiledPattern {
+                    name: "CircleCI API Token".to_string(),
+                    regex: Regex::new(r#"(?i)circle[_-]?(?:ci[_-]?)?token\s*[=:]\s*['\"][a-f0-9]{40}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "CircleCI API token found - allows build access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Travis CI
+                CompiledPattern {
+                    name: "Travis CI Token".to_string(),
+                    regex: Regex::new(r#"(?i)travis[_-]?(?:ci[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9_-]{22}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Travis CI token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Docker Hub
+                CompiledPattern {
+                    name: "Docker Hub Access Token".to_string(),
+                    regex: Regex::new(r#"dckr_pat_[a-zA-Z0-9_-]{27}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Docker Hub personal access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Mailchimp
+                CompiledPattern {
+                    name: "Mailchimp API Key".to_string(),
+                    regex: Regex::new(r#"[a-f0-9]{32}-us[0-9]{1,2}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Mailchimp API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // HubSpot
+                CompiledPattern {
+                    name: "HubSpot API Key".to_string(),
+                    regex: Regex::new(r#"(?i)hubspot[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "HubSpot API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "HubSpot Private App Token".to_string(),
+                    regex: Regex::new(r#"pat-[a-z]{2,3}-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HubSpot private app token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Zendesk
+                CompiledPattern {
+                    name: "Zendesk API Token".to_string(),
+                    regex: Regex::new(r#"(?i)zendesk[_-]?(?:api[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9]{40}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Zendesk API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Intercom
+                CompiledPattern {
+                    name: "Intercom Access Token".to_string(),
+                    regex: Regex::new(r#"(?i)intercom[_-]?(?:access[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9=_-]{60,}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Intercom access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Jira/Atlassian
+                CompiledPattern {
+                    name: "Atlassian API Token".to_string(),
+                    regex: Regex::new(r#"(?i)atlassian[_-]?(?:api[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9]{24}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Atlassian API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Trello
+                CompiledPattern {
+                    name: "Trello API Key".to_string(),
+                    regex: Regex::new(r#"(?i)trello[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Trello API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Snyk
+                CompiledPattern {
+                    name: "Snyk API Token".to_string(),
+                    regex: Regex::new(r#"(?i)snyk[_-]?(?:api[_-]?)?token\s*[=:]\s*['\"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Snyk API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // LaunchDarkly
+                CompiledPattern {
+                    name: "LaunchDarkly SDK Key".to_string(),
+                    regex: Regex::new(r#"sdk-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "LaunchDarkly SDK key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "LaunchDarkly API Key".to_string(),
+                    regex: Regex::new(r#"api-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "LaunchDarkly API key found - full access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Bugsnag
+                CompiledPattern {
+                    name: "Bugsnag API Key".to_string(),
+                    regex: Regex::new(r#"(?i)bugsnag[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Bugsnag API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Rollbar
+                CompiledPattern {
+                    name: "Rollbar Access Token".to_string(),
+                    regex: Regex::new(r#"(?i)rollbar[_-]?(?:access[_-]?)?token\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Rollbar access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Vonage/Nexmo
+                CompiledPattern {
+                    name: "Vonage/Nexmo API Secret".to_string(),
+                    regex: Regex::new(r#"(?i)(?:nexmo|vonage)[_-]?(?:api[_-]?)?secret\s*[=:]\s*['\"][a-zA-Z0-9]{16}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Vonage/Nexmo API secret found - allows SMS/voice access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // MessageBird
+                CompiledPattern {
+                    name: "MessageBird API Key".to_string(),
+                    regex: Regex::new(r#"(?i)messagebird[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-zA-Z0-9]{25}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "MessageBird API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Plivo
+                CompiledPattern {
+                    name: "Plivo Auth Token".to_string(),
+                    regex: Regex::new(r#"(?i)plivo[_-]?(?:auth[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9]{40}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Plivo auth token found - allows SMS/voice access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Elasticsearch
+                CompiledPattern {
+                    name: "Elasticsearch URL with Credentials".to_string(),
+                    regex: Regex::new(r#"https?://[^:]+:[^@]+@[a-zA-Z0-9.-]+(?::\d+)?/?"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "URL with embedded credentials found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Dynatrace
+                CompiledPattern {
+                    name: "Dynatrace API Token".to_string(),
+                    regex: Regex::new(r#"dt0c01\.[a-zA-Z0-9]{24}\.[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Dynatrace API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Grafana
+                CompiledPattern {
+                    name: "Grafana API Key".to_string(),
+                    regex: Regex::new(r#"eyJrIjoi[a-zA-Z0-9_-]+['\"]?"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Grafana API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Grafana Cloud API Token".to_string(),
+                    regex: Regex::new(r#"glc_[a-zA-Z0-9_-]{32,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Grafana Cloud API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Pulumi
+                CompiledPattern {
+                    name: "Pulumi Access Token".to_string(),
+                    regex: Regex::new(r#"pul-[a-f0-9]{40}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Pulumi access token found - infrastructure access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // HashiCorp
+                CompiledPattern {
+                    name: "HashiCorp Vault Token".to_string(),
+                    regex: Regex::new(r#"hvs\.[a-zA-Z0-9_-]{24,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "HashiCorp Vault service token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "HashiCorp Terraform Cloud Token".to_string(),
+                    regex: Regex::new(r#"[a-zA-Z0-9]{14}\.atlasv1\.[a-zA-Z0-9_-]{60,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Terraform Cloud API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Buildkite
+                CompiledPattern {
+                    name: "Buildkite Agent Token".to_string(),
+                    regex: Regex::new(r#"bkua_[a-f0-9]{40}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Buildkite agent token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Codecov
+                CompiledPattern {
+                    name: "Codecov Token".to_string(),
+                    regex: Regex::new(r#"(?i)codecov[_-]?token\s*[=:]\s*['\"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Codecov upload token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Twitch
+                CompiledPattern {
+                    name: "Twitch OAuth Token".to_string(),
+                    regex: Regex::new(r#"(?i)twitch[_-]?(?:oauth[_-]?)?token\s*[=:]\s*['\"][a-z0-9]{30}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Twitch OAuth token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // LinkedIn
+                CompiledPattern {
+                    name: "LinkedIn Client Secret".to_string(),
+                    regex: Regex::new(r#"(?i)linkedin[_-]?(?:client[_-]?)?secret\s*[=:]\s*['\"][a-zA-Z0-9]{16}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "LinkedIn client secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Spotify
+                CompiledPattern {
+                    name: "Spotify Client Secret".to_string(),
+                    regex: Regex::new(r#"(?i)spotify[_-]?(?:client[_-]?)?secret\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Spotify client secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Rapid API
+                CompiledPattern {
+                    name: "RapidAPI Key".to_string(),
+                    regex: Regex::new(r#"(?i)(?:rapid|x-rapidapi)[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{50}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "RapidAPI key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Clarifai
+                CompiledPattern {
+                    name: "Clarifai API Key".to_string(),
+                    regex: Regex::new(r#"(?i)clarifai[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{32}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Clarifai API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // IBM Watson
+                CompiledPattern {
+                    name: "IBM Cloud API Key".to_string(),
+                    regex: Regex::new(r#"(?i)ibm[_-]?(?:cloud[_-]?)?(?:api[_-]?)?key\s*[=:]\s*['\"][a-zA-Z0-9_-]{44}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "IBM Cloud API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Yandex
+                CompiledPattern {
+                    name: "Yandex API Key".to_string(),
+                    regex: Regex::new(r#"(?i)yandex[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"]AQVN[a-zA-Z0-9_-]{35,}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Yandex API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GCP Service Account
+                CompiledPattern {
+                    name: "GCP Service Account Key".to_string(),
+                    regex: Regex::new(r#"\"private_key\":\s*\"-----BEGIN PRIVATE KEY-----"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GCP service account private key found".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
+                // Fastly
+                CompiledPattern {
+                    name: "Fastly API Key".to_string(),
+                    regex: Regex::new(r#"(?i)fastly[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-zA-Z0-9_-]{32}['\"]"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Fastly API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Cloudflare
+                CompiledPattern {
+                    name: "Cloudflare API Key".to_string(),
+                    regex: Regex::new(r#"(?i)cloudflare[_-]?(?:api[_-]?)?key\s*[=:]\s*['\"][a-f0-9]{37}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Cloudflare API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Cloudflare API Token".to_string(),
+                    regex: Regex::new(r#"(?i)cloudflare[_-]?(?:api[_-]?)?token\s*[=:]\s*['\"][a-zA-Z0-9_-]{40}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Cloudflare API token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {
