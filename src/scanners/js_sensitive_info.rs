@@ -1057,12 +1057,14 @@ impl JsSensitiveInfoScanner {
                     description: "Plivo auth token found - allows SMS/voice access".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
-                // Elasticsearch
+                // Elasticsearch / URL with embedded credentials
+                // Must match: https://user:pass@host or http://user:pass@host:port
+                // The password must contain at least some non-URL characters to avoid matching regular URLs
                 CompiledPattern {
-                    name: "Elasticsearch URL with Credentials".to_string(),
-                    regex: Regex::new(r#"https?://[^:]+:[^@]+@[a-zA-Z0-9.-]+(?::\d+)?/?"#).unwrap(),
+                    name: "URL with Embedded Credentials".to_string(),
+                    regex: Regex::new(r#"https?://[a-zA-Z0-9_-]+:[a-zA-Z0-9!@#$%^&*()_+=\-]+@[a-zA-Z0-9.-]+(?::\d+)?(?:/[^\s'"]*)?(?=[\s'\"<>]|$)"#).unwrap(),
                     severity: Severity::Critical,
-                    description: "URL with embedded credentials found".to_string(),
+                    description: "URL with embedded credentials found (e.g., https://user:pass@host)".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
                 // Dynatrace

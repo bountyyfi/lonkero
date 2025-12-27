@@ -160,9 +160,14 @@ impl HostHeaderInjectionScanner {
                     }
 
                     // Check for different response compared to baseline (potential routing change)
+                    // Note: 400, 403, 421 responses indicate proper security - NOT a vulnerability
+                    // 403 = WAF/Cloudflare blocking invalid Host (correct behavior)
+                    // 400 = Bad Request (server rejecting invalid Host)
+                    // 421 = Misdirected Request (proper HTTP/2 host validation)
                     if let Some(ref base) = baseline {
                         if response.status_code != base.status_code
                             && response.status_code != 400
+                            && response.status_code != 403
                             && response.status_code != 421
                         {
                             vulnerabilities.push(self.create_vulnerability(

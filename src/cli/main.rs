@@ -1008,44 +1008,79 @@ fn get_form_input_value(input: &lonkero_scanner::crawler::FormInput) -> String {
     get_dummy_value(&input.name)
 }
 
-/// Check if a form looks like a language/locale selector
-/// These forms typically:
-/// - Have only one select input
-/// - Have auto-generated names like "input_1", "select_field_0"
-/// - The action URL contains language paths like /en/, /fi/, /sv/
-/// - Options contain language codes or locale values
-fn is_language_selector_form(form_inputs: &[lonkero_scanner::crawler::FormInput], action: &str) -> bool {
-    // Must have exactly one input
-    if form_inputs.len() != 1 {
-        return false;
-    }
-
-    let input = &form_inputs[0];
-
-    // Must be a select element
-    if !input.input_type.eq_ignore_ascii_case("select") {
-        return false;
-    }
-
-    // Check for auto-generated names (input_N, select_N, field_N, etc.)
+/// Check if a form input should be skipped (auto-generated select, language selector, buttons, etc.)
+/// Returns true if the input should NOT be tested
+fn should_skip_form_input(input: &lonkero_scanner::crawler::FormInput) -> bool {
     let name_lower = input.name.to_lowercase();
-    let is_auto_generated_name = name_lower.starts_with("input_")
-        || name_lower.starts_with("select_")
-        || name_lower.starts_with("field_")
-        || name_lower.starts_with("form_")
-        || name_lower == "input"
-        || name_lower == "select"
-        || name_lower.chars().all(|c| c.is_ascii_digit() || c == '_');
+    let input_type_lower = input.input_type.to_lowercase();
+
+    // Skip buttons - they're not attack surfaces
+    if input_type_lower == "button" || input_type_lower == "submit" || input_type_lower == "reset" {
+        return true;
+    }
+
+    // Skip GTM (Google Tag Manager) prefixed fields - tracking only, not attack surfaces
+    if name_lower.starts_with("gtm-") || name_lower.starts_with("gtm_") {
+        return true;
+    }
+
+    // Skip auto-generated select elements - these are framework-generated and not useful attack surfaces
+    // Examples: input_1, input_2, select_0, field_1
+    if input_type_lower == "select" {
+        let is_auto_generated = name_lower.starts_with("input_")
+            || name_lower.starts_with("select_")
+            || name_lower.starts_with("field_")
+            || name_lower.starts_with("form_")
+            || name_lower == "input"
+            || name_lower == "select"
+            || name_lower.chars().all(|c| c.is_ascii_digit() || c == '_');
+
+        if is_auto_generated {
+            return true;
+        }
+
+        // Check if options look like language codes
+        if let Some(options) = &input.options {
+            let lang_codes = ["en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru",
+                             "en-us", "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es",
+                             "english", "finnish", "swedish", "german", "french", "spanish"];
+            let has_language_options = options.iter().any(|opt| {
+                let opt_lower = opt.to_lowercase();
+                lang_codes.iter().any(|lc| opt_lower == *lc || opt_lower.starts_with(&format!("{}-", lc)))
+            });
+            if has_language_options {
+                return true;
+            }
+        }
+    }
+
+    // Skip common language/locale selector field names (any input type)
+    let is_lang_field_name = name_lower.contains("lang")
+        || name_lower.contains("locale")
+        || name_lower.contains("language")
+        || name_lower.contains("country")
+        || name_lower.contains("region");
+
+    if is_lang_field_name {
+        return true;
+    }
+
+    false
+}
+
+/// Check if a form looks like a language/locale selector (legacy, checks whole form)
+fn is_language_selector_form(form_inputs: &[lonkero_scanner::crawler::FormInput], action: &str) -> bool {
+    // If all inputs should be skipped, skip the whole form
+    if form_inputs.iter().all(should_skip_form_input) {
+        return true;
+    }
 
     // Check if action URL looks like a language page
-    // Strip fragment (e.g., #pricing) and query string before checking
     let action_lower = action.to_lowercase();
     let action_no_fragment = action_lower.split('#').next().unwrap_or(&action_lower);
     let action_clean = action_no_fragment.split('?').next().unwrap_or(action_no_fragment);
 
-    // Extract path from URL for checking
     let path = if let Some(pos) = action_clean.find("://") {
-        // Skip scheme and host
         let after_scheme = &action_clean[pos + 3..];
         after_scheme.find('/').map(|p| &after_scheme[p..]).unwrap_or("")
     } else {
@@ -1068,32 +1103,8 @@ fn is_language_selector_form(form_inputs: &[lonkero_scanner::crawler::FormInput]
         || path == "/en" || path == "/fi" || path == "/sv" || path == "/de"
         || path == "/fr" || path == "/es" || path == "/it" || path == "/nl" || path == "/pt";
 
-    // Check if options look like language codes
-    let has_language_options = if let Some(options) = &input.options {
-        let lang_codes = ["en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru",
-                         "en-us", "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es",
-                         "english", "finnish", "swedish", "german", "french", "spanish"];
-        options.iter().any(|opt| {
-            let opt_lower = opt.to_lowercase();
-            lang_codes.iter().any(|lc| opt_lower == *lc || opt_lower.starts_with(&format!("{}-", lc)))
-        })
-    } else {
-        false
-    };
-
-    // If it has auto-generated name AND (language URL or language options), it's a language selector
-    if is_auto_generated_name && (is_language_url || has_language_options) {
-        return true;
-    }
-
-    // Also check common language selector field names
-    let is_lang_field_name = name_lower.contains("lang")
-        || name_lower.contains("locale")
-        || name_lower.contains("language")
-        || name_lower.contains("country")
-        || name_lower.contains("region");
-
-    if is_lang_field_name {
+    // Single select on language URL = language selector
+    if form_inputs.len() == 1 && form_inputs[0].input_type.eq_ignore_ascii_case("select") && is_language_url {
         return true;
     }
 
@@ -1688,10 +1699,23 @@ async fn execute_standalone_scan(
                 }
             }
 
-            // For SPA forms, test ALL discovered API endpoints (not just filtered ones)
-            // since React/Next.js forms can submit to any API route
+            // For SPA forms, test discovered API endpoints (filtered for framework noise)
+            // Filter out Sentry/Next.js/framework metadata that are NOT real API endpoints
+            let framework_noise = [
+                "traceparent", "csrftoken", "baggage", "sentry-trace", "sentry.sample_rand",
+                "sentry.sample_rate", "sentry.dsc", "next-router-prefetch", "next-url",
+                "next-router-state-tree", "rsc", "_rsc", "__next", "__nextjs",
+                "x-middleware-prefetch", "x-invoke-path", "x-invoke-query",
+            ];
             let form_api_endpoints: Vec<String> = js_miner_results.api_endpoints.iter()
                 .chain(js_miner_results.form_actions.iter())
+                .filter(|ep| {
+                    let ep_lower = ep.to_lowercase();
+                    // Remove leading slash for comparison
+                    let ep_clean = ep_lower.trim_start_matches('/');
+                    // Filter out framework noise
+                    !framework_noise.iter().any(|noise| ep_clean == *noise || ep_clean.starts_with(&format!("{}.", noise)))
+                })
                 .cloned()
                 .collect();
 
@@ -1751,6 +1775,12 @@ async fn execute_standalone_scan(
 
                 // Test each field in the form against all potential endpoints
                 for input in form_inputs {
+                    // Skip auto-generated selects and language selectors
+                    if should_skip_form_input(&input) {
+                        debug!("    Skipping auto-generated/language field '{}' ({})", input.name, input.input_type);
+                        continue;
+                    }
+
                     for test_url in &test_urls {
                         let is_api_endpoint = test_url.contains("/api/");
                         info!("    Testing form field '{}' ({}) at {}{}",

@@ -1142,11 +1142,37 @@ impl JsMinerScanner {
         if let Some(endpoints) = self.scan_pattern(content, r#"['"`](/(?:api|v[0-9]+|graphql)[^'"`\s<>]{0,100})['"`]"#, "API Endpoint") {
             for endpoint in endpoints.into_iter().take(50) {
                 let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`');
-                if clean.len() > 3 && !clean.contains("..") && Self::is_valid_endpoint(clean) {
+                if clean.len() > 3 && !clean.contains("..") && Self::is_valid_endpoint(clean) && !Self::is_language_path(clean) {
                     results.api_endpoints.insert(clean.to_string());
 
                     // Extract path parameters like :id or {id}
                     self.extract_path_params(clean, results);
+                }
+            }
+        }
+
+        // Extract paths from href/getActualHref/getHref patterns (React/Next.js routing)
+        // Pattern: getActualHref("/account", s) or href: "/dashboard"
+        let href_patterns = [
+            r#"(?:getActualHref|getHref|href|to|navigate|push|replace)\s*\(\s*["'`](/[a-zA-Z0-9_\-/]+)"#,
+            r#"href\s*:\s*["'`](/[a-zA-Z0-9_\-/]+)["'`]"#,
+            r#"to\s*:\s*["'`](/[a-zA-Z0-9_\-/]+)["'`]"#,
+            r#"path\s*:\s*["'`](/[a-zA-Z0-9_\-/]+)["'`]"#,
+            r#"route\s*:\s*["'`](/[a-zA-Z0-9_\-/]+)["'`]"#,
+        ];
+
+        for pattern in href_patterns {
+            if let Some(paths) = self.scan_pattern(content, pattern, "Route Path") {
+                for path in paths.into_iter().take(50) {
+                    let clean = path.trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == '(' || c == ')' || c == ' ');
+                    // Extract just the path part
+                    if let Some(start) = clean.find('/') {
+                        let path_only = &clean[start..];
+                        // Skip language paths like /en, /fi, /sv
+                        if path_only.len() > 3 && Self::is_valid_endpoint(path_only) && !Self::is_language_path(path_only) {
+                            results.api_endpoints.insert(path_only.to_string());
+                        }
+                    }
                 }
             }
         }
@@ -1840,6 +1866,33 @@ impl JsMinerScanner {
         let digit_count = name.chars().filter(|c| c.is_numeric()).count();
         if digit_count > name.len() / 2 && name.len() > 3 {
             return true;
+        }
+
+        false
+    }
+
+    /// Check if path is a language/locale path that should be skipped
+    /// Returns true if the path is just a language selector (e.g., /en, /fi, /sv)
+    fn is_language_path(path: &str) -> bool {
+        let path_clean = path.trim_matches('/').to_lowercase();
+
+        // Exact language codes (2-3 chars)
+        let lang_codes = [
+            "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru",
+            "pl", "cs", "hu", "ro", "bg", "hr", "sk", "sl", "et", "lv", "lt", "da", "no",
+            "en-us", "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es", "pt-br",
+        ];
+
+        // Check if entire path is just a language code
+        if lang_codes.contains(&path_clean.as_str()) {
+            return true;
+        }
+
+        // Check if path starts with language code followed by hash (e.g., /sv#pricing)
+        for lang in &lang_codes {
+            if path_clean == *lang || path_clean.starts_with(&format!("{}#", lang)) {
+                return true;
+            }
         }
 
         false
