@@ -288,6 +288,27 @@ impl InformationDisclosureScanner {
             "/health",                  // Health check often reveals version
             "/actuator/info",           // Spring Boot
             "/actuator/health",         // Spring Boot
+            "/actuator/env",            // Spring Boot - Environment variables (CRITICAL)
+            "/actuator/configprops",    // Spring Boot - Configuration properties
+            "/actuator/mappings",       // Spring Boot - URL mappings
+            "/actuator/beans",          // Spring Boot - All beans
+            "/actuator/heapdump",       // Spring Boot - Heap dump (CRITICAL)
+            "/actuator/threaddump",     // Spring Boot - Thread dump
+            "/actuator/metrics",        // Spring Boot - Metrics
+            "/actuator/scheduledtasks", // Spring Boot - Scheduled tasks
+            "/actuator/httptrace",      // Spring Boot - HTTP trace
+            "/actuator/auditevents",    // Spring Boot - Audit events
+            "/actuator/loggers",        // Spring Boot - Loggers
+            "/actuator/sessions",       // Spring Boot - Sessions
+            "/actuator/shutdown",       // Spring Boot - Shutdown (CRITICAL if POST)
+            "/actuator/jolokia",        // Spring Boot - JMX over HTTP (RCE possible)
+            "/actuator/gateway/routes", // Spring Cloud Gateway routes
+            "/manage/env",              // Legacy Spring Boot
+            "/manage/heapdump",         // Legacy Spring Boot
+            "/env",                     // Direct actuator
+            "/heapdump",                // Direct actuator
+            "/trace",                   // Direct actuator
+            "/dump",                    // Direct actuator
             "/api/version",             // API version
             "/api/v1/version",          // API version
             "/__version__",             // Python apps
