@@ -102,12 +102,12 @@ pub mod advanced_scanning {
     pub const MASS_ASSIGNMENT: &str = "mass_assignment";
     /// Deserialization scanner
     pub const DESERIALIZATION: &str = "deserialization";
-    /// Prototype pollution scanner
-    pub const PROTOTYPE_POLLUTION: &str = "prototype_pollution";
+    /// Source map detection scanner
+    pub const SOURCE_MAP_DETECTION: &str = "source_map_detection";
+    /// Favicon hash fingerprinting scanner
+    pub const FAVICON_HASH_DETECTION: &str = "favicon_hash_detection";
     /// Cache poisoning scanner
     pub const CACHE_POISONING: &str = "cache_poisoning";
-    /// Host header injection scanner
-    pub const HOST_HEADER_INJECTION: &str = "host_header_injection";
     /// CRLF injection scanner
     pub const CRLF_INJECTION: &str = "crlf_injection";
     /// Open redirect scanner

@@ -58,7 +58,8 @@ pub mod crlf_injection;
 pub mod email_header_injection;
 pub mod template_injection;
 pub mod deserialization;
-pub mod prototype_pollution;
+pub mod source_map_scanner;
+pub mod favicon_hash_scanner;
 pub mod api_security;
 pub mod http_smuggling;
 pub mod xml_injection;
@@ -68,7 +69,6 @@ pub mod ssi_injection;
 pub mod race_condition;
 pub mod mass_assignment;
 pub mod information_disclosure;
-pub mod host_header_injection;
 pub mod cache_poisoning;
 pub mod business_logic;
 pub mod jwt_vulnerabilities;
@@ -151,7 +151,8 @@ pub use crlf_injection::CrlfInjectionScanner;
 pub use email_header_injection::EmailHeaderInjectionScanner;
 pub use template_injection::TemplateInjectionScanner;
 pub use deserialization::DeserializationScanner;
-pub use prototype_pollution::PrototypePollutionScanner;
+pub use source_map_scanner::SourceMapScanner;
+pub use favicon_hash_scanner::FaviconHashScanner;
 pub use api_security::APISecurityScanner;
 pub use http_smuggling::HTTPSmugglingScanner;
 pub use xml_injection::XMLInjectionScanner;
@@ -161,7 +162,6 @@ pub use ssi_injection::SSIInjectionScanner;
 pub use race_condition::RaceConditionScanner;
 pub use mass_assignment::MassAssignmentScanner;
 pub use information_disclosure::InformationDisclosureScanner;
-pub use host_header_injection::HostHeaderInjectionScanner;
 pub use cache_poisoning::CachePoisoningScanner;
 pub use business_logic::BusinessLogicScanner;
 pub use jwt_vulnerabilities::JwtVulnerabilitiesScanner;
@@ -246,7 +246,8 @@ pub struct ScanEngine {
     pub email_header_injection_scanner: EmailHeaderInjectionScanner,
     pub template_injection_scanner: TemplateInjectionScanner,
     pub deserialization_scanner: DeserializationScanner,
-    pub prototype_pollution_scanner: PrototypePollutionScanner,
+    pub source_map_scanner: SourceMapScanner,
+    pub favicon_hash_scanner: FaviconHashScanner,
     pub api_security_scanner: APISecurityScanner,
     pub http_smuggling_scanner: HTTPSmugglingScanner,
     pub xml_injection_scanner: XMLInjectionScanner,
@@ -256,7 +257,6 @@ pub struct ScanEngine {
     pub race_condition_scanner: RaceConditionScanner,
     pub mass_assignment_scanner: MassAssignmentScanner,
     pub information_disclosure_scanner: InformationDisclosureScanner,
-    pub host_header_injection_scanner: HostHeaderInjectionScanner,
     pub cache_poisoning_scanner: CachePoisoningScanner,
     pub business_logic_scanner: BusinessLogicScanner,
     pub jwt_vulnerabilities_scanner: JwtVulnerabilitiesScanner,
@@ -430,7 +430,8 @@ impl ScanEngine {
             email_header_injection_scanner: EmailHeaderInjectionScanner::new(Arc::clone(&http_client)),
             template_injection_scanner: TemplateInjectionScanner::new(Arc::clone(&http_client)),
             deserialization_scanner: DeserializationScanner::new(Arc::clone(&http_client)),
-            prototype_pollution_scanner: PrototypePollutionScanner::new(Arc::clone(&http_client)),
+            source_map_scanner: SourceMapScanner::new(Arc::clone(&http_client)),
+            favicon_hash_scanner: FaviconHashScanner::new(Arc::clone(&http_client)),
             api_security_scanner: APISecurityScanner::new(Arc::clone(&http_client)),
             http_smuggling_scanner: HTTPSmugglingScanner::new(Arc::clone(&http_client)),
             xml_injection_scanner: XMLInjectionScanner::new(Arc::clone(&http_client)),
@@ -440,7 +441,6 @@ impl ScanEngine {
             race_condition_scanner: RaceConditionScanner::new(Arc::clone(&http_client)),
             mass_assignment_scanner: MassAssignmentScanner::new(Arc::clone(&http_client)),
             information_disclosure_scanner: InformationDisclosureScanner::new(Arc::clone(&http_client)),
-            host_header_injection_scanner: HostHeaderInjectionScanner::new(Arc::clone(&http_client)),
             cache_poisoning_scanner: CachePoisoningScanner::new(Arc::clone(&http_client)),
             business_logic_scanner: BusinessLogicScanner::new(Arc::clone(&http_client)),
             jwt_vulnerabilities_scanner: JwtVulnerabilitiesScanner::new(Arc::clone(&http_client)),
@@ -1231,16 +1231,28 @@ impl ScanEngine {
             queue.increment_tests(scan_id.clone(), deser_tests as u64).await?;
         }
 
-        // Prototype Pollution Security Check (Professional+)
-        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::PROTOTYPE_POLLUTION) {
-            info!("Checking for prototype pollution vulnerabilities");
-            modules_used.push(crate::modules::ids::advanced_scanning::PROTOTYPE_POLLUTION.to_string());
-            let (pp_vulns, pp_tests) = self.prototype_pollution_scanner
+        // Source Map Scanner (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SOURCE_MAP_DETECTION) {
+            info!("Scanning for exposed JavaScript source maps");
+            modules_used.push(crate::modules::ids::advanced_scanning::SOURCE_MAP_DETECTION.to_string());
+            let (sm_vulns, sm_tests) = self.source_map_scanner
                 .scan(&target, &config)
                 .await?;
-            all_vulnerabilities.extend(pp_vulns);
-            total_tests += pp_tests as u64;
-            queue.increment_tests(scan_id.clone(), pp_tests as u64).await?;
+            all_vulnerabilities.extend(sm_vulns);
+            total_tests += sm_tests as u64;
+            queue.increment_tests(scan_id.clone(), sm_tests as u64).await?;
+        }
+
+        // Favicon Hash Scanner (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::FAVICON_HASH_DETECTION) {
+            info!("Scanning favicon for technology fingerprinting");
+            modules_used.push(crate::modules::ids::advanced_scanning::FAVICON_HASH_DETECTION.to_string());
+            let (fh_vulns, fh_tests) = self.favicon_hash_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(fh_vulns);
+            total_tests += fh_tests as u64;
+            queue.increment_tests(scan_id.clone(), fh_tests as u64).await?;
         }
 
         // API Security Check (Professional+)
@@ -1349,17 +1361,6 @@ impl ScanEngine {
         total_tests += info_tests as u64;
         queue.increment_tests(scan_id.clone(), info_tests as u64).await?;
 
-        // Host Header Injection Security Check (Professional+)
-        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::HOST_HEADER_INJECTION) {
-            info!("Checking for host header injection vulnerabilities");
-            modules_used.push(crate::modules::ids::advanced_scanning::HOST_HEADER_INJECTION.to_string());
-            let (hhi_vulns, hhi_tests) = self.host_header_injection_scanner
-                .scan(&target, &config)
-                .await?;
-            all_vulnerabilities.extend(hhi_vulns);
-            total_tests += hhi_tests as u64;
-            queue.increment_tests(scan_id.clone(), hhi_tests as u64).await?;
-        }
 
         // Cache Poisoning Security Check (Professional+)
         if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::CACHE_POISONING) {
