@@ -113,6 +113,8 @@ pub mod react_security;
 pub mod django_security;
 pub mod liferay_security;
 pub mod parameter_filter;
+pub mod prototype_pollution;
+pub mod host_header_injection;
 
 // External security scanners
 pub mod external;
@@ -206,6 +208,8 @@ pub use sveltekit_security::SvelteKitSecurityScanner;
 pub use react_security::ReactSecurityScanner;
 pub use django_security::DjangoSecurityScanner;
 pub use liferay_security::LiferaySecurityScanner;
+pub use prototype_pollution::PrototypePollutionScanner;
+pub use host_header_injection::HostHeaderInjectionScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -299,6 +303,8 @@ pub struct ScanEngine {
     pub react_security_scanner: ReactSecurityScanner,
     pub django_security_scanner: DjangoSecurityScanner,
     pub liferay_security_scanner: LiferaySecurityScanner,
+    pub prototype_pollution_scanner: PrototypePollutionScanner,
+    pub host_header_injection_scanner: HostHeaderInjectionScanner,
     pub google_dorking_scanner: GoogleDorkingScanner,
     pub log4j_scanner: Log4jScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
@@ -483,6 +489,8 @@ impl ScanEngine {
             react_security_scanner: ReactSecurityScanner::new(Arc::clone(&http_client)),
             django_security_scanner: DjangoSecurityScanner::new(Arc::clone(&http_client)),
             liferay_security_scanner: LiferaySecurityScanner::new(Arc::clone(&http_client)),
+            prototype_pollution_scanner: PrototypePollutionScanner::new(Arc::clone(&http_client)),
+            host_header_injection_scanner: HostHeaderInjectionScanner::new(Arc::clone(&http_client)),
             google_dorking_scanner: GoogleDorkingScanner::new(),
             log4j_scanner: Log4jScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),

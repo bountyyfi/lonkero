@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**94+ Advanced Scanners** | **16 Premium Features** | **Smart AI Filtering** | **5% False Positives**
+**96+ Advanced Scanners** | **16 Premium Features** | **Context-Aware** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -36,11 +36,11 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ## Core Capabilities
 
-### 94 Security Scanners
+### 96 Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
-| **Injection** | 25 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, HTML |
+| **Injection** | 27 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header |
 | **Authentication** | 18 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, Privilege Escalation |
 | **API Security** | 14 scanners | GraphQL, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3 |
 | **Frameworks** | 11 scanners | Next.js, React, Django, Laravel, WordPress, Drupal, Express |
@@ -67,41 +67,39 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ### Scanning Pipeline
 
-```mermaid
-graph TB
-    Start([Target URL]) --> Recon[Phase 0: Reconnaissance<br/>Tech Detection, Endpoint Discovery]
-
-    Recon --> Filter{Smart Filter}
-    Filter -->|Skip| Skip[Framework Internals]
-    Filter -->|Test| Priority[Prioritized Parameters]
-
-    Priority --> Injection[Phase 1: Injection<br/>SQLi, XSS, XXE, NoSQL<br/>Command, LDAP, XPath<br/>SSRF, Template, HTML]
-
-    Injection --> Auth[Phase 2: Authentication<br/>JWT, OAuth, SAML<br/>Session, Cookie<br/>MFA, Password Reset]
-
-    Auth --> AuthZ[Phase 3: Authorization<br/>IDOR, Privilege Escalation<br/>Client-side Route Bypass<br/>Mass Assignment]
-
-    AuthZ --> Logic[Phase 4: Business Logic<br/>Race Conditions<br/>Payment/Discount Bypass<br/>Workflow Manipulation]
-
-    Logic --> API[Phase 5: API Security<br/>GraphQL, gRPC, REST<br/>WebSocket, Rate Limiting<br/>CORS, Cache Poisoning]
-
-    API --> Framework[Phase 6: Framework-Specific<br/>Next.js, React, Vue<br/>Laravel, Django, Rails<br/>WordPress, Drupal]
-
-    Framework --> Config[Phase 7: Configuration<br/>Security Headers, SSL/TLS<br/>Debug Mode, Directory Listing<br/>Backup Files, Git Exposure]
-
-    Config --> Info[Phase 8: Information Disclosure<br/>Sensitive Data Exposure<br/>Error Messages<br/>Source Code Leaks]
-
-    Info --> Report[Generate Report<br/>JSON/HTML/SARIF]
-
-    Report --> End([Scan Complete])
-
-    style Filter fill:#ff6b6b
-    style Injection fill:#e74c3c
-    style Auth fill:#3498db
-    style AuthZ fill:#9b59b6
-    style Logic fill:#e67e22
-    style API fill:#1abc9c
 ```
+Target URL
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 0: Reconnaissance                                        │
+│  Tech Detection, Endpoint Discovery, JS Mining                  │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Smart Filter (Context-Aware)                                   │
+│  Skip: Framework internals, CSRF tokens, session IDs            │
+│  Test: User inputs, API parameters, form fields                 │
+└─────────────────────────────────────────────────────────────────┘
+    │
+    ├──▶ Phase 1: Injection (SQLi, XSS, XXE, NoSQL, Cmd, SSRF)
+    ├──▶ Phase 2: Authentication (JWT, OAuth, SAML, MFA)
+    ├──▶ Phase 3: Authorization (IDOR, Privilege Escalation)
+    ├──▶ Phase 4: Business Logic (Race Conditions, Workflow)
+    ├──▶ Phase 5: API Security (GraphQL, gRPC, WebSocket)
+    ├──▶ Phase 6: Framework-Specific (Next.js, React, Django)
+    ├──▶ Phase 7: Configuration (Headers, SSL/TLS, Cloud)
+    └──▶ Phase 8: Information Disclosure (Secrets, Source Maps)
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Report Generation                                               │
+│  JSON, HTML, PDF, SARIF, CSV, XLSX, Markdown                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+All scanners are **context-aware** - they adapt testing based on detected technology stack.
 
 ---
 
@@ -118,29 +116,16 @@ Result: 2,800 requests, 0 vulnerabilities, 28 seconds
 
 ### The Solution
 
-```mermaid
-sequenceDiagram
-    participant Scanner
-    participant Filter as Smart Filter
-    participant Target
+Lonkero's smart filter analyzes each parameter and decides whether to test it:
 
-    Scanner->>Filter: Analyze: __react_state
-    Filter-->>Scanner: Skip (Framework Internal)
-
-    Scanner->>Filter: Analyze: _nextData
-    Filter-->>Scanner: Skip (Framework Internal)
-
-    Scanner->>Filter: Analyze: email
-    Filter-->>Scanner: Priority 10 (User Input)
-
-    Scanner->>Target: Test SQLi on email parameter
-    Target-->>Scanner: Vulnerability Found
-
-    Scanner->>Filter: Analyze: password
-    Filter-->>Scanner: Priority 10 (Credentials)
-
-    Scanner->>Target: Test injection on password
-    Target-->>Scanner: Vulnerability Found
+```
+Parameter Analysis:
+  __react_state  → SKIP (Framework Internal)
+  _nextData      → SKIP (Framework Internal)
+  csrfToken      → SKIP (Security Token)
+  email          → TEST (Priority 10 - User Input)
+  password       → TEST (Priority 10 - Credentials)
+  search         → TEST (Priority 8 - User Input)
 ```
 
 ### Performance Impact
@@ -260,36 +245,6 @@ lonkero scan --config lonkero.yml
 
 ## Scanner Categories
 
-### Injection Vulnerabilities (20 scanners)
-
-```mermaid
-graph TD
-    Injection[Injection Scanners] --> SQLi[SQL Injection]
-    Injection --> XSS[Cross-Site Scripting]
-    Injection --> XXE[XML External Entity]
-    Injection --> NoSQL[NoSQL Injection]
-    Injection --> CMD[Command Injection]
-    Injection --> LDAP[LDAP Injection]
-    Injection --> XPATH[XPath Injection]
-    Injection --> SSTI[Template Injection]
-    Injection --> SSRF[Server-Side Request Forgery]
-
-    SQLi --> SQLi1[Boolean-based Blind]
-    SQLi --> SQLi2[Time-based Blind]
-    SQLi --> SQLi3[Binary Search]
-    SQLi --> SQLi4[Second-order]
-
-    XSS --> XSS1[Reflected]
-    XSS --> XSS2[Stored]
-    XSS --> XSS3[DOM-based]
-    XSS --> XSS4[Mutation XSS]
-    XSS --> XSS5[SVG-based]
-
-    style SQLi fill:#ff6b6b
-    style XSS fill:#4ecdc4
-    style XXE fill:#ffe66d
-```
-
 ### Authentication & Authorization (18 scanners)
 
 - **JWT** - Algorithm confusion, weak secrets, None algorithm, key injection
@@ -306,7 +261,7 @@ graph TD
 - **WebAuthn** - Biometric authentication bypass
 - **BOLA** - Broken object level authorization (API-specific IDOR)
 
-### Injection Vulnerabilities (25 scanners)
+### Injection Vulnerabilities (27 scanners)
 
 - **SQL Injection** - Enhanced detection, blind (boolean/time/binary search), second-order
 - **XSS** - Enhanced detection, DOM-based, mutation XSS, SVG-based, stored/reflected
