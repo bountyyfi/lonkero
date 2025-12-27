@@ -73,6 +73,11 @@ impl ApiGatewayScanner {
             tests_run += tests;
         }
 
+        // Always test for BFF/Internal gateway exposure
+        let (vulns, tests) = self.test_bff_internal_discovery(url).await?;
+        vulnerabilities.extend(vulns);
+        tests_run += tests;
+
         Ok((vulnerabilities, tests_run))
     }
 
@@ -446,6 +451,238 @@ impl ApiGatewayScanner {
         Ok((vulnerabilities, tests_run))
     }
 
+    /// Test for BFF (Backend-For-Frontend) and internal gateway exposure
+    /// Detects: internal API URLs in redirects, BFF config endpoints, gatewayInternal exposure
+    async fn test_bff_internal_discovery(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+        let base_url = self.extract_base_url(url);
+
+        info!("Testing for BFF/Internal gateway exposure");
+
+        // Common BFF (Backend-For-Frontend) path patterns
+        let bff_paths = vec![
+            // BFF endpoints
+            "/cx-bff/config/",
+            "/cx-bff/config/.?params=test",
+            "/bff/config/",
+            "/bff/api/",
+            "/_bff/",
+            "/api-bff/",
+            // Gateway internal endpoints
+            "/gateway/internal/",
+            "/gatewayInternal/",
+            "/internal-api/",
+            "/internal/",
+            "/proxy/internal/",
+            // Config discovery
+            "/config/",
+            "/api/config/",
+            "/api/internal/",
+            "/.internal/",
+            // Graph/Federation
+            "/graphql/internal/",
+            "/federation/",
+            // Service mesh
+            "/service/internal/",
+            "/mesh/",
+            "/sidecar/",
+        ];
+
+        // Fuzz suffixes to append for path-based discovery
+        let fuzz_suffixes = vec![
+            "",
+            "FUZZ",
+            "test",
+            "../",
+            "..;/",
+            "..",
+            "config",
+            "internal",
+            "admin",
+            "debug",
+        ];
+
+        for path in &bff_paths {
+            for suffix in &fuzz_suffixes {
+                let test_path = if suffix.is_empty() {
+                    path.to_string()
+                } else {
+                    format!("{}{}", path, suffix)
+                };
+
+                let test_url = format!("{}{}", base_url, test_path);
+                tests_run += 1;
+
+                match self.http_client.get(&test_url).await {
+                    Ok(response) => {
+                        // Check for 302 redirect to internal URLs
+                        if response.status_code == 302 || response.status_code == 301 {
+                            if let Some(location) = response.headers.get("location")
+                                .or_else(|| response.headers.get("Location")) {
+                                // Check if redirect reveals internal endpoints
+                                if self.is_internal_url(location) {
+                                    info!("Found internal URL in redirect: {}", location);
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        &test_url,
+                                        "Internal API URL Exposed via Redirect",
+                                        &test_path,
+                                        &format!(
+                                            "BFF/Gateway endpoint redirects to internal API URL. \
+                                            This exposes internal infrastructure details and may allow \
+                                            access to internal services. Redirect target: {}",
+                                            location
+                                        ),
+                                        &format!(
+                                            "Request: GET {}\nStatus: {}\nLocation: {}",
+                                            test_url, response.status_code, location
+                                        ),
+                                        Severity::High,
+                                        "CWE-200",
+                                        7.5,
+                                    ));
+                                }
+                            }
+                        }
+
+                        // Check response body for internal gateway indicators
+                        let internal_indicators = vec![
+                            ("gatewayInternal", "Internal gateway URL exposed"),
+                            ("internalApi", "Internal API reference"),
+                            ("internal-service", "Internal service reference"),
+                            ("backstage", "Backstage/internal reference"),
+                            (".internal.", "Internal domain reference"),
+                            ("localhost:", "Localhost reference"),
+                            ("127.0.0.1:", "Loopback IP reference"),
+                            ("10.0.", "Internal IP (10.x.x.x)"),
+                            ("172.16.", "Internal IP (172.16.x.x)"),
+                            ("192.168.", "Internal IP (192.168.x.x)"),
+                        ];
+
+                        for (indicator, desc) in &internal_indicators {
+                            if response.body.contains(indicator) {
+                                info!("Found internal indicator '{}' in response", indicator);
+
+                                // Avoid duplicates
+                                let vuln_exists = vulnerabilities.iter().any(|v| {
+                                    v.evidence.as_ref().map(|e| e.contains(indicator)).unwrap_or(false)
+                                });
+
+                                if !vuln_exists {
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        &test_url,
+                                        "Internal Infrastructure Exposure",
+                                        &test_path,
+                                        &format!(
+                                            "Response contains internal infrastructure reference: {}. \
+                                            This may expose internal service URLs, IPs, or architecture details \
+                                            that could aid attackers in lateral movement.",
+                                            desc
+                                        ),
+                                        &format!(
+                                            "Request: GET {}\nIndicator found: {}\nResponse excerpt: {}",
+                                            test_url,
+                                            indicator,
+                                            self.extract_context(&response.body, indicator)
+                                        ),
+                                        Severity::Medium,
+                                        "CWE-200",
+                                        5.3,
+                                    ));
+                                }
+                            }
+                        }
+
+                        // Check for path reflection in JSON error responses (401/403)
+                        if (response.status_code == 401 || response.status_code == 403)
+                            && response.body.contains("\"path\"")
+                            && response.body.contains(&test_path.replace("FUZZ", ""))
+                        {
+                            // Check if it's a JSON response with path reflection
+                            if response.body.trim_start().starts_with('{') {
+                                info!("Found path reflection in JSON error response");
+
+                                let vuln_exists = vulnerabilities.iter().any(|v| {
+                                    v.vuln_type == "BFF Path Reflection in Error Response"
+                                });
+
+                                if !vuln_exists {
+                                    vulnerabilities.push(self.create_vulnerability(
+                                        &test_url,
+                                        "BFF Path Reflection in Error Response",
+                                        &test_path,
+                                        "BFF/Gateway endpoint reflects the requested path in JSON error responses. \
+                                        This can be used for endpoint enumeration and may indicate \
+                                        additional hidden endpoints that could be discovered via fuzzing.",
+                                        &format!(
+                                            "Request: GET {}\nStatus: {}\nResponse:\n{}",
+                                            test_url,
+                                            response.status_code,
+                                            self.truncate_body(&response.body, 500)
+                                        ),
+                                        Severity::Low,
+                                        "CWE-200",
+                                        3.1,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!("BFF test request failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check if URL appears to be internal
+    fn is_internal_url(&self, url: &str) -> bool {
+        let url_lower = url.to_lowercase();
+
+        // Internal domain patterns
+        url_lower.contains("internal") ||
+        url_lower.contains("backstage") ||
+        url_lower.contains("localhost") ||
+        url_lower.contains("127.0.0.1") ||
+        url_lower.contains("10.0.") ||
+        url_lower.contains("10.1.") ||
+        url_lower.contains("172.16.") ||
+        url_lower.contains("172.17.") ||
+        url_lower.contains("192.168.") ||
+        url_lower.contains(".local") ||
+        url_lower.contains(".corp") ||
+        url_lower.contains(".internal") ||
+        url_lower.contains(":8080") ||
+        url_lower.contains(":3000") ||
+        url_lower.contains(":5000") ||
+        url_lower.contains(":9000") ||
+        url_lower.contains("gateway-internal") ||
+        url_lower.contains("api-internal")
+    }
+
+    /// Extract context around a match
+    fn extract_context(&self, body: &str, needle: &str) -> String {
+        if let Some(pos) = body.find(needle) {
+            let start = pos.saturating_sub(50);
+            let end = (pos + needle.len() + 50).min(body.len());
+            format!("...{}...", &body[start..end])
+        } else {
+            String::new()
+        }
+    }
+
+    /// Truncate body for evidence
+    fn truncate_body(&self, body: &str, max_len: usize) -> String {
+        if body.len() > max_len {
+            format!("{}...", &body[..max_len])
+        } else {
+            body.to_string()
+        }
+    }
+
     fn extract_api_key(&self, body: &str) -> Option<String> {
         let patterns = vec![
             r#""api[_-]?key"\s*:\s*"([A-Za-z0-9\-_]{20,})""#,
@@ -626,6 +863,26 @@ impl ApiGatewayScanner {
                  6. Implement IP allowlisting for documentation access\n\
                  7. Consider removing schema endpoints entirely in production\n\
                  8. Use different configurations for dev vs production".to_string()
+            }
+            "Internal API URL Exposed via Redirect" => {
+                "1. Remove or restrict BFF config endpoints in production\n\
+                 2. Do not expose internal service URLs in redirects\n\
+                 3. Use relative URLs instead of absolute internal URLs\n\
+                 4. Implement proper network segmentation\n\
+                 5. Configure gateway to rewrite internal URLs before response\n\
+                 6. Use API gateway URL transformation rules\n\
+                 7. Audit all redirect responses for internal URL leakage\n\
+                 8. Implement allowlist-based redirect validation".to_string()
+            }
+            "Internal Infrastructure Exposure" | "BFF Path Reflection in Error Response" => {
+                "1. Sanitize error responses to remove internal references\n\
+                 2. Use generic error messages without infrastructure details\n\
+                 3. Configure BFF/gateway to strip internal URLs from responses\n\
+                 4. Implement proper response transformation at gateway level\n\
+                 5. Use environment-specific error handling (dev vs prod)\n\
+                 6. Audit response bodies for internal IP/domain leakage\n\
+                 7. Disable debug mode and verbose errors in production\n\
+                 8. Use centralized error handling with sanitization".to_string()
             }
             _ => "Follow OWASP API Security Top 10 guidelines and implement defense in depth".to_string(),
         }

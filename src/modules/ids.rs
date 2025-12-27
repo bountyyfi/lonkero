@@ -102,12 +102,12 @@ pub mod advanced_scanning {
     pub const MASS_ASSIGNMENT: &str = "mass_assignment";
     /// Deserialization scanner
     pub const DESERIALIZATION: &str = "deserialization";
-    /// Prototype pollution scanner
-    pub const PROTOTYPE_POLLUTION: &str = "prototype_pollution";
+    /// Source map detection scanner
+    pub const SOURCE_MAP_DETECTION: &str = "source_map_detection";
+    /// Favicon hash fingerprinting scanner
+    pub const FAVICON_HASH_DETECTION: &str = "favicon_hash_detection";
     /// Cache poisoning scanner
     pub const CACHE_POISONING: &str = "cache_poisoning";
-    /// Host header injection scanner
-    pub const HOST_HEADER_INJECTION: &str = "host_header_injection";
     /// CRLF injection scanner
     pub const CRLF_INJECTION: &str = "crlf_injection";
     /// Open redirect scanner
@@ -182,6 +182,8 @@ pub mod advanced_scanning {
     pub const AUTH_MANAGER: &str = "auth_manager";
     /// Azure APIM scanner
     pub const AZURE_APIM: &str = "azure_apim";
+    /// Google Dorking scanner
+    pub const GOOGLE_DORKING: &str = "google_dorking";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -369,6 +371,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::ADVANCED_AUTH,
         advanced_scanning::AUTH_MANAGER,
         advanced_scanning::AZURE_APIM,
+        advanced_scanning::GOOGLE_DORKING,
         // Cloud Scanning (Team+)
         cloud_scanning::AWS_S3_SCANNER,
         cloud_scanning::AWS_EC2_SCANNER,

