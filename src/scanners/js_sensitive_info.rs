@@ -508,9 +508,13 @@ impl JsSensitiveInfoScanner {
                 },
                 CompiledPattern {
                     name: "Active Directory/LDAP Reference".to_string(),
-                    // Must be in LDAP context - look for actual LDAP DN patterns, not minified JS like oU=!0
-                    // Require proper LDAP format: CN=value, DC=value, OU=value (with actual values, not JS)
-                    regex: Regex::new(r#"(?i)(?:ldap://[^\s\"'<>]+|active[_-]?directory[^\s\"'<>]*|(?:CN|DC|OU)=[a-zA-Z][a-zA-Z0-9_\- ]{2,}(?:,\s*(?:CN|DC|OU)=[a-zA-Z][a-zA-Z0-9_\- ]+)*)"#).unwrap(),
+                    // Must be in LDAP context - look for actual LDAP URLs or complete DN patterns
+                    // IMPORTANT: Do NOT match standalone OU=, CN=, DC= as these appear in minified JS (e.g., oU=!0)
+                    // Only match:
+                    // 1. Complete LDAP URLs: ldap://...
+                    // 2. Complete DN with multiple components: CN=value,DC=value or OU=value,DC=value
+                    // 3. Explicit "active_directory" or "active-directory" strings
+                    regex: Regex::new(r#"(?i)(?:ldap://[a-zA-Z0-9\.\-]+(?::\d+)?(?:/[^\s\"'<>]*)?|active[_-]directory\b|(?:CN|OU)=[a-zA-Z][a-zA-Z0-9_\- ]{2,},\s*(?:DC|OU|CN)=[a-zA-Z][a-zA-Z0-9_\- ]+)"#).unwrap(),
                     severity: Severity::Medium,
                     description: "Active Directory/LDAP reference found - reveals internal identity infrastructure".to_string(),
                     cwe: "CWE-200".to_string(),
@@ -826,9 +830,17 @@ impl JsSensitiveInfoScanner {
 
         // Skip Jira patterns that are common CSS/JS/web false positives
         if pattern_name == "Jira Ticket Reference" {
+            let matched_lower = matched.to_lowercase();
             let parts: Vec<&str> = matched.split('-').collect();
+
             if parts.len() == 2 {
                 let prefix = parts[0].to_uppercase();
+                let suffix = parts[1];
+
+                // Skip if suffix is too short (< 2 digits) - likely CSS/JS patterns
+                if suffix.len() < 2 {
+                    return true;
+                }
 
                 // Skip common false positives like ISO codes, CSS classes, etc.
                 let common_fp_prefixes = [
@@ -842,22 +854,40 @@ impl JsSensitiveInfoScanner {
                     "TOP", "BOTTOM", "LEFT", "RIGHT", // Positions
                     "SCRIPT", "STYLE", "LINK",     // HTML tags
                     "INSET", "OUTSET",             // CSS values
-                    "INDEX", "LENGTH", "LAST",     // JS properties
+                    "INDEX", "LENGTH", "LAST", "LASTINDEX", // JS properties
                     "PANOSE",                       // Font metadata
+                    "SEC", "MIN", "MAX",           // Time/math abbreviations
+                    "FI", "FL", "FF",              // Font ligatures
+                    "ID", "REF", "KEY",            // Generic identifiers
                 ];
                 if common_fp_prefixes.iter().any(|fp| prefix == *fp) {
                     return true;
                 }
 
-                // Also check for common CSS/Tailwind patterns
-                let matched_lower = matched.to_lowercase();
+                // Also check for common CSS/Tailwind patterns (case insensitive)
                 let css_patterns = [
                     "col-", "row-", "flex-", "grid-", "gap-", "space-",
                     "text-", "font-", "bg-", "border-", "rounded-",
                     "px-", "py-", "pt-", "pb-", "pl-", "pr-", "mx-", "my-",
-                    "w-", "h-", "min-", "max-",
+                    "w-", "h-", "min-", "max-", "z-", "top-", "left-", "right-", "bottom-",
+                    "inset-", "opacity-", "scale-", "rotate-", "translate-",
+                    "duration-", "delay-", "ease-", "transition-",
+                    "sr-", "not-", "group-", "peer-", "focus-", "hover-",
+                    "active-", "disabled-", "checked-", "first-", "last-",
+                    "odd-", "even-", "xs-", "sm-", "md-", "lg-", "xl-",
                 ];
                 if css_patterns.iter().any(|p| matched_lower.starts_with(p)) {
+                    return true;
+                }
+
+                // Skip common JS property patterns
+                let js_patterns = [
+                    "length-", "index-", "count-", "size-", "width-", "height-",
+                    "offset-", "margin-", "padding-", "border-", "radius-",
+                    "timeout-", "interval-", "delay-", "version-", "revision-",
+                    "lastindex-", "script-", "style-", "class-", "data-",
+                ];
+                if js_patterns.iter().any(|p| matched_lower.starts_with(p)) {
                     return true;
                 }
             }
