@@ -43,6 +43,11 @@ impl SourceMapScanner {
         url: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // License check
+        if !crate::license::verify_scan_authorized() {
+            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+        }
+
         info!("Scanning for JavaScript source maps");
 
         let mut vulnerabilities = Vec::new();

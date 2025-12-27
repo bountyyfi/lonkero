@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**90+ Advanced Scanners** | **16 Premium Features** | **Smart AI Filtering** | **5% False Positives**
+**94+ Advanced Scanners** | **16 Premium Features** | **Smart AI Filtering** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -36,7 +36,7 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ## Core Capabilities
 
-### 91 Security Scanners
+### 94 Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
@@ -46,8 +46,8 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 | **Frameworks** | 11 scanners | Next.js, React, Django, Laravel, WordPress, Drupal, Express |
 | **Configuration** | 13 scanners | Headers, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF |
 | **Business Logic** | 6 scanners | Race Conditions, Payment Bypass, Workflow Manipulation |
-| **Info Disclosure** | 8 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets |
-| **Specialized** | 6 scanners | CVE Detection, Version Mapping, ReDoS |
+| **Info Disclosure** | 10 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets, Source Maps, Favicon Fingerprinting |
+| **Specialized** | 7 scanners | CVE Detection, Version Mapping, ReDoS, Google Dorking |
 
 ### Smart Scanning Features
 
@@ -378,7 +378,7 @@ graph TD
 - **File Upload** - Enhanced validation bypass, polyglot files
 - **IDOR Analyzer** - Advanced object reference testing
 
-### Information Disclosure (8 scanners)
+### Information Disclosure (10 scanners)
 
 - **Information Disclosure** - Sensitive data exposure
 - **Sensitive Data** - PII, credentials, API keys
@@ -388,8 +388,10 @@ graph TD
 - **JS Sensitive Info** - Client-side data leakage
 - **Session Analyzer** - Session token analysis
 - **Baseline Detector** - Deviation detection
+- **Source Map Detection** - Exposed JavaScript source maps revealing original source code
+- **Favicon Hash Detection** - Technology fingerprinting via favicon hash (Shodan-compatible)
 
-### Specialized Scanners (5 scanners)
+### Specialized Scanners (7 scanners)
 
 - **CVE-2025-55182** - Specific vulnerability scanner
 - **CVE-2025-55183** - Specific vulnerability scanner
@@ -397,6 +399,7 @@ graph TD
 - **Framework Vulnerabilities** - Generic framework CVEs
 - **Merlin** - Version detection and vulnerability mapping
 - **ReDoS** - Regular expression denial of service
+- **Google Dorking** - Search engine reconnaissance (use `--dork` flag)
 
 ---
 

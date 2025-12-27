@@ -42,6 +42,11 @@ impl FaviconHashScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // License check
+        if !crate::license::verify_scan_authorized() {
+            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+        }
+
         info!("Scanning for favicon hash fingerprinting");
 
         let mut vulnerabilities = Vec::new();

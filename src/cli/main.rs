@@ -2596,6 +2596,22 @@ async fn execute_standalone_scan(
         }
     }
 
+    // Source Map Detection Scanner (Professional+)
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::SOURCE_MAP_DETECTION) {
+        info!("  - Scanning for Exposed Source Maps");
+        let (vulns, tests) = engine.source_map_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // Favicon Hash Detection Scanner (Professional+)
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::FAVICON_HASH_DETECTION) {
+        info!("  - Scanning Favicon for Technology Fingerprinting");
+        let (vulns, tests) = engine.favicon_hash_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
     // Rate Limiting Scanner (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::RATE_LIMITING) {
         info!("  - Testing Rate Limiting");
