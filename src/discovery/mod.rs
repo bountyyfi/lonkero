@@ -9,5 +9,7 @@
  */
 
 pub mod subdomain_discovery;
+pub mod endpoint_discovery;
 
 pub use subdomain_discovery::{SubdomainDiscovery, DiscoveryConfig, SubdomainInfo};
+pub use endpoint_discovery::{EndpointDiscovery, DiscoveredEndpoint, EndpointCategory};

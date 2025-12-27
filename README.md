@@ -68,34 +68,34 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 ### Scanning Pipeline
 
 ```
-Target URL
-    │
-    ▼
+                              Target URL
+                                  │
+                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Phase 0: Reconnaissance                                        │
 │  Tech Detection, Endpoint Discovery, JS Mining                  │
 └─────────────────────────────────────────────────────────────────┘
-    │
-    ▼
+                                  │
+                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Smart Filter (Context-Aware)                                   │
 │  Skip: Framework internals, CSRF tokens, session IDs            │
 │  Test: User inputs, API parameters, form fields                 │
 └─────────────────────────────────────────────────────────────────┘
-    │
-    ├──▶ Phase 1: Injection (SQLi, XSS, XXE, NoSQL, Cmd, SSRF)
-    ├──▶ Phase 2: Authentication (JWT, OAuth, SAML, MFA)
-    ├──▶ Phase 3: Authorization (IDOR, Privilege Escalation)
-    ├──▶ Phase 4: Business Logic (Race Conditions, Workflow)
-    ├──▶ Phase 5: API Security (GraphQL, gRPC, WebSocket)
-    ├──▶ Phase 6: Framework-Specific (Next.js, React, Django)
-    ├──▶ Phase 7: Configuration (Headers, SSL/TLS, Cloud)
-    └──▶ Phase 8: Information Disclosure (Secrets, Source Maps)
-    │
-    ▼
+                                  │
+    ┌─────────────────────────────┼─────────────────────────────┐
+    │                             │                             │
+    ▼                             ▼                             ▼
+ Phase 1-3                    Phase 4-5                    Phase 6-8
+ Injection                    Business                     Framework
+ Authentication               API Security                 Configuration
+ Authorization                                             Info Disclosure
+    │                             │                             │
+    └─────────────────────────────┼─────────────────────────────┘
+                                  │
+                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Report Generation                                               │
-│  JSON, HTML, PDF, SARIF, CSV, XLSX, Markdown                    │
+│  Report Generation (JSON, HTML, PDF, SARIF, CSV, XLSX, MD)      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,40 +103,16 @@ All scanners are **context-aware** - they adapt testing based on detected techno
 
 ---
 
-## Smart Parameter Filtering
+## Context-Aware Filtering
 
-### The Problem
+Lonkero automatically skips untestable elements (framework state, CSRF tokens, language selectors) and prioritizes high-value injection points.
 
-Traditional scanners waste 95% of resources testing framework internals:
-
-```
-Testing: __react_state, _nextData, csrfToken, sessionId, timestamp, buildId...
-Result: 2,800 requests, 0 vulnerabilities, 28 seconds
-```
-
-### The Solution
-
-Lonkero's smart filter analyzes each parameter and decides whether to test it:
-
-```
-Parameter Analysis:
-  __react_state  → SKIP (Framework Internal)
-  _nextData      → SKIP (Framework Internal)
-  csrfToken      → SKIP (Security Token)
-  email          → TEST (Priority 10 - User Input)
-  password       → TEST (Priority 10 - Credentials)
-  search         → TEST (Priority 8 - User Input)
-```
-
-### Performance Impact
-
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Parameters Tested | 100 | 20 | 80% reduction |
-| Total Requests | 2,800 | 560 | 80% reduction |
-| Scan Time | 28s | 6s | 78% faster |
-| Vulnerabilities Found | 2 | 2 | 100% coverage |
-| False Positives | 15 | 1 | 93% reduction |
+| Metric | Traditional | Lonkero |
+|--------|-------------|---------|
+| Parameters tested | 100 | 20 |
+| Requests sent | 2,800 | 560 |
+| Scan time | 28s | 6s |
+| False positives | 15 | 1 |
 
 ---
 

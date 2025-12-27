@@ -640,6 +640,19 @@ impl WebCrawler {
                 continue;
             }
 
+            // For select elements, extract options and check if it's a language selector
+            let options = if tag_name == "select" {
+                self.extract_select_options(&input_element)
+            } else {
+                None
+            };
+
+            // Skip language/locale selectors - they're not attack vectors
+            if tag_name == "select" && self.is_language_select_options(&options) {
+                debug!("Skipping language selector select element");
+                continue;
+            }
+
             // Get name from multiple sources (expanded)
             let name = input_element.value().attr("name")
                 .or_else(|| input_element.value().attr("id"))
@@ -675,7 +688,7 @@ impl WebCrawler {
                 name: final_name,
                 input_type: input_type.clone(),
                 value,
-                options: None,
+                options,
                 required: false,
             });
         }
@@ -1097,6 +1110,59 @@ impl WebCrawler {
         }
 
         forms
+    }
+
+    /// Extract options from a select element
+    fn extract_select_options(&self, select_element: &scraper::ElementRef) -> Option<Vec<String>> {
+        let option_selector = Selector::parse("option").ok()?;
+        let options: Vec<String> = select_element
+            .select(&option_selector)
+            .filter_map(|opt| {
+                // First try value attribute
+                if let Some(val) = opt.value().attr("value") {
+                    if !val.is_empty() {
+                        return Some(val.to_string());
+                    }
+                }
+                // Fall back to text content
+                let text = opt.text().collect::<String>();
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    Some(trimmed.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if options.is_empty() {
+            None
+        } else {
+            Some(options)
+        }
+    }
+
+    /// Check if select options look like a language/locale selector
+    fn is_language_select_options(&self, options: &Option<Vec<String>>) -> bool {
+        if let Some(opts) = options {
+            let lang_codes = [
+                "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru",
+                "en-us", "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es",
+                "english", "finnish", "swedish", "german", "french", "spanish", "italian",
+                "suomi", "svenska", "deutsch", "français", "español",
+            ];
+
+            // If most options are language codes, it's a language selector
+            let lang_matches = opts.iter().filter(|opt| {
+                let opt_lower = opt.to_lowercase();
+                lang_codes.iter().any(|lc| opt_lower == *lc || opt_lower.starts_with(&format!("{}-", lc)))
+            }).count();
+
+            // If at least 2 options match language codes, consider it a language selector
+            lang_matches >= 2
+        } else {
+            false
+        }
     }
 
     /// Extract links from HTML

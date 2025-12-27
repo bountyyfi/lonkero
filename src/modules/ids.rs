@@ -188,6 +188,8 @@ pub mod advanced_scanning {
     pub const AZURE_APIM: &str = "azure_apim";
     /// Google Dorking scanner
     pub const GOOGLE_DORKING: &str = "google_dorking";
+    /// Endpoint discovery (multilingual path brute-force)
+    pub const ENDPOINT_DISCOVERY: &str = "endpoint_discovery";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -376,6 +378,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::AUTH_MANAGER,
         advanced_scanning::AZURE_APIM,
         advanced_scanning::GOOGLE_DORKING,
+        advanced_scanning::ENDPOINT_DISCOVERY,
         // Cloud Scanning (Team+)
         cloud_scanning::AWS_S3_SCANNER,
         cloud_scanning::AWS_EC2_SCANNER,

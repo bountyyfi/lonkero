@@ -1038,25 +1038,31 @@ fn is_language_selector_form(form_inputs: &[lonkero_scanner::crawler::FormInput]
         || name_lower.chars().all(|c| c.is_ascii_digit() || c == '_');
 
     // Check if action URL looks like a language page
+    // Strip fragment (e.g., #pricing) before checking
     let action_lower = action.to_lowercase();
-    let is_language_url = action_lower.contains("/en/")
-        || action_lower.contains("/fi/")
-        || action_lower.contains("/sv/")
-        || action_lower.contains("/de/")
-        || action_lower.contains("/fr/")
-        || action_lower.contains("/es/")
-        || action_lower.contains("/it/")
-        || action_lower.contains("/nl/")
-        || action_lower.contains("/pt/")
-        || action_lower.contains("/ja/")
-        || action_lower.contains("/zh/")
-        || action_lower.contains("/ko/")
-        || action_lower.contains("/ru/")
-        || action_lower.ends_with("/en")
-        || action_lower.ends_with("/fi")
-        || action_lower.ends_with("/sv")
-        || action_lower.ends_with("/de")
-        || action_lower.ends_with("/fr");
+    let action_no_fragment = action_lower.split('#').next().unwrap_or(&action_lower);
+    let is_language_url = action_no_fragment.contains("/en/")
+        || action_no_fragment.contains("/fi/")
+        || action_no_fragment.contains("/sv/")
+        || action_no_fragment.contains("/de/")
+        || action_no_fragment.contains("/fr/")
+        || action_no_fragment.contains("/es/")
+        || action_no_fragment.contains("/it/")
+        || action_no_fragment.contains("/nl/")
+        || action_no_fragment.contains("/pt/")
+        || action_no_fragment.contains("/ja/")
+        || action_no_fragment.contains("/zh/")
+        || action_no_fragment.contains("/ko/")
+        || action_no_fragment.contains("/ru/")
+        || action_no_fragment.ends_with("/en")
+        || action_no_fragment.ends_with("/fi")
+        || action_no_fragment.ends_with("/sv")
+        || action_no_fragment.ends_with("/de")
+        || action_no_fragment.ends_with("/fr")
+        || action_no_fragment.ends_with("/es")
+        || action_no_fragment.ends_with("/it")
+        || action_no_fragment.ends_with("/nl")
+        || action_no_fragment.ends_with("/pt");
 
     // Check if options look like language codes
     let has_language_options = if let Some(options) = &input.options {
