@@ -182,6 +182,8 @@ pub mod advanced_scanning {
     pub const AUTH_MANAGER: &str = "auth_manager";
     /// Azure APIM scanner
     pub const AZURE_APIM: &str = "azure_apim";
+    /// Google Dorking scanner
+    pub const GOOGLE_DORKING: &str = "google_dorking";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -369,6 +371,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::ADVANCED_AUTH,
         advanced_scanning::AUTH_MANAGER,
         advanced_scanning::AZURE_APIM,
+        advanced_scanning::GOOGLE_DORKING,
         // Cloud Scanning (Team+)
         cloud_scanning::AWS_S3_SCANNER,
         cloud_scanning::AWS_EC2_SCANNER,

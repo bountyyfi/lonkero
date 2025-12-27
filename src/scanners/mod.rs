@@ -101,6 +101,7 @@ pub mod js_sensitive_info;
 pub mod client_route_auth_bypass;
 pub mod rate_limiting;
 pub mod html_injection;
+pub mod google_dorking;
 pub mod wordpress_security;
 pub mod drupal_security;
 pub mod laravel_security;
@@ -193,6 +194,7 @@ pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
 pub use baseline_detector::BaselineDetector;
 pub use html_injection::HtmlInjectionScanner;
 pub use rate_limiting::RateLimitingScanner;
+pub use google_dorking::{GoogleDorkingScanner, GoogleDork, GoogleDorkingResults};
 pub use wordpress_security::WordPressSecurityScanner;
 pub use drupal_security::DrupalSecurityScanner;
 pub use laravel_security::LaravelSecurityScanner;
@@ -295,6 +297,7 @@ pub struct ScanEngine {
     pub react_security_scanner: ReactSecurityScanner,
     pub django_security_scanner: DjangoSecurityScanner,
     pub liferay_security_scanner: LiferaySecurityScanner,
+    pub google_dorking_scanner: GoogleDorkingScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
 }
 
@@ -477,6 +480,7 @@ impl ScanEngine {
             react_security_scanner: ReactSecurityScanner::new(Arc::clone(&http_client)),
             django_security_scanner: DjangoSecurityScanner::new(Arc::clone(&http_client)),
             liferay_security_scanner: LiferaySecurityScanner::new(Arc::clone(&http_client)),
+            google_dorking_scanner: GoogleDorkingScanner::new(),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
             http_client,
             config,

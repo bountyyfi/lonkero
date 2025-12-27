@@ -104,11 +104,19 @@ impl EnhancedXssScanner {
         let parameter_owned = parameter.to_string();
 
         // Get context-aware payloads
-        let payloads = if let Some(ctx) = context {
+        let mut payloads = if let Some(ctx) = context {
             self.get_context_aware_payloads(config, ctx)
         } else {
             payloads::get_xss_payloads(config.scan_mode.as_str())
         };
+
+        // Add email-specific XSS payloads for email parameters (context-aware)
+        // This avoids false positives by only testing email payloads on email fields
+        use crate::scanners::xss_detection::{get_email_xss_payloads, is_email_parameter};
+        if is_email_parameter(parameter) {
+            info!("[XSS] Detected email parameter '{}' - adding email-specific XSS payloads", parameter);
+            payloads.extend(get_email_xss_payloads());
+        }
 
         let total_payloads = payloads.len();
 

@@ -91,6 +91,10 @@ enum Commands {
         #[arg(long)]
         subdomains: bool,
 
+        /// Generate Google dork queries for reconnaissance (not enabled by default)
+        #[arg(long)]
+        dorks: bool,
+
         /// Enable web crawler (enabled by default to discover real parameters)
         #[arg(long, default_value = "true")]
         crawl: bool,
@@ -280,6 +284,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             output,
             format,
             subdomains,
+            dorks,
             crawl,
             max_depth,
             concurrency,
@@ -330,6 +335,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 output,
                 format,
                 subdomains,
+                dorks,
                 crawl,
                 max_depth,
                 concurrency,
@@ -619,6 +625,7 @@ async fn run_scan(
     output: Option<PathBuf>,
     format: OutputFormat,
     subdomains: bool,
+    dorks: bool,
     crawl: bool,
     max_depth: u32,
     concurrency: usize,
@@ -776,6 +783,45 @@ async fn run_scan(
     // Create scan engine
     let engine = Arc::new(ScanEngine::new(scanner_config.clone())?);
     info!("[OK] Scan engine initialized with {} scanner modules", 60);
+
+    // Google Dorking - generate reconnaissance queries if enabled
+    if dorks {
+        info!("");
+        info!("=== Google Dorking Reconnaissance ===");
+        info!("Generating Google dork queries for {} target(s)...", targets.len());
+        info!("");
+
+        use lonkero_scanner::scanners::GoogleDorkingScanner;
+
+        for target in &targets {
+            let dork_results = engine.google_dorking_scanner.generate_dorks(target);
+            let output_text = GoogleDorkingScanner::format_dorks_for_display(&dork_results);
+            println!("{}", output_text);
+
+            // If output file is specified, save dorks to a separate file
+            if let Some(ref out_path) = output {
+                let dorks_filename = out_path
+                    .with_file_name(format!(
+                        "{}_dorks.json",
+                        out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("scan")
+                    ));
+                let dorks_json = GoogleDorkingScanner::format_dorks_as_json(&dork_results);
+                if let Ok(json_str) = serde_json::to_string_pretty(&dorks_json) {
+                    if let Err(e) = std::fs::write(&dorks_filename, json_str) {
+                        warn!("Failed to write dorks file: {}", e);
+                    } else {
+                        info!("Google dorks saved to: {}", dorks_filename.display());
+                    }
+                }
+            }
+        }
+
+        info!("");
+        info!("=== Google Dorking Complete ===");
+        info!("Copy the queries above and use them in Google Search manually.");
+        info!("Note: Automated Google searches violate Google's Terms of Service.");
+        info!("");
+    }
 
     let start_time = Instant::now();
     let mut all_results: Vec<ScanResults> = Vec::new();
