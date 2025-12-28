@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**94+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
+**97+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -58,24 +58,27 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 **Key insight**: When technology detection fails, the fallback layer runs MORE comprehensive tests to ensure nothing is missed.
 
-### 94+ Security Scanners
+### 97+ Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
-| **Injection** | 27 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header |
-| **Authentication** | 19 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, Privilege Escalation, Cognito Enum |
-| **API Security** | 14 scanners | GraphQL, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3 |
-| **Frameworks** | 11 scanners | Next.js, React, Django, Laravel, WordPress, Drupal, Express |
-| **Configuration** | 13 scanners | Headers, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF |
-| **Business Logic** | 6 scanners | Race Conditions, Payment Bypass, Workflow Manipulation |
-| **Info Disclosure** | 10 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets, Source Maps, Favicon Fingerprinting |
-| **Specialized** | 7 scanners | CVE Detection, Version Mapping, ReDoS, Google Dorking |
+| **Injection** | 28 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header, Log4j/JNDI |
+| **Authentication** | 20 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, BOLA, Privilege Escalation, Cognito Enum, Client Route Bypass |
+| **API Security** | 15 scanners | GraphQL (advanced), gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3, Azure APIM |
+| **Frameworks** | 12 scanners | Next.js (route discovery), React, Django, Laravel, WordPress, Drupal, Express, SvelteKit |
+| **Configuration** | 14 scanners | Headers, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF, DNS Security |
+| **Business Logic** | 7 scanners | Race Conditions, Payment Bypass, Workflow Manipulation, Mass Assignment (advanced) |
+| **Info Disclosure** | 11 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets, Source Maps, Favicon Hash, HTML Injection |
+| **Specialized** | 8 scanners | CVE Detection, Version Mapping, ReDoS, Google Dorking, Attack Surface Enum |
 
 ### Smart Scanning Features
 
 - **Parameter Filtering** - Skips framework internals, prioritizes user input (80% faster scans)
 - **Blind Detection** - Time-based, error-based, boolean-based techniques
 - **Context-Aware** - Adapts testing based on detected technology stack
+- **SPA Detection** - Identifies React/Vue/Angular apps, handles soft-404 pages, discovers real API endpoints
+- **Route Discovery** - Automatically extracts routes from JavaScript bundles (Next.js App Router)
+- **Headless Browser** - Network interception, multi-stage form detection, authenticated crawling
 
 ### Enterprise Integration
 
@@ -159,6 +162,127 @@ Lonkero uses advanced techniques to detect blind vulnerabilities without relying
 
 ---
 
+## SPA Detection & Soft-404 Handling
+
+Lonkero v3.0 includes advanced Single Page Application (SPA) detection to eliminate false positives on modern JavaScript frameworks:
+
+### Problem
+SPAs (React, Vue, Angular, Next.js) return HTTP 200 for all routes, even non-existent ones. Traditional scanners report false positives because they see "successful" responses.
+
+### Solution
+Lonkero detects SPA signatures and handles soft-404s intelligently:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SPA Detection Signatures                                        │
+├─────────────────────────────────────────────────────────────────┤
+│  • <app-root> (Angular)                                          │
+│  • <div id="root"> (React)                                       │
+│  • __NEXT_DATA__ (Next.js)                                       │
+│  • __NUXT__ (Nuxt.js)                                            │
+│  • ng-version= (Angular)                                         │
+│  • polyfills.js pattern                                          │
+│  • /_next/static/ pattern                                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Headless Browser Features
+- **Network Interception** - Captures actual API endpoints from JavaScript
+- **Multi-Stage Forms** - Detects forms that appear after initial form submission
+- **Authenticated Crawling** - Injects tokens into localStorage for auth-required SPAs
+- **Route Discovery** - Extracts routes from JavaScript bundles
+
+---
+
+## Next.js Route Discovery
+
+Lonkero automatically discovers Next.js App Router routes from JavaScript bundles:
+
+### How It Works
+1. **Script Analysis** - Fetches all `_next/static/chunks/*.js` files
+2. **Pattern Extraction** - Finds route patterns like `/app/[path]/(page|layout)`
+3. **Dynamic Segments** - Expands `[param]` with test values (`[lng]` → `en`, `de`, `fr`)
+4. **Security Testing** - Tests discovered routes for middleware bypass vulnerabilities
+
+### Discovered Route Testing
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Route Discovery → Middleware Bypass Testing                     │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Extract routes from JS bundles                               │
+│  2. Filter protected routes (admin, dashboard, settings, etc.)   │
+│  3. Expand dynamic segments [lng], [id], [slug]                  │
+│  4. Test with x-middleware-subrequest header                     │
+│  5. Report CVE-2025-29927 if bypass successful                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Patterns Detected
+- App Router: `/app/dashboard/[id]/page` → `/dashboard/1`
+- Route Groups: `/app/(auth)/login/page` → `/login`
+- Catch-all: `/app/[...slug]/page` → `/test/page`
+- Optional: `/app/[[...slug]]/page` → `/` or `/test`
+
+---
+
+## AWS Cognito Enumeration
+
+Lonkero detects AWS Cognito user pools and tests for user enumeration vulnerabilities:
+
+### Detection Methods
+1. **JavaScript Analysis** - Extracts `userPoolId`, `clientId` from app bundles
+2. **CSP Header Analysis** - Detects `cognito-idp.{region}.amazonaws.com` in Content-Security-Policy
+3. **OAuth Redirect URLs** - Captures Cognito URLs from authentication redirects
+
+### Enumeration Techniques
+| API | Technique | Detection |
+|-----|-----------|-----------|
+| `ForgotPassword` | Response timing + CodeDeliveryDetails | User exists if delivery details returned |
+| `SignUp` | Error message analysis | "User already exists" vs "Invalid parameter" |
+| `InitiateAuth` | Error differentiation | "User not found" vs "Incorrect password" |
+
+### Example Finding
+```json
+{
+  "type": "AWS Cognito User Enumeration",
+  "severity": "Medium",
+  "evidence": "ForgotPassword returns CodeDeliveryDetails for existing users",
+  "remediation": "Enable advanced security features in Cognito"
+}
+```
+
+---
+
+## GraphQL Advanced Security Testing
+
+Lonkero includes comprehensive GraphQL security testing beyond basic introspection:
+
+### Attack Techniques
+
+| Attack | Description | Impact |
+|--------|-------------|--------|
+| **Introspection Abuse** | Extract full schema including hidden types | Information disclosure |
+| **Alias Abuse** | Multiply queries using aliases for DoS | Resource exhaustion |
+| **Batching DoS** | Send multiple operations in single request | API rate limit bypass |
+| **Cost Analysis** | Exploit expensive resolvers | DoS via computation |
+| **Persisted Queries** | Manipulate query hashes | Cache poisoning |
+| **Directive Abuse** | Exploit custom directives | Authorization bypass |
+| **Fragment Spreading** | Deep nesting via fragments | Stack overflow |
+| **Subscription Vulns** | Abuse real-time subscriptions | Data leakage |
+| **Authorization Bypass** | Query manipulation for access | Privilege escalation |
+
+### Example Alias Abuse Attack
+```graphql
+query {
+  a1: expensiveQuery { data }
+  a2: expensiveQuery { data }
+  a3: expensiveQuery { data }
+  # ... 100 aliases = 100x server load
+}
+```
+
+---
+
 ## Installation
 
 ### From Source (Recommended)
@@ -204,11 +328,15 @@ lonkero scan https://example.com --format pdf -o report.pdf
 ### Advanced Usage
 
 ```bash
-# Scan with authentication
+# Scan with authentication (cookie)
 lonkero scan https://example.com --cookie "session=abc123"
 
 # Scan with custom headers
 lonkero scan https://example.com --header "Authorization: Bearer token"
+
+# Auto-login with credentials
+lonkero scan https://example.com --auth-username admin --auth-password secret123
+lonkero scan https://example.com --auth-username admin --auth-password secret123 --auth-login-url https://example.com/login
 
 # Enable subdomain enumeration
 lonkero scan https://example.com --subdomains
@@ -216,8 +344,20 @@ lonkero scan https://example.com --subdomains
 # CI/CD integration (SARIF output)
 lonkero scan https://example.com --format sarif -o results.sarif
 
-# Google dorking reconnaissance (optional)
-lonkero scan https://example.com --dork
+# Google dorking reconnaissance
+lonkero scan https://example.com --dorks
+
+# Run specific modules only
+lonkero scan https://example.com --only sqli_enhanced,xss_enhanced,ssrf
+
+# Skip specific modules
+lonkero scan https://example.com --skip wordpress,drupal
+
+# Control crawl depth (default: 3)
+lonkero scan https://example.com --crawl --max-depth 5
+
+# Disable rate limiting (use with caution)
+lonkero scan https://example.com --no-rate-limit
 ```
 
 ### Configuration File
@@ -249,7 +389,7 @@ lonkero scan --config lonkero.yml
 
 ## Scanner Categories
 
-### Authentication & Authorization (19 scanners)
+### Authentication & Authorization (20 scanners)
 
 - **JWT** - Algorithm confusion, weak secrets, None algorithm, key injection
 - **OAuth 2.0** - Token theft, redirect manipulation, PKCE bypass, scope abuse
@@ -259,12 +399,12 @@ lonkero scan --config lonkero.yml
 - **Auth Bypass** - Parameter tampering, header injection, credential stuffing
 - **IDOR** - Object reference manipulation, baseline detection
 - **Privilege Escalation** - Horizontal and vertical privilege abuse
-- **Client Route Auth Bypass** - SPA authentication bypass
+- **Client Route Auth Bypass** - SPA authentication bypass via client-side routing manipulation
 - **Advanced Auth** - Complex authentication flow exploitation
 - **Password Reset** - Token prediction, account takeover
 - **WebAuthn** - Biometric authentication bypass
-- **BOLA** - Broken object level authorization (API-specific IDOR)
-- **Cognito Enumeration** - AWS Cognito user pool enumeration (SignUp, InitiateAuth, ForgotPassword)
+- **BOLA** - Broken object level authorization (API-specific IDOR with advanced baseline)
+- **Cognito Enumeration** - AWS Cognito user pool enumeration via ForgotPassword, SignUp, InitiateAuth APIs with CSP header detection
 
 ### Injection Vulnerabilities (27 scanners)
 
@@ -288,13 +428,13 @@ lonkero scan --config lonkero.yml
 - **HTTP Parameter Pollution** - HPP attacks
 - **Deserialization** - Unsafe object deserialization
 
-### API Security (14 scanners)
+### API Security (15 scanners)
 
-- **GraphQL** - Security scanner, batching DoS, cost analysis, introspection
+- **GraphQL Advanced** - Introspection, batching DoS, cost analysis, alias abuse, persisted queries, directive abuse, subscription vulnerabilities, fragment spreading, authorization bypass
 - **gRPC** - Reflection, enumeration, metadata abuse
 - **REST** - Mass assignment, API fuzzing, parameter pollution
 - **WebSocket** - Message injection, protocol abuse
-- **API Gateway** - Azure APIM, generic gateway vulnerabilities
+- **API Gateway** - Azure APIM cross-tenant bypass, generic gateway vulnerabilities
 - **API Security** - Comprehensive API testing
 - **Rate Limiting** - Bypass techniques
 - **CORS** - Misconfiguration detection
@@ -302,9 +442,9 @@ lonkero scan --config lonkero.yml
 - **HTTP/3** - QUIC-specific vulnerabilities
 - **HTTP Smuggling** - Request smuggling attacks
 
-### Modern Framework Scanners (11 scanners)
+### Modern Framework Scanners (12 scanners)
 
-- **Next.js** - Middleware bypass, server actions, routing vulnerabilities
+- **Next.js** - Route discovery from JS bundles, middleware bypass (CVE-2024-34351, CVE-2025-29927), `_next/data` exposure, server actions, image SSRF, ISR token exposure
 - **React** - DevTools exposure, hydration issues, client-side vulnerabilities
 - **SvelteKit** - CSRF bypass, SSR vulnerabilities
 - **Django** - DEBUG mode, ORM injection, middleware bypass
@@ -315,6 +455,7 @@ lonkero scan --config lonkero.yml
 - **Liferay** - Portal-specific vulnerabilities
 - **Tomcat** - Misconfiguration, default credentials
 - **Varnish** - Cache misconfiguration
+- **Angular** - Client-side template injection, router bypass
 
 ### Configuration & Security (13 scanners)
 
@@ -329,38 +470,41 @@ lonkero scan --config lonkero.yml
 - **Clickjacking** - Frame injection, UI redressing
 - **CSRF** - Cross-site request forgery
 
-### Business Logic (6 scanners)
+### Business Logic (7 scanners)
 
 - **Business Logic** - Advanced workflow exploitation
-- **Race Conditions** - TOCTOU, parallel request abuse
+- **Race Conditions** - TOCTOU, parallel request abuse, timing analysis
 - **Payment Manipulation** - Price tampering, discount abuse
 - **Workflow Bypass** - Multi-step form manipulation
-- **File Upload** - Enhanced validation bypass, polyglot files
-- **IDOR Analyzer** - Advanced object reference testing
+- **File Upload Advanced** - Polyglot files (PNG+PHP, JPEG+JSP), SVG XSS/XXE/SSRF, ZIP bomb, zip slip, null byte bypass, double extension
+- **Mass Assignment Advanced** - Nested object injection, dot notation, JSON deep merge, prototype pollution vectors, array parameter pollution
+- **IDOR Analyzer** - Advanced object reference testing with baseline detection
 
-### Information Disclosure (10 scanners)
+### Information Disclosure (11 scanners)
 
 - **Information Disclosure** - Sensitive data exposure
 - **Sensitive Data** - PII, credentials, API keys
 - **Debug Information** - Stack traces, verbose errors
-- **Source Code** - Git exposure, backup files
-- **JS Miner** - JavaScript secret extraction
+- **Source Code** - Git exposure, backup files, `.env` files
+- **JS Miner** - JavaScript secret extraction (AWS keys, API tokens, private keys)
 - **JS Sensitive Info** - Client-side data leakage
 - **Session Analyzer** - Session token analysis
 - **Baseline Detector** - Deviation detection
 - **Source Map Detection** - Exposed JavaScript source maps revealing original source code
 - **Favicon Hash Detection** - Technology fingerprinting via favicon hash (Shodan-compatible)
+- **HTML Injection** - Non-XSS markup injection for phishing and SEO poisoning
 
-### Specialized Scanners (8 scanners)
+### Specialized Scanners (9 scanners)
 
-- **CVE-2025-55182** - Specific vulnerability scanner
-- **CVE-2025-55183** - Specific vulnerability scanner
-- **CVE-2025-55184** - Specific vulnerability scanner
-- **Framework Vulnerabilities** - Generic framework CVEs
-- **Merlin** - Version detection and vulnerability mapping
+- **CVE Detection** - Known vulnerability scanners (CVE-2025-55182, CVE-2025-55183, CVE-2025-55184)
+- **Framework Vulnerabilities** - Generic framework CVEs with version detection
+- **Merlin** - JavaScript library version detection and vulnerability mapping
+- **Log4j/JNDI** - Log4Shell and JNDI injection detection
 - **ReDoS** - Regular expression denial of service
-- **Google Dorking** - Search engine reconnaissance (use `--dork` flag)
+- **Google Dorking** - Search engine reconnaissance (use `--dorks` flag)
 - **Endpoint Discovery** - Multilingual path brute-force (Finnish, Swedish, German, French, Spanish, etc.)
+- **Attack Surface Enum** - Comprehensive attack surface enumeration
+- **DNS Security** - DNS configuration and zone transfer testing
 
 ---
 
