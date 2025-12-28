@@ -15,7 +15,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::info;
 
 pub struct SourceMapScanner {
     http_client: Arc<HttpClient>,

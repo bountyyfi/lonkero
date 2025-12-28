@@ -16,7 +16,7 @@ use crate::http_client::HttpClient;
 use crate::queue::RedisQueue;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use crate::subdomain_enum::SubdomainEnumerator;
-use crate::types::{ScanJob, ScanMode, ScanResults, ScanContext, Severity, Vulnerability};
+use crate::types::{ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::sync::Arc;

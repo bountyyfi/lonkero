@@ -13,7 +13,7 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::info;
 
 pub struct AuthBypassScanner {
     http_client: Arc<HttpClient>,
