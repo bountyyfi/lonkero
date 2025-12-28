@@ -106,6 +106,8 @@ pub mod advanced_scanning {
     pub const PROTOTYPE_POLLUTION: &str = "prototype_pollution";
     /// Host header injection scanner
     pub const HOST_HEADER_INJECTION: &str = "host_header_injection";
+    /// AWS Cognito user enumeration scanner
+    pub const COGNITO_ENUM: &str = "cognito_enum";
     /// Source map detection scanner
     pub const SOURCE_MAP_DETECTION: &str = "source_map_detection";
     /// Favicon hash fingerprinting scanner
@@ -340,6 +342,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::PROTOTYPE_POLLUTION,
         advanced_scanning::CACHE_POISONING,
         advanced_scanning::HOST_HEADER_INJECTION,
+        advanced_scanning::COGNITO_ENUM,
         advanced_scanning::CRLF_INJECTION,
         advanced_scanning::OPEN_REDIRECT,
         advanced_scanning::FILE_UPLOAD,

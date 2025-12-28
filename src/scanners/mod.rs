@@ -115,6 +115,7 @@ pub mod liferay_security;
 pub mod parameter_filter;
 pub mod prototype_pollution;
 pub mod host_header_injection;
+pub mod cognito_enum;
 
 // External security scanners
 pub mod external;
@@ -210,6 +211,7 @@ pub use django_security::DjangoSecurityScanner;
 pub use liferay_security::LiferaySecurityScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use host_header_injection::HostHeaderInjectionScanner;
+pub use cognito_enum::CognitoEnumScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -305,6 +307,7 @@ pub struct ScanEngine {
     pub liferay_security_scanner: LiferaySecurityScanner,
     pub prototype_pollution_scanner: PrototypePollutionScanner,
     pub host_header_injection_scanner: HostHeaderInjectionScanner,
+    pub cognito_enum_scanner: CognitoEnumScanner,
     pub google_dorking_scanner: GoogleDorkingScanner,
     pub log4j_scanner: Log4jScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
@@ -491,6 +494,7 @@ impl ScanEngine {
             liferay_security_scanner: LiferaySecurityScanner::new(Arc::clone(&http_client)),
             prototype_pollution_scanner: PrototypePollutionScanner::new(Arc::clone(&http_client)),
             host_header_injection_scanner: HostHeaderInjectionScanner::new(Arc::clone(&http_client)),
+            cognito_enum_scanner: CognitoEnumScanner::new(Arc::clone(&http_client)),
             google_dorking_scanner: GoogleDorkingScanner::new(),
             log4j_scanner: Log4jScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
