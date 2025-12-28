@@ -1172,8 +1172,12 @@ impl HeadlessCrawler {
             visited.insert(current_url.clone());
             results.pages_visited.push(current_url.clone());
 
+            // Wait for JS to render first - SPAs often redirect via JavaScript after initial load
+            std::thread::sleep(Duration::from_millis(1500));
+
             // Check if we were redirected to a different URL (e.g., auth page)
             // This is important for detecting Cognito/OAuth login redirects
+            // We check AFTER the JS render wait because SPAs redirect via JavaScript
             if let Ok(actual_url) = tab.evaluate("window.location.href", false) {
                 if let Some(actual_url_str) = actual_url.value.as_ref().and_then(|v| v.as_str()) {
                     if actual_url_str != current_url && !visited.contains(actual_url_str) {
@@ -1185,9 +1189,6 @@ impl HeadlessCrawler {
                     }
                 }
             }
-
-            // Wait for JS to render
-            std::thread::sleep(Duration::from_millis(1500));
 
             // Extract forms from current page
             match Self::extract_forms_from_tab(&tab, &current_url) {

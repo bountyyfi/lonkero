@@ -80,31 +80,59 @@ impl CognitoEnumScanner {
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
+        let mut found_client_ids: HashSet<String> = HashSet::new();
 
         // First, check additional URLs for Cognito params (e.g., intercepted form endpoints)
         // These often contain the real Cognito auth URL with client_id
         for additional_url in additional_urls {
             if let Some(cognito_config) = self.extract_cognito_from_url(additional_url) {
-                info!("[Cognito] Found Cognito config from intercepted URL: client_id={}...",
-                      &cognito_config.client_id[..cognito_config.client_id.len().min(8)]);
-                let (vulns, tests) = self.test_user_enumeration(url, &cognito_config, config).await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests;
+                if !cognito_config.client_id.is_empty() && !found_client_ids.contains(&cognito_config.client_id) {
+                    info!("[Cognito] Found Cognito config from intercepted URL: client_id={}...",
+                          &cognito_config.client_id[..cognito_config.client_id.len().min(8)]);
+                    found_client_ids.insert(cognito_config.client_id.clone());
+                    let (vulns, tests) = self.test_user_enumeration(url, &cognito_config, config).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests;
+                }
             }
         }
 
         // Then extract Cognito configs from the main URL and its JavaScript
-        let configs = self.extract_cognito_configs(url).await?;
+        let mut configs = self.extract_cognito_configs(url).await?;
+
+        // If we found configs with empty client_id (e.g., from CSP header), try to find client_id from additional URLs
+        for cognito_config in &mut configs {
+            if cognito_config.client_id.is_empty() {
+                // Look through additional URLs for a client_id
+                for additional_url in additional_urls {
+                    if let Some(url_config) = self.extract_cognito_from_url(additional_url) {
+                        if !url_config.client_id.is_empty() {
+                            info!("[Cognito] Found client_id from redirect URL for region {}", cognito_config.region);
+                            cognito_config.client_id = url_config.client_id.clone();
+                            // Prefer the region from the URL if available
+                            if !url_config.region.is_empty() {
+                                cognito_config.region = url_config.region;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Filter out configs with empty client_id - we can't test without it
+        configs.retain(|c| !c.client_id.is_empty() && !found_client_ids.contains(&c.client_id));
 
         if configs.is_empty() && all_vulnerabilities.is_empty() {
-            debug!("[Cognito] No Cognito configurations found");
+            debug!("[Cognito] No usable Cognito configurations found (need client_id)");
             return Ok((all_vulnerabilities, total_tests));
         }
 
-        info!("[Cognito] Found {} Cognito configuration(s)", configs.len());
+        info!("[Cognito] Found {} Cognito configuration(s) with valid client_id", configs.len());
 
         // Test each configuration for user enumeration
         for cognito_config in &configs {
+            found_client_ids.insert(cognito_config.client_id.clone());
             let (vulns, tests) = self.test_user_enumeration(url, cognito_config, config).await?;
             all_vulnerabilities.extend(vulns);
             total_tests += tests;
@@ -132,6 +160,13 @@ impl CognitoEnumScanner {
         // Check if the original URL contains Cognito params
         if let Some(cognito_config) = self.extract_cognito_from_url(url) {
             info!("[Cognito] Detected Cognito OAuth2 flow from URL parameters");
+            configs.push(cognito_config);
+        }
+
+        // Check CSP header for Cognito endpoints (common pattern for SPAs using Cognito)
+        // CSP often includes: connect-src 'self' https://cognito-idp.eu-west-1.amazonaws.com
+        if let Some(cognito_config) = self.extract_cognito_from_headers(&response.headers) {
+            info!("[Cognito] Detected Cognito from CSP/security headers");
             configs.push(cognito_config);
         }
 
@@ -950,6 +985,42 @@ impl CognitoEnumScanner {
                 client_id: client_id.unwrap_or_default(),
                 source: url.to_string(),
             });
+        }
+
+        None
+    }
+
+    /// Extract Cognito configuration from HTTP headers (CSP, etc.)
+    ///
+    /// SPAs using Cognito often have CSP headers that include the Cognito endpoint:
+    /// Content-Security-Policy: connect-src 'self' https://cognito-idp.eu-west-1.amazonaws.com
+    fn extract_cognito_from_headers(&self, headers: &std::collections::HashMap<String, String>) -> Option<CognitoConfig> {
+        // Look for Cognito endpoints in various security headers
+        let header_keys = ["content-security-policy", "content-security-policy-report-only"];
+
+        for key in &header_keys {
+            if let Some(header_value) = headers.get(*key) {
+                // Look for cognito-idp.REGION.amazonaws.com pattern
+                let cognito_pattern = Regex::new(r"cognito-idp\.([\w-]+)\.amazonaws\.com").ok()?;
+
+                if let Some(cap) = cognito_pattern.captures(header_value) {
+                    if let Some(region_match) = cap.get(1) {
+                        let region = region_match.as_str().to_string();
+
+                        info!("[Cognito] Found Cognito region {} in CSP header", region);
+
+                        // We have the region but need to discover client_id
+                        // This indicates Cognito is in use, so we should look harder for client_id
+                        // Return a partial config that can be used for further discovery
+                        return Some(CognitoConfig {
+                            region,
+                            user_pool_id: String::new(),
+                            client_id: String::new(), // Will be discovered via headless browser
+                            source: "csp_header".to_string(),
+                        });
+                    }
+                }
+            }
         }
 
         None
