@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Nuclei Module
  * Custom template management and execution
  *
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 pub mod template_validator;

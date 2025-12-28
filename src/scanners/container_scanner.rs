@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -15,7 +15,7 @@
  * - Misconfigured kubelet
  * - Exposed etcd endpoints
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -78,7 +78,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing for Docker API exposure");
+        debug!("Testing for Docker API exposure");
 
         let docker_endpoints = vec![
             ("/v1.40/containers/json", "Docker API v1.40"),
@@ -165,7 +165,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing for Kubernetes API exposure");
+        debug!("Testing for Kubernetes API exposure");
 
         let k8s_endpoints = vec![
             ("/api/v1", "Kubernetes API"),
@@ -269,7 +269,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing for container registry exposure");
+        debug!("Testing for container registry exposure");
 
         let registry_endpoints = vec![
             ("/v2/", "Docker Registry v2"),
@@ -371,7 +371,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing for container secrets exposure");
+        debug!("Testing for container secrets exposure");
 
         let secret_paths = vec![
             "/run/secrets/",

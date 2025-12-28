@@ -1,9 +1,9 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 // External Scanning Modules
 // Production-grade external scanning for internet-facing assets
-// © 2025 Bountyy Oy
+// © 2026 Bountyy Oy
 
 pub mod port_scanner;
 pub mod ssl_scanner;

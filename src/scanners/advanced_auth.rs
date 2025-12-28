@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Advanced Authentication Security Scanner
  * Enterprise-grade authentication security testing
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use tracing::{debug, info};
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

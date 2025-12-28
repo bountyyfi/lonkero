@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -12,7 +12,7 @@
  * - Request queue poisoning
  * - Timing-based desync detection
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -369,7 +369,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing CL.TE smuggling with raw TCP");
+        debug!("Testing CL.TE smuggling with raw TCP");
 
         let (host, port, path) = self.parse_url(url)?;
 
@@ -484,7 +484,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing TE.CL smuggling with raw TCP");
+        debug!("Testing TE.CL smuggling with raw TCP");
 
         let (host, port, path) = self.parse_url(url)?;
 
@@ -602,7 +602,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing TE.TE smuggling with raw TCP");
+        debug!("Testing TE.TE smuggling with raw TCP");
 
         let (host, port, path) = self.parse_url(url)?;
 
@@ -656,7 +656,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing timing-based desync detection");
+        debug!("Testing timing-based desync detection");
 
         let (host, port, path) = self.parse_url(url)?;
 

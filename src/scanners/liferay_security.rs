@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -14,7 +14,7 @@
  * - Configuration file exposure
  * - WebDAV and file disclosure
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Personal+ License Required
  */
 

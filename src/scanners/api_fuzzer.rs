@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -12,7 +12,7 @@
  * - Authentication bypass (JWT, OAuth, API keys, token replay)
  * - Rate limit testing and API versioning issues
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -233,7 +233,7 @@ impl ApiFuzzerScanner {
         let methods = vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string(), "PATCH".to_string(), "OPTIONS".to_string(), "HEAD".to_string(), "TRACE".to_string()];
         let tests_run = methods.len();
 
-        info!("Testing HTTP method fuzzing");
+        debug!("Testing HTTP method fuzzing");
 
         for method in &methods {
             match self.send_http_request(url, &method, None, vec![]).await {
@@ -294,7 +294,7 @@ impl ApiFuzzerScanner {
 
         let tests_run = content_types.len();
 
-        info!("Testing Content-Type fuzzing");
+        debug!("Testing Content-Type fuzzing");
 
         for (content_type, payload) in &content_types {
             let headers = vec![("Content-Type".to_string(), content_type.to_string())];
@@ -348,7 +348,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing parameter fuzzing");
+        debug!("Testing parameter fuzzing");
 
         // Type confusion payloads
         let type_confusion = vec![
@@ -474,7 +474,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing mass assignment vulnerabilities");
+        debug!("Testing mass assignment vulnerabilities");
 
         // Attempt to modify sensitive fields
         let mass_assignment_payloads = vec![
@@ -545,7 +545,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing IDOR vulnerabilities");
+        debug!("Testing IDOR vulnerabilities");
 
         // Test sequential ID access
         let id_patterns = vec![
@@ -596,7 +596,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing broken object level authorization");
+        debug!("Testing broken object level authorization");
 
         // Test with and without authentication
         let test_urls = vec![
@@ -636,7 +636,7 @@ impl ApiFuzzerScanner {
         let max_requests = 100;
         let tests_run = max_requests;
 
-        info!("Testing rate limiting");
+        debug!("Testing rate limiting");
 
         let mut rate_limited = false;
         let mut request_count = 0;
@@ -690,7 +690,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing API versioning issues");
+        debug!("Testing API versioning issues");
 
         // Extract version from URL
         let version_regex = Regex::new(r"/v(\d+)/").ok();
@@ -783,7 +783,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL introspection");
+        debug!("Testing GraphQL introspection");
 
         let introspection_query = json!({
             "query": r#"
@@ -844,7 +844,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL batch query attacks");
+        debug!("Testing GraphQL batch query attacks");
 
         // Create batch query with 10 identical queries
         let mut queries = Vec::new();
@@ -886,7 +886,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL depth limit");
+        debug!("Testing GraphQL depth limit");
 
         // Create deeply nested query
         let deep_query = json!({
@@ -950,7 +950,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL query cost analysis");
+        debug!("Testing GraphQL query cost analysis");
 
         // Create expensive query
         let expensive_query = json!({
@@ -1002,7 +1002,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL circular queries");
+        debug!("Testing GraphQL circular queries");
 
         let circular_query = json!({
             "query": r#"
@@ -1054,7 +1054,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL field suggestions");
+        debug!("Testing GraphQL field suggestions");
 
         let typo_query = json!({
             "query": r#"{ usr { nam } }"#
@@ -1125,7 +1125,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing gRPC protobuf fuzzing");
+        debug!("Testing gRPC protobuf fuzzing");
 
         // Malformed protobuf payloads
         let malformed_payloads = vec![
@@ -1174,7 +1174,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing gRPC metadata manipulation");
+        debug!("Testing gRPC metadata manipulation");
 
         let metadata_tests = vec![
             ("grpc-timeout", "1n"),           // Very short timeout
@@ -1221,7 +1221,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing gRPC stream handling");
+        debug!("Testing gRPC stream handling");
 
         let headers = vec![
             ("Content-Type".to_string(), "application/grpc".to_string()),
@@ -1262,7 +1262,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing authentication bypass techniques");
+        debug!("Testing authentication bypass techniques");
 
         for endpoint in endpoints {
             // Test JWT manipulation
@@ -1299,7 +1299,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing JWT manipulation");
+        debug!("Testing JWT manipulation");
 
         // JWT with alg:none
         let none_jwt = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6OTk5OTk5OTk5OX0.";
@@ -1370,7 +1370,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing OAuth flow attacks");
+        debug!("Testing OAuth flow attacks");
 
         // Look for OAuth endpoints
         let oauth_paths = vec!["/oauth/token".to_string(), "/oauth/authorize".to_string(), "/api/oauth/token".to_string()];
@@ -1434,7 +1434,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing API key enumeration");
+        debug!("Testing API key enumeration");
 
         // Test different API key formats
         let api_key_headers = vec![
@@ -1479,7 +1479,7 @@ impl ApiFuzzerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing token replay attacks");
+        debug!("Testing token replay attacks");
 
         // Create a test token
         let test_token = format!("test_token_{}", self.test_marker);

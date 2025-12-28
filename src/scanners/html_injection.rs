@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -38,7 +38,7 @@
  * - Verify tags appear in response without HTML entity encoding
  * - Test multiple contexts: URL params, POST body, headers, cookies
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -121,7 +121,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing content injection");
+        debug!("Testing content injection");
 
         let payloads = vec![
             format!("<h1>Injected_{}</h1>", self.test_marker),
@@ -173,7 +173,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing meta tag injection");
+        debug!("Testing meta tag injection");
 
         let payloads = vec![
             // Meta refresh redirect (critical - open redirect)
@@ -233,7 +233,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing link manipulation");
+        debug!("Testing link manipulation");
 
         let payloads = vec![
             // Phishing link
@@ -291,7 +291,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing form injection");
+        debug!("Testing form injection");
 
         let payloads = vec![
             // Fake login form (credential phishing)
@@ -349,7 +349,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing media injection");
+        debug!("Testing media injection");
 
         let payloads = vec![
             // Image with tracking
@@ -396,7 +396,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing style injection");
+        debug!("Testing style injection");
 
         let payloads = vec![
             // CSS with background image (data exfiltration)

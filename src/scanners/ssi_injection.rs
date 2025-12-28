@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -12,7 +12,7 @@
  * - SSI config modification
  * - Time-based SSI injection
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -136,7 +136,7 @@ impl SSIInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing SSI file inclusion");
+        debug!("Testing SSI file inclusion");
 
         let payloads = vec![
             r#"<!--#include virtual="/etc/passwd" -->"#.to_string(),
@@ -180,7 +180,7 @@ impl SSIInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing SSI environment variable disclosure");
+        debug!("Testing SSI environment variable disclosure");
 
         let payloads = vec![
             r#"<!--#echo var="DOCUMENT_ROOT" -->"#.to_string(),
@@ -225,7 +225,7 @@ impl SSIInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing time-based SSI injection");
+        debug!("Testing time-based SSI injection");
 
         let payload = r#"<!--#exec cmd="sleep 5" -->"#;
         let test_url = if url.contains('?') {

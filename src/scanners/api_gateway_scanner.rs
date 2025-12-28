@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -15,7 +15,7 @@
  * - Header injection in API gateways
  * - API schema disclosure
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -87,7 +87,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 25;
 
-        info!("Testing rate limit bypass via header manipulation");
+        debug!("Testing rate limit bypass via header manipulation");
 
         // Step 1: First establish that rate limiting EXISTS by making requests without bypass headers
         // Look for 429 response or rate limit headers
@@ -186,7 +186,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing for API key leakage");
+        debug!("Testing for API key leakage");
 
         let test_paths = vec![
             "/api/config",
@@ -253,7 +253,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing API versioning issues");
+        debug!("Testing API versioning issues");
 
         let version_patterns = vec![
             ("/v1/", "/v0/"),
@@ -328,7 +328,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing gateway authentication bypass");
+        debug!("Testing gateway authentication bypass");
 
         let bypass_techniques = vec![
             ("../api/admin", "Path Traversal"),
@@ -407,7 +407,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing for API schema disclosure");
+        debug!("Testing for API schema disclosure");
 
         let schema_endpoints = vec![
             "/swagger.json",
@@ -458,7 +458,7 @@ impl ApiGatewayScanner {
         let mut tests_run = 0;
         let base_url = self.extract_base_url(url);
 
-        info!("Testing for BFF/Internal gateway exposure");
+        debug!("Testing for BFF/Internal gateway exposure");
 
         // Common BFF (Backend-For-Frontend) path patterns
         let bff_paths = vec![

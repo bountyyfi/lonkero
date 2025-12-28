@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -13,7 +13,7 @@
  * - XML comment injection
  * - XML namespace manipulation
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -82,7 +82,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing XML structure injection");
+        debug!("Testing XML structure injection");
 
         let payloads = vec![
             format!("</tag><injected>{}</injected><tag>", self.test_marker),
@@ -130,7 +130,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing SOAP injection");
+        debug!("Testing SOAP injection");
 
         let soap_payloads = vec![
             format!(
@@ -186,7 +186,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing XML attribute injection");
+        debug!("Testing XML attribute injection");
 
         let payloads = vec![
             format!(r#"" admin="true" marker="{}"#, self.test_marker),
@@ -233,7 +233,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing CDATA injection");
+        debug!("Testing CDATA injection");
 
         let payloads = vec![
             format!(r#"]]><![CDATA[{}"#, self.test_marker),

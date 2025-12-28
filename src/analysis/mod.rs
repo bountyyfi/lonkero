@@ -1,10 +1,10 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Analysis Module
  * Advanced analysis capabilities for web applications
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 pub mod tech_detection;

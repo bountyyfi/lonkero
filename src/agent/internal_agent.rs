@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -15,7 +15,7 @@
  * - Auto-update capability
  * - Resource usage limits
  *
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use anyhow::{Context, Result};

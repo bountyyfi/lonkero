@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -12,7 +12,7 @@
  * - Insufficient process validation
  * - State manipulation
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -137,7 +137,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing negative value handling");
+        debug!("Testing negative value handling");
 
         let negative_tests = vec![
             ("quantity", "-1"),
@@ -185,7 +185,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing workflow bypass");
+        debug!("Testing workflow bypass");
 
         let workflow_tests = vec![
             ("step", "10"),  // Skip to final step
@@ -231,7 +231,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing parameter tampering");
+        debug!("Testing parameter tampering");
 
         let tampering_tests = vec![
             ("discount", "100"),
@@ -278,7 +278,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing race condition vulnerabilities (TOCTOU)");
+        debug!("Testing race condition vulnerabilities (TOCTOU)");
 
         // Common endpoints vulnerable to race conditions
         let race_endpoints = vec![
@@ -350,7 +350,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing price manipulation vulnerabilities");
+        debug!("Testing price manipulation vulnerabilities");
 
         let price_tests = vec![
             ("price", "0.01"),
@@ -429,7 +429,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing quantity tampering vulnerabilities");
+        debug!("Testing quantity tampering vulnerabilities");
 
         let quantity_tests = vec![
             ("quantity", "0"),
@@ -484,7 +484,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing coupon/voucher abuse vulnerabilities");
+        debug!("Testing coupon/voucher abuse vulnerabilities");
 
         let coupon_endpoints = vec![
             format!("{}/apply-coupon", url.trim_end_matches('/')),
@@ -559,7 +559,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing double-spend / replay attack vulnerabilities");
+        debug!("Testing double-spend / replay attack vulnerabilities");
 
         let transaction_endpoints = vec![
             format!("{}/transfer", url.trim_end_matches('/')),
@@ -621,7 +621,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing integer overflow/underflow vulnerabilities");
+        debug!("Testing integer overflow/underflow vulnerabilities");
 
         let overflow_tests = vec![
             ("amount", "2147483647"),   // Max int32
@@ -670,7 +670,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing time-based attack vulnerabilities");
+        debug!("Testing time-based attack vulnerabilities");
 
         // Test timestamp manipulation
         let timestamp_tests = vec![
@@ -750,7 +750,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing enhanced price manipulation vulnerabilities");
+        debug!("Testing enhanced price manipulation vulnerabilities");
 
         // Generate unique order ID for tracking
         let order_id = format!("TEST_{}", chrono::Utc::now().timestamp());
@@ -875,7 +875,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing multi-step workflow bypass vulnerabilities");
+        debug!("Testing multi-step workflow bypass vulnerabilities");
 
         let order_id = format!("TEST_{}", chrono::Utc::now().timestamp());
 
@@ -972,7 +972,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing multi-step form bypass vulnerabilities");
+        debug!("Testing multi-step form bypass vulnerabilities");
 
         let test_email = format!("test_{}@example.com", chrono::Utc::now().timestamp());
 
@@ -1066,7 +1066,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 30; // 10 requests × 3 scenarios
 
-        info!("Testing account enumeration timing vulnerabilities");
+        debug!("Testing account enumeration timing vulnerabilities");
 
         let timing_scenarios = vec![
             (format!("{}/login", url.trim_end_matches('/')),
@@ -1178,7 +1178,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing password reset token prediction vulnerabilities");
+        debug!("Testing password reset token prediction vulnerabilities");
 
         let reset_endpoints = vec![
             format!("{}/reset-password", url.trim_end_matches('/')),
@@ -1254,7 +1254,7 @@ impl BusinessLogicScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing enhanced coupon/discount abuse vulnerabilities");
+        debug!("Testing enhanced coupon/discount abuse vulnerabilities");
 
         let order_id = format!("TEST_{}", chrono::Utc::now().timestamp());
 

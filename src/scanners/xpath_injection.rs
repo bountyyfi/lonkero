@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -12,7 +12,7 @@
  * - XPath function abuse
  * - Authentication bypass via XPath
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -110,7 +110,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing boolean-based XPath injection on parameter: {}", param_name);
+        debug!("Testing boolean-based XPath injection on parameter: {}", param_name);
 
         // Boolean payloads with true/false conditions
         let true_payloads = vec![
@@ -195,7 +195,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing error-based XPath injection on parameter: {}", param_name);
+        debug!("Testing error-based XPath injection on parameter: {}", param_name);
 
         let error_payloads = vec![
             "'",
@@ -242,7 +242,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing boolean-based XPath injection");
+        debug!("Testing boolean-based XPath injection");
 
         // Boolean payloads with true/false conditions
         let true_payloads = vec![
@@ -327,7 +327,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing error-based XPath injection");
+        debug!("Testing error-based XPath injection");
 
         let error_payloads = vec![
             "'",
@@ -374,7 +374,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing XPath authentication bypass");
+        debug!("Testing XPath authentication bypass");
 
         let bypass_payloads = vec![
             "admin' or '1'='1",

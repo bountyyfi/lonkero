@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -17,7 +17,7 @@
  * - Session token rotation bypasses
  * - Combined bypass techniques
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -364,7 +364,7 @@ impl RateLimitingScanner {
         let mut results = Vec::new();
         let mut total_tests = 0;
 
-        info!("Testing bypass techniques on {}", endpoint.url);
+        debug!("Testing bypass techniques on {}", endpoint.url);
 
         // Define bypass techniques to test
         let bypass_techniques = vec![
@@ -415,7 +415,7 @@ impl RateLimitingScanner {
         technique: BypassTechnique,
         header_name: &str,
     ) -> RateLimitTestResult {
-        info!("Testing {} bypass on {}", technique.as_string(), endpoint.url);
+        debug!("Testing {} bypass on {}", technique.as_string(), endpoint.url);
 
         let start = Instant::now();
         let mut successful = 0;
@@ -509,7 +509,7 @@ impl RateLimitingScanner {
         endpoint: &DetectedEndpoint,
         request_count: usize,
     ) -> RateLimitTestResult {
-        info!("Testing combined bypass techniques on {}", endpoint.url);
+        debug!("Testing combined bypass techniques on {}", endpoint.url);
 
         let start = Instant::now();
         let mut successful = 0;
@@ -697,7 +697,7 @@ impl RateLimitingScanner {
         bypass_technique: BypassTechnique,
         custom_headers: &[(String, String)],
     ) -> RateLimitTestResult {
-        info!("Testing rate limiting on {} ({:?})", endpoint.url, endpoint.endpoint_type);
+        debug!("Testing rate limiting on {} ({:?})", endpoint.url, endpoint.endpoint_type);
 
         let start = Instant::now();
         let mut successful = 0;

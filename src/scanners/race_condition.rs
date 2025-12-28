@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -13,7 +13,7 @@
  * - Session/authentication race conditions
  * - Rate limit bypass via race conditions
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -21,7 +21,7 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tokio::task::JoinSet;
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct RaceConditionScanner {
     http_client: Arc<HttpClient>,
@@ -176,7 +176,7 @@ impl RaceConditionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 20;
 
-        info!("Testing transaction race conditions");
+        debug!("Testing transaction race conditions");
 
         // Simulate concurrent requests to test for race conditions
         let concurrent_requests = 20;
@@ -244,7 +244,7 @@ impl RaceConditionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing coupon/discount race conditions");
+        debug!("Testing coupon/discount race conditions");
 
         let concurrent_requests = 10;
         let mut join_set = JoinSet::new();
@@ -313,7 +313,7 @@ impl RaceConditionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 30;
 
-        info!("Testing rate limit bypass via race conditions");
+        debug!("Testing rate limit bypass via race conditions");
 
         let concurrent_requests = 30;
         let mut join_set = JoinSet::new();

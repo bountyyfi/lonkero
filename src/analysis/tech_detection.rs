@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Technology Detection Module
  * Wappalyzer-style technology fingerprinting for web applications
  * Fast, accurate detection of frameworks, CMS, servers, and more
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use regex::Regex;

@@ -1,10 +1,10 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Scanner Registry
  * Central registry for all available scanners with metadata and capabilities
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use serde::{Deserialize, Serialize};

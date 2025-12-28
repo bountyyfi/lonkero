@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -10,7 +10,7 @@
  * - Measuring response times for exponential growth patterns
  * - Detecting timeouts indicating regex DoS
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -57,7 +57,7 @@ impl RedosScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing parameter '{}' for ReDoS vulnerabilities", parameter);
+        debug!("Testing parameter '{}' for ReDoS vulnerabilities", parameter);
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;

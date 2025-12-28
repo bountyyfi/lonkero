@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -6,7 +6,7 @@
  * Unified context-aware SQLi detection combining error-based, boolean-based,
  * UNION-based, and time-based techniques
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -121,7 +121,7 @@ impl EnhancedSqliScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing parameter '{}' for SQL injection (unified scanner, priority: {}{})",
+        debug!("Testing parameter '{}' for SQL injection (unified scanner, priority: {}{})",
               parameter,
               ParameterFilter::get_parameter_priority(parameter),
               if let Some(ctx) = context {
@@ -153,7 +153,7 @@ impl EnhancedSqliScanner {
         let db_type = self.detect_database_type(&baseline).await;
         let injection_context = self.detect_injection_context(base_url, parameter, &baseline).await;
 
-        info!(
+        debug!(
             "Context analysis: DB={:?}, InjectionContext={:?}",
             db_type, injection_context
         );
@@ -161,7 +161,7 @@ impl EnhancedSqliScanner {
         // Apply context-aware prioritization
         let priority_boost = self.get_context_priority_boost(context);
         if priority_boost > 0 {
-            info!("[SQLi] Context-aware priority boost: +{}", priority_boost);
+            debug!("[SQLi] Context-aware priority boost: +{}", priority_boost);
         }
 
         // Technique 1: Error-based detection (fast, high confidence)
@@ -249,7 +249,7 @@ impl EnhancedSqliScanner {
         existing_body: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing POST parameter '{}' for SQL injection", body_param);
+        debug!("Testing POST parameter '{}' for SQL injection", body_param);
 
         let scan_mode = config.scan_mode.as_str();
         let baseline = match self.http_client.post(url, existing_body.to_string()).await {

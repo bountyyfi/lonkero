@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - PostgreSQL Database Layer
  * High-performance batch operations with connection pooling
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 

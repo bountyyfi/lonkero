@@ -1,10 +1,10 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -75,7 +75,7 @@ impl CorsMisconfigurationScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing CORS arbitrary origin reflection");
+        debug!("Testing CORS arbitrary origin reflection");
 
         // Test arbitrary origins
         let test_origins = vec![
@@ -113,7 +113,7 @@ impl CorsMisconfigurationScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing CORS null origin acceptance");
+        debug!("Testing CORS null origin acceptance");
 
         let headers = vec![("Origin".to_string(), "null".to_string())];
 
@@ -142,7 +142,7 @@ impl CorsMisconfigurationScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing CORS wildcard with credentials");
+        debug!("Testing CORS wildcard with credentials");
 
         let headers = vec![("Origin".to_string(), "https://example.com".to_string())];
 
@@ -171,7 +171,7 @@ impl CorsMisconfigurationScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing CORS subdomain reflection");
+        debug!("Testing CORS subdomain reflection");
 
         // Extract domain from URL
         if let Ok(parsed_url) = url::Url::parse(url) {
@@ -214,7 +214,7 @@ impl CorsMisconfigurationScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing CORS insecure HTTP origins");
+        debug!("Testing CORS insecure HTTP origins");
 
         // Test HTTP origin (insecure)
         let insecure_origin = "http://attacker.com".to_string();

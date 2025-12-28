@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -48,7 +48,7 @@
  * - Verifies privilege escalation or property modification
  * - Distinguishes between reflection and actual injection
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -197,7 +197,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing price manipulation via mass assignment");
+        debug!("Testing price manipulation via mass assignment");
 
         let price_params = vec![
             ("price", "0"),
@@ -244,7 +244,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing hidden field injection");
+        debug!("Testing hidden field injection");
 
         let hidden_params = vec![
             ("user_id", "1"),
@@ -293,7 +293,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing nested object injection");
+        debug!("Testing nested object injection");
 
         // Test payloads with different nesting levels and notation styles
         let nested_payloads = vec![
@@ -397,7 +397,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing JSON deep merge attacks");
+        debug!("Testing JSON deep merge attacks");
 
         // Test payloads with nested JSON structures
         let merge_payloads = vec![
@@ -532,7 +532,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 18;
 
-        info!("Testing prototype pollution via mass assignment");
+        debug!("Testing prototype pollution via mass assignment");
 
         // URL-encoded prototype pollution payloads
         let marker_proto_1 = format!("__proto__[{}]=polluted", self.test_marker);
@@ -676,7 +676,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing array parameter pollution");
+        debug!("Testing array parameter pollution");
 
         // Array pollution payloads
         let marker_array_1 = format!("users[0][{}]=injected", self.test_marker);
@@ -746,7 +746,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing constructor property injection");
+        debug!("Testing constructor property injection");
 
         // Constructor injection payloads
         let marker_constructor_1 = format!("constructor[{}]=injected", self.test_marker);

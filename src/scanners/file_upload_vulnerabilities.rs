@@ -1,10 +1,10 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -199,7 +199,7 @@ impl FileUploadVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing unrestricted file extensions on: {}", url);
+        debug!("Testing unrestricted file extensions on: {}", url);
 
         // Dangerous file extensions with unique markers for verification
         let dangerous_extensions = vec![
@@ -366,7 +366,7 @@ impl FileUploadVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing MIME type validation bypass on: {}", url);
+        debug!("Testing MIME type validation bypass on: {}", url);
 
         // Upload PHP file with image MIME type
         let payloads = vec![
@@ -430,7 +430,7 @@ impl FileUploadVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing path traversal in file upload on: {}", url);
+        debug!("Testing path traversal in file upload on: {}", url);
 
         // Path traversal filenames with unique content
         let traversal_filenames = vec![
@@ -504,7 +504,7 @@ impl FileUploadVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing double extension bypass on: {}", url);
+        debug!("Testing double extension bypass on: {}", url);
 
         // Double extension filenames with unique markers
         let double_extensions = vec![

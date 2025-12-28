@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -89,7 +89,7 @@ impl JwtVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing JWT none algorithm vulnerability");
+        debug!("Testing JWT none algorithm vulnerability");
 
         // Create JWT with none algorithm
         // NOTE: We rely on detect_successful_auth() to verify using marker or JWT-specific patterns
@@ -130,7 +130,7 @@ impl JwtVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing JWT algorithm confusion");
+        debug!("Testing JWT algorithm confusion");
 
         // Test tokens with different algorithms
         let confused_tokens = vec![
@@ -170,7 +170,7 @@ impl JwtVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing JWT weak secrets");
+        debug!("Testing JWT weak secrets");
 
         // Common weak secrets and their pre-computed tokens
         // These are example tokens - in real scanning you'd try to crack discovered tokens
@@ -213,7 +213,7 @@ impl JwtVulnerabilitiesScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing expired JWT token acceptance");
+        debug!("Testing expired JWT token acceptance");
 
         // Header: {"alg":"HS256","typ":"JWT"}, Payload: {"sub":"user","exp":1}
         let expired_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIiwiZXhwIjoxfQ.invalid";

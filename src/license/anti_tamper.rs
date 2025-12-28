@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 
 use std::sync::atomic::{AtomicU64, AtomicBool, AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH, Instant};

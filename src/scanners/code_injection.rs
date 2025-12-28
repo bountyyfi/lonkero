@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -13,7 +13,7 @@
  * - Expression Language (EL) injection
  * - Time-based code injection
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -163,7 +163,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 20;
 
-        info!("Testing Python code injection");
+        debug!("Testing Python code injection");
 
         let payloads = vec![
             // Basic payloads
@@ -231,7 +231,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing Python code injection via JSON body (tool API context)");
+        debug!("Testing Python code injection via JSON body (tool API context)");
 
         // Payloads specifically designed for source_code fields in tool APIs
         let source_code_payloads = vec![
@@ -280,7 +280,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing Ruby code injection");
+        debug!("Testing Ruby code injection");
 
         let payloads = vec![
             format!("`echo {}`", self.test_marker),
@@ -325,7 +325,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing time-based code injection");
+        debug!("Testing time-based code injection");
 
         let time_payloads = vec![
             ("sleep(5)", "PHP"),

@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Enhanced XSS Scanner with Context Awareness
  * Improved detection, JSON support, and mutation testing
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -96,7 +96,7 @@ impl EnhancedXssScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing parameter '{}' for XSS (enhanced, priority: {}, context: {})",
+        debug!("Testing parameter '{}' for XSS (enhanced, priority: {}, context: {})",
               parameter,
               ParameterFilter::get_parameter_priority(parameter),
               if context.is_some() { "aware" } else { "none" });
@@ -114,7 +114,7 @@ impl EnhancedXssScanner {
         // This avoids false positives by only testing email payloads on email fields
         use crate::scanners::xss_detection::{get_email_xss_payloads, is_email_parameter};
         if is_email_parameter(parameter) {
-            info!("[XSS] Detected email parameter '{}' - adding email-specific XSS payloads", parameter);
+            debug!("[XSS] Detected email parameter '{}' - adding email-specific XSS payloads", parameter);
             payloads.extend(get_email_xss_payloads());
         }
 
@@ -229,7 +229,7 @@ impl EnhancedXssScanner {
         content_type: Option<&str>,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing POST parameter '{}' for XSS (enhanced)", body_param);
+        debug!("Testing POST parameter '{}' for XSS (enhanced)", body_param);
 
         let body_param_owned = body_param.to_string();
         let payloads = payloads::get_xss_payloads(config.scan_mode.as_str());
@@ -463,7 +463,7 @@ impl EnhancedXssScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing for DOM-based XSS patterns at {}", url);
+        debug!("Testing for DOM-based XSS patterns at {}", url);
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -544,7 +544,7 @@ impl EnhancedXssScanner {
         url: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing headers for XSS reflection");
+        debug!("Testing headers for XSS reflection");
 
         let payloads = payloads::get_xss_payloads(config.scan_mode.as_str());
         let mut vulnerabilities = Vec::new();
@@ -767,7 +767,7 @@ impl EnhancedXssScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing SVG-based XSS vectors");
+        debug!("Testing SVG-based XSS vectors");
 
         // Generate unique markers for each payload
         let uuid_marker = uuid::Uuid::new_v4().to_string();
@@ -845,7 +845,7 @@ impl EnhancedXssScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing DOM-based XSS with headless browser for parameter '{}'", parameter);
+        debug!("Testing DOM-based XSS with headless browser for parameter '{}'", parameter);
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -964,7 +964,7 @@ impl EnhancedXssScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing Mutation XSS (mXSS) for parameter '{}'", parameter);
+        debug!("Testing Mutation XSS (mXSS) for parameter '{}'", parameter);
 
         let mut vulnerabilities = Vec::new();
         let uuid_marker = uuid::Uuid::new_v4().to_string();
@@ -1225,7 +1225,7 @@ impl EnhancedXssScanner {
         parameter: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing Template Expression XSS for parameter '{}'", parameter);
+        debug!("Testing Template Expression XSS for parameter '{}'", parameter);
 
         let mut vulnerabilities = Vec::new();
         let uuid_marker = uuid::Uuid::new_v4().to_string();
@@ -1336,7 +1336,7 @@ impl EnhancedXssScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing WebSocket Message XSS for parameter '{}'", parameter);
+        debug!("Testing WebSocket Message XSS for parameter '{}'", parameter);
 
         let mut vulnerabilities = Vec::new();
         let uuid_marker = uuid::Uuid::new_v4().to_string();

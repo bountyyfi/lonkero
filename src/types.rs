@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use serde::{Deserialize, Serialize};
@@ -9,15 +9,23 @@ use crate::signing::ReportSignature;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ScanMode {
+    /// Legacy mode: 50 payloads globally
     Fast,
+    /// Legacy mode: 500 payloads globally
     Normal,
+    /// Legacy mode: 5000 payloads globally
     Thorough,
+    /// Legacy mode: unlimited payloads globally
     Insane,
+    /// Intelligent context-aware mode (v3.0 default)
+    /// Uses tech detection, endpoint deduplication, and per-parameter risk scoring
+    Intelligent,
 }
 
 impl Default for ScanMode {
     fn default() -> Self {
-        ScanMode::Fast
+        // v3.0: Intelligent mode is now the default
+        ScanMode::Intelligent
     }
 }
 
@@ -28,6 +36,7 @@ impl std::fmt::Display for ScanMode {
             ScanMode::Normal => write!(f, "normal"),
             ScanMode::Thorough => write!(f, "thorough"),
             ScanMode::Insane => write!(f, "insane"),
+            ScanMode::Intelligent => write!(f, "intelligent"),
         }
     }
 }
@@ -39,7 +48,18 @@ impl ScanMode {
             ScanMode::Normal => "normal",
             ScanMode::Thorough => "thorough",
             ScanMode::Insane => "insane",
+            ScanMode::Intelligent => "intelligent",
         }
+    }
+
+    /// Returns true if this is the intelligent context-aware mode
+    pub fn is_intelligent(&self) -> bool {
+        matches!(self, ScanMode::Intelligent)
+    }
+
+    /// Returns true if this is a legacy mode (fast/normal/thorough/insane)
+    pub fn is_legacy(&self) -> bool {
+        !self.is_intelligent()
     }
 }
 
@@ -106,25 +126,29 @@ impl Default for ScanConfig {
 }
 
 impl ScanConfig {
+    /// Get the global payload count limit for legacy modes.
+    /// For Intelligent mode, this returns 0 as payload intensity is determined per-parameter.
     pub fn payload_count(&self) -> usize {
         match self.scan_mode {
             ScanMode::Fast => 50,
             ScanMode::Normal => 500,
             ScanMode::Thorough => 5000,
             ScanMode::Insane => usize::MAX, // All payloads
+            // Intelligent mode uses per-parameter payload intensity, not global count
+            ScanMode::Intelligent => 0,
         }
     }
 
     /// Determine if cloud/container security scanning should run
-    /// Enabled for Thorough and Insane modes
+    /// Enabled for Thorough, Insane, and Intelligent modes
     pub fn enable_cloud_scanning(&self) -> bool {
-        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane)
+        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane | ScanMode::Intelligent)
     }
 
     /// Determine if extended subdomain enumeration should be used
-    /// Enabled for Thorough and Insane modes
+    /// Enabled for Thorough, Insane, and Intelligent modes
     pub fn subdomain_extended(&self) -> bool {
-        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane)
+        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane | ScanMode::Intelligent)
     }
 }
 

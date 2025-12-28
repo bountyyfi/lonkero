@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Security Scanner Engine
  * Main scan orchestration and coordination
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -113,9 +113,13 @@ pub mod react_security;
 pub mod django_security;
 pub mod liferay_security;
 pub mod parameter_filter;
+pub mod parameter_prioritizer;
+pub mod attack_surface;
 pub mod prototype_pollution;
 pub mod host_header_injection;
 pub mod cognito_enum;
+pub mod registry;
+pub mod intelligent_orchestrator;
 
 // External security scanners
 pub mod external;
@@ -196,6 +200,11 @@ pub use varnish_misconfig::VarnishMisconfigScanner;
 pub use js_sensitive_info::JsSensitiveInfoScanner;
 pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
 pub use baseline_detector::BaselineDetector;
+pub use attack_surface::{
+    AttackSurface, DeduplicatedTargets, EndpointSignature, FormSignature,
+    ParameterContext, ParameterSource, ContentType, ValueType,
+    TestEndpoint, TestForm, TestParameter, PathNormalizer, FormData,
+};
 pub use html_injection::HtmlInjectionScanner;
 pub use rate_limiting::RateLimitingScanner;
 pub use google_dorking::{GoogleDorkingScanner, GoogleDork, GoogleDorkingResults};
@@ -212,6 +221,20 @@ pub use liferay_security::LiferaySecurityScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use host_header_injection::HostHeaderInjectionScanner;
 pub use cognito_enum::CognitoEnumScanner;
+pub use parameter_prioritizer::{
+    ParameterPrioritizer, ParameterRisk, ParameterInfo, ParameterSource as PrioritizerParameterSource,
+    FormContext, RiskFactor, ScannerType as PrioritizerScannerType,
+};
+pub use registry::{
+    ScannerRegistry as TechScannerRegistry, TechCategory, ScannerType as TechScannerType,
+    JsFramework, PhpFramework, PythonFramework, JavaFramework, DotNetFramework,
+    RubyFramework, GoFramework, RustFramework, StaticPlatform, CloudProvider,
+    ScannerTechMapping, PayloadIntensity,
+};
+pub use intelligent_orchestrator::{
+    IntelligentScanOrchestrator, IntelligentScanPlan, OrchestrationStats,
+    PrioritizedParameter,
+};
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -611,6 +634,39 @@ impl ScanEngine {
                 tech.name, tech.category, tech.confidence);
         }
 
+        // ============================================================
+        // v3.0 INTELLIGENT SCAN ORCHESTRATION
+        // ============================================================
+        // Convert detected technologies to TechCategory for intelligent routing
+        let tech_categories: Vec<TechCategory> = detected_tech
+            .iter()
+            .map(|t| TechCategory::from_detected_technology(&t.name, &format!("{:?}", t.category)))
+            .collect();
+
+        // Generate intelligent scan plan (replaces legacy mode-based approach)
+        let orchestrator = IntelligentScanOrchestrator::new();
+        let scan_plan = orchestrator.generate_scan_plan(&crawl_results, &tech_categories, &target);
+
+        // Log orchestration statistics
+        info!("[Orchestrator] v3.0 Intelligent Scan Plan:");
+        info!("   - Targets: {}/{} ({:.1}% reduction via deduplication)",
+            scan_plan.stats.total_deduplicated,
+            scan_plan.stats.total_original,
+            scan_plan.stats.reduction_percent);
+        info!("   - Scanners selected: {} (based on {} technologies)",
+            scan_plan.stats.scanners_selected,
+            scan_plan.stats.technologies_detected.len());
+        info!("   - Parameter risk: {} high, {} medium, {} low",
+            scan_plan.stats.high_risk_params,
+            scan_plan.stats.medium_risk_params,
+            scan_plan.stats.low_risk_params);
+
+        if !scan_plan.stats.technologies_detected.is_empty() {
+            info!("[Orchestrator] Tech-specific routing: {:?}", scan_plan.stats.technologies_detected);
+        } else {
+            info!("[Orchestrator] No specific tech detected - using fallback scanner set");
+        }
+
         // Subdomain enumeration (if enabled via config or scan config)
         let mut discovered_subdomains = Vec::new();
         if self.config.subdomain_enum_enabled || config.enum_subdomains {
@@ -665,37 +721,52 @@ impl ScanEngine {
         // Parse target URL to extract parameters
         let url_data = self.parse_target_url(&target)?;
 
-        // Determine which parameters to test - PRIORITIZE DISCOVERED PARAMETERS
+        // ============================================================
+        // v3.0 INTELLIGENT PARAMETER TESTING
+        // ============================================================
+        // Use prioritized parameters from the intelligent scan plan.
+        // Each parameter has a risk score and payload intensity.
+        // High-risk parameters get more payloads, low-risk get fewer.
+
+        // Build test_parameters from scan plan (prioritized by risk score)
         let mut test_parameters: Vec<(String, String)> = Vec::new();
 
-        // 1. Use parameters from crawled forms (HIGHEST PRIORITY)
-        let discovered_params = crawl_results.get_all_parameters();
-        if !discovered_params.is_empty() {
-            info!("[TARGET] Using {} parameters discovered from forms", discovered_params.len());
-            for param in discovered_params {
-                test_parameters.push((param.clone(), "test".to_string()));
+        if !scan_plan.prioritized_params.is_empty() {
+            info!("[Intelligent] Using {} prioritized parameters from scan plan",
+                scan_plan.prioritized_params.len());
+
+            // Log top high-risk parameters
+            for param in scan_plan.prioritized_params.iter().take(5) {
+                if param.risk_score > 50 {
+                    info!("   - {} (risk: {}, intensity: {:?})",
+                        param.name, param.risk_score, param.intensity);
+                }
             }
-        }
 
-        // 2. Use parameters from URL query strings
-        if !url_data.parameters.is_empty() {
-            info!("[TARGET] Adding {} parameters from URL", url_data.parameters.len());
-            test_parameters.extend(url_data.parameters.clone());
-        }
+            for param in &scan_plan.prioritized_params {
+                test_parameters.push((param.name.clone(), "test".to_string()));
+            }
+        } else {
+            // Fallback: use URL parameters if scan plan has none
+            if !url_data.parameters.is_empty() {
+                info!("[TARGET] Using {} parameters from URL", url_data.parameters.len());
+                test_parameters.extend(url_data.parameters.clone());
+            }
 
-        // 3. Fallback to common parameter names if nothing discovered
-        if test_parameters.is_empty() {
-            info!("[WARNING]  No parameters discovered - testing common parameter names");
-            test_parameters = vec![
-                ("id".to_string(), "1".to_string()),
-                ("q".to_string(), "test".to_string()),
-                ("search".to_string(), "test".to_string()),
-                ("query".to_string(), "test".to_string()),
-                ("page".to_string(), "1".to_string()),
-                ("user".to_string(), "test".to_string()),
-                ("name".to_string(), "test".to_string()),
-                ("url".to_string(), "http://example.com".to_string()),
-            ];
+            // Ultimate fallback to common parameter names
+            if test_parameters.is_empty() {
+                info!("[WARNING]  No parameters discovered - testing common parameter names");
+                test_parameters = vec![
+                    ("id".to_string(), "1".to_string()),
+                    ("q".to_string(), "test".to_string()),
+                    ("search".to_string(), "test".to_string()),
+                    ("query".to_string(), "test".to_string()),
+                    ("page".to_string(), "1".to_string()),
+                    ("user".to_string(), "test".to_string()),
+                    ("name".to_string(), "test".to_string()),
+                    ("url".to_string(), "http://example.com".to_string()),
+                ];
+            }
         }
 
         // Phase 1: Test URL parameters (or common parameter names if none exist)

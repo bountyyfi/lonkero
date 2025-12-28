@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -12,7 +12,7 @@
  * - SSRF via Host header
  * - Virtual host confusion
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -103,7 +103,7 @@ impl HostHeaderInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing Host header reflection");
+        debug!("Testing Host header reflection");
 
         // Get baseline response first
         let baseline = match self.http_client.get(url).await {
@@ -199,7 +199,7 @@ impl HostHeaderInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing password reset poisoning");
+        debug!("Testing password reset poisoning");
 
         // Common password reset endpoints
         let reset_endpoints = vec![
@@ -283,7 +283,7 @@ impl HostHeaderInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing X-Forwarded-* headers");
+        debug!("Testing X-Forwarded-* headers");
 
         let forwarded_headers = vec![
             ("X-Forwarded-Host", "x_forwarded_host"),
@@ -350,7 +350,7 @@ impl HostHeaderInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing absolute URL override");
+        debug!("Testing absolute URL override");
 
         // This test requires crafting a request with absolute URL
         // Most HTTP clients don't support this directly
@@ -387,7 +387,7 @@ impl HostHeaderInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Testing port-based Host header injection");
+        debug!("Testing port-based Host header injection");
 
         let original_host = self.extract_host(url);
 
@@ -433,7 +433,7 @@ impl HostHeaderInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing duplicate Host header");
+        debug!("Testing duplicate Host header");
 
         // Some servers use the second Host header
         let original_host = self.extract_host(url);

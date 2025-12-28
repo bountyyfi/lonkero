@@ -1,9 +1,9 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 // DNS Security Scanner
 // Production-grade DNS security configuration and email authentication analysis
-// © 2025 Bountyy Oy
+// © 2026 Bountyy Oy
 
 use anyhow::{Context, Result};
 use hickory_resolver::config::*;

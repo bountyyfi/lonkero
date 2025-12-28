@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Blind SSRF with OOB Callback Detection Scanner
  * Detects blind SSRF vulnerabilities using Out-of-Band callbacks and timing analysis
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 

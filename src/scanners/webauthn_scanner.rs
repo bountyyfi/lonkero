@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -15,7 +15,7 @@
  * - User verification bypass
  * - Attestation statement issues
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -75,7 +75,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing WebAuthn endpoint configuration");
+        debug!("Testing WebAuthn endpoint configuration");
 
         let webauthn_endpoints = vec![
             ("/api/webauthn/register", "Registration"),
@@ -148,7 +148,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing challenge generation strength");
+        debug!("Testing challenge generation strength");
 
         let challenge_endpoints = vec![
             "/api/webauthn/register/begin",
@@ -218,7 +218,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing WebAuthn registration flow");
+        debug!("Testing WebAuthn registration flow");
 
         let registration_payloads = vec![
             (r#"{"user":{"id":"admin","name":"admin"}}"#, "User Enumeration"),
@@ -294,7 +294,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing WebAuthn origin validation");
+        debug!("Testing WebAuthn origin validation");
 
         let malicious_origins = vec![
             "https://evil.com",

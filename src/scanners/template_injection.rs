@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -24,7 +24,7 @@
  * - Template engine fingerprinting
  * - RCE via template injection
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -80,11 +80,11 @@ impl TemplateInjectionScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[SSTI] Testing parameter: {} (priority: {})",
+        debug!("[SSTI] Testing parameter: {} (priority: {})",
               param_name,
               ParameterFilter::get_parameter_priority(param_name));
 
-        info!("Testing SSTI on parameter: {}", param_name);
+        debug!("Testing SSTI on parameter: {}", param_name);
 
         // Get framework-specific engines based on context
         let engines = self.get_targeted_engines(context);

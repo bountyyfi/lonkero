@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -16,7 +16,7 @@
  * - Early-Data header acceptance issues
  * - Header injection via malformed values
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -139,7 +139,7 @@ impl Http3Scanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing Alt-Svc header manipulation");
+        debug!("Testing Alt-Svc header manipulation");
 
         let malicious_alt_svc_values = vec![
             r#"h3=":443"; ma=2592000; persist=1"#,
@@ -189,7 +189,7 @@ impl Http3Scanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing Early-Data header acceptance via standard HTTP");
+        debug!("Testing Early-Data header acceptance via standard HTTP");
 
         let state_changing_endpoints = vec![
             ("/api/transfer", "POST"),
@@ -242,7 +242,7 @@ impl Http3Scanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing header injection via standard HTTP");
+        debug!("Testing header injection via standard HTTP");
 
         let smuggling_payloads = vec![
             ("X-Test\r\nX-Injected", "CRLF in header name"),
@@ -292,7 +292,7 @@ impl Http3Scanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing request splitting via standard HTTP");
+        debug!("Testing request splitting via standard HTTP");
 
         let splitting_payloads = vec![
             "/%20HTTP/1.1%0d%0aHost:%20evil.com%0d%0a%0d%0aGET%20/",

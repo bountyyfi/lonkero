@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 //! JavaScript Source Map Scanner
@@ -15,7 +15,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct SourceMapScanner {
     http_client: Arc<HttpClient>,

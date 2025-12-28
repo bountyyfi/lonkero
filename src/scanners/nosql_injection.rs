@@ -1,10 +1,10 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -70,7 +70,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing MongoDB operators in GET requests");
+        debug!("Testing MongoDB operators in GET requests");
 
         // NoSQL injection payloads for GET
         let payloads = vec![
@@ -111,7 +111,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing MongoDB operators in POST requests");
+        debug!("Testing MongoDB operators in POST requests");
 
         // NoSQL injection payloads for POST (JSON)
         let payloads = vec![
@@ -151,7 +151,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing JavaScript injection in NoSQL");
+        debug!("Testing JavaScript injection in NoSQL");
 
         // JavaScript injection payloads
         let payloads = vec![
@@ -190,7 +190,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing NoSQL authentication bypass");
+        debug!("Testing NoSQL authentication bypass");
 
         // Try common login endpoints
         let login_endpoints = vec![

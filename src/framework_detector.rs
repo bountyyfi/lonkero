@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Framework & Technology Detection
  * Identifies frameworks, CDNs, cloud services, and technologies
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -85,6 +85,7 @@ impl FrameworkDetector {
         info!("Detecting technologies for: {}", url);
 
         let mut detected = HashSet::new();
+        let mut was_blocked = false;
 
         detected.extend(self.detect_from_url(url));
 
@@ -99,11 +100,20 @@ impl FrameworkDetector {
                     detected.extend(self.detect_from_scripts(&response));
                     detected.extend(self.detect_from_cookies(&response));
                     detected.extend(self.detect_from_favicon(url).await);
+                } else if response.status_code == 403 || response.status_code == 503 {
+                    // WAF/Bot protection detected - need headless browser
+                    was_blocked = true;
+                    info!("[WAF-Detected] Got {} response, will try headless browser for tech detection", response.status_code);
                 }
             }
             Err(e) => {
                 debug!("Could not fetch {} for technology detection: {}", url, e);
             }
+        }
+
+        // If blocked by WAF, try headless browser to get real page content
+        if was_blocked {
+            detected.extend(self.detect_with_headless(url).await);
         }
 
         info!("[SUCCESS] Detected {} technologies", detected.len());
@@ -112,6 +122,77 @@ impl FrameworkDetector {
         }
 
         Ok(detected)
+    }
+
+    /// Detect technologies using headless browser (for WAF-blocked sites)
+    async fn detect_with_headless(&self, url: &str) -> HashSet<DetectedTechnology> {
+        use headless_chrome::{Browser, LaunchOptionsBuilder};
+        use std::time::Duration;
+
+        let mut detected = HashSet::new();
+
+        info!("[Headless-Tech] Using headless browser to bypass WAF for tech detection");
+
+        let launch_options = LaunchOptionsBuilder::default()
+            .headless(true)
+            .sandbox(false)
+            .idle_browser_timeout(Duration::from_secs(30))
+            .build()
+            .ok();
+
+        let browser = match launch_options {
+            Some(opts) => Browser::new(opts).ok(),
+            None => None,
+        };
+
+        if let Some(browser) = browser {
+            if let Ok(tab) = browser.new_tab() {
+                if tab.navigate_to(url).is_ok() {
+                    // Wait for page to load
+                    std::thread::sleep(Duration::from_secs(3));
+
+                    // Get rendered HTML
+                    if let Ok(html) = tab.get_content() {
+                        let html_lower = html.to_lowercase();
+
+                        // Detect frameworks from rendered HTML
+                        let html_patterns = vec![
+                            ("__next", "Next.js", TechCategory::Framework, Confidence::High),
+                            ("_next/", "Next.js", TechCategory::Framework, Confidence::High),
+                            ("__next_data__", "Next.js", TechCategory::Framework, Confidence::High),
+                            ("data-next-head", "Next.js", TechCategory::Framework, Confidence::High),
+                            ("__nuxt", "Nuxt.js", TechCategory::Framework, Confidence::High),
+                            ("_nuxt/", "Nuxt.js", TechCategory::Framework, Confidence::High),
+                            ("data-reactroot", "React", TechCategory::JavaScript, Confidence::High),
+                            ("data-react-helmet", "React", TechCategory::JavaScript, Confidence::High),
+                            ("data-v-", "Vue.js", TechCategory::JavaScript, Confidence::High),
+                            ("__vue__", "Vue.js", TechCategory::JavaScript, Confidence::High),
+                            ("ng-version", "Angular", TechCategory::JavaScript, Confidence::High),
+                            ("_nghost", "Angular", TechCategory::JavaScript, Confidence::High),
+                            ("wp-content", "WordPress", TechCategory::CMS, Confidence::High),
+                            ("wp-includes", "WordPress", TechCategory::CMS, Confidence::High),
+                            ("shopify", "Shopify", TechCategory::CMS, Confidence::High),
+                            ("cdn.shopify.com", "Shopify", TechCategory::CMS, Confidence::High),
+                        ];
+
+                        for (pattern, name, category, confidence) in html_patterns {
+                            if html_lower.contains(pattern) {
+                                info!("[Headless-Tech] Detected {} via headless browser", name);
+                                detected.insert(DetectedTechnology {
+                                    name: name.to_string(),
+                                    category,
+                                    version: None,
+                                    confidence,
+                                    evidence: vec![format!("Headless browser found: {}", pattern)],
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        detected
     }
 
     fn detect_from_url(&self, url: &str) -> HashSet<DetectedTechnology> {

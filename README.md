@@ -8,11 +8,11 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.0-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**98+ Advanced Scanners** | **16 Premium Features** | **Context-Aware** | **5% False Positives**
+**94+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -24,11 +24,13 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 Lonkero is a production-grade web security scanner designed for professional security testing:
 
+- **v3.0 Intelligent Mode** - Context-aware scanning with tech detection, endpoint deduplication, and per-parameter risk scoring
 - Near-zero false positives (5% vs industry 20-30%)
 - Intelligent testing - Skips framework internals, focuses on real vulnerabilities
 - Modern stack coverage - Next.js, React, GraphQL, gRPC, WebSocket, HTTP/3
 - 80% faster scans - Smart parameter filtering eliminates noise
 - Advanced blind vulnerability detection techniques
+- **When tech detection fails, we run MORE tests, not fewer** - fallback layer with 35+ scanners
 
 Unlike generic scanners that spam thousands of useless payloads, Lonkero uses context-aware filtering to test only what matters.
 
@@ -36,7 +38,27 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ## Core Capabilities
 
-### 98 Security Scanners
+### v3.0 Intelligent Scanning Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  LAYER 1: Universal Scanners (always run)                       │
+│  CORS, Headers, SSL, OpenRedirect, HttpSmuggling, HostHeader    │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 2: Core Scanners (always run)                            │
+│  XSS, SQLi, SSRF, CommandInjection, PathTraversal, IDOR, JWT    │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 3: Tech-Specific (when detected)                         │
+│  NextJs, React, Django, Laravel, Express, WordPress...          │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 4: Fallback (when tech=Unknown → MORE tests)             │
+│  35+ scanners: NoSQLi, XXE, Deserial, Log4j, Merlin, Cognito... │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key insight**: When technology detection fails, the fallback layer runs MORE comprehensive tests to ensure nothing is missed.
+
+### 94+ Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
@@ -163,33 +185,39 @@ sudo cp target/release/lonkero /usr/local/bin/
 
 ## Quick Start
 
-### Basic Scan
+### Basic Scan (v3.0 Intelligent Mode)
 
 ```bash
-# Scan single URL
+# Scan single URL - Intelligent mode is default, no --mode needed
 lonkero scan https://example.com
 
-# Scan with all modules
-lonkero scan https://example.com --all-modules
+# With crawling enabled for better endpoint discovery
+lonkero scan https://example.com --crawl
 
 # Output to JSON
 lonkero scan https://example.com --format json -o report.json
+
+# Output to PDF report
+lonkero scan https://example.com --format pdf -o report.pdf
 ```
 
 ### Advanced Usage
 
 ```bash
-# Scan with specific modules
-lonkero scan https://example.com --modules sqli,xss,xxe
-
 # Scan with authentication
 lonkero scan https://example.com --cookie "session=abc123"
 
 # Scan with custom headers
 lonkero scan https://example.com --header "Authorization: Bearer token"
 
+# Enable subdomain enumeration
+lonkero scan https://example.com --subdomains
+
 # CI/CD integration (SARIF output)
 lonkero scan https://example.com --format sarif -o results.sarif
+
+# Google dorking reconnaissance (optional)
+lonkero scan https://example.com --dork
 ```
 
 ### Configuration File
@@ -402,6 +430,17 @@ High-value features for critical infrastructure:
 
 ## CI/CD Integration
 
+### v3.0 - No Mode Selection Required
+
+Lonkero v3.0 uses **Intelligent Mode by default** - no need to specify `--mode`. The scanner automatically:
+- Detects technology stack
+- Deduplicates endpoints and parameters
+- Scores parameters by risk
+- Selects appropriate scanners per-target
+- Runs fallback scanners when tech is unknown
+
+Legacy modes (`--mode fast/normal/thorough/insane`) are still available for backwards compatibility.
+
 ### GitHub Actions
 
 ```yaml
@@ -426,11 +465,13 @@ jobs:
           sudo cp target/release/lonkero /usr/local/bin/
 
       - name: Run Lonkero Scan
+        env:
+          LONKERO_LICENSE: ${{ secrets.LONKERO_LICENSE }}
         run: |
+          # v3.0: Intelligent mode is default - no --mode needed
           lonkero scan https://staging.example.com \
             --format sarif \
-            -o results.sarif \
-            --license-key ${{ secrets.LONKERO_LICENSE }}
+            -o results.sarif
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v2
@@ -444,13 +485,28 @@ jobs:
 lonkero-scan:
   stage: security
   image: rust:1.75
+  variables:
+    LONKERO_LICENSE: $LONKERO_LICENSE_KEY
   script:
     - git clone https://github.com/bountyyfi/lonkero.git /tmp/lonkero
     - cd /tmp/lonkero && cargo build --release
+    # v3.0: Intelligent mode is default
     - /tmp/lonkero/target/release/lonkero scan $CI_ENVIRONMENT_URL --format json -o gl-sast-report.json
   artifacts:
     reports:
       sast: gl-sast-report.json
+```
+
+### Legacy Mode (Optional)
+
+If you need the old behavior for specific use cases:
+
+```bash
+# Use legacy modes when needed
+lonkero scan https://example.com --mode fast      # 50 payloads globally
+lonkero scan https://example.com --mode normal    # 500 payloads globally
+lonkero scan https://example.com --mode thorough  # 5000 payloads globally
+lonkero scan https://example.com --mode insane    # All payloads
 ```
 
 ---
@@ -536,7 +592,7 @@ Plain text reports for documentation and version control.
 
 ## License
 
-**Copyright © 2025 Bountyy Oy. All rights reserved.**
+**Copyright © 2026 Bountyy Oy. All rights reserved.**
 
 This software is proprietary. Commercial use requires a valid license.
 

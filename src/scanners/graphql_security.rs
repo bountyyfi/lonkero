@@ -1,10 +1,10 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -115,7 +115,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing GraphQL introspection");
+        debug!("Testing GraphQL introspection");
 
         // Try common GraphQL endpoints
         let graphql_endpoints = vec![
@@ -157,7 +157,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL injection");
+        debug!("Testing GraphQL injection");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -203,7 +203,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL field suggestions");
+        debug!("Testing GraphQL field suggestions");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -243,7 +243,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL batch query attacks");
+        debug!("Testing GraphQL batch query attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -361,7 +361,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing GraphQL query complexity / deep nesting / circular query DoS");
+        debug!("Testing GraphQL query complexity / deep nesting / circular query DoS");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -537,7 +537,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL alias abuse and overloading attacks");
+        debug!("Testing GraphQL alias abuse and overloading attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -659,7 +659,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL persisted query attacks");
+        debug!("Testing GraphQL persisted query attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -735,7 +735,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing GraphQL subscription vulnerabilities");
+        debug!("Testing GraphQL subscription vulnerabilities");
 
         // Check for WebSocket endpoint
         let _ws_endpoints = vec![
@@ -827,7 +827,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing GraphQL fragment attacks");
+        debug!("Testing GraphQL fragment attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -902,7 +902,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL directive abuse");
+        debug!("Testing GraphQL directive abuse");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -981,7 +981,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing GraphQL authorization bypass");
+        debug!("Testing GraphQL authorization bypass");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -1052,7 +1052,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL cost analysis and pagination abuse");
+        debug!("Testing GraphQL cost analysis and pagination abuse");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -1111,7 +1111,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing GraphQL introspection abuse");
+        debug!("Testing GraphQL introspection abuse");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),

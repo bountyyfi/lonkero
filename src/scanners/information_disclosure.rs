@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -14,7 +14,7 @@
  * - Debug mode enabled
  * - Source code disclosure
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -99,7 +99,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing sensitive file exposure");
+        debug!("Testing sensitive file exposure");
 
         let sensitive_files = vec![
             "/.env",
@@ -151,7 +151,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing for stack traces");
+        debug!("Testing for stack traces");
 
         let error_triggers = vec![
             "?error=1",
@@ -194,7 +194,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing for directory listing");
+        debug!("Testing for directory listing");
 
         let base_url = self.extract_base_url(url);
         let directories = vec![
@@ -238,7 +238,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 1;
 
-        info!("Testing for server information disclosure");
+        debug!("Testing for server information disclosure");
 
         // Test 1: Check main URL headers
         match self.http_client.get(url).await {

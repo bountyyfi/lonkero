@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -15,7 +15,7 @@
  * - Cloud storage bucket misconfigurations
  * - Container registry exposure
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -160,7 +160,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing AWS metadata service SSRF");
+        debug!("Testing AWS metadata service SSRF");
 
         let aws_metadata_payloads = vec![
             "http://169.254.169.254/latest/meta-data/",
@@ -217,7 +217,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing GCP metadata service SSRF");
+        debug!("Testing GCP metadata service SSRF");
 
         let gcp_metadata_payloads = vec![
             "http://metadata.google.internal/computeMetadata/v1/",
@@ -275,7 +275,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing Azure IMDS SSRF");
+        debug!("Testing Azure IMDS SSRF");
 
         let azure_metadata_payloads = vec![
             "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
@@ -331,7 +331,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing for cloud credential exposure");
+        debug!("Testing for cloud credential exposure");
 
         let credential_endpoints = vec![
             "/.aws/credentials",
