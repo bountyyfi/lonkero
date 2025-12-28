@@ -316,10 +316,20 @@ impl CognitoEnumScanner {
         // If we found any users or detected different responses, report vulnerability
         if enumerable {
             vulnerabilities.push(Vulnerability {
+                id: format!("cognito-enum-{}", uuid::Uuid::new_v4()),
                 vuln_type: "AWS Cognito User Enumeration".to_string(),
                 severity: Severity::Medium,
+                confidence: Confidence::High,
+                category: "Authentication".to_string(),
                 url: url.to_string(),
-                evidence: format!(
+                parameter: Some("Username".to_string()),
+                payload: "X-Amz-Target: AWSCognitoIdentityProviderService.ForgotPassword".to_string(),
+                description:
+                    "AWS Cognito User Pool is vulnerable to user enumeration. \
+                     An attacker can determine valid usernames by analyzing responses \
+                     from the ForgotPassword API. This information can be used for \
+                     targeted phishing, credential stuffing, or brute force attacks.".to_string(),
+                evidence: Some(format!(
                     "Cognito User Pool allows user enumeration via ForgotPassword API.\n\
                      Region: {}\n\
                      Client ID: {}...\n\
@@ -328,35 +338,37 @@ impl CognitoEnumScanner {
                     config.region,
                     &config.client_id[..12],
                     found_users.len()
-                ),
-                payload: format!("X-Amz-Target: AWSCognitoIdentityProviderService.ForgotPassword"),
+                )),
+                cwe: "CWE-204".to_string(),
+                cvss: 5.3,
+                verified: true,
+                false_positive: false,
                 remediation:
                     "1. Enable 'Prevent user existence errors' in Cognito User Pool settings\n\
                      2. Configure custom messages that don't reveal user existence\n\
                      3. Implement rate limiting and CAPTCHA on the forgot password flow\n\
                      4. Monitor for enumeration attempts in CloudWatch logs\n\
                      5. Consider using alias attributes to hide usernames".to_string(),
-                description:
-                    "AWS Cognito User Pool is vulnerable to user enumeration. \
-                     An attacker can determine valid usernames by analyzing responses \
-                     from the ForgotPassword API. This information can be used for \
-                     targeted phishing, credential stuffing, or brute force attacks.".to_string(),
-                cwe: "CWE-204".to_string(),
-                cvss: 5.3,
-                parameter: "Username".to_string(),
-                confidence: Confidence::High,
-                request: None,
-                response: None,
+                discovered_at: chrono::Utc::now().to_rfc3339(),
             });
         }
 
         // Also report the exposed Cognito configuration as informational
         if !config.user_pool_id.is_empty() {
             vulnerabilities.push(Vulnerability {
+                id: format!("cognito-config-{}", uuid::Uuid::new_v4()),
                 vuln_type: "AWS Cognito Configuration Exposed".to_string(),
                 severity: Severity::Low,
+                confidence: Confidence::High,
+                category: "Information Disclosure".to_string(),
                 url: url.to_string(),
-                evidence: format!(
+                parameter: None,
+                payload: String::new(),
+                description:
+                    "AWS Cognito configuration was found exposed in client-side JavaScript. \
+                     While this is common for SPAs, ensure proper security settings are enabled \
+                     to prevent user enumeration and abuse.".to_string(),
+                evidence: Some(format!(
                     "AWS Cognito User Pool configuration found in JavaScript.\n\
                      Region: {}\n\
                      Pool ID: {}...\n\
@@ -364,23 +376,17 @@ impl CognitoEnumScanner {
                     config.region,
                     if config.user_pool_id.len() > 15 { &config.user_pool_id[..15] } else { &config.user_pool_id },
                     &config.client_id[..12]
-                ),
-                payload: String::new(),
+                )),
+                cwe: "CWE-200".to_string(),
+                cvss: 2.0,
+                verified: true,
+                false_positive: false,
                 remediation:
                     "1. Ensure 'Prevent user existence errors' is enabled\n\
                      2. Implement proper rate limiting\n\
                      3. Use CloudFront or WAF to add additional protection\n\
                      4. Monitor for suspicious authentication patterns".to_string(),
-                description:
-                    "AWS Cognito configuration was found exposed in client-side JavaScript. \
-                     While this is common for SPAs, ensure proper security settings are enabled \
-                     to prevent user enumeration and abuse.".to_string(),
-                cwe: "CWE-200".to_string(),
-                cvss: 2.0,
-                parameter: String::new(),
-                confidence: Confidence::High,
-                request: None,
-                response: None,
+                discovered_at: chrono::Utc::now().to_rfc3339(),
             });
         }
 
@@ -421,32 +427,35 @@ impl CognitoEnumScanner {
                    resp_body.contains("CodeDeliveryDetails") ||
                    resp_body.contains("UserConfirmed") {
                     vulnerabilities.push(Vulnerability {
+                        id: format!("cognito-signup-{}", uuid::Uuid::new_v4()),
                         vuln_type: "AWS Cognito Open Registration".to_string(),
                         severity: Severity::High,
+                        confidence: Confidence::High,
+                        category: "Authentication".to_string(),
                         url: url.to_string(),
-                        evidence: format!(
+                        parameter: Some("SignUp".to_string()),
+                        payload: "X-Amz-Target: AWSCognitoIdentityProviderService.SignUp".to_string(),
+                        description:
+                            "AWS Cognito User Pool allows unrestricted public registration. \
+                             An attacker can create arbitrary accounts, potentially gaining \
+                             unauthorized access to protected resources or using accounts \
+                             for abuse. This is critical if the pool should be invite-only.".to_string(),
+                        evidence: Some(
                             "Cognito User Pool allows public registration via SignUp API.\n\
                              Anyone can create an account without invitation.\n\
-                             Response indicates successful account creation."
+                             Response indicates successful account creation.".to_string()
                         ),
-                        payload: "X-Amz-Target: AWSCognitoIdentityProviderService.SignUp".to_string(),
+                        cwe: "CWE-287".to_string(),
+                        cvss: 7.5,
+                        verified: true,
+                        false_positive: false,
                         remediation:
                             "1. Disable self-service sign-up in Cognito User Pool settings\n\
                              2. Use AdminCreateUser API for controlled user creation\n\
                              3. Implement pre-sign-up Lambda trigger for validation\n\
                              4. Configure allowed sign-up attributes carefully\n\
                              5. Enable email/phone verification".to_string(),
-                        description:
-                            "AWS Cognito User Pool allows unrestricted public registration. \
-                             An attacker can create arbitrary accounts, potentially gaining \
-                             unauthorized access to protected resources or using accounts \
-                             for abuse. This is critical if the pool should be invite-only.".to_string(),
-                        cwe: "CWE-287".to_string(),
-                        cvss: 7.5,
-                        parameter: "SignUp".to_string(),
-                        confidence: Confidence::High,
-                        request: None,
-                        response: None,
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
                     });
                 }
 
@@ -454,24 +463,27 @@ impl CognitoEnumScanner {
                 if resp_body.contains("InvalidPasswordException") {
                     // Password policy is being disclosed
                     vulnerabilities.push(Vulnerability {
+                        id: format!("cognito-pwpolicy-{}", uuid::Uuid::new_v4()),
                         vuln_type: "AWS Cognito Password Policy Disclosure".to_string(),
                         severity: Severity::Low,
+                        confidence: Confidence::Medium,
+                        category: "Information Disclosure".to_string(),
                         url: url.to_string(),
-                        evidence: format!(
-                            "Cognito returns password policy requirements in error messages.\n\
-                             This information helps attackers craft valid passwords."
-                        ),
+                        parameter: None,
                         payload: String::new(),
-                        remediation:
-                            "Consider using generic error messages that don't reveal password requirements.".to_string(),
                         description:
                             "The Cognito User Pool reveals password policy requirements in error messages.".to_string(),
+                        evidence: Some(
+                            "Cognito returns password policy requirements in error messages.\n\
+                             This information helps attackers craft valid passwords.".to_string()
+                        ),
                         cwe: "CWE-200".to_string(),
                         cvss: 2.0,
-                        parameter: String::new(),
-                        confidence: Confidence::Medium,
-                        request: None,
-                        response: None,
+                        verified: true,
+                        false_positive: false,
+                        remediation:
+                            "Consider using generic error messages that don't reveal password requirements.".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
                     });
                 }
 
@@ -519,29 +531,32 @@ impl CognitoEnumScanner {
                 if resp_body.contains("UserNotFoundException") ||
                    resp_body.contains("User does not exist") {
                     vulnerabilities.push(Vulnerability {
+                        id: format!("cognito-auth-enum-{}", uuid::Uuid::new_v4()),
                         vuln_type: "AWS Cognito Auth User Enumeration".to_string(),
                         severity: Severity::Medium,
+                        confidence: Confidence::High,
+                        category: "Authentication".to_string(),
                         url: url.to_string(),
-                        evidence: format!(
+                        parameter: Some("USERNAME".to_string()),
+                        payload: "X-Amz-Target: AWSCognitoIdentityProviderService.InitiateAuth".to_string(),
+                        description:
+                            "AWS Cognito InitiateAuth API reveals whether a username exists. \
+                             Attackers can enumerate valid usernames for targeted attacks.".to_string(),
+                        evidence: Some(
                             "Cognito reveals user existence through InitiateAuth API.\n\
                              Non-existent users return 'UserNotFoundException'.\n\
-                             Existing users return 'NotAuthorizedException' for wrong password."
+                             Existing users return 'NotAuthorizedException' for wrong password.".to_string()
                         ),
-                        payload: "X-Amz-Target: AWSCognitoIdentityProviderService.InitiateAuth".to_string(),
+                        cwe: "CWE-204".to_string(),
+                        cvss: 5.3,
+                        verified: true,
+                        false_positive: false,
                         remediation:
                             "1. Enable 'Prevent user existence errors' in Cognito settings\n\
                              2. This will return generic 'NotAuthorizedException' for all auth failures\n\
                              3. Implement account lockout and rate limiting\n\
                              4. Monitor for enumeration attempts".to_string(),
-                        description:
-                            "AWS Cognito InitiateAuth API reveals whether a username exists. \
-                             Attackers can enumerate valid usernames for targeted attacks.".to_string(),
-                        cwe: "CWE-204".to_string(),
-                        cvss: 5.3,
-                        parameter: "USERNAME".to_string(),
-                        confidence: Confidence::High,
-                        request: None,
-                        response: None,
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
                     });
                 }
             }
