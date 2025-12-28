@@ -1172,6 +1172,20 @@ impl HeadlessCrawler {
             visited.insert(current_url.clone());
             results.pages_visited.push(current_url.clone());
 
+            // Check if we were redirected to a different URL (e.g., auth page)
+            // This is important for detecting Cognito/OAuth login redirects
+            if let Ok(actual_url) = tab.evaluate("window.location.href", false) {
+                if let Some(actual_url_str) = actual_url.value.as_ref().and_then(|v| v.as_str()) {
+                    if actual_url_str != current_url && !visited.contains(actual_url_str) {
+                        info!("[Headless] Detected redirect: {} -> {}", current_url, actual_url_str);
+                        // Add the redirect URL to pages_visited for Cognito/OAuth detection
+                        results.pages_visited.push(actual_url_str.to_string());
+                        // Mark it as visited to avoid re-crawling
+                        visited.insert(actual_url_str.to_string());
+                    }
+                }
+            }
+
             // Wait for JS to render
             std::thread::sleep(Duration::from_millis(1500));
 

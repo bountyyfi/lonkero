@@ -1081,24 +1081,73 @@ impl MassAssignmentScanner {
     fn detect_privilege_escalation(&self, body: &str, param: &str, value: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check if parameter was accepted
+        // First, check if this looks like a SPA/soft-404 response (HTML page returned for all routes)
+        // SPA responses contain typical frontend markers and should not be considered as API responses
+        if self.is_spa_response(body) {
+            return false;
+        }
+
+        // Check if parameter was accepted - this is the strongest evidence
+        // Must be in a JSON-like structure to be considered valid
         if body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) ||
            body_lower.contains(&format!("{}\":{}", param, value)) ||
            body_lower.contains(&format!("'{}':'{}'", param, value)) {
             return true;
         }
 
-        // Check for privilege indicators
-        let privilege_indicators = vec![
-            "admin",
-            "administrator",
-            "privilege",
-            "elevated",
-            "superuser",
+        // Only check for privilege indicators in structured API responses (JSON)
+        // Do NOT check for these words in HTML responses as they cause false positives
+        if !body.trim().starts_with("{") && !body.trim().starts_with("[") {
+            // Not a JSON response, skip privilege indicator check
+            return false;
+        }
+
+        // For JSON responses, check for privilege indicators in the context of the injected param
+        let privilege_patterns = vec![
+            format!("\"{}\":\"admin\"", param),
+            format!("\"{}\":true", param),
+            format!("\"{}\":1", param),
+            format!("\"{}\":\"administrator\"", param),
+            format!("\"{}\":\"superuser\"", param),
         ];
 
-        for indicator in privilege_indicators {
-            if body_lower.contains(indicator) {
+        for pattern in privilege_patterns {
+            if body_lower.contains(&pattern.to_lowercase()) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if response is a SPA/single-page-application fallback (soft-404)
+    fn is_spa_response(&self, body: &str) -> bool {
+        let spa_indicators = [
+            "<app-root>",
+            "<div id=\"root\">",
+            "<div id=\"app\">",
+            "__NEXT_DATA__",
+            "__NUXT__",
+            "ng-version=",
+            "data-reactroot",
+            "<script src=\"/main.",
+            "<script src=\"main.",
+            "polyfills.js",
+            "/static/js/main.",
+            "/_next/static/",
+            "window.__REDUX",
+            "window.__PRELOADED_STATE__",
+        ];
+
+        for indicator in &spa_indicators {
+            if body.contains(indicator) {
+                return true;
+            }
+        }
+
+        // Check for common SPA HTML structure with no actual API content
+        if body.contains("<!DOCTYPE html>") || body.contains("<!doctype html>") {
+            if body.contains("<script") && (body.contains("angular") || body.contains("react") || body.contains("vue")) {
                 return true;
             }
         }

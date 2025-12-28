@@ -1343,6 +1343,14 @@ async fn execute_standalone_scan(
                         }
                     }
 
+                    // Add pages visited (including redirect URLs) for Cognito/OAuth detection
+                    // These may contain auth URLs like auth.idm.vrprod.io with client_id params
+                    for page_url in &crawl_results.pages_visited {
+                        if !intercepted_endpoints.contains(page_url) {
+                            intercepted_endpoints.push(page_url.clone());
+                        }
+                    }
+
                     info!("  - Total: {} forms with {} fields, {} API endpoints, {} GraphQL endpoints",
                           discovered_forms.len(), discovered_params.len(),
                           intercepted_endpoints.len(), crawl_results.graphql_endpoints.len());

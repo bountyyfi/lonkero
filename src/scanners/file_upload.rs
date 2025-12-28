@@ -1086,7 +1086,24 @@ impl FileUploadScanner {
 
     /// Check if upload was accepted based on response
     fn is_upload_accepted(&self, body: &str, status: u16) -> bool {
-        // First check for soft 404 - server returns 200 but body shows error
+        // First check for SPA/single-page-application fallback (returns same HTML for all routes)
+        // SPAs often return 200 for all routes and render client-side - NOT a real upload acceptance
+        let is_spa_response = body.contains("<app-root>") ||
+            body.contains("<div id=\"root\">") ||
+            body.contains("<div id=\"app\">") ||
+            body.contains("__NEXT_DATA__") ||
+            body.contains("__NUXT__") ||
+            body.contains("ng-version=") ||
+            body.contains("polyfills.js") ||
+            body.contains("data-reactroot") ||
+            body.contains("/_next/static/") ||
+            (body.contains("<!DOCTYPE html>") && body.contains("<script") && body.len() > 5000);
+
+        if is_spa_response {
+            return false;
+        }
+
+        // Check for soft 404 - server returns 200 but body shows error
         let body_lower = body.to_lowercase();
         let is_soft_error = body_lower.contains("not found") ||
             body_lower.contains("404") ||
@@ -1112,8 +1129,12 @@ impl FileUploadScanner {
             return false;
         }
 
-        // Check status codes
+        // Check status codes - but only if response looks like an API response, not HTML
         if matches!(status, 200 | 201 | 204) {
+            // If the response is HTML, it's likely a SPA fallback, not a real upload acceptance
+            if body.contains("<!DOCTYPE") || body.contains("<html") {
+                return false;
+            }
             return true;
         }
 

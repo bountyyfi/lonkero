@@ -1508,9 +1508,31 @@ impl BusinessLogicScanner {
 
     /// Detect form bypass success
     fn detect_form_bypass_success(&self, body: &str, attack_type: &str) -> bool {
+        // First check if this is a SPA/single-page-app fallback response
+        // SPAs return the same HTML for all routes - this is NOT a real form success
+        let is_spa_response = body.contains("<app-root>") ||
+            body.contains("<div id=\"root\">") ||
+            body.contains("<div id=\"app\">") ||
+            body.contains("__NEXT_DATA__") ||
+            body.contains("__NUXT__") ||
+            body.contains("ng-version=") ||
+            body.contains("polyfills.js") ||
+            body.contains("data-reactroot") ||
+            body.contains("/_next/static/") ||
+            (body.contains("<!DOCTYPE html>") && body.contains("<script") && body.len() > 5000);
+
+        if is_spa_response {
+            return false;
+        }
+
+        // Don't treat HTML responses as successful form submissions
+        if body.contains("<!DOCTYPE") || body.contains("<html") {
+            return false;
+        }
+
         let body_lower = body.to_lowercase();
 
-        // General success indicators
+        // General success indicators - must be in API-like response, not HTML
         let success = body_lower.contains("success") ||
                      body_lower.contains("submitted") ||
                      body_lower.contains("registered") ||
