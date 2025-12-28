@@ -2592,6 +2592,42 @@ async fn execute_standalone_scan(
         }
     }
 
+    // Joomla Security (only if Joomla detected) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::JOOMLA_SCANNER) {
+        if detected_technologies.iter().any(|t| t.to_lowercase().contains("joomla")) {
+            info!("  - Testing Joomla Security");
+            let (vulns, tests) = engine.joomla_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
+    // Rails Security (only if Rails detected) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::RAILS_SCANNER) {
+        if detected_technologies.iter().any(|t| {
+            let t_lower = t.to_lowercase();
+            t_lower.contains("rails") || t_lower.contains("ruby")
+        }) {
+            info!("  - Testing Ruby on Rails Security");
+            let (vulns, tests) = engine.rails_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
+    // Spring Security (only if Spring/Java detected) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::SPRING_SCANNER) {
+        if is_java_stack || detected_technologies.iter().any(|t| {
+            let t_lower = t.to_lowercase();
+            t_lower.contains("spring") || t_lower.contains("java")
+        }) {
+            info!("  - Testing Spring Framework Security");
+            let (vulns, tests) = engine.spring_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
     // ============================================================
     // Server Misconfiguration Scanners (Professional+ tier)
     // ============================================================

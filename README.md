@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**117+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
+**120+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -58,14 +58,14 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 **Key insight**: When technology detection fails, the fallback layer runs MORE comprehensive tests to ensure nothing is missed.
 
-### 117+ Security Scanners
+### 120+ Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
 | **Injection** | 30 scanners | SQLi, XSS, DOM XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header, Log4j/JNDI, DOM Clobbering |
 | **Authentication** | 26 scanners | JWT, OAuth, OIDC, SAML, MFA, 2FA Bypass, Session, Auth Bypass, IDOR, BOLA, Account Takeover, Password Reset Poisoning, Timing Attacks, Cognito Enum, Client Route Bypass |
 | **API Security** | 20 scanners | GraphQL (advanced), GraphQL Batching, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3, Azure APIM, BFLA, API Versioning, OpenAPI Analyzer |
-| **Frameworks** | 12 scanners | Next.js (route discovery), React, Django, Laravel, WordPress, Drupal, Express, SvelteKit |
+| **Frameworks** | 15 scanners | Next.js (route discovery), React, Django, Laravel, WordPress, Drupal, Joomla, Express, SvelteKit, Ruby on Rails, Spring Boot |
 | **Configuration** | 17 scanners | Headers, CSP Bypass, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF, DNS Security, Web Cache Deception, PostMessage Vulns |
 | **Business Logic** | 8 scanners | Race Conditions, Payment Bypass, Workflow Manipulation, Mass Assignment (advanced), Timing Attacks |
 | **Info Disclosure** | 11 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets, Source Maps, Favicon Hash, HTML Injection |
@@ -453,7 +453,7 @@ lonkero scan --config lonkero.yml
 - **HTTP/3** - QUIC-specific vulnerabilities
 - **HTTP Smuggling** - Request smuggling attacks
 
-### Modern Framework Scanners (12 scanners)
+### Modern Framework Scanners (15 scanners)
 
 - **Next.js** - Route discovery from JS bundles, middleware bypass (CVE-2024-34351, CVE-2025-29927), `_next/data` exposure, server actions, image SSRF, ISR token exposure
 - **React** - DevTools exposure, hydration issues, client-side vulnerabilities
@@ -463,6 +463,9 @@ lonkero scan --config lonkero.yml
 - **Express.js** - Middleware vulnerabilities, prototype pollution
 - **WordPress** - Plugin vulnerabilities, XML-RPC, REST API abuse
 - **Drupal** - Core vulnerabilities, module security
+- **Joomla** - CVE-2023-23752 (authentication bypass), CVE-2017-8917 (SQLi), admin exposure, API exploitation, extension vulnerabilities, installation leftovers
+- **Ruby on Rails** - Debug mode exposure, environment/config file leaks, log exposure, session security, asset/source map exposure, git repository detection
+- **Spring Boot** - Actuator endpoint exposure (env, heapdump, jolokia, shutdown), H2 console RCE, Swagger/OpenAPI exposure, configuration file leaks
 - **Liferay** - Portal-specific vulnerabilities
 - **Tomcat** - Misconfiguration, default credentials
 - **Varnish** - Cache misconfiguration

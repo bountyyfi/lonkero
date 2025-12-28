@@ -115,6 +115,9 @@ pub mod sveltekit_security;
 pub mod react_security;
 pub mod django_security;
 pub mod liferay_security;
+pub mod joomla_scanner;
+pub mod rails_scanner;
+pub mod spring_scanner;
 pub mod parameter_filter;
 pub mod parameter_prioritizer;
 pub mod attack_surface;
@@ -241,6 +244,9 @@ pub use sveltekit_security::SvelteKitSecurityScanner;
 pub use react_security::ReactSecurityScanner;
 pub use django_security::DjangoSecurityScanner;
 pub use liferay_security::LiferaySecurityScanner;
+pub use joomla_scanner::JoomlaScanner;
+pub use rails_scanner::RailsScanner;
+pub use spring_scanner::SpringScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use host_header_injection::HostHeaderInjectionScanner;
 pub use cognito_enum::CognitoEnumScanner;
@@ -358,6 +364,9 @@ pub struct ScanEngine {
     pub react_security_scanner: ReactSecurityScanner,
     pub django_security_scanner: DjangoSecurityScanner,
     pub liferay_security_scanner: LiferaySecurityScanner,
+    pub joomla_scanner: JoomlaScanner,
+    pub rails_scanner: RailsScanner,
+    pub spring_scanner: SpringScanner,
     pub prototype_pollution_scanner: PrototypePollutionScanner,
     pub host_header_injection_scanner: HostHeaderInjectionScanner,
     pub cognito_enum_scanner: CognitoEnumScanner,
@@ -546,6 +555,9 @@ impl ScanEngine {
             react_security_scanner: ReactSecurityScanner::new(Arc::clone(&http_client)),
             django_security_scanner: DjangoSecurityScanner::new(Arc::clone(&http_client)),
             liferay_security_scanner: LiferaySecurityScanner::new(Arc::clone(&http_client)),
+            joomla_scanner: JoomlaScanner::new(Arc::clone(&http_client)),
+            rails_scanner: RailsScanner::new(Arc::clone(&http_client)),
+            spring_scanner: SpringScanner::new(Arc::clone(&http_client)),
             prototype_pollution_scanner: PrototypePollutionScanner::new(Arc::clone(&http_client)),
             host_header_injection_scanner: HostHeaderInjectionScanner::new(Arc::clone(&http_client)),
             cognito_enum_scanner: CognitoEnumScanner::new(Arc::clone(&http_client)),
