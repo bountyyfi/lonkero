@@ -2087,6 +2087,15 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
     }
 
+    // AWS Cognito User Enumeration (Professional+)
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::COGNITO_ENUM) {
+        info!("  - Testing AWS Cognito User Enumeration");
+        // Pass intercepted endpoints which may contain Cognito auth URLs
+        let (vulns, tests) = engine.cognito_enum_scanner.scan_with_endpoints(target, scan_config, &intercepted_endpoints).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
     // Session Management (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::SESSION_MANAGEMENT) {
         info!("  - Testing Session Management");

@@ -61,6 +61,16 @@ impl CognitoEnumScanner {
         url: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        self.scan_with_endpoints(url, config, &[]).await
+    }
+
+    /// Scan for Cognito user enumeration vulnerabilities with additional intercepted endpoints
+    pub async fn scan_with_endpoints(
+        &self,
+        url: &str,
+        config: &ScanConfig,
+        additional_urls: &[String],
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
             return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
@@ -71,12 +81,24 @@ impl CognitoEnumScanner {
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
 
-        // First, extract Cognito configs from JavaScript
+        // First, check additional URLs for Cognito params (e.g., intercepted form endpoints)
+        // These often contain the real Cognito auth URL with client_id
+        for additional_url in additional_urls {
+            if let Some(cognito_config) = self.extract_cognito_from_url(additional_url) {
+                info!("[Cognito] Found Cognito config from intercepted URL: client_id={}...",
+                      &cognito_config.client_id[..cognito_config.client_id.len().min(8)]);
+                let (vulns, tests) = self.test_user_enumeration(url, &cognito_config, config).await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests;
+            }
+        }
+
+        // Then extract Cognito configs from the main URL and its JavaScript
         let configs = self.extract_cognito_configs(url).await?;
 
-        if configs.is_empty() {
+        if configs.is_empty() && all_vulnerabilities.is_empty() {
             debug!("[Cognito] No Cognito configurations found");
-            return Ok((all_vulnerabilities, 0));
+            return Ok((all_vulnerabilities, total_tests));
         }
 
         info!("[Cognito] Found {} Cognito configuration(s)", configs.len());
@@ -106,6 +128,24 @@ impl CognitoEnumScanner {
             Ok(r) => r,
             Err(_) => return Ok(configs),
         };
+
+        // Check if the original URL contains Cognito params
+        if let Some(cognito_config) = self.extract_cognito_from_url(url) {
+            info!("[Cognito] Detected Cognito OAuth2 flow from URL parameters");
+            configs.push(cognito_config);
+        }
+
+        // Check if this is a Cognito hosted UI page
+        if let Some(cognito_config) = self.detect_cognito_hosted_ui(url, &response.body) {
+            info!("[Cognito] Detected Cognito hosted UI page");
+            configs.push(cognito_config);
+        }
+
+        // Also look for Cognito URLs embedded in the page body (redirects, links, etc.)
+        if let Some(cognito_config) = self.extract_cognito_from_body_urls(&response.body) {
+            info!("[Cognito] Found Cognito OAuth2 URL in page body");
+            configs.push(cognito_config);
+        }
 
         // Extract from main page and linked JS files
         let mut js_contents = vec![response.body.clone()];
@@ -697,6 +737,222 @@ impl CognitoEnumScanner {
         usernames.extend(patterns.iter().map(|s| s.to_string()));
 
         usernames
+    }
+
+    /// Extract Cognito configuration from URLs found in body content
+    ///
+    /// Looks for URLs in the page body that contain Cognito OAuth2 parameters
+    fn extract_cognito_from_body_urls(&self, body: &str) -> Option<CognitoConfig> {
+        // Look for URLs with client_id and identity_provider=COGNITO
+        let url_pattern = Regex::new(r#"(?:href|action|src|url)[=:]["']?([^"'\s>]+client_id=[^"'\s>]+)"#).ok()?;
+
+        for cap in url_pattern.captures_iter(body) {
+            if let Some(url_match) = cap.get(1) {
+                let potential_url = url_match.as_str();
+
+                // URL decode if needed
+                let decoded = urlencoding::decode(potential_url).unwrap_or_else(|_| potential_url.into());
+
+                if let Some(config) = self.extract_cognito_from_url(&decoded) {
+                    return Some(config);
+                }
+            }
+        }
+
+        // Also look for client_id and identity_provider in query strings or JavaScript
+        if body.contains("identity_provider") && body.to_lowercase().contains("cognito") {
+            // Try to find client_id pattern
+            let client_pattern = Regex::new(r#"client_id[=:]["']?([a-z0-9]{20,32})"#).ok()?;
+            if let Some(cap) = client_pattern.captures(body) {
+                if let Some(client_id) = cap.get(1) {
+                    // Try to find region
+                    let region = if body.contains("eu-west-1") {
+                        "eu-west-1"
+                    } else if body.contains("us-east-1") {
+                        "us-east-1"
+                    } else if body.contains("eu-central-1") {
+                        "eu-central-1"
+                    } else {
+                        "eu-west-1"
+                    };
+
+                    return Some(CognitoConfig {
+                        region: region.to_string(),
+                        user_pool_id: String::new(),
+                        client_id: client_id.as_str().to_string(),
+                        source: "body_extraction".to_string(),
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Extract Cognito configuration from URL parameters
+    ///
+    /// Cognito OAuth2/OIDC flows often include client_id and identity_provider=COGNITO
+    /// Example: https://auth.example.com/login?client_id=1v1l3r2qvgohl8r2h572mqt966&identity_provider=COGNITO
+    fn extract_cognito_from_url(&self, url: &str) -> Option<CognitoConfig> {
+        let parsed = url::Url::parse(url).ok()?;
+
+        let mut client_id: Option<String> = None;
+        let mut is_cognito = false;
+        let mut region: Option<String> = None;
+
+        for (key, value) in parsed.query_pairs() {
+            match key.as_ref() {
+                "client_id" => {
+                    // Cognito client IDs are typically 26 lowercase alphanumeric chars
+                    let val = value.to_string();
+                    if val.len() >= 20 && val.len() <= 32 && val.chars().all(|c| c.is_ascii_alphanumeric()) {
+                        client_id = Some(val);
+                    }
+                }
+                "identity_provider" if value.to_uppercase() == "COGNITO" => {
+                    is_cognito = true;
+                }
+                _ => {}
+            }
+        }
+
+        // Check host for region hints
+        let host = parsed.host_str().unwrap_or("");
+        if host.contains("auth.") {
+            // Try to extract region from subdomain pattern
+            // Pattern: auth.idm.vrprod.io or something.auth.eu-west-1.amazoncognito.com
+            let region_pattern = Regex::new(r"auth\.([\w-]+)\.amazoncognito\.com").ok();
+            if let Some(re) = region_pattern {
+                if let Some(caps) = re.captures(host) {
+                    if let Some(r) = caps.get(1) {
+                        region = Some(r.as_str().to_string());
+                    }
+                }
+            }
+        }
+
+        // If we have a client_id and either identity_provider=COGNITO or it looks like a Cognito auth URL
+        if client_id.is_some() && (is_cognito || host.contains("auth.") || host.contains("cognito")) {
+            return Some(CognitoConfig {
+                region: region.unwrap_or_else(|| "eu-west-1".to_string()),
+                user_pool_id: String::new(),
+                client_id: client_id.unwrap_or_default(),
+                source: url.to_string(),
+            });
+        }
+
+        None
+    }
+
+    /// Detect if the page is a Cognito hosted UI login page
+    ///
+    /// Cognito hosted UI pages typically have:
+    /// - Domain patterns like *.auth.*.amazoncognito.com or custom domains
+    /// - Specific form structures and JavaScript references
+    /// - CSRF tokens and Cognito-specific meta tags
+    /// - URL parameters containing client_id and identity_provider=COGNITO
+    fn detect_cognito_hosted_ui(&self, url: &str, body: &str) -> Option<CognitoConfig> {
+        // First check if URL contains Cognito OAuth2 parameters
+        // Pattern: client_id=XXXX...&identity_provider=COGNITO
+        if let Some(config) = self.extract_cognito_from_url(url) {
+            info!("[Cognito] Detected Cognito OAuth2 flow from URL parameters");
+            return Some(config);
+        }
+
+        // Patterns that indicate a Cognito hosted UI page
+        let cognito_indicators = [
+            // Cognito hosted UI specific patterns
+            "cognito-idp",
+            "amazoncognito.com",
+            "CognitoUserPool",
+            "aws-amplify",
+            "AWSCognito",
+            "aws_cognito",
+            // Cognito login form patterns
+            r#"name="username""#,
+            r#"name="password""#,
+            "forgotPassword",
+            "cognitoUser",
+            // Cognito hosted UI specific JavaScript
+            "amazon-cognito-identity",
+            "cognito-auth",
+            "_csrf",
+            // Common Cognito hosted UI page indicators
+            "Sign in with your",
+            "Forgot your password",
+            // Identity provider indicator
+            "identity_provider",
+            "COGNITO",
+        ];
+
+        let body_lower = body.to_lowercase();
+        let indicator_count = cognito_indicators.iter()
+            .filter(|pattern| body_lower.contains(&pattern.to_lowercase()))
+            .count();
+
+        // Need at least 2 indicators to consider it a Cognito page
+        if indicator_count < 2 {
+            return None;
+        }
+
+        debug!("[Cognito] Found {} Cognito indicators on page", indicator_count);
+
+        // Try to extract region and client ID from the page
+        // Look for cognito-idp endpoint in the page
+        let endpoint_pattern = Regex::new(r#"cognito-idp\.([\w-]+)\.amazonaws\.com"#).ok()?;
+        let region = endpoint_pattern.captures(body)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Look for user pool ID in the page
+        let pool_pattern = Regex::new(r#"['"]((?:eu|us|ap|sa|ca|me|af)-[a-z]+-[0-9]+_[A-Za-z0-9]+)['"]"#).ok()?;
+        let pool_id = pool_pattern.captures(body)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Look for client ID (26 char alphanumeric)
+        let client_pattern = Regex::new(r#"['"]([\da-z]{26})['"]"#).ok()?;
+        let client_id = client_pattern.captures(body)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Try to extract from URL if it's a Cognito hosted domain
+        // Pattern: https://something.auth.region.amazoncognito.com
+        let url_pattern = Regex::new(r#"https?://[^/]+\.auth\.([\w-]+)\.amazoncognito\.com"#).ok()?;
+        let url_region = url_pattern.captures(url)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Also check for custom domain pattern that redirects to Cognito
+        // Look in meta tags or form actions
+        let redirect_pattern = Regex::new(r#"(?:action|href|redirect)[^"']*["']([^"']*cognito[^"']*)["']"#).ok()?;
+        let has_cognito_redirect = redirect_pattern.is_match(body);
+
+        // Determine the best region
+        let final_region = region
+            .or(url_region)
+            .or_else(|| {
+                // Try to extract from pool_id
+                pool_id.as_ref().and_then(|pid| {
+                    pid.find('_').map(|pos| pid[..pos].to_string())
+                })
+            })
+            .unwrap_or_else(|| "eu-west-1".to_string()); // Default to eu-west-1
+
+        // If we have either a client_id or indicators suggest Cognito
+        if client_id.is_some() || (indicator_count >= 3 && has_cognito_redirect) {
+            info!("[Cognito] Detected Cognito hosted UI - region: {}, has_client_id: {}",
+                  final_region, client_id.is_some());
+
+            return Some(CognitoConfig {
+                region: final_region,
+                user_pool_id: pool_id.unwrap_or_default(),
+                client_id: client_id.unwrap_or_default(),
+                source: url.to_string(),
+            });
+        }
+
+        None
     }
 
     /// Resolve relative URL to absolute

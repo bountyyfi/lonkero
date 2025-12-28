@@ -163,6 +163,8 @@ impl TechDetector {
             patterns: vec![
                 Pattern::HTML { regex: r"__NEXT_DATA__".to_string() },
                 Pattern::HTML { regex: r"/_next/static/".to_string() },
+                Pattern::HTML { regex: r"data-next-head".to_string() },
+                Pattern::HTML { regex: r"data-n-g".to_string() },
                 Pattern::Header { name: "x-powered-by".to_string(), regex: r"Next\.js".to_string() },
             ],
             implies: vec!["React".to_string(), "Node.js".to_string()],
