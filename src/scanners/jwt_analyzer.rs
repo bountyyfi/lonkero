@@ -14,7 +14,6 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::Value;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -103,6 +102,7 @@ impl DecodedJwt {
     }
 
     /// Get x5u (X.509 URL) from header
+    #[allow(dead_code)]
     pub fn x5u(&self) -> Option<&str> {
         self.header.get("x5u").and_then(|v| v.as_str())
     }
@@ -169,6 +169,7 @@ impl DecodedJwt {
     }
 
     /// Create a token with algorithm confusion (RS256 -> HS256)
+    #[allow(dead_code)]
     pub fn create_algorithm_confusion_token(&self, public_key: &str) -> String {
         let header = r#"{"alg":"HS256","typ":"JWT"}"#;
         let header_b64 = URL_SAFE_NO_PAD.encode(header);
@@ -203,6 +204,7 @@ impl DecodedJwt {
     }
 
     /// Create token with jku pointing to attacker URL
+    #[allow(dead_code)]
     pub fn create_jku_injection_token(&self, attacker_url: &str) -> String {
         let header = serde_json::json!({
             "alg": "RS256",
@@ -280,7 +282,7 @@ impl JwtAnalyzer {
         &self,
         url: &str,
         token: &str,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("[JWT] Starting deep analysis");
 
@@ -305,26 +307,27 @@ impl JwtAnalyzer {
             info!("[JWT] Found {} sensitive claims", sensitive.len());
             for claim in &sensitive {
                 vulnerabilities.push(Vulnerability {
-                    id: format!("JWT-SENSITIVE-{}", uuid::Uuid::new_v4()),
-                    name: "Sensitive Data in JWT Claims".to_string(),
+                    id: format!("jwt-sensitive-{}", uuid::Uuid::new_v4()),
+                    vuln_type: "Sensitive Data in JWT Claims".to_string(),
+                    severity: claim.severity.clone(),
+                    confidence: Confidence::High,
+                    category: "Information Disclosure".to_string(),
+                    url: url.to_string(),
+                    parameter: Some(format!("JWT claim: {}", claim.key)),
+                    payload: "N/A".to_string(),
                     description: format!(
                         "JWT contains sensitive data in claim '{}' (matched pattern: '{}'). Value type: {}",
                         claim.key,
                         claim.pattern,
                         if claim.value.is_string() { "string" } else { "other" }
                     ),
-                    severity: claim.severity.clone(),
-                    confidence: Confidence::High,
-                    url: url.to_string(),
-                    parameter: Some(format!("JWT claim: {}", claim.key)),
-                    evidence: format!("Claim '{}' contains potentially sensitive data", claim.key),
-                    remediation: "Remove sensitive data from JWT claims or encrypt the token payload".to_string(),
-                    cwe_id: Some("CWE-200".to_string()),
-                    cvss_score: None,
-                    references: vec!["https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/10-Testing_JSON_Web_Tokens".to_string()],
-                    request: None,
-                    response: None,
-                    found_at: chrono::Utc::now(),
+                    evidence: Some(format!("Claim '{}' contains potentially sensitive data", claim.key)),
+                    cwe: "CWE-200".to_string(),
+                    cvss: 6.5,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "Remove sensitive data from JWT claims or encrypt the token payload. Use opaque tokens for sensitive operations.".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
                 });
             }
         }
@@ -335,21 +338,22 @@ impl JwtAnalyzer {
         if let Ok(response) = self.test_token(url, &none_token).await {
             if self.is_authenticated_response(&response.body, response.status_code) {
                 vulnerabilities.push(Vulnerability {
-                    id: format!("JWT-NONE-{}", uuid::Uuid::new_v4()),
-                    name: "JWT None Algorithm Accepted".to_string(),
-                    description: "Server accepts JWT tokens with 'none' algorithm, allowing signature bypass".to_string(),
+                    id: format!("jwt-none-{}", uuid::Uuid::new_v4()),
+                    vuln_type: "JWT None Algorithm Accepted".to_string(),
                     severity: Severity::Critical,
                     confidence: Confidence::High,
+                    category: "Authentication Bypass".to_string(),
                     url: url.to_string(),
                     parameter: Some("Authorization header".to_string()),
-                    evidence: format!("Token with none algorithm accepted: {}", &none_token[..50.min(none_token.len())]),
-                    remediation: "Reject tokens with 'none' algorithm. Whitelist allowed algorithms.".to_string(),
-                    cwe_id: Some("CWE-347".to_string()),
-                    cvss_score: Some(9.8),
-                    references: vec!["https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/".to_string()],
-                    request: None,
-                    response: None,
-                    found_at: chrono::Utc::now(),
+                    payload: none_token[..50.min(none_token.len())].to_string(),
+                    description: "Server accepts JWT tokens with 'none' algorithm, allowing signature bypass".to_string(),
+                    evidence: Some(format!("Token with none algorithm accepted: {}...", &none_token[..50.min(none_token.len())])),
+                    cwe: "CWE-347".to_string(),
+                    cvss: 9.8,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "Reject tokens with 'none' algorithm. Whitelist allowed algorithms and never accept unsigned tokens.".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
                 });
             }
         }
@@ -358,21 +362,22 @@ impl JwtAnalyzer {
         tests_run += 1;
         if let Some(cracked_secret) = jwt.try_crack_secret() {
             vulnerabilities.push(Vulnerability {
-                id: format!("JWT-WEAK-{}", uuid::Uuid::new_v4()),
-                name: "JWT Weak Secret".to_string(),
-                description: format!("JWT secret is weak and easily guessable: '{}'", cracked_secret),
+                id: format!("jwt-weak-{}", uuid::Uuid::new_v4()),
+                vuln_type: "JWT Weak Secret".to_string(),
                 severity: Severity::Critical,
                 confidence: Confidence::High,
+                category: "Cryptographic Issues".to_string(),
                 url: url.to_string(),
                 parameter: Some("JWT secret".to_string()),
-                evidence: format!("Secret cracked: {}", cracked_secret),
-                remediation: "Use a cryptographically strong random secret of at least 256 bits".to_string(),
-                cwe_id: Some("CWE-521".to_string()),
-                cvss_score: Some(9.1),
-                references: vec!["https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html".to_string()],
-                request: None,
-                response: None,
-                found_at: chrono::Utc::now(),
+                payload: cracked_secret.clone(),
+                description: format!("JWT secret is weak and easily guessable: '{}'", cracked_secret),
+                evidence: Some(format!("Secret cracked from wordlist: {}", cracked_secret)),
+                cwe: "CWE-521".to_string(),
+                cvss: 9.1,
+                verified: true,
+                false_positive: false,
+                remediation: "Use a cryptographically strong random secret of at least 256 bits. Generate secrets using a secure random number generator.".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
             });
         }
 
@@ -391,21 +396,22 @@ impl JwtAnalyzer {
             if let Ok(response) = self.test_token(url, &kid_token).await {
                 if self.is_authenticated_response(&response.body, response.status_code) {
                     vulnerabilities.push(Vulnerability {
-                        id: format!("JWT-KID-{}", uuid::Uuid::new_v4()),
-                        name: "JWT kid Parameter Injection".to_string(),
-                        description: format!("JWT kid parameter vulnerable to injection: {}", payload),
+                        id: format!("jwt-kid-{}", uuid::Uuid::new_v4()),
+                        vuln_type: "JWT kid Parameter Injection".to_string(),
                         severity: Severity::Critical,
                         confidence: Confidence::Medium,
+                        category: "Injection".to_string(),
                         url: url.to_string(),
                         parameter: Some("JWT kid header".to_string()),
-                        evidence: format!("Payload accepted: {}", payload),
-                        remediation: "Validate and sanitize the kid parameter. Use UUID-based key IDs.".to_string(),
-                        cwe_id: Some("CWE-89".to_string()),
-                        cvss_score: Some(9.8),
-                        references: vec!["https://portswigger.net/web-security/jwt".to_string()],
-                        request: None,
-                        response: None,
-                        found_at: chrono::Utc::now(),
+                        payload: payload.to_string(),
+                        description: format!("JWT kid parameter vulnerable to injection: {}", payload),
+                        evidence: Some(format!("Payload accepted: {}", payload)),
+                        cwe: "CWE-89".to_string(),
+                        cvss: 9.8,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "Validate and sanitize the kid parameter. Use UUID-based key IDs instead of arbitrary strings.".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
                     });
                     break;
                 }
@@ -415,31 +421,31 @@ impl JwtAnalyzer {
         // 5. Test jku injection
         tests_run += 1;
         if jwt.jku().is_some() || jwt.algorithm().map(|a| a.starts_with("RS") || a.starts_with("ES")).unwrap_or(false) {
-            let jku_token = jwt.create_jku_injection_token("https://attacker.com/.well-known/jwks.json");
             // Note: Can't fully test without actually hosting a JWKS endpoint
             // But we can check if the header is accepted
-            debug!("[JWT] jku injection test token created");
+            debug!("[JWT] jku injection test - server uses asymmetric algorithm");
         }
 
         // 6. Check for missing expiration
         tests_run += 1;
         if jwt.payload.get("exp").is_none() {
             vulnerabilities.push(Vulnerability {
-                id: format!("JWT-NOEXP-{}", uuid::Uuid::new_v4()),
-                name: "JWT Missing Expiration".to_string(),
-                description: "JWT token has no expiration claim (exp), allowing indefinite use".to_string(),
+                id: format!("jwt-noexp-{}", uuid::Uuid::new_v4()),
+                vuln_type: "JWT Missing Expiration".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::High,
+                category: "Session Management".to_string(),
                 url: url.to_string(),
                 parameter: Some("JWT exp claim".to_string()),
-                evidence: "No 'exp' claim in token payload".to_string(),
-                remediation: "Always include an expiration claim with reasonable lifetime".to_string(),
-                cwe_id: Some("CWE-613".to_string()),
-                cvss_score: Some(5.3),
-                references: vec!["https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.4".to_string()],
-                request: None,
-                response: None,
-                found_at: chrono::Utc::now(),
+                payload: "N/A".to_string(),
+                description: "JWT token has no expiration claim (exp), allowing indefinite use".to_string(),
+                evidence: Some("No 'exp' claim in token payload".to_string()),
+                cwe: "CWE-613".to_string(),
+                cvss: 5.3,
+                verified: true,
+                false_positive: false,
+                remediation: "Always include an expiration claim with reasonable lifetime. Use short-lived tokens (15-60 minutes) with refresh token rotation.".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
             });
         }
 
@@ -450,21 +456,22 @@ impl JwtAnalyzer {
             let days_until_exp = (exp - now) / 86400;
             if days_until_exp > 30 {
                 vulnerabilities.push(Vulnerability {
-                    id: format!("JWT-LONGEXP-{}", uuid::Uuid::new_v4()),
-                    name: "JWT Excessive Expiration".to_string(),
-                    description: format!("JWT token expires in {} days, which is excessively long", days_until_exp),
+                    id: format!("jwt-longexp-{}", uuid::Uuid::new_v4()),
+                    vuln_type: "JWT Excessive Expiration".to_string(),
                     severity: Severity::Low,
                     confidence: Confidence::High,
+                    category: "Session Management".to_string(),
                     url: url.to_string(),
                     parameter: Some("JWT exp claim".to_string()),
-                    evidence: format!("Token expires in {} days", days_until_exp),
-                    remediation: "Use short-lived tokens (15-60 minutes) with refresh token rotation".to_string(),
-                    cwe_id: Some("CWE-613".to_string()),
-                    cvss_score: Some(3.1),
-                    references: vec![],
-                    request: None,
-                    response: None,
-                    found_at: chrono::Utc::now(),
+                    payload: format!("exp: {} ({}+ days)", exp, days_until_exp),
+                    description: format!("JWT token expires in {} days, which is excessively long", days_until_exp),
+                    evidence: Some(format!("Token expires in {} days", days_until_exp)),
+                    cwe: "CWE-613".to_string(),
+                    cvss: 3.1,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "Use short-lived tokens (15-60 minutes) with refresh token rotation for better security.".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
                 });
             }
         }
@@ -503,6 +510,27 @@ impl JwtAnalyzer {
     }
 }
 
+// UUID generation helper
+mod uuid {
+    use rand::Rng;
+
+    pub struct Uuid;
+
+    impl Uuid {
+        pub fn new_v4() -> String {
+            let mut rng = rand::rng();
+            format!(
+                "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                rng.random::<u32>(),
+                rng.random::<u16>(),
+                rng.random::<u16>(),
+                rng.random::<u16>(),
+                rng.random::<u64>() & 0xffffffffffff
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,12 +542,6 @@ mod tests {
         let jwt = DecodedJwt::decode(token).unwrap();
         assert_eq!(jwt.algorithm(), Some("HS256"));
         assert_eq!(jwt.payload.get("name").and_then(|v| v.as_str()), Some("John Doe"));
-    }
-
-    #[test]
-    fn test_sensitive_claim_detection() {
-        let token = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJwYXNzd29yZCI6InNlY3JldCJ9.xxx";
-        // This won't decode properly but tests the pattern matching
     }
 
     #[test]

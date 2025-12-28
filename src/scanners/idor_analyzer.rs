@@ -18,9 +18,9 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Common patterns that indicate object IDs in URLs and responses
 const ID_PATTERNS: &[&str] = &[
@@ -101,7 +101,7 @@ impl IdorAnalyzer {
         url: &str,
         user_a: &AuthSession,
         user_b: &AuthSession,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("[IDOR] Starting multi-user authorization analysis");
 
@@ -155,7 +155,7 @@ impl IdorAnalyzer {
         &self,
         url: &str,
         session: &AuthSession,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("[IDOR] Starting single-user IDOR analysis");
 
@@ -185,24 +185,25 @@ impl IdorAnalyzer {
 
                                 if response.body != original_response.body && response.status_code == 200 {
                                     vulnerabilities.push(Vulnerability {
-                                        id: format!("IDOR-ENUM-{}", uuid::Uuid::new_v4()),
-                                        name: "IDOR via ID Enumeration".to_string(),
+                                        id: format!("idor-enum-{}", uuid::Uuid::new_v4()),
+                                        vuln_type: "IDOR via ID Enumeration".to_string(),
+                                        severity: Severity::High,
+                                        confidence: Confidence::Medium,
+                                        category: "Broken Access Control".to_string(),
+                                        url: test_url.clone(),
+                                        parameter: Some(format!("ID: {}", test_id)),
+                                        payload: format!("Original ID: {}, Test ID: {}", obj_ref.id, test_id),
                                         description: format!(
                                             "Able to access other objects by manipulating ID. Original: {}, Tested: {}",
                                             obj_ref.id, test_id
                                         ),
-                                        severity: Severity::High,
-                                        confidence: Confidence::Medium,
-                                        url: test_url.clone(),
-                                        parameter: Some(format!("ID: {}", test_id)),
-                                        evidence: format!("Accessed different data with ID {}", test_id),
-                                        remediation: "Implement proper object-level authorization checks".to_string(),
-                                        cwe_id: Some("CWE-639".to_string()),
-                                        cvss_score: Some(7.5),
-                                        references: vec!["https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/".to_string()],
-                                        request: None,
-                                        response: None,
-                                        found_at: chrono::Utc::now(),
+                                        evidence: Some(format!("Accessed different data with ID {}", test_id)),
+                                        cwe: "CWE-639".to_string(),
+                                        cvss: 7.5,
+                                        verified: true,
+                                        false_positive: false,
+                                        remediation: "Implement proper object-level authorization checks. Verify the requesting user owns or has permission to access the requested object.".to_string(),
+                                        discovered_at: chrono::Utc::now().to_rfc3339(),
                                     });
                                     break; // Found one, don't spam
                                 }
@@ -319,30 +320,28 @@ impl IdorAnalyzer {
                 if let Ok(response) = self.http_client.get_authenticated(&test_url, user_b_session).await {
                     if self.indicates_data_access(&response.body, response.status_code) {
                         vulnerabilities.push(Vulnerability {
-                            id: format!("IDOR-HORIZONTAL-{}", uuid::Uuid::new_v4()),
-                            name: "Horizontal Privilege Escalation (IDOR)".to_string(),
+                            id: format!("idor-horizontal-{}", uuid::Uuid::new_v4()),
+                            vuln_type: "Horizontal Privilege Escalation (IDOR)".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::High,
+                            category: "Broken Access Control".to_string(),
+                            url: test_url.clone(),
+                            parameter: Some(format!("Object ID: {}", obj_ref.id)),
+                            payload: format!("Accessed object {} as different user", obj_ref.id),
                             description: format!(
                                 "User B can access User A's object (ID: {}). This indicates missing authorization checks.",
                                 obj_ref.id
                             ),
-                            severity: Severity::High,
-                            confidence: Confidence::High,
-                            url: test_url.clone(),
-                            parameter: Some(format!("Object ID: {}", obj_ref.id)),
-                            evidence: format!(
+                            evidence: Some(format!(
                                 "Successfully accessed object {} as different user (status: {})",
                                 obj_ref.id, response.status_code
-                            ),
-                            remediation: "Implement object-level authorization. Verify the requesting user has permission to access each object.".to_string(),
-                            cwe_id: Some("CWE-639".to_string()),
-                            cvss_score: Some(8.1),
-                            references: vec![
-                                "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/".to_string(),
-                                "https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html".to_string(),
-                            ],
-                            request: None,
-                            response: None,
-                            found_at: chrono::Utc::now(),
+                            )),
+                            cwe: "CWE-639".to_string(),
+                            cvss: 8.1,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Implement object-level authorization. Verify the requesting user has permission to access each object before returning data.".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
                         });
                         break; // One finding per object is enough
                     }
@@ -371,24 +370,25 @@ impl IdorAnalyzer {
                 if let Ok(response) = self.http_client.get_authenticated(&test_url, session).await {
                     if self.indicates_data_access(&response.body, response.status_code) {
                         vulnerabilities.push(Vulnerability {
-                            id: format!("IDOR-ENDPOINT-{}", uuid::Uuid::new_v4()),
-                            name: "IDOR on Sensitive Endpoint".to_string(),
+                            id: format!("idor-endpoint-{}", uuid::Uuid::new_v4()),
+                            vuln_type: "IDOR on Sensitive Endpoint".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::Medium,
+                            category: "Broken Access Control".to_string(),
+                            url: test_url.clone(),
+                            parameter: Some(format!("ID: {}", test_id)),
+                            payload: format!("GET {}{}", endpoint, test_id),
                             description: format!(
                                 "Endpoint {} allows access to arbitrary objects via ID enumeration",
                                 endpoint
                             ),
-                            severity: Severity::High,
-                            confidence: Confidence::Medium,
-                            url: test_url.clone(),
-                            parameter: Some(format!("ID: {}", test_id)),
-                            evidence: format!("Accessed {} with ID {} (status: {})", endpoint, test_id, response.status_code),
-                            remediation: "Add authorization checks before returning object data".to_string(),
-                            cwe_id: Some("CWE-639".to_string()),
-                            cvss_score: Some(7.5),
-                            references: vec![],
-                            request: None,
-                            response: None,
-                            found_at: chrono::Utc::now(),
+                            evidence: Some(format!("Accessed {} with ID {} (status: {})", endpoint, test_id, response.status_code)),
+                            cwe: "CWE-639".to_string(),
+                            cvss: 7.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Add authorization checks before returning object data. Ensure users can only access objects they own or have explicit permission to view.".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
                         });
                         break; // One per endpoint
                     }
@@ -425,24 +425,25 @@ impl IdorAnalyzer {
                        body_lower.contains("users") ||
                        body_lower.contains("settings") {
                         vulnerabilities.push(Vulnerability {
-                            id: format!("IDOR-VERTICAL-{}", uuid::Uuid::new_v4()),
-                            name: "Vertical Privilege Escalation".to_string(),
+                            id: format!("idor-vertical-{}", uuid::Uuid::new_v4()),
+                            vuln_type: "Vertical Privilege Escalation".to_string(),
+                            severity: Severity::Critical,
+                            confidence: Confidence::Medium,
+                            category: "Broken Access Control".to_string(),
+                            url: test_url.clone(),
+                            parameter: None,
+                            payload: format!("GET {}", endpoint),
                             description: format!(
                                 "Non-admin user can access admin endpoint: {}",
                                 endpoint
                             ),
-                            severity: Severity::Critical,
-                            confidence: Confidence::Medium,
-                            url: test_url.clone(),
-                            parameter: None,
-                            evidence: format!("Admin endpoint accessible (status: {})", response.status_code),
-                            remediation: "Implement role-based access control. Admin endpoints should verify admin role.".to_string(),
-                            cwe_id: Some("CWE-862".to_string()),
-                            cvss_score: Some(9.1),
-                            references: vec!["https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/".to_string()],
-                            request: None,
-                            response: None,
-                            found_at: chrono::Utc::now(),
+                            evidence: Some(format!("Admin endpoint accessible (status: {})", response.status_code)),
+                            cwe: "CWE-862".to_string(),
+                            cvss: 9.1,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Implement role-based access control. Admin endpoints should verify the requesting user has admin privileges before allowing access.".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
                         });
                     }
                 }
@@ -494,6 +495,27 @@ impl IdorAnalyzer {
                       body_lower.contains("permission");
 
         positive && !negative
+    }
+}
+
+// UUID generation helper
+mod uuid {
+    use rand::Rng;
+
+    pub struct Uuid;
+
+    impl Uuid {
+        pub fn new_v4() -> String {
+            let mut rng = rand::rng();
+            format!(
+                "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                rng.random::<u32>(),
+                rng.random::<u16>(),
+                rng.random::<u16>(),
+                rng.random::<u16>(),
+                rng.random::<u64>() & 0xffffffffffff
+            )
+        }
     }
 }
 

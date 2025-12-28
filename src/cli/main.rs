@@ -1502,6 +1502,25 @@ async fn execute_standalone_scan(
     }
 
     // ==========================================================================
+    // COGNITO ENUMERATION: Run EARLY before aggressive testing triggers WAF/rate limits
+    // This is a non-invasive test that checks for user enumeration vulnerabilities
+    // ==========================================================================
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::COGNITO_ENUM) {
+        info!("  - Testing AWS Cognito User Enumeration (early - before rate limiting)");
+        // Collect all potential Cognito URLs: intercepted endpoints + discovered form action URLs
+        // Form action URLs often contain Cognito OAuth2 params like client_id and identity_provider=COGNITO
+        let mut cognito_endpoints: Vec<String> = intercepted_endpoints.clone();
+        for (form_action_url, _) in &discovered_forms {
+            if !cognito_endpoints.contains(form_action_url) {
+                cognito_endpoints.push(form_action_url.clone());
+            }
+        }
+        let (vulns, tests) = engine.cognito_enum_scanner.scan_with_endpoints(target, scan_config, &cognito_endpoints).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
+
+    // ==========================================================================
     // EARLY AUTH TESTING: Run auth-critical tests first while JWT token is fresh
     // JWT tokens expire - we need to test auth endpoints before doing slow injection tests
     // ==========================================================================
@@ -2095,14 +2114,8 @@ async fn execute_standalone_scan(
         total_tests += tests as u64;
     }
 
-    // AWS Cognito User Enumeration (Professional+)
-    if scan_token.is_module_authorized(module_ids::advanced_scanning::COGNITO_ENUM) {
-        info!("  - Testing AWS Cognito User Enumeration");
-        // Pass intercepted endpoints which may contain Cognito auth URLs
-        let (vulns, tests) = engine.cognito_enum_scanner.scan_with_endpoints(target, scan_config, &intercepted_endpoints).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests as u64;
-    }
+    // AWS Cognito User Enumeration - MOVED to Phase 0 (runs before aggressive testing triggers WAF)
+    // See "COGNITO ENUMERATION" section above
 
     // Session Management (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::SESSION_MANAGEMENT) {

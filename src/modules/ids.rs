@@ -230,6 +230,13 @@ pub mod advanced_scanning {
     pub const DOM_CLOBBERING: &str = "dom_clobbering";
     /// Timing attacks scanner (auth timing, user enumeration)
     pub const TIMING_ATTACKS: &str = "timing_attacks";
+
+    /// IDOR analyzer (advanced object reference testing with baseline)
+    pub const IDOR_ANALYZER: &str = "idor_analyzer";
+    /// JWT analyzer (token analysis and vulnerability detection)
+    pub const JWT_ANALYZER: &str = "jwt_analyzer";
+    /// Session analyzer (session token analysis)
+    pub const SESSION_ANALYZER: &str = "session_analyzer";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -439,6 +446,10 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::WEB_CACHE_DECEPTION,
         advanced_scanning::DOM_CLOBBERING,
         advanced_scanning::TIMING_ATTACKS,
+        // Advanced Analyzers
+        advanced_scanning::IDOR_ANALYZER,
+        advanced_scanning::JWT_ANALYZER,
+        advanced_scanning::SESSION_ANALYZER,
         // Cloud Scanning (Team+)
         cloud_scanning::AWS_S3_SCANNER,
         cloud_scanning::AWS_EC2_SCANNER,

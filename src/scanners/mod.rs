@@ -136,6 +136,9 @@ pub mod intelligent_orchestrator;
 pub mod csp_bypass;
 pub mod postmessage_vulns;
 pub mod web_cache_deception;
+pub mod idor_analyzer;
+pub mod jwt_analyzer;
+pub mod session_analyzer;
 
 // External security scanners
 pub mod external;

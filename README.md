@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**113+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
+**117+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -58,7 +58,7 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 **Key insight**: When technology detection fails, the fallback layer runs MORE comprehensive tests to ensure nothing is missed.
 
-### 113+ Security Scanners
+### 117+ Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
