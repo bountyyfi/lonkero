@@ -1057,12 +1057,20 @@ impl JsSensitiveInfoScanner {
                     description: "Plivo auth token found - allows SMS/voice access".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
-                // Elasticsearch / URL with embedded credentials
+                // URL with embedded credentials (e.g., Elasticsearch, MongoDB, Redis)
                 // Must match: https://user:pass@host or http://user:pass@host:port
-                // The password must contain at least some non-URL characters to avoid matching regular URLs
+                // Key: The @ symbol MUST be present and password comes BEFORE @
+                // Example: https://admin:secret123@elastic.example.com:9200
                 CompiledPattern {
                     name: "URL with Embedded Credentials".to_string(),
-                    regex: Regex::new(r#"https?://[a-zA-Z0-9_-]+:[a-zA-Z0-9!@#$%^&*()_+=\-]+@[a-zA-Z0-9.-]+(?::\d+)?(?:/[^\s'"]*)?(?=[\s'\"<>]|$)"#).unwrap(),
+                    // Pattern breakdown:
+                    // - https?:// - protocol
+                    // - [a-zA-Z0-9_][a-zA-Z0-9_-]* - username (starts with alphanumeric)
+                    // - : - separator between user and pass
+                    // - [^@\s'"<>]+ - password (anything except @ and whitespace, at least 1 char)
+                    // - @ - REQUIRED separator (this is key - regular URLs don't have this)
+                    // - [a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,} - hostname with TLD
+                    regex: Regex::new(r#"https?://[a-zA-Z0-9_][a-zA-Z0-9_-]*:[^@\s'"<>]+@[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s'"<>]*)?"#).unwrap(),
                     severity: Severity::Critical,
                     description: "URL with embedded credentials found (e.g., https://user:pass@host)".to_string(),
                     cwe: "CWE-798".to_string(),
@@ -1678,11 +1686,20 @@ impl JsSensitiveInfoScanner {
             }
         }
 
-        // Skip email patterns that are examples
-        if pattern_name.contains("Email") {
+        // Skip email patterns that are examples or public contact emails
+        if pattern_name.contains("Email") || pattern_name.contains("Corporate Email") {
             let example_domains = ["example.com", "example.org", "test.com", "localhost", "domain.com"];
             for domain in example_domains {
                 if matched_lower.contains(domain) {
+                    return true;
+                }
+            }
+            // Skip public contact emails - these are intentionally public
+            let public_prefixes = ["info@", "contact@", "support@", "help@", "sales@", "hello@",
+                                   "press@", "media@", "feedback@", "enquiries@", "team@",
+                                   "mail@", "office@", "admin@", "noreply@", "no-reply@"];
+            for prefix in public_prefixes {
+                if matched_lower.starts_with(prefix) {
                     return true;
                 }
             }
