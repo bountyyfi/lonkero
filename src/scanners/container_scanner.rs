@@ -23,6 +23,7 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use regex::Regex;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, info};
 
 pub struct ContainerScanner {
@@ -116,30 +117,41 @@ impl ContainerScanner {
             }
         }
 
-        let docker_ports = vec!["2375".to_string(), "2376".to_string()];
-        for port in docker_ports {
-            if let Some(base_url) = self.extract_base_with_port(url, &port) {
-                let test_url = format!("{}/_ping", base_url);
+        // Skip port scanning for regular web targets - only test if no vulns found on standard endpoints
+        // Use short timeout (3s) for port checks to avoid blocking on closed ports
+        if vulnerabilities.is_empty() {
+            let docker_ports = vec!["2375", "2376"];
+            for port in docker_ports {
+                if let Some(base_url) = self.extract_base_with_port(url, port) {
+                    let test_url = format!("{}/_ping", base_url);
 
-                match self.http_client.get(&test_url).await {
-                    Ok(response) => {
-                        if response.status_code == 200 && response.body.contains("OK") {
-                            info!("Docker daemon exposed on port {}", port);
-                            vulnerabilities.push(self.create_vulnerability(
-                                url,
-                                "Exposed Docker Daemon",
-                                "",
-                                &format!("Docker daemon exposed on port {} without authentication", port),
-                                &format!("Docker daemon accessible at port {}", port),
-                                Severity::Critical,
-                                "CWE-306",
-                                10.0,
-                            ));
-                            break;
+                    // Use short timeout for port checks
+                    match tokio::time::timeout(
+                        Duration::from_secs(3),
+                        self.http_client.get(&test_url)
+                    ).await {
+                        Ok(Ok(response)) => {
+                            if response.status_code == 200 && response.body.contains("OK") {
+                                info!("Docker daemon exposed on port {}", port);
+                                vulnerabilities.push(self.create_vulnerability(
+                                    url,
+                                    "Exposed Docker Daemon",
+                                    "",
+                                    &format!("Docker daemon exposed on port {} without authentication", port),
+                                    &format!("Docker daemon accessible at port {}", port),
+                                    Severity::Critical,
+                                    "CWE-306",
+                                    10.0,
+                                ));
+                                break;
+                            }
                         }
-                    }
-                    Err(e) => {
-                        debug!("Docker port {} check failed: {}", port, e);
+                        Ok(Err(e)) => {
+                            debug!("Docker port {} check failed: {}", port, e);
+                        }
+                        Err(_) => {
+                            debug!("Docker port {} check timed out (3s)", port);
+                        }
                     }
                 }
             }
@@ -209,30 +221,41 @@ impl ContainerScanner {
             }
         }
 
-        let k8s_ports = vec!["6443".to_string(), "8080".to_string(), "10250".to_string(), "10255".to_string()];
-        for port in k8s_ports {
-            if let Some(base_url) = self.extract_base_with_port(url, &port) {
-                let test_url = format!("{}/healthz", base_url);
+        // Skip port scanning if we already found K8s on standard endpoints
+        // Use short timeout (3s) for port checks to avoid blocking on closed ports
+        if vulnerabilities.is_empty() {
+            let k8s_ports = vec!["6443", "8080", "10250", "10255"];
+            for port in k8s_ports {
+                if let Some(base_url) = self.extract_base_with_port(url, port) {
+                    let test_url = format!("{}/healthz", base_url);
 
-                match self.http_client.get(&test_url).await {
-                    Ok(response) => {
-                        if response.status_code == 200 && response.body.to_lowercase().contains("ok") {
-                            info!("Kubernetes component exposed on port {}", port);
-                            vulnerabilities.push(self.create_vulnerability(
-                                url,
-                                "Exposed Kubernetes Component",
-                                "",
-                                &format!("Kubernetes component exposed on port {}", port),
-                                &format!("K8s service accessible at port {}", port),
-                                Severity::High,
-                                "CWE-306",
-                                8.6,
-                            ));
-                            break;
+                    // Use short timeout for port checks
+                    match tokio::time::timeout(
+                        Duration::from_secs(3),
+                        self.http_client.get(&test_url)
+                    ).await {
+                        Ok(Ok(response)) => {
+                            if response.status_code == 200 && response.body.to_lowercase().contains("ok") {
+                                info!("Kubernetes component exposed on port {}", port);
+                                vulnerabilities.push(self.create_vulnerability(
+                                    url,
+                                    "Exposed Kubernetes Component",
+                                    "",
+                                    &format!("Kubernetes component exposed on port {}", port),
+                                    &format!("K8s service accessible at port {}", port),
+                                    Severity::High,
+                                    "CWE-306",
+                                    8.6,
+                                ));
+                                break;
+                            }
                         }
-                    }
-                    Err(e) => {
-                        debug!("K8s port {} check failed: {}", port, e);
+                        Ok(Err(e)) => {
+                            debug!("K8s port {} check failed: {}", port, e);
+                        }
+                        Err(_) => {
+                            debug!("K8s port {} check timed out (3s)", port);
+                        }
                     }
                 }
             }
@@ -300,31 +323,41 @@ impl ContainerScanner {
             }
         }
 
-        let registry_ports = vec!["5000".to_string(), "5001".to_string()];
-        for port in registry_ports {
-            if let Some(base_url) = self.extract_base_with_port(url, &port) {
-                let test_url = format!("{}/v2/", base_url);
+        // Skip port scanning if we already found registry on standard endpoints
+        // Use short timeout (3s) for port checks
+        if vulnerabilities.is_empty() {
+            let registry_ports = vec!["5000", "5001"];
+            for port in registry_ports {
+                if let Some(base_url) = self.extract_base_with_port(url, port) {
+                    let test_url = format!("{}/v2/", base_url);
 
-                match self.http_client.get(&test_url).await {
-                    Ok(response) => {
-                        if (response.status_code == 200 || response.status_code == 401) &&
-                           self.is_registry_response(&response.body, &response.headers) {
-                            info!("Container registry on port {}", port);
-                            vulnerabilities.push(self.create_vulnerability(
-                                url,
-                                "Container Registry on Non-Standard Port",
-                                "",
-                                &format!("Container registry running on port {}", port),
-                                &format!("Registry accessible on port {}", port),
-                                Severity::Medium,
-                                "CWE-200",
-                                5.3,
-                            ));
-                            break;
+                    match tokio::time::timeout(
+                        Duration::from_secs(3),
+                        self.http_client.get(&test_url)
+                    ).await {
+                        Ok(Ok(response)) => {
+                            if (response.status_code == 200 || response.status_code == 401) &&
+                               self.is_registry_response(&response.body, &response.headers) {
+                                info!("Container registry on port {}", port);
+                                vulnerabilities.push(self.create_vulnerability(
+                                    url,
+                                    "Container Registry on Non-Standard Port",
+                                    "",
+                                    &format!("Container registry running on port {}", port),
+                                    &format!("Registry accessible on port {}", port),
+                                    Severity::Medium,
+                                    "CWE-200",
+                                    5.3,
+                                ));
+                                break;
+                            }
                         }
-                    }
-                    Err(e) => {
-                        debug!("Registry port {} check failed: {}", port, e);
+                        Ok(Err(e)) => {
+                            debug!("Registry port {} check failed: {}", port, e);
+                        }
+                        Err(_) => {
+                            debug!("Registry port {} check timed out (3s)", port);
+                        }
                     }
                 }
             }

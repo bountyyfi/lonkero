@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**97+ Advanced Scanners** | **16 Premium Features** | **Context-Aware** | **5% False Positives**
+**98+ Advanced Scanners** | **16 Premium Features** | **Context-Aware** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -36,12 +36,12 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ## Core Capabilities
 
-### 97 Security Scanners
+### 98 Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
 | **Injection** | 27 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header |
-| **Authentication** | 18 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, Privilege Escalation |
+| **Authentication** | 19 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, Privilege Escalation, Cognito Enum |
 | **API Security** | 14 scanners | GraphQL, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3 |
 | **Frameworks** | 11 scanners | Next.js, React, Django, Laravel, WordPress, Drupal, Express |
 | **Configuration** | 13 scanners | Headers, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF |
@@ -221,7 +221,7 @@ lonkero scan --config lonkero.yml
 
 ## Scanner Categories
 
-### Authentication & Authorization (18 scanners)
+### Authentication & Authorization (19 scanners)
 
 - **JWT** - Algorithm confusion, weak secrets, None algorithm, key injection
 - **OAuth 2.0** - Token theft, redirect manipulation, PKCE bypass, scope abuse
@@ -236,6 +236,7 @@ lonkero scan --config lonkero.yml
 - **Password Reset** - Token prediction, account takeover
 - **WebAuthn** - Biometric authentication bypass
 - **BOLA** - Broken object level authorization (API-specific IDOR)
+- **Cognito Enumeration** - AWS Cognito user pool enumeration (SignUp, InitiateAuth, ForgotPassword)
 
 ### Injection Vulnerabilities (27 scanners)
 
