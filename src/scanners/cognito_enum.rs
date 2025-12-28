@@ -342,37 +342,42 @@ impl CognitoEnumScanner {
         );
 
         // Test 1: Check if SignUp is open (critical if should be restricted)
+        info!("[Cognito] Testing SignUp endpoint for open registration");
         let (signup_vulns, signup_tests) = self.test_open_signup(&endpoint, &config.client_id, url).await?;
         vulnerabilities.extend(signup_vulns);
         tests_run += signup_tests;
 
         // Test 2: Check for InitiateAuth enumeration
+        info!("[Cognito] Testing InitiateAuth for user enumeration");
         let (auth_vulns, auth_tests) = self.test_auth_enumeration(&endpoint, &config.client_id, url).await?;
         vulnerabilities.extend(auth_vulns);
         tests_run += auth_tests;
 
-        // Test with a small set of common usernames to detect enumeration
+        // Test 3: Check ForgotPassword for user enumeration
+        info!("[Cognito] Testing ForgotPassword for user enumeration");
+        let (forgot_vulns, forgot_tests) = self.test_forgot_password_enumeration(&endpoint, &config.client_id, url).await?;
+        vulnerabilities.extend(forgot_vulns);
+        tests_run += forgot_tests;
+
+        // Test with a small set of common usernames to find actual users
         let test_usernames = self.get_test_usernames();
         let mut found_users = Vec::new();
-        let mut enumerable = false;
 
+        info!("[Cognito] Testing {} common usernames for enumeration", test_usernames.len().min(10));
         for username in test_usernames.iter().take(10) {
             tests_run += 1;
 
             match self.check_user_exists(&endpoint, &config.client_id, username).await {
                 EnumResult::ExistsWithContact { destination, medium } => {
-                    enumerable = true;
                     found_users.push(format!("{} ({})", username, medium));
-                    debug!("[Cognito] User exists: {} -> {}", username, destination);
+                    info!("[Cognito] Found user: {} -> {}", username, destination);
                 }
                 EnumResult::ExistsNoContact => {
-                    enumerable = true;
                     found_users.push(format!("{} (no verified contact)", username));
-                    debug!("[Cognito] User exists without contact: {}", username);
+                    info!("[Cognito] Found user without contact: {}", username);
                 }
                 EnumResult::NotFound => {
-                    // User doesn't exist - this is expected for most test usernames
-                    // The difference in response indicates enumeration is possible
+                    // User doesn't exist - this is expected
                     debug!("[Cognito] User not found: {}", username);
                 }
                 EnumResult::Error(e) => {
@@ -388,42 +393,42 @@ impl CognitoEnumScanner {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
-        // If we found any users or detected different responses, report vulnerability
-        if enumerable {
+        // If we found actual users, report as high severity with user list
+        if !found_users.is_empty() {
+            info!("[Cognito] Found {} users via enumeration", found_users.len());
             vulnerabilities.push(Vulnerability {
-                id: format!("cognito-enum-{}", uuid::Uuid::new_v4()),
-                vuln_type: "AWS Cognito User Enumeration".to_string(),
-                severity: Severity::Medium,
+                id: format!("cognito-users-found-{}", uuid::Uuid::new_v4()),
+                vuln_type: "AWS Cognito Users Enumerated".to_string(),
+                severity: Severity::High,
                 confidence: Confidence::High,
                 category: "Authentication".to_string(),
                 url: url.to_string(),
                 parameter: Some("Username".to_string()),
                 payload: "X-Amz-Target: AWSCognitoIdentityProviderService.ForgotPassword".to_string(),
                 description:
-                    "AWS Cognito User Pool is vulnerable to user enumeration. \
-                     An attacker can determine valid usernames by analyzing responses \
-                     from the ForgotPassword API. This information can be used for \
-                     targeted phishing, credential stuffing, or brute force attacks.".to_string(),
+                    "Valid user accounts were discovered through AWS Cognito user enumeration. \
+                     Attackers can use this information for targeted phishing, credential \
+                     stuffing, or social engineering attacks against these specific users.".to_string(),
                 evidence: Some(format!(
-                    "Cognito User Pool allows user enumeration via ForgotPassword API.\n\
+                    "Found {} valid user accounts via Cognito ForgotPassword API:\n\
                      Region: {}\n\
-                     Client ID: {}...\n\
-                     Found {} potential users during limited test.\n\
-                     The API returns different responses for existing vs non-existing users.",
+                     Client ID: {}...\n\n\
+                     Discovered users:\n{}",
+                    found_users.len(),
                     config.region,
-                    &config.client_id[..12],
-                    found_users.len()
+                    &config.client_id[..config.client_id.len().min(12)],
+                    found_users.iter().map(|u| format!("  - {}", u)).collect::<Vec<_>>().join("\n")
                 )),
                 cwe: "CWE-204".to_string(),
-                cvss: 5.3,
+                cvss: 7.5,
                 verified: true,
                 false_positive: false,
                 remediation:
                     "1. Enable 'Prevent user existence errors' in Cognito User Pool settings\n\
-                     2. Configure custom messages that don't reveal user existence\n\
-                     3. Implement rate limiting and CAPTCHA on the forgot password flow\n\
-                     4. Monitor for enumeration attempts in CloudWatch logs\n\
-                     5. Consider using alias attributes to hide usernames".to_string(),
+                     2. Review the discovered accounts for potential compromise\n\
+                     3. Implement rate limiting and CAPTCHA on forgot password\n\
+                     4. Monitor for credential stuffing attempts on these accounts\n\
+                     5. Consider notifying affected users of potential exposure".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
             });
         }
@@ -491,11 +496,11 @@ impl CognitoEnumScanner {
             ("X-Amz-Target".to_string(), "AWSCognitoIdentityProviderService.SignUp".to_string()),
         ];
 
-        debug!("[Cognito] Testing SignUp endpoint");
-
         match self.http_client.post_with_headers(endpoint, &body, headers).await {
             Ok(response) => {
                 let resp_body = &response.body;
+                info!("[Cognito] SignUp response: status={}, body_len={}",
+                      response.status_code, resp_body.len());
 
                 // If SignUp succeeds or asks for confirmation, registration is open
                 if resp_body.contains("UserSub") ||
@@ -563,12 +568,18 @@ impl CognitoEnumScanner {
                 }
 
                 // NotAuthorizedException with "SignUp is disabled" is good (not vulnerable)
-                if resp_body.contains("SignUp is disabled") || resp_body.contains("NotAuthorizedException") {
-                    debug!("[Cognito] SignUp is properly disabled");
+                if resp_body.contains("SignUp is disabled") {
+                    info!("[Cognito] SignUp is properly disabled");
+                } else if resp_body.contains("NotAuthorizedException") {
+                    info!("[Cognito] SignUp returned NotAuthorizedException");
+                } else {
+                    // Log unexpected response for debugging
+                    info!("[Cognito] SignUp unexpected response: {}",
+                          &resp_body[..resp_body.len().min(200)]);
                 }
             }
             Err(e) => {
-                debug!("[Cognito] SignUp test failed: {}", e);
+                warn!("[Cognito] SignUp test failed: {}", e);
             }
         }
 
@@ -596,15 +607,17 @@ impl CognitoEnumScanner {
             ("X-Amz-Target".to_string(), "AWSCognitoIdentityProviderService.InitiateAuth".to_string()),
         ];
 
-        debug!("[Cognito] Testing InitiateAuth for user enumeration");
-
         match self.http_client.post_with_headers(endpoint, &body, headers).await {
             Ok(response) => {
                 let resp_body = &response.body;
+                info!("[Cognito] InitiateAuth response: status={}, body_len={}",
+                      response.status_code, resp_body.len());
 
                 // If response explicitly says "User does not exist", enumeration is possible
                 if resp_body.contains("UserNotFoundException") ||
-                   resp_body.contains("User does not exist") {
+                   resp_body.contains("User does not exist") ||
+                   resp_body.contains("user does not exist") {
+                    info!("[Cognito] User enumeration vulnerability detected via InitiateAuth");
                     vulnerabilities.push(Vulnerability {
                         id: format!("cognito-auth-enum-{}", uuid::Uuid::new_v4()),
                         vuln_type: "AWS Cognito Auth User Enumeration".to_string(),
@@ -637,6 +650,89 @@ impl CognitoEnumScanner {
             }
             Err(e) => {
                 debug!("[Cognito] InitiateAuth test failed: {}", e);
+            }
+        }
+
+        Ok((vulnerabilities, 1))
+    }
+
+    /// Test for ForgotPassword user enumeration by comparing responses for existing vs non-existing users
+    async fn test_forgot_password_enumeration(
+        &self,
+        endpoint: &str,
+        client_id: &str,
+        url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+
+        // Test with a definitely non-existent user
+        let fake_user = format!("nonexistent-test-user-{}", uuid::Uuid::new_v4());
+        let body = format!(
+            r#"{{"ClientId":"{}","Username":"{}"}}"#,
+            client_id, fake_user
+        );
+
+        let headers = vec![
+            ("Content-Type".to_string(), "application/x-amz-json-1.1".to_string()),
+            ("X-Amz-Target".to_string(), "AWSCognitoIdentityProviderService.ForgotPassword".to_string()),
+        ];
+
+        match self.http_client.post_with_headers(endpoint, &body, headers).await {
+            Ok(response) => {
+                let resp_body = &response.body;
+                info!("[Cognito] ForgotPassword response: status={}, body_len={}",
+                      response.status_code, resp_body.len());
+
+                // If response explicitly says "User does not exist", enumeration is possible
+                // A secure configuration would return a generic message like "If this user exists..."
+                if resp_body.contains("UserNotFoundException") ||
+                   resp_body.contains("User does not exist") ||
+                   resp_body.contains("user does not exist") {
+                    info!("[Cognito] User enumeration vulnerability detected via ForgotPassword");
+                    vulnerabilities.push(Vulnerability {
+                        id: format!("cognito-forgot-enum-{}", uuid::Uuid::new_v4()),
+                        vuln_type: "AWS Cognito ForgotPassword User Enumeration".to_string(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::High,
+                        category: "Authentication".to_string(),
+                        url: url.to_string(),
+                        parameter: Some("Username".to_string()),
+                        payload: "X-Amz-Target: AWSCognitoIdentityProviderService.ForgotPassword".to_string(),
+                        description:
+                            "AWS Cognito ForgotPassword API reveals whether a username exists. \
+                             When 'Prevent user existence errors' is disabled, attackers can \
+                             enumerate valid usernames by analyzing API responses.".to_string(),
+                        evidence: Some(format!(
+                            "Cognito reveals user existence through ForgotPassword API.\n\
+                             Test: Sent ForgotPassword request for non-existent user\n\
+                             Response: UserNotFoundException returned\n\
+                             A secure configuration returns 'If this user exists...' for all users."
+                        )),
+                        cwe: "CWE-204".to_string(),
+                        cvss: 5.3,
+                        verified: true,
+                        false_positive: false,
+                        remediation:
+                            "1. Enable 'Prevent user existence errors' in Cognito User Pool settings\n\
+                             2. Go to AWS Console > Cognito > User Pools > [Pool] > Sign-in experience\n\
+                             3. Under 'User existence errors', enable prevention\n\
+                             4. This returns generic messages for all forgot password requests\n\
+                             5. Add rate limiting via Lambda triggers or WAF".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                    });
+                } else if resp_body.contains("NotAuthorizedException") {
+                    // This is the expected secure response when enumeration prevention is enabled
+                    info!("[Cognito] ForgotPassword returns generic error - enumeration prevention may be enabled");
+                } else if resp_body.contains("InvalidParameterException") {
+                    debug!("[Cognito] InvalidParameterException - may indicate user pool configuration issue");
+                } else {
+                    // Log unexpected response for debugging
+                    info!("[Cognito] ForgotPassword unexpected response: {}",
+                          &resp_body[..resp_body.len().min(200)]);
+                }
+            }
+            Err(e) => {
+                warn!("[Cognito] ForgotPassword test failed: {}", e);
             }
         }
 

@@ -40,6 +40,7 @@ pub mod csrf;
 pub mod xxe;
 pub mod graphql;
 pub mod oauth;
+pub mod oidc_scanner;
 pub mod saml;
 pub mod websocket;
 pub mod grpc;
@@ -68,11 +69,13 @@ pub mod code_injection;
 pub mod ssi_injection;
 pub mod race_condition;
 pub mod mass_assignment;
+pub mod mass_assignment_advanced;
 pub mod information_disclosure;
 pub mod cache_poisoning;
 pub mod business_logic;
 pub mod jwt_vulnerabilities;
 pub mod graphql_security;
+pub mod graphql_batching;
 pub mod nosql_injection;
 pub mod file_upload_vulnerabilities;
 pub mod cors_misconfiguration;
@@ -118,8 +121,21 @@ pub mod attack_surface;
 pub mod prototype_pollution;
 pub mod host_header_injection;
 pub mod cognito_enum;
+pub mod dom_clobbering;
+pub mod subdomain_takeover;
+pub mod password_reset_poisoning;
+pub mod dom_xss_scanner;
+pub mod account_takeover;
+pub mod api_versioning;
+pub mod broken_function_auth;
+pub mod twofa_bypass;
+pub mod timing_attacks;
+pub mod openapi_analyzer;
 pub mod registry;
 pub mod intelligent_orchestrator;
+pub mod csp_bypass;
+pub mod postmessage_vulns;
+pub mod web_cache_deception;
 
 // External security scanners
 pub mod external;
@@ -140,6 +156,7 @@ pub use csrf::CsrfScanner;
 pub use xxe::XxeScanner;
 pub use graphql::GraphQlScanner;
 pub use oauth::OAuthScanner;
+pub use oidc_scanner::OidcScanner;
 pub use saml::SamlScanner;
 pub use websocket::WebSocketScanner;
 pub use grpc::GrpcScanner;
@@ -148,6 +165,7 @@ pub use session_management::SessionManagementScanner;
 pub use mfa::MfaScanner;
 pub use idor::IdorScanner;
 pub use bola::BolaScanner;
+pub use broken_function_auth::BrokenFunctionAuthScanner;
 pub use auth_manager::AuthManagerScanner;
 pub use advanced_auth::AdvancedAuthScanner;
 pub use ldap_injection::LdapInjectionScanner;
@@ -173,6 +191,7 @@ pub use cache_poisoning::CachePoisoningScanner;
 pub use business_logic::BusinessLogicScanner;
 pub use jwt_vulnerabilities::JwtVulnerabilitiesScanner;
 pub use graphql_security::GraphqlSecurityScanner;
+pub use graphql_batching::GraphQlBatchingScanner;
 pub use nosql_injection::NosqlInjectionScanner;
 pub use file_upload_vulnerabilities::FileUploadVulnerabilitiesScanner;
 pub use cors_misconfiguration::CorsMisconfigurationScanner;
@@ -182,6 +201,7 @@ pub use js_miner::{JsMinerScanner, JsMinerResults};
 pub use sensitive_data::SensitiveDataScanner;
 pub use api_fuzzer::ApiFuzzerScanner;
 pub use api_gateway_scanner::ApiGatewayScanner;
+pub use api_versioning::ApiVersioningScanner;
 pub use cloud_security_scanner::CloudSecurityScanner;
 pub use container_scanner::ContainerScanner;
 pub use webauthn_scanner::WebAuthnScanner;
@@ -221,6 +241,12 @@ pub use liferay_security::LiferaySecurityScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use host_header_injection::HostHeaderInjectionScanner;
 pub use cognito_enum::CognitoEnumScanner;
+pub use subdomain_takeover::{SubdomainTakeoverScanner, scan_subdomain_takeover};
+pub use password_reset_poisoning::PasswordResetPoisoningScanner;
+pub use dom_xss_scanner::{DomXssScanner, DomSource, DomSink, SourceToSinkFlow};
+pub use twofa_bypass::TwoFaBypassScanner;
+pub use account_takeover::AccountTakeoverScanner;
+pub use openapi_analyzer::OpenApiAnalyzer;
 pub use parameter_prioritizer::{
     ParameterPrioritizer, ParameterRisk, ParameterInfo, ParameterSource as PrioritizerParameterSource,
     FormContext, RiskFactor, ScannerType as PrioritizerScannerType,
@@ -257,6 +283,7 @@ pub struct ScanEngine {
     pub xxe_scanner: XxeScanner,
     pub graphql_scanner: GraphQlScanner,
     pub oauth_scanner: OAuthScanner,
+    pub oidc_scanner: OidcScanner,
     pub saml_scanner: SamlScanner,
     pub websocket_scanner: WebSocketScanner,
     pub grpc_scanner: GrpcScanner,
@@ -444,6 +471,7 @@ impl ScanEngine {
             xxe_scanner: XxeScanner::new(Arc::clone(&http_client)),
             graphql_scanner: GraphQlScanner::new(Arc::clone(&http_client)),
             oauth_scanner: OAuthScanner::new(Arc::clone(&http_client)),
+            oidc_scanner: OidcScanner::new(Arc::clone(&http_client)),
             saml_scanner: SamlScanner::new(Arc::clone(&http_client)),
             websocket_scanner: WebSocketScanner::new(Arc::clone(&http_client)),
             grpc_scanner: GrpcScanner::new(Arc::clone(&http_client)),

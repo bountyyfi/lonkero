@@ -12,7 +12,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**97+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
+**113+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
 
@@ -58,18 +58,18 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 **Key insight**: When technology detection fails, the fallback layer runs MORE comprehensive tests to ensure nothing is missed.
 
-### 97+ Security Scanners
+### 113+ Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
-| **Injection** | 28 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header, Log4j/JNDI |
-| **Authentication** | 20 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, BOLA, Privilege Escalation, Cognito Enum, Client Route Bypass |
-| **API Security** | 15 scanners | GraphQL (advanced), gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3, Azure APIM |
+| **Injection** | 30 scanners | SQLi, XSS, DOM XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header, Log4j/JNDI, DOM Clobbering |
+| **Authentication** | 26 scanners | JWT, OAuth, OIDC, SAML, MFA, 2FA Bypass, Session, Auth Bypass, IDOR, BOLA, Account Takeover, Password Reset Poisoning, Timing Attacks, Cognito Enum, Client Route Bypass |
+| **API Security** | 20 scanners | GraphQL (advanced), GraphQL Batching, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3, Azure APIM, BFLA, API Versioning, OpenAPI Analyzer |
 | **Frameworks** | 12 scanners | Next.js (route discovery), React, Django, Laravel, WordPress, Drupal, Express, SvelteKit |
-| **Configuration** | 14 scanners | Headers, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF, DNS Security |
-| **Business Logic** | 7 scanners | Race Conditions, Payment Bypass, Workflow Manipulation, Mass Assignment (advanced) |
+| **Configuration** | 17 scanners | Headers, CSP Bypass, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF, DNS Security, Web Cache Deception, PostMessage Vulns |
+| **Business Logic** | 8 scanners | Race Conditions, Payment Bypass, Workflow Manipulation, Mass Assignment (advanced), Timing Attacks |
 | **Info Disclosure** | 11 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets, Source Maps, Favicon Hash, HTML Injection |
-| **Specialized** | 8 scanners | CVE Detection, Version Mapping, ReDoS, Google Dorking, Attack Surface Enum |
+| **Specialized** | 9 scanners | CVE Detection, Version Mapping, ReDoS, Google Dorking, Attack Surface Enum, Subdomain Takeover |
 
 ### Smart Scanning Features
 
@@ -389,27 +389,33 @@ lonkero scan --config lonkero.yml
 
 ## Scanner Categories
 
-### Authentication & Authorization (20 scanners)
+### Authentication & Authorization (26 scanners)
 
 - **JWT** - Algorithm confusion, weak secrets, None algorithm, key injection
 - **OAuth 2.0** - Token theft, redirect manipulation, PKCE bypass, scope abuse
+- **OIDC** - Provider detection (Okta, Auth0, Azure AD, Keycloak, Cognito), configuration vulnerabilities, token validation bypass
 - **SAML** - Assertion bypass, signature wrapping, XML injection
 - **MFA** - Bypass techniques, replay attacks, race conditions
+- **2FA Bypass** - Rate limiting bypass, backup code enumeration, session manipulation, OTP brute-force
 - **Session Management** - Fixation, hijacking, prediction
 - **Auth Bypass** - Parameter tampering, header injection, credential stuffing
 - **IDOR** - Object reference manipulation, baseline detection
 - **Privilege Escalation** - Horizontal and vertical privilege abuse
 - **Client Route Auth Bypass** - SPA authentication bypass via client-side routing manipulation
 - **Advanced Auth** - Complex authentication flow exploitation
-- **Password Reset** - Token prediction, account takeover
+- **Account Takeover** - OAuth chain analysis, session fixation, token leakage, credential stuffing chains
+- **Password Reset Poisoning** - Host header injection, token predictability, link manipulation, email parameter pollution
+- **Timing Attacks** - Authentication timing analysis, user enumeration via response timing, race condition detection
 - **WebAuthn** - Biometric authentication bypass
 - **BOLA** - Broken object level authorization (API-specific IDOR with advanced baseline)
+- **BFLA** - Broken Function Level Authorization, admin function discovery, privilege escalation
 - **Cognito Enumeration** - AWS Cognito user pool enumeration via ForgotPassword, SignUp, InitiateAuth APIs with CSP header detection
 
-### Injection Vulnerabilities (27 scanners)
+### Injection Vulnerabilities (30 scanners)
 
 - **SQL Injection** - Enhanced detection, blind (boolean/time/binary search), second-order
 - **XSS** - Enhanced detection, DOM-based, mutation XSS, SVG-based, stored/reflected
+- **DOM XSS** - Source-to-sink flow analysis, framework-specific patterns (React, Vue, Angular, Svelte), taint tracking
 - **XXE** - XML external entity, billion laughs, parameter entity
 - **NoSQL Injection** - MongoDB, CouchDB, operator injection
 - **Command Injection** - OS command execution, blind detection
@@ -424,18 +430,23 @@ lonkero scan --config lonkero.yml
 - **XML Injection** - XML structure manipulation
 - **SSI Injection** - Server-side includes
 - **Prototype Pollution** - JavaScript object pollution
+- **DOM Clobbering** - Named element collision, prototype pollution chains, HTML-based gadget discovery
 - **HTML Injection** - Non-XSS markup injection
 - **HTTP Parameter Pollution** - HPP attacks
 - **Deserialization** - Unsafe object deserialization
 
-### API Security (15 scanners)
+### API Security (20 scanners)
 
 - **GraphQL Advanced** - Introspection, batching DoS, cost analysis, alias abuse, persisted queries, directive abuse, subscription vulnerabilities, fragment spreading, authorization bypass
+- **GraphQL Batching** - Batch DoS attacks, alias abuse for rate limit bypass, complexity abuse, authentication bypass via batching
 - **gRPC** - Reflection, enumeration, metadata abuse
 - **REST** - Mass assignment, API fuzzing, parameter pollution
 - **WebSocket** - Message injection, protocol abuse
 - **API Gateway** - Azure APIM cross-tenant bypass, generic gateway vulnerabilities
 - **API Security** - Comprehensive API testing
+- **API Versioning** - Version enumeration, security regression detection, bypass techniques, deprecated endpoint discovery
+- **OpenAPI Analyzer** - Swagger 2.0/OpenAPI 3.x specification parsing, security definition analysis, endpoint enumeration
+- **BFLA** - Broken Function Level Authorization, admin function discovery, horizontal/vertical privilege escalation
 - **Rate Limiting** - Bypass techniques
 - **CORS** - Misconfiguration detection
 - **Cache Poisoning** - Web cache deception
@@ -457,9 +468,10 @@ lonkero scan --config lonkero.yml
 - **Varnish** - Cache misconfiguration
 - **Angular** - Client-side template injection, router bypass
 
-### Configuration & Security (13 scanners)
+### Configuration & Security (17 scanners)
 
 - **Security Headers** - HSTS, CSP, X-Frame-Options, referrer policy
+- **CSP Bypass** - Script gadgets, nonce reuse, base-uri attacks, JSONP endpoints, unsafe-inline detection
 - **CORS Misconfiguration** - Wildcard origins, credential exposure
 - **SSL/TLS** - Weak ciphers, certificate validation
 - **Cloud Security** - AWS, Azure, GCP misconfiguration
@@ -469,11 +481,15 @@ lonkero scan --config lonkero.yml
 - **WAF Bypass** - Web application firewall evasion
 - **Clickjacking** - Frame injection, UI redressing
 - **CSRF** - Cross-site request forgery
+- **PostMessage Vulns** - Origin validation bypass, XSS via postMessage, data exfiltration, cross-origin communication abuse
+- **Web Cache Deception** - Path confusion attacks, cache infrastructure detection, sensitive data exposure via caching
+- **Subdomain Takeover** - 25+ cloud service fingerprints (AWS, Azure, GitHub, Heroku, etc.), DNS/CNAME analysis
 
-### Business Logic (7 scanners)
+### Business Logic (8 scanners)
 
 - **Business Logic** - Advanced workflow exploitation
 - **Race Conditions** - TOCTOU, parallel request abuse, timing analysis
+- **Timing Attacks** - Authentication timing, user enumeration via response timing, race condition detection
 - **Payment Manipulation** - Price tampering, discount abuse
 - **Workflow Bypass** - Multi-step form manipulation
 - **File Upload Advanced** - Polyglot files (PNG+PHP, JPEG+JSP), SVG XSS/XXE/SSRF, ZIP bomb, zip slip, null byte bypass, double extension
@@ -494,10 +510,11 @@ lonkero scan --config lonkero.yml
 - **Favicon Hash Detection** - Technology fingerprinting via favicon hash (Shodan-compatible)
 - **HTML Injection** - Non-XSS markup injection for phishing and SEO poisoning
 
-### Specialized Scanners (9 scanners)
+### Specialized Scanners (10 scanners)
 
 - **CVE Detection** - Known vulnerability scanners (CVE-2025-55182, CVE-2025-55183, CVE-2025-55184)
 - **Framework Vulnerabilities** - Generic framework CVEs with version detection
+- **Subdomain Takeover** - 25+ cloud service fingerprints (AWS S3, CloudFront, Azure, GitHub Pages, Heroku, Shopify, etc.)
 - **Merlin** - JavaScript library version detection and vulnerability mapping
 - **Log4j/JNDI** - Log4Shell and JNDI injection detection
 - **ReDoS** - Regular expression denial of service

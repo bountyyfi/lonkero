@@ -768,13 +768,16 @@ impl JsSensitiveInfoScanner {
                     description: "Contentful delivery/preview token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
-                // Airtable
+                // Airtable - API keys must be in assignment context to avoid false positives
+                // like "keyboard", "keydown", "keypress", etc.
                 CompiledPattern {
                     name: "Airtable API Key".to_string(),
-                    regex: Regex::new(r#"key[a-zA-Z0-9]{14}"#).unwrap(),
-                    severity: Severity::High,
-                    description: "Airtable API key found".to_string(),
-                    cwe: "CWE-798".to_string(),
+                    // Real Airtable keys look like: keyXXXXXXXXXXXXXX (key + 14 alphanumeric chars)
+                    // Require assignment context (=, :, or quote) to filter out variable names
+                    regex: Regex::new(r#"[=:'"]\s*key[a-zA-Z0-9]{14}\s*['"}\],;]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Potential Airtable API key".to_string(),
+                    cwe: "CWE-312".to_string(),
                 },
                 CompiledPattern {
                     name: "Airtable Personal Access Token".to_string(),

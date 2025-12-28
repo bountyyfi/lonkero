@@ -192,6 +192,44 @@ pub mod advanced_scanning {
     pub const GOOGLE_DORKING: &str = "google_dorking";
     /// Endpoint discovery (multilingual path brute-force)
     pub const ENDPOINT_DISCOVERY: &str = "endpoint_discovery";
+
+    // === Phase 1: Bug Bounty Critical Scanners ===
+    /// Subdomain takeover scanner (25+ cloud services)
+    pub const SUBDOMAIN_TAKEOVER: &str = "subdomain_takeover";
+    /// DOM XSS scanner (source-to-sink flow analysis)
+    pub const DOM_XSS_SCANNER: &str = "dom_xss_scanner";
+    /// Account takeover scanner (OAuth chains, session fixation)
+    pub const ACCOUNT_TAKEOVER: &str = "account_takeover";
+    /// Password reset poisoning scanner
+    pub const PASSWORD_RESET_POISONING: &str = "password_reset_poisoning";
+    /// 2FA bypass scanner (rate limiting, backup codes)
+    pub const TWOFA_BYPASS: &str = "twofa_bypass";
+    /// OIDC security scanner (Okta, Auth0, Azure AD, Keycloak, Cognito)
+    pub const OIDC_SCANNER: &str = "oidc_scanner";
+
+    // === Phase 2: API Security Scanners ===
+    /// Broken Function Level Authorization scanner (BFLA)
+    pub const BROKEN_FUNCTION_AUTH: &str = "broken_function_auth";
+    /// API versioning attacks scanner
+    pub const API_VERSIONING: &str = "api_versioning";
+    /// GraphQL batching attack scanner (DoS, alias abuse)
+    pub const GRAPHQL_BATCHING: &str = "graphql_batching";
+    /// OpenAPI/Swagger specification analyzer
+    pub const OPENAPI_ANALYZER: &str = "openapi_analyzer";
+    /// Advanced mass assignment scanner (nested objects, dot notation)
+    pub const MASS_ASSIGNMENT_ADVANCED: &str = "mass_assignment_advanced";
+
+    // === Phase 3: Advanced Web Scanners ===
+    /// CSP bypass scanner (script gadgets, nonce reuse)
+    pub const CSP_BYPASS: &str = "csp_bypass";
+    /// PostMessage vulnerabilities scanner
+    pub const POSTMESSAGE_VULNS: &str = "postmessage_vulns";
+    /// Web cache deception scanner
+    pub const WEB_CACHE_DECEPTION: &str = "web_cache_deception";
+    /// DOM clobbering scanner
+    pub const DOM_CLOBBERING: &str = "dom_clobbering";
+    /// Timing attacks scanner (auth timing, user enumeration)
+    pub const TIMING_ATTACKS: &str = "timing_attacks";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -382,6 +420,25 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::AZURE_APIM,
         advanced_scanning::GOOGLE_DORKING,
         advanced_scanning::ENDPOINT_DISCOVERY,
+        // Phase 1: Bug Bounty Critical
+        advanced_scanning::SUBDOMAIN_TAKEOVER,
+        advanced_scanning::DOM_XSS_SCANNER,
+        advanced_scanning::ACCOUNT_TAKEOVER,
+        advanced_scanning::PASSWORD_RESET_POISONING,
+        advanced_scanning::TWOFA_BYPASS,
+        advanced_scanning::OIDC_SCANNER,
+        // Phase 2: API Security
+        advanced_scanning::BROKEN_FUNCTION_AUTH,
+        advanced_scanning::API_VERSIONING,
+        advanced_scanning::GRAPHQL_BATCHING,
+        advanced_scanning::OPENAPI_ANALYZER,
+        advanced_scanning::MASS_ASSIGNMENT_ADVANCED,
+        // Phase 3: Advanced Web
+        advanced_scanning::CSP_BYPASS,
+        advanced_scanning::POSTMESSAGE_VULNS,
+        advanced_scanning::WEB_CACHE_DECEPTION,
+        advanced_scanning::DOM_CLOBBERING,
+        advanced_scanning::TIMING_ATTACKS,
         // Cloud Scanning (Team+)
         cloud_scanning::AWS_S3_SCANNER,
         cloud_scanning::AWS_EC2_SCANNER,

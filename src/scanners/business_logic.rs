@@ -666,81 +666,23 @@ impl BusinessLogicScanner {
     }
 
     /// Test for time-based attacks
-    async fn test_time_based_attacks(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
-        let tests_run = 4;
+    /// NOTE: This test requires actual API endpoints with timestamp parameters.
+    /// Running against arbitrary URLs (especially SPAs) produces false positives.
+    async fn test_time_based_attacks(&self, _url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let vulnerabilities = Vec::new();
+        let tests_run = 0;
 
-        debug!("Testing time-based attack vulnerabilities");
+        debug!("Skipping time-based attacks test - requires actual API endpoints with timestamp parameters");
 
-        // Test timestamp manipulation
-        let timestamp_tests = vec![
-            ("timestamp", "0"),
-            ("date", "2099-12-31"),
-            ("expires", "9999999999"),
-            ("valid_until", "2000-01-01"),
-            ("created_at", "1970-01-01"),
-        ];
-
-        for (param, value) in &timestamp_tests {
-            let test_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, value)
-            } else {
-                format!("{}?{}={}", url, param, value)
-            };
-
-            match self.http_client.get(&test_url).await {
-                Ok(response) => {
-                    if self.detect_timestamp_manipulation(&response.body, param) {
-                        vulnerabilities.push(self.create_vulnerability(
-                            url,
-                            "Time-Based Attack",
-                            &format!("{}={}", param, value),
-                            &format!(
-                                "Timestamp validation is insufficient. The '{}' parameter can be \
-                                 manipulated to bypass time-based restrictions, extend validity periods, \
-                                 or access expired resources.",
-                                param
-                            ),
-                            &format!("Timestamp {} accepted for {}", value, param),
-                            Severity::Medium,
-                            "CWE-367",
-                        ));
-                        break;
-                    }
-                }
-                Err(e) => debug!("Request failed: {}", e),
-            }
-        }
-
-        // Test for expired token reuse
-        let token_endpoints = vec![
-            format!("{}/verify", url.trim_end_matches('/')),
-            format!("{}/validate", url.trim_end_matches('/')),
-        ];
-
-        let expired_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjB9.invalid";
-
-        for endpoint in &token_endpoints {
-            let test_url = format!("{}?token={}", endpoint, expired_token);
-
-            match self.http_client.get(&test_url).await {
-                Ok(response) => {
-                    if self.detect_token_accepted(&response.body) {
-                        vulnerabilities.push(self.create_vulnerability(
-                            &endpoint,
-                            "Expired Token Acceptance",
-                            &format!("token={}", expired_token),
-                            "Server accepts expired or invalid tokens without proper validation",
-                            "Expired token was accepted",
-                            Severity::High,
-                            "CWE-613",
-                        ));
-                        break;
-                    }
-                }
-                Err(_) => {}
-            }
-        }
+        // TODO: This test should only run on discovered API endpoints that actually use
+        // timestamp parameters. The current approach of adding ?timestamp=0 to any URL
+        // causes false positives on SPAs that return their index.html for all routes.
+        //
+        // To properly test time-based attacks:
+        // 1. First discover API endpoints that accept timestamp parameters
+        // 2. Establish a baseline of valid responses
+        // 3. Then test with manipulated timestamps and compare responses
+        // 4. Look for actual behavior differences, not just word matching
 
         Ok((vulnerabilities, tests_run))
     }

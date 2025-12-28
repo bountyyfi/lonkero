@@ -299,7 +299,27 @@ impl ApiGatewayScanner {
 
             match self.http_client.get(&version_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && !self.has_deprecation_warning(&response.body, &response.headers) {
+                    // Check if this is actually an API response, not an SPA fallback
+                    // SPAs return HTML for all non-existent routes
+                    let content_type = response.headers.get("content-type")
+                        .or_else(|| response.headers.get("Content-Type"))
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+
+                    let is_api_response = content_type.contains("application/json")
+                        || content_type.contains("text/json")
+                        || content_type.contains("application/xml");
+
+                    // Don't report if it's HTML (likely SPA fallback)
+                    let is_html = content_type.contains("text/html")
+                        || response.body.trim_start().starts_with("<!DOCTYPE")
+                        || response.body.trim_start().starts_with("<html");
+
+                    if response.status_code == 200
+                        && is_api_response
+                        && !is_html
+                        && !self.has_deprecation_warning(&response.body, &response.headers)
+                    {
                         info!("Undocumented API version found: {}", version);
                         vulnerabilities.push(self.create_vulnerability(
                             url,

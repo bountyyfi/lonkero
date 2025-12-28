@@ -378,36 +378,35 @@ impl AuthBypassScanner {
     }
 
     /// Test HTTP verb tampering
+    /// NOTE: This test is DISABLED because it produces false positives.
+    /// Simply checking if a page contains words like "admin" or "protected"
+    /// is not a valid detection method for verb tampering vulnerabilities.
+    ///
+    /// A proper verb tampering test would:
+    /// 1. Identify endpoints that require authentication and return 401/403 for GET
+    /// 2. Test if using HEAD, OPTIONS, or other verbs bypasses that auth check
+    /// 3. Compare the actual behavior differences between verbs
     async fn test_verb_tampering(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
         // Note: Using GET for now - real implementation would test HEAD, OPTIONS, etc.
         self.http_client.get(url).await
     }
 
     /// Check verb tampering
+    /// DISABLED: This check produces too many false positives by looking for
+    /// generic words like "admin" or "protected" in page content.
     fn check_verb_tampering(
         &self,
-        response: &crate::http_client::HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &crate::http_client::HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        // Check if response suggests auth bypass via different HTTP verb
-        if response.status_code == 200 {
-            let body_lower = response.body.to_lowercase();
-
-            if body_lower.contains("method not allowed") == false
-                && (body_lower.contains("admin") || body_lower.contains("protected"))
-            {
-                vulnerabilities.push(self.create_vulnerability(
-                    "HTTP Verb Tampering Bypass",
-                    url,
-                    Severity::Medium,
-                    Confidence::Low,
-                    "Different HTTP verbs may bypass authentication",
-                    "HTTP verb tampering may bypass authentication".to_string(),
-                    6.5,
-                ));
-            }
-        }
+        // TODO: Implement proper verb tampering detection:
+        // 1. First establish that the endpoint requires auth (returns 401/403 for GET)
+        // 2. Then test if other HTTP methods (HEAD, OPTIONS, PUT) bypass auth
+        // 3. Report only when there's an actual behavioral difference
+        //
+        // Current implementation disabled due to false positives on SPAs
+        // that contain words like "admin" in their JavaScript bundles.
     }
 
     /// Test encoding bypass

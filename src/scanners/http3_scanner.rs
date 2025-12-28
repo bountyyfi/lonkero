@@ -184,55 +184,25 @@ impl Http3Scanner {
     }
 
     /// Test for Early-Data header acceptance on state-changing operations
-    /// Note: Tests via standard HTTP, checking if server accepts Early-Data header
-    async fn test_early_data_replay(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
-        let tests_run = 6;
+    /// Note: This test is DISABLED because it produces too many false positives.
+    /// The test assumes arbitrary endpoints exist and considers any 200 response
+    /// as "accepting" Early-Data, which is incorrect for SPAs that return 200 for all routes.
+    ///
+    /// To properly test Early-Data replay vulnerabilities:
+    /// 1. Only test discovered API endpoints, not arbitrary paths
+    /// 2. Compare responses with and without Early-Data header
+    /// 3. Look for actual behavioral differences, not just status codes
+    /// 4. Require actual HTTP/3 support to be meaningful
+    async fn test_early_data_replay(&self, _url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let vulnerabilities = Vec::new();
+        let tests_run = 0;
 
-        debug!("Testing Early-Data header acceptance via standard HTTP");
+        debug!("Skipping Early-Data replay test - requires discovered API endpoints and HTTP/3 support");
 
-        let state_changing_endpoints = vec![
-            ("/api/transfer", "POST"),
-            ("/api/delete", "POST"),
-            ("/api/update", "PUT"),
-            ("/api/create", "POST"),
-        ];
-
-        for (endpoint, method) in state_changing_endpoints {
-            let test_url = self.build_url(url, endpoint);
-
-            let headers = vec![
-                ("Early-Data".to_string(), "1".to_string()),
-            ];
-
-            let response_result = if method == "POST" {
-                self.http_client.post_with_headers(&test_url, "{}", headers).await
-            } else {
-                self.http_client.get_with_headers(&test_url, headers).await
-            };
-
-            match response_result {
-                Ok(response) => {
-                    if response.status_code == 200 && !response.body.to_lowercase().contains("replay") {
-                        info!("State-changing endpoint accepts Early-Data header: {}", endpoint);
-                        vulnerabilities.push(self.create_vulnerability(
-                            url,
-                            "Early-Data Header Accepted on State-Changing Endpoint",
-                            "Early-Data: 1",
-                            &format!("State-changing endpoint {} accepts Early-Data header", endpoint),
-                            "Accepting Early-Data header on non-idempotent operations may enable replay attacks if HTTP/3 is used",
-                            Severity::High,
-                            "CWE-294",
-                            7.5,
-                        ));
-                        break;
-                    }
-                }
-                Err(e) => {
-                    debug!("Early data test failed: {}", e);
-                }
-            }
-        }
+        // TODO: This test should only run on:
+        // 1. Actually discovered state-changing API endpoints
+        // 2. Sites that support HTTP/3 (have Alt-Svc header)
+        // 3. With proper baseline comparison to detect actual differences
 
         Ok((vulnerabilities, tests_run))
     }
