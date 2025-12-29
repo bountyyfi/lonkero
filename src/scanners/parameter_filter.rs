@@ -172,27 +172,106 @@ impl ParameterFilter {
             }
             ScannerType::CommandInjection => {
                 // Command injection typically targets file/path/command parameters
-                // Skip obvious non-command params
-                let skip = param_lower.starts_with("is") ||
-                           param_lower.starts_with("has") ||
-                           param_lower == "count" ||
-                           param_lower == "limit" ||
-                           param_lower == "offset";
-                if skip {
-                    debug!("[ParameterFilter] Skipping non-command parameter for Command Injection: {}", param_name);
+                // NOT password fields, checkboxes, or login forms
+
+                // Skip authentication/login fields - these are NEVER command injection targets
+                let auth_fields = [
+                    "password", "passwd", "pwd", "pass", "secret", "token",
+                    "username", "user", "login", "log", "email", "mail",
+                    "rememberme", "remember", "remember_me", "keeploggedin",
+                    "csrf", "csrftoken", "_token", "authenticity_token",
+                    "captcha", "recaptcha", "g-recaptcha-response",
+                ];
+                if auth_fields.iter().any(|f| param_lower == *f || param_lower.replace("_", "") == *f) {
+                    debug!("[ParameterFilter] Skipping auth/login field for Command Injection: {}", param_name);
+                    return true;
                 }
-                skip
+
+                // Skip boolean/checkbox fields
+                if param_lower.starts_with("is") ||
+                   param_lower.starts_with("has") ||
+                   param_lower.starts_with("enable") ||
+                   param_lower.starts_with("disable") ||
+                   param_lower.starts_with("show") ||
+                   param_lower.starts_with("hide") ||
+                   param_lower.ends_with("_flag") ||
+                   param_lower.ends_with("_checkbox") {
+                    debug!("[ParameterFilter] Skipping boolean parameter for Command Injection: {}", param_name);
+                    return true;
+                }
+
+                // Skip pagination/UI fields
+                if param_lower == "count" ||
+                   param_lower == "limit" ||
+                   param_lower == "offset" ||
+                   param_lower == "page" ||
+                   param_lower == "size" ||
+                   param_lower == "sort" ||
+                   param_lower == "order" {
+                    debug!("[ParameterFilter] Skipping pagination field for Command Injection: {}", param_name);
+                    return true;
+                }
+
+                // Only test parameters that suggest command/file operations
+                let cmd_indicators = [
+                    "cmd", "command", "exec", "execute", "run", "shell",
+                    "file", "filename", "filepath", "path", "dir", "directory",
+                    "script", "process", "program", "bin", "binary",
+                    "host", "hostname", "ip", "address", "ping", "target",
+                    "action", "operation", "func", "function", "method",
+                    "template", "include", "require", "load", "import",
+                ];
+                let has_cmd_indicator = cmd_indicators.iter().any(|ind| param_lower.contains(ind));
+
+                if !has_cmd_indicator {
+                    debug!("[ParameterFilter] Skipping non-command parameter for Command Injection: {} (no cmd indicators)", param_name);
+                    return true;
+                }
+
+                false
             }
             ScannerType::PathTraversal => {
                 // Path traversal needs file/path-related parameters
-                // Skip if parameter name doesn't suggest file/path operations
-                let path_indicators = ["file", "path", "dir", "folder", "document", "upload", "download", "attachment"];
-                let skip = !path_indicators.iter().any(|ind| param_lower.contains(ind)) &&
-                           (param_lower.starts_with("is") || param_lower.starts_with("has"));
-                if skip {
-                    debug!("[ParameterFilter] Skipping non-path parameter for Path Traversal: {}", param_name);
+                // NOT password fields, checkboxes, or login forms
+
+                // Skip authentication/login fields - these are NEVER path traversal targets
+                let auth_fields = [
+                    "password", "passwd", "pwd", "pass", "secret", "token",
+                    "username", "user", "login", "log", "email", "mail",
+                    "rememberme", "remember", "remember_me", "keeploggedin",
+                    "csrf", "csrftoken", "_token", "authenticity_token",
+                    "captcha", "recaptcha", "g-recaptcha-response",
+                ];
+                if auth_fields.iter().any(|f| param_lower == *f || param_lower.replace("_", "") == *f) {
+                    debug!("[ParameterFilter] Skipping auth/login field for Path Traversal: {}", param_name);
+                    return true;
                 }
-                skip
+
+                // Skip boolean fields
+                if param_lower.starts_with("is") ||
+                   param_lower.starts_with("has") ||
+                   param_lower.starts_with("enable") ||
+                   param_lower.starts_with("disable") {
+                    debug!("[ParameterFilter] Skipping boolean parameter for Path Traversal: {}", param_name);
+                    return true;
+                }
+
+                // Only test parameters that suggest file/path operations
+                let path_indicators = [
+                    "file", "filename", "filepath", "path", "dir", "directory",
+                    "folder", "document", "upload", "download", "attachment",
+                    "include", "require", "load", "import", "template", "view",
+                    "src", "source", "dest", "destination", "target",
+                    "config", "conf", "logfile", "logpath", "backup", "image", "img", "asset",
+                ];
+                let has_path_indicator = path_indicators.iter().any(|ind| param_lower.contains(ind));
+
+                if !has_path_indicator {
+                    debug!("[ParameterFilter] Skipping non-path parameter for Path Traversal: {} (no path indicators)", param_name);
+                    return true;
+                }
+
+                false
             }
             ScannerType::SSRF => {
                 // SSRF needs URL/URI/host parameters

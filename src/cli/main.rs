@@ -302,8 +302,15 @@ fn main() -> Result<()> {
         Level::INFO
     };
 
+    // Use EnvFilter to suppress noisy warnings from html5ever (foster parenting spam)
+    use tracing_subscriber::EnvFilter;
+    let filter = EnvFilter::new(format!(
+        "{},html5ever=error,selectors=error,scraper=error",
+        log_level
+    ));
+
     tracing_subscriber::fmt()
-        .with_max_level(log_level)
+        .with_env_filter(filter)
         .with_target(false)
         .with_thread_ids(false)
         .init();
