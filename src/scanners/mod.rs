@@ -734,6 +734,8 @@ impl ScanEngine {
 
         if !scan_plan.stats.technologies_detected.is_empty() {
             info!("[Orchestrator] Tech-specific routing: {:?}", scan_plan.stats.technologies_detected);
+            info!("[Orchestrator] Active scanners for this target: {:?}",
+                scan_plan.scanners.iter().map(|s| s.display_name()).collect::<Vec<_>>());
         } else {
             info!("[Orchestrator] No specific tech detected - using fallback scanner set");
         }
@@ -1153,8 +1155,10 @@ impl ScanEngine {
             queue.increment_tests(scan_id.clone(), csrf_tests as u64).await?;
         }
 
-        // GraphQL API Security Check (Professional+)
-        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER) {
+        // GraphQL API Security Check (Professional+, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::GraphQL, &scan_plan)
+        {
             info!("Checking GraphQL API security");
             modules_used.push(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER.to_string());
             let (graphql_vulns, graphql_tests) = self.graphql_scanner
@@ -1852,8 +1856,10 @@ impl ScanEngine {
             queue.increment_tests(scan_id.clone(), rate_limit_tests as u64).await?;
         }
 
-        // WordPress Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::WORDPRESS_SCANNER) {
+        // WordPress Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::WORDPRESS_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::WordPress, &scan_plan)
+        {
             info!("[WordPress] Advanced WordPress security scanning");
             modules_used.push(crate::modules::ids::cms_security::WORDPRESS_SCANNER.to_string());
             let (wordpress_vulns, wordpress_tests) = self.wordpress_security_scanner
@@ -1863,11 +1869,13 @@ impl ScanEngine {
             total_tests += wordpress_tests as u64;
             queue.increment_tests(scan_id.clone(), wordpress_tests as u64).await?;
         } else {
-            debug!("[WordPress] Module not authorized - skipping");
+            debug!("[WordPress] Skipping - not detected or not authorized");
         }
 
-        // Drupal Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DRUPAL_SCANNER) {
+        // Drupal Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DRUPAL_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Drupal, &scan_plan)
+        {
             info!("[Drupal] Advanced Drupal security scanning");
             modules_used.push(crate::modules::ids::cms_security::DRUPAL_SCANNER.to_string());
             let (drupal_vulns, drupal_tests) = self.drupal_security_scanner
@@ -1877,11 +1885,13 @@ impl ScanEngine {
             total_tests += drupal_tests as u64;
             queue.increment_tests(scan_id.clone(), drupal_tests as u64).await?;
         } else {
-            debug!("[Drupal] Module not authorized - skipping");
+            debug!("[Drupal] Skipping - not detected or not authorized");
         }
 
-        // Laravel Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LARAVEL_SCANNER) {
+        // Laravel Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LARAVEL_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Laravel, &scan_plan)
+        {
             info!("[Laravel] Advanced Laravel security scanning");
             modules_used.push(crate::modules::ids::cms_security::LARAVEL_SCANNER.to_string());
             let (laravel_vulns, laravel_tests) = self.laravel_security_scanner
@@ -1891,11 +1901,13 @@ impl ScanEngine {
             total_tests += laravel_tests as u64;
             queue.increment_tests(scan_id.clone(), laravel_tests as u64).await?;
         } else {
-            debug!("[Laravel] Module not authorized - skipping");
+            debug!("[Laravel] Skipping - not detected or not authorized");
         }
 
-        // Express.js Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::EXPRESS_SCANNER) {
+        // Express.js Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::EXPRESS_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Express, &scan_plan)
+        {
             info!("[Express] Advanced Express.js/Node.js security scanning");
             modules_used.push(crate::modules::ids::cms_security::EXPRESS_SCANNER.to_string());
             let (express_vulns, express_tests) = self.express_security_scanner
@@ -1905,11 +1917,13 @@ impl ScanEngine {
             total_tests += express_tests as u64;
             queue.increment_tests(scan_id.clone(), express_tests as u64).await?;
         } else {
-            debug!("[Express] Module not authorized - skipping");
+            debug!("[Express] Skipping - not detected or not authorized");
         }
 
-        // Next.js Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::NEXTJS_SCANNER) {
+        // Next.js Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::NEXTJS_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::NextJs, &scan_plan)
+        {
             info!("[Next.js] Advanced Next.js security scanning");
             modules_used.push(crate::modules::ids::cms_security::NEXTJS_SCANNER.to_string());
             let (nextjs_vulns, nextjs_tests) = self.nextjs_security_scanner
@@ -1919,11 +1933,13 @@ impl ScanEngine {
             total_tests += nextjs_tests as u64;
             queue.increment_tests(scan_id.clone(), nextjs_tests as u64).await?;
         } else {
-            debug!("[Next.js] Module not authorized - skipping");
+            debug!("[Next.js] Skipping - not detected or not authorized");
         }
 
-        // SvelteKit Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::SVELTEKIT_SCANNER) {
+        // SvelteKit Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::SVELTEKIT_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::SvelteKit, &scan_plan)
+        {
             info!("[SvelteKit] Advanced SvelteKit security scanning");
             modules_used.push(crate::modules::ids::cms_security::SVELTEKIT_SCANNER.to_string());
             let (sveltekit_vulns, sveltekit_tests) = self.sveltekit_security_scanner
@@ -1933,11 +1949,13 @@ impl ScanEngine {
             total_tests += sveltekit_tests as u64;
             queue.increment_tests(scan_id.clone(), sveltekit_tests as u64).await?;
         } else {
-            debug!("[SvelteKit] Module not authorized - skipping");
+            debug!("[SvelteKit] Skipping - not detected or not authorized");
         }
 
-        // React Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::REACT_SCANNER) {
+        // React Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::REACT_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::React, &scan_plan)
+        {
             info!("[React] Advanced React security scanning");
             modules_used.push(crate::modules::ids::cms_security::REACT_SCANNER.to_string());
             let (react_vulns, react_tests) = self.react_security_scanner
@@ -1950,8 +1968,10 @@ impl ScanEngine {
             debug!("[React] Module not authorized - skipping");
         }
 
-        // Django Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DJANGO_SCANNER) {
+        // Django Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DJANGO_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Django, &scan_plan)
+        {
             info!("[Django] Advanced Django security scanning");
             modules_used.push(crate::modules::ids::cms_security::DJANGO_SCANNER.to_string());
             let (django_vulns, django_tests) = self.django_security_scanner
@@ -1961,11 +1981,13 @@ impl ScanEngine {
             total_tests += django_tests as u64;
             queue.increment_tests(scan_id.clone(), django_tests as u64).await?;
         } else {
-            debug!("[Django] Module not authorized - skipping");
+            debug!("[Django] Skipping - not detected or not authorized");
         }
 
-        // Liferay Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LIFERAY_SCANNER) {
+        // Liferay Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LIFERAY_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Liferay, &scan_plan)
+        {
             info!("[Liferay] Advanced Liferay security scanning");
             modules_used.push(crate::modules::ids::cms_security::LIFERAY_SCANNER.to_string());
             let (liferay_vulns, liferay_tests) = self.liferay_security_scanner
@@ -1975,7 +1997,7 @@ impl ScanEngine {
             total_tests += liferay_tests as u64;
             queue.increment_tests(scan_id.clone(), liferay_tests as u64).await?;
         } else {
-            debug!("[Liferay] Module not authorized - skipping");
+            debug!("[Liferay] Skipping - not detected or not authorized");
         }
 
         // SOC2/PCI-DSS/HIPAA Compliance Scanner (Enterprise license)
