@@ -648,15 +648,18 @@ impl AspNetScanner {
                         url: check_url.clone(),
                         parameter: Some("signalr".to_string()),
                         payload: path.to_string(),
-                        description: format!(
-                            "SignalR hub endpoint is accessible at {}. {}",
-                            path,
-                            if issues.is_empty() {
-                                "Ensure proper authentication is configured."
-                            } else {
-                                &format!("Issues: {}", issues.join(", "))
-                            }
-                        ),
+                        description: if issues.is_empty() {
+                            format!(
+                                "SignalR hub endpoint is accessible at {}. Ensure proper authentication is configured.",
+                                path
+                            )
+                        } else {
+                            format!(
+                                "SignalR hub endpoint is accessible at {}. Issues: {}",
+                                path,
+                                issues.join(", ")
+                            )
+                        },
                         evidence: Some(format!(
                             "Endpoint: {}\nResponse: {} bytes",
                             path,
