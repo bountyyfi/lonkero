@@ -209,7 +209,7 @@ impl FeatureExtractor {
             self.compare_to_baseline(response, baseline);
 
         // Timing analysis (> 5 seconds is anomaly)
-        let timing_anomaly = response.timing_ms.unwrap_or(0) > 5000;
+        let timing_anomaly = response.duration_ms > 5000;
 
         // Context detection
         let is_api_endpoint = body.starts_with('{') || body.starts_with('[') ||
@@ -226,7 +226,7 @@ impl FeatureExtractor {
         VulnFeatures {
             status_code: response.status_code,
             response_length: body.len(),
-            response_time_ms: response.timing_ms.unwrap_or(0),
+            response_time_ms: response.duration_ms,
             has_html,
             has_json,
             has_xml,
@@ -276,9 +276,14 @@ impl FeatureExtractor {
         let in_script = {
             // Find script tags and check if payload is inside
             let script_pattern = regex::Regex::new(r"<script[^>]*>([\s\S]*?)</script>").unwrap();
-            script_pattern.captures_iter(body).any(|cap| {
-                cap.get(1).map(|m| m.as_str().contains(payload)).unwrap_or(false)
-            })
+            let mut found = false;
+            for cap in script_pattern.captures_iter(body) {
+                if cap.get(1).map(|m| m.as_str().contains(payload)).unwrap_or(false) {
+                    found = true;
+                    break;
+                }
+            }
+            found
         };
 
         // Check for encoded versions
@@ -327,8 +332,7 @@ mod tests {
             status_code: status,
             headers: HashMap::new(),
             body: body.to_string(),
-            timing_ms: Some(100),
-            url: "https://example.com".to_string(),
+            duration_ms: 100,
         }
     }
 

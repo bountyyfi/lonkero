@@ -12,9 +12,9 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**120+ Advanced Scanners** | **Intelligent Mode** | **Tech-Aware Routing** | **5% False Positives**
+**120+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **5% False Positives**
 
-**[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
+**[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [ML Features](#machine-learning-features) · [Architecture](#architecture)
 
 ---
 
@@ -25,6 +25,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 Lonkero is a production-grade web security scanner designed for professional security testing:
 
 - **v3.0 Intelligent Mode** - Context-aware scanning with tech detection, endpoint deduplication, and per-parameter risk scoring
+- **ML Auto-Learning** - Learns from every scan to reduce false positives over time (federated learning available)
 - Near-zero false positives (5% vs industry 20-30%)
 - Intelligent testing - Skips framework internals, focuses on real vulnerabilities
 - Modern stack coverage - Next.js, React, GraphQL, gRPC, WebSocket, HTTP/3
@@ -558,6 +559,118 @@ High-value features for critical infrastructure:
 
 ---
 
+## Machine Learning Features
+
+Lonkero v3.0 includes an integrated ML system that automatically learns from scan results to improve detection accuracy over time.
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Local Auto-Learning                                             │
+│  • Learns from every scan automatically                          │
+│  • No user verification required                                 │
+│  • Reduces false positives based on response patterns            │
+├─────────────────────────────────────────────────────────────────┤
+│  Federated Learning (Opt-in)                                     │
+│  • Share model weights (not data) with the community             │
+│  • Benefit from collective knowledge                             │
+│  • Differential privacy ensures no data leakage                  │
+├─────────────────────────────────────────────────────────────────┤
+│  GDPR Compliant                                                  │
+│  • Explicit consent required                                     │
+│  • Right to erasure (delete all data)                            │
+│  • Right to access (export your data)                            │
+│  • All data stored locally by default                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### How It Works
+
+1. **Auto-Learning**: After each scan, Lonkero analyzes vulnerabilities and their HTTP responses
+2. **Feature Extraction**: Extracts 23 features (status codes, error patterns, reflection analysis, timing)
+3. **Pattern Recognition**: Builds endpoint-specific patterns to reduce false positives
+4. **Confidence Scoring**: Auto-confirms high-confidence true positives, rejects obvious false positives
+
+### ML Commands
+
+```bash
+# Enable ML with local-only learning
+lonkero ml enable
+
+# Enable ML with federated learning (contribute to community model)
+lonkero ml enable --federated
+
+# View ML statistics
+lonkero ml stats
+
+# Disable ML (keep data)
+lonkero ml disable
+
+# Disable ML and delete all data
+lonkero ml disable --delete-data
+
+# Export your ML data (GDPR right to access)
+lonkero ml export -o my_ml_data.json
+
+# Delete all ML data (GDPR right to erasure)
+lonkero ml delete-data
+
+# Manually sync with federated network
+lonkero ml sync
+```
+
+### Statistics Output
+
+```bash
+$ lonkero ml stats
+
+ML Pipeline Statistics
+======================
+Status: Enabled
+Federated: Enabled (1,247 contributors)
+
+Session Stats:
+  Processed: 45 findings
+  Auto-confirmed: 12 true positives
+  Auto-rejected: 28 false positives
+
+Lifetime Stats:
+  Total confirmed: 1,892
+  Total rejected: 4,521
+  Endpoint patterns: 347
+  Can contribute: Yes
+```
+
+### Privacy & Consent
+
+ML features require explicit user consent:
+
+- **Local-only mode**: All data stays on your machine. Model weights are trained locally.
+- **Federated mode**: Only aggregated model weights are shared (not raw data). Differential privacy with noise injection ensures individual findings cannot be reconstructed.
+
+**Data stored locally** (in `~/.lonkero/ml/`):
+- Training examples with extracted features
+- Local model weights
+- Endpoint patterns learned
+- Verification history
+
+**Data shared in federated mode**:
+- Aggregated model weight gradients only
+- Noise-injected to prevent reconstruction
+- No URLs, payloads, or raw responses
+
+### GDPR Compliance
+
+| Right | Command | Description |
+|-------|---------|-------------|
+| Right to be informed | `lonkero ml stats` | View what data is collected |
+| Right of access | `lonkero ml export` | Export all your ML data |
+| Right to erasure | `lonkero ml delete-data` | Permanently delete all ML data |
+| Right to withdraw consent | `lonkero ml disable` | Stop ML processing |
+
+---
+
 ## Compliance Mapping
 
 ### OWASP Top 10 2025
@@ -733,6 +846,7 @@ Plain text reports for documentation and version control.
 |---------|---------|----------------|-----------|----------|
 | **Price** | [See website](https://lonkero.bountyy.fi/en) | $449/year | Free | $4,500/year |
 | **False Positive Rate** | 5% | 10-15% | 20-30% | 10-15% |
+| **ML Auto-Learning** | Yes (federated) | No | No | No |
 | **Modern Framework Support** | Next.js, React, GraphQL | Limited | Limited | Limited |
 | **Smart Parameter Filtering** | Yes | No | No | No |
 | **OOB Detection** | Coming Soon | Yes | No | Yes |

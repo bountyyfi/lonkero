@@ -193,7 +193,7 @@ impl FederatedClient {
         Ok(Self {
             client_id,
             client_id_path,
-            server_url: "https://ml.lonkero.io/federated/v1".to_string(),
+            server_url: "https://lonkero.bountyy.fi/api/federated/v1".to_string(),
             local_weights: None,
             global_model: None,
         })

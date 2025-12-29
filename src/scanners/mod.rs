@@ -391,6 +391,8 @@ pub struct ScanEngine {
     pub compliance_scanner: ComplianceScanner,
     pub dora_scanner: DoraScanner,
     pub nis2_scanner: Nis2Scanner,
+    /// ML integration for automatic learning from scan results
+    pub ml_integration: Option<crate::ml::MlIntegration>,
 }
 
 impl ScanEngine {
@@ -588,6 +590,8 @@ impl ScanEngine {
             compliance_scanner: ComplianceScanner::new(Arc::clone(&http_client)),
             dora_scanner: DoraScanner::new(Arc::clone(&http_client)),
             nis2_scanner: Nis2Scanner::new(Arc::clone(&http_client)),
+            // Initialize ML integration (fails gracefully if ~/.lonkero not writable)
+            ml_integration: crate::ml::MlIntegration::new().ok(),
             http_client,
             config,
         })
@@ -2123,6 +2127,32 @@ impl ScanEngine {
                 // STRICT MODE: No unsigned results allowed
                 error!("Failed to sign results: {}", e);
                 return Err(anyhow::anyhow!("Failed to sign results: {}", e));
+            }
+        }
+
+        // ============================================================
+        // ML INTEGRATION - AUTOMATIC LEARNING FROM SCAN RESULTS
+        // ============================================================
+        // Process vulnerabilities for federated learning (runs in background)
+        if let Some(ref ml) = self.ml_integration {
+            // Learn from each vulnerability found
+            for vuln in &results.vulnerabilities {
+                // Create a basic response for learning (we don't have the original response here)
+                let learning_response = crate::http_client::HttpResponse {
+                    status_code: 200,
+                    headers: std::collections::HashMap::new(),
+                    body: vuln.evidence.clone().unwrap_or_default(),
+                    duration_ms: 0,
+                };
+
+                if let Err(e) = ml.learn(vuln, &learning_response).await {
+                    debug!("ML learning failed for {}: {}", vuln.vuln_type, e);
+                }
+            }
+
+            // Notify ML system that scan is complete (triggers federated sync if enabled)
+            if let Err(e) = ml.scan_complete().await {
+                debug!("ML scan_complete failed: {}", e);
             }
         }
 

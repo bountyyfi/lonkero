@@ -22,6 +22,7 @@ pub mod federated;
 pub mod features;
 pub mod auto_learning;
 pub mod privacy;
+pub mod integration;
 
 pub use training_data::{TrainingDataCollector, TrainingExample, VerificationStatus};
 pub use fp_classifier::{FalsePositiveClassifier, Prediction};
@@ -29,3 +30,4 @@ pub use federated::{FederatedClient, ModelWeights, AggregationServer};
 pub use features::{FeatureExtractor, VulnFeatures};
 pub use auto_learning::{AutoLearner, AutoVerification, LearningStats};
 pub use privacy::{PrivacyManager, GdprCompliance, DataRetentionPolicy};
+pub use integration::{MlPipeline, MlPipelineStats, MlIntegration};

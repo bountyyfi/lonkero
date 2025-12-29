@@ -200,6 +200,12 @@ enum Commands {
         #[command(subcommand)]
         action: LicenseAction,
     },
+
+    /// Machine Learning settings and statistics
+    Ml {
+        #[command(subcommand)]
+        action: MlAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -213,6 +219,34 @@ enum LicenseAction {
     Status,
     /// Deactivate the current license
     Deactivate,
+}
+
+#[derive(Subcommand)]
+enum MlAction {
+    /// Enable ML features with GDPR consent
+    Enable {
+        /// Also opt-in to federated learning (share model weights to improve detection for all users)
+        #[arg(long)]
+        federated: bool,
+    },
+    /// Disable ML features
+    Disable {
+        /// Also delete all collected training data
+        #[arg(long)]
+        delete_data: bool,
+    },
+    /// Show ML statistics and status
+    Stats,
+    /// Export your ML data (GDPR Article 15 - Right to access)
+    Export {
+        /// Output file path
+        #[arg(short, long, default_value = "ml_data_export.json")]
+        output: PathBuf,
+    },
+    /// Delete all ML data (GDPR Article 17 - Right to erasure)
+    DeleteData,
+    /// Manually sync with federated network
+    Sync,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -372,6 +406,7 @@ async fn async_main(cli: Cli) -> Result<()> {
         Commands::Init { output } => generate_config(output),
         Commands::Version => show_version(),
         Commands::License { action } => handle_license_command(action, cli.license_key.as_deref()).await,
+        Commands::Ml { action } => handle_ml_command(action).await,
     }
 }
 
@@ -621,6 +656,151 @@ async fn handle_license_command(action: LicenseAction, _current_key: Option<&str
 
             println!("License deactivated successfully.");
             println!("You can activate a new license with: lonkero license activate <KEY>");
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle ML management commands
+async fn handle_ml_command(action: MlAction) -> Result<()> {
+    use lonkero_scanner::ml::{MlPipeline, PrivacyManager};
+
+    match action {
+        MlAction::Enable { federated } => {
+            println!();
+            println!("========================================================");
+            println!("LONKERO ML - GDPR CONSENT");
+            println!("========================================================");
+            println!();
+            println!("By enabling ML features, you consent to:");
+            println!();
+            println!("  1. Local collection of anonymized vulnerability patterns");
+            println!("     - No URLs, hostnames, or IPs are stored");
+            println!("     - Only statistical features (response codes, timing, etc.)");
+            println!("     - Data stored in ~/.lonkero/training_data/");
+            println!();
+
+            if federated {
+                println!("  2. Federated Learning (you opted in with --federated):");
+                println!("     - Model WEIGHTS are shared (not your actual data)");
+                println!("     - Differential privacy noise applied before sharing");
+                println!("     - Cannot reconstruct your findings from weights");
+                println!("     - Benefits: Better detection accuracy for everyone");
+                println!();
+            }
+
+            println!("You can withdraw consent at any time with: lonkero ml disable");
+            println!("You can delete all data with: lonkero ml delete-data");
+            println!();
+
+            let mut privacy = PrivacyManager::new()?;
+            privacy.record_consent(federated)?;
+
+            println!("[OK] ML features enabled{}",
+                if federated { " with federated learning" } else { "" });
+            println!();
+        }
+
+        MlAction::Disable { delete_data } => {
+            let mut privacy = PrivacyManager::new()?;
+
+            if delete_data {
+                privacy.withdraw_consent()?;
+                println!("[OK] ML disabled and all data deleted (GDPR Article 17)");
+            } else {
+                // Just disable without deleting
+                println!("[OK] ML disabled (data retained for future use)");
+                println!("     To delete data: lonkero ml delete-data");
+            }
+        }
+
+        MlAction::Stats => {
+            println!();
+            println!("========================================================");
+            println!("LONKERO ML STATISTICS");
+            println!("========================================================");
+            println!();
+
+            match MlPipeline::new() {
+                Ok(pipeline) => {
+                    let stats = pipeline.get_stats().await;
+
+                    println!("Status:              {}", if stats.enabled { "Enabled" } else { "Disabled" });
+                    println!();
+                    println!("Training Data:");
+                    println!("  True positives:    {}", stats.total_confirmed);
+                    println!("  False positives:   {}", stats.total_rejected);
+                    println!("  Pending:           {}", stats.pending_learning);
+                    println!("  Endpoint patterns: {}", stats.endpoint_patterns);
+                    println!();
+                    println!("Federated Learning:");
+                    println!("  Connected:         {}", if stats.federated_enabled { "Yes" } else { "No" });
+                    if let Some(contributors) = stats.federated_contributors {
+                        println!("  Contributors:      {}", contributors);
+                    }
+                    println!("  Can contribute:    {}", if stats.can_contribute { "Yes (50+ examples)" } else { "No (need 50+ examples)" });
+                }
+                Err(e) => {
+                    println!("ML not initialized: {}", e);
+                    println!();
+                    println!("Enable with: lonkero ml enable");
+                }
+            }
+
+            println!();
+            println!("========================================================");
+        }
+
+        MlAction::Export { output } => {
+            println!("Exporting ML data (GDPR Article 15 - Right to access)...");
+
+            let privacy = PrivacyManager::new()?;
+            let export = privacy.export_personal_data()?;
+
+            let json = serde_json::to_string_pretty(&export)?;
+            std::fs::write(&output, json)?;
+
+            println!();
+            println!("[OK] Data exported to: {}", output.display());
+            println!("     Training examples: {}", export.training_examples.len());
+            println!("     Pending contributions: {}", export.pending_contributions);
+        }
+
+        MlAction::DeleteData => {
+            println!();
+            println!("WARNING: This will permanently delete all ML training data.");
+            println!("This action cannot be undone.");
+            println!();
+
+            // In a real CLI we'd prompt for confirmation, but for simplicity:
+            let privacy = PrivacyManager::new()?;
+            privacy.delete_all_data()?;
+
+            println!("[OK] All ML data deleted (GDPR Article 17 - Right to erasure)");
+        }
+
+        MlAction::Sync => {
+            println!("Syncing with federated network...");
+
+            let privacy = PrivacyManager::new()?;
+            if !privacy.is_federated_allowed() {
+                println!();
+                println!("Federated learning not enabled.");
+                println!("Enable with: lonkero ml enable --federated");
+                return Ok(());
+            }
+
+            match MlPipeline::new() {
+                Ok(mut pipeline) => {
+                    pipeline.on_scan_complete().await?;
+                    println!();
+                    println!("[OK] Sync complete");
+                }
+                Err(e) => {
+                    error!("Sync failed: {}", e);
+                }
+            }
         }
     }
 

@@ -396,11 +396,12 @@ impl Default for TrainingDataCollector {
 }
 
 /// Statistics about collected training data
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TrainingStats {
     pub confirmed_count: usize,
     pub false_positive_count: usize,
     pub unverified_count: usize,
+    #[allow(dead_code)]
     pub data_dir: PathBuf,
 }
 

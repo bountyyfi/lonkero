@@ -56,7 +56,7 @@ pub struct AutoVerification {
 /// Automatic Learning Engine
 pub struct AutoLearner {
     /// Feature extractor
-    feature_extractor: FeatureExtractor,
+    pub feature_extractor: FeatureExtractor,
     /// Training data collector
     data_collector: TrainingDataCollector,
     /// Historical findings by endpoint pattern
@@ -317,13 +317,12 @@ impl AutoLearner {
         }
 
         // Time-based verification (blind injections)
-        if let Some(timing) = response.timing_ms {
-            if timing > 5000 && (vuln_upper.contains("BLIND") || vuln_upper.contains("TIME")) {
-                return Some((
-                    format!("Time-based injection confirmed: {}ms delay", timing),
-                    0.75,
-                ));
-            }
+        let timing = response.duration_ms;
+        if timing > 5000 && (vuln_upper.contains("BLIND") || vuln_upper.contains("TIME")) {
+            return Some((
+                format!("Time-based injection confirmed: {}ms delay", timing),
+                0.75,
+            ));
         }
 
         None
@@ -450,7 +449,7 @@ impl AutoLearner {
                 vuln,
                 response.status_code,
                 response.body.len(),
-                response.timing_ms.unwrap_or(0),
+                response.duration_ms,
                 response.headers.get("content-type").cloned(),
                 features.payload_reflected,
                 features.has_sql_error || features.has_stack_trace,
@@ -464,15 +463,17 @@ impl AutoLearner {
 
             // Update historical patterns
             let url_pattern = self.anonymize_url(&vuln.url);
+            let url_pattern_clone = url_pattern.clone();
+            let finding = HistoricalFinding {
+                vuln_type: vuln.vuln_type.clone(),
+                url_pattern: url_pattern_clone,
+                was_true_positive: verification.status == VerificationStatus::Confirmed,
+                features: features.to_vector(),
+            };
             self.endpoint_history
                 .entry(url_pattern)
                 .or_default()
-                .push(HistoricalFinding {
-                    vuln_type: vuln.vuln_type.clone(),
-                    url_pattern: self.anonymize_url(&vuln.url),
-                    was_true_positive: verification.status == VerificationStatus::Confirmed,
-                    features: features.to_vector(),
-                });
+                .push(finding);
 
             debug!(
                 "Auto-learned from {}: {:?} (confidence: {:.0}%)",
@@ -543,8 +544,7 @@ mod tests {
             status_code: status,
             headers: HashMap::new(),
             body: body.to_string(),
-            timing_ms: Some(100),
-            url: "https://example.com/test".to_string(),
+            duration_ms: 100,
         }
     }
 
