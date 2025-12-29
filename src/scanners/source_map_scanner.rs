@@ -9,6 +9,7 @@
 //! - Comments, variable names, and business logic
 //! - Hardcoded secrets that were "hidden" by minification
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -39,6 +40,8 @@ impl CorsScanner {
         tests_run += 1;
         match self.http_client.get(url).await {
             Ok(response) => {
+                // Store characteristics for intelligent detection
+                let _characteristics = AppCharacteristics::from_response(&response, url);
                 self.check_baseline_cors(&response, url, &mut vulnerabilities);
             }
             Err(e) => {

@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -38,6 +39,15 @@ impl SsrfBlindScanner {
         }
 
         info!("[SSRF-Blind] Scanning parameter: {}", parameter);
+
+        // Intelligent detection - skip for static sites
+        if let Ok(response) = self.http_client.get(base_url).await {
+            let characteristics = AppCharacteristics::from_response(&response, base_url);
+            if characteristics.should_skip_injection_tests() {
+                info!("[SSRF-Blind] Skipping - static/SPA site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;

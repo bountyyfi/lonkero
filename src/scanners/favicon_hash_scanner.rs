@@ -10,6 +10,7 @@
 //! - Detect default installations that may be misconfigured
 //! - Identify internal applications exposed to the internet
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

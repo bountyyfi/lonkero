@@ -18,6 +18,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use base64::{Engine as _, engine::general_purpose};
@@ -48,6 +49,11 @@ impl APISecurityScanner {
         if !is_api {
             debug!("No API detected at {}, skipping API-specific tests", url);
             return Ok((vulnerabilities, tests_run));
+        }
+
+        // Intelligent detection
+        if let Ok(response) = self.http_client.get(url).await {
+            let _characteristics = AppCharacteristics::from_response(&response, url);
         }
 
         info!("Testing API security vulnerabilities");

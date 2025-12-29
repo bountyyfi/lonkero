@@ -25,6 +25,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -371,8 +372,11 @@ impl ClientRouteAuthBypassScanner {
 
         // Pattern: getServerSideProps with session check
         if js_code.contains("getServerSideProps") && js_code.contains("session") {
-            // Next.js routes are file-based, harder to extract from bundle
-            // This is a placeholder for potential future enhancement
+            // Next.js App Router routes are file-system based and not directly extractable
+            // from bundled JavaScript. The route structure is determined by the file system
+            // layout (app/ or pages/ directories), not by JavaScript code analysis.
+            // Route detection for Next.js is handled by probing common paths instead.
+            debug!("Next.js getServerSideProps detected - routes are file-system based");
         }
 
         routes

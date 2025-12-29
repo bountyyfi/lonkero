@@ -52,6 +52,10 @@ pub mod cms_security {
     pub const LIFERAY_SCANNER: &str = "liferay_scanner";
     /// Spring security scanner
     pub const SPRING_SCANNER: &str = "spring_scanner";
+    /// FastAPI security scanner
+    pub const FASTAPI_SCANNER: &str = "fastapi_scanner";
+    /// Go frameworks security scanner (Gin, Echo, Fiber, Chi)
+    pub const GO_FRAMEWORKS_SCANNER: &str = "go_frameworks_scanner";
 }
 
 /// Professional+ tier modules - requires advanced_scanning feature
@@ -241,26 +245,6 @@ pub mod advanced_scanning {
 
 /// Team+ tier modules - requires cloud_scanning feature
 pub mod cloud_scanning {
-    /// AWS S3 scanner
-    pub const AWS_S3_SCANNER: &str = "aws_s3_scanner";
-    /// AWS EC2 scanner
-    pub const AWS_EC2_SCANNER: &str = "aws_ec2_scanner";
-    /// AWS RDS scanner
-    pub const AWS_RDS_SCANNER: &str = "aws_rds_scanner";
-    /// AWS general scanner
-    pub const AWS_SCANNER: &str = "aws_scanner";
-    /// Azure Blob scanner
-    pub const AZURE_BLOB_SCANNER: &str = "azure_blob_scanner";
-    /// Azure general scanner
-    pub const AZURE_SCANNER: &str = "azure_scanner";
-    /// GCP Storage scanner
-    pub const GCP_STORAGE_SCANNER: &str = "gcp_storage_scanner";
-    /// GCP general scanner
-    pub const GCP_SCANNER: &str = "gcp_scanner";
-    /// Kubernetes scanner
-    pub const K8S_SCANNER: &str = "k8s_scanner";
-    /// Docker/Container scanner
-    pub const DOCKER_SCANNER: &str = "docker_scanner";
     /// Container scanner
     pub const CONTAINER_SCANNER: &str = "container_scanner";
     /// Cloud storage scanner
@@ -306,7 +290,8 @@ pub fn get_required_feature(module_id: &str) -> Option<&'static str> {
         "wordpress_scanner" | "drupal_scanner" | "joomla_scanner"
         | "laravel_scanner" | "django_scanner" | "rails_scanner"
         | "nextjs_scanner" | "sveltekit_scanner" | "react_scanner"
-        | "express_scanner" | "liferay_scanner" | "spring_scanner" => {
+        | "express_scanner" | "liferay_scanner" | "spring_scanner"
+        | "fastapi_scanner" | "go_frameworks_scanner" => {
             return Some("cms_security");
         }
         _ => {}
@@ -314,10 +299,7 @@ pub fn get_required_feature(module_id: &str) -> Option<&'static str> {
 
     // Cloud scanning modules (Team+)
     match module_id {
-        "aws_s3_scanner" | "aws_ec2_scanner" | "aws_rds_scanner" | "aws_scanner"
-        | "azure_blob_scanner" | "azure_scanner" | "gcp_storage_scanner" | "gcp_scanner"
-        | "k8s_scanner" | "docker_scanner" | "container_scanner"
-        | "cloud_storage" | "cloud_security" => {
+        "container_scanner" | "cloud_storage" | "cloud_security" => {
             return Some("cloud_scanning");
         }
         _ => {}
@@ -360,6 +342,8 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         cms_security::EXPRESS_SCANNER,
         cms_security::LIFERAY_SCANNER,
         cms_security::SPRING_SCANNER,
+        cms_security::FASTAPI_SCANNER,
+        cms_security::GO_FRAMEWORKS_SCANNER,
         // Advanced Scanning (Professional+)
         advanced_scanning::SQLI_SCANNER,
         advanced_scanning::XSS_SCANNER,
@@ -451,16 +435,6 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::JWT_ANALYZER,
         advanced_scanning::SESSION_ANALYZER,
         // Cloud Scanning (Team+)
-        cloud_scanning::AWS_S3_SCANNER,
-        cloud_scanning::AWS_EC2_SCANNER,
-        cloud_scanning::AWS_RDS_SCANNER,
-        cloud_scanning::AWS_SCANNER,
-        cloud_scanning::AZURE_BLOB_SCANNER,
-        cloud_scanning::AZURE_SCANNER,
-        cloud_scanning::GCP_STORAGE_SCANNER,
-        cloud_scanning::GCP_SCANNER,
-        cloud_scanning::K8S_SCANNER,
-        cloud_scanning::DOCKER_SCANNER,
         cloud_scanning::CONTAINER_SCANNER,
         cloud_scanning::CLOUD_STORAGE,
         cloud_scanning::CLOUD_SECURITY,

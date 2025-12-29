@@ -18,6 +18,7 @@
  */
 
 use tracing::{debug, info};
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

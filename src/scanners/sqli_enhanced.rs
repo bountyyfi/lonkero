@@ -2545,7 +2545,10 @@ impl EnhancedSqliScanner {
     fn is_new_vulnerability(&self, vuln: &Vulnerability) -> bool {
         let signature = format!("{}:{}:{}", vuln.url, vuln.parameter.as_ref().unwrap_or(&String::new()), vuln.vuln_type);
 
-        let mut confirmed = self.confirmed_vulns.lock().unwrap();
+        let mut confirmed = match self.confirmed_vulns.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         confirmed.insert(signature)
     }
 

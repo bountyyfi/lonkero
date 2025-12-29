@@ -277,7 +277,7 @@ impl GraphQlBatchingScanner {
             results.push(result);
 
             // Stop if server rejects batching
-            if !results.last().unwrap().accepted {
+            if results.last().is_some_and(|r| !r.accepted) {
                 break;
             }
         }
@@ -364,7 +364,7 @@ impl GraphQlBatchingScanner {
             let result = self.send_aliased_query(endpoint, count).await;
             results.push(result);
 
-            if !results.last().unwrap().accepted {
+            if results.last().is_some_and(|r| !r.accepted) {
                 break;
             }
         }

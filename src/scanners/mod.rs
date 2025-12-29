@@ -118,6 +118,9 @@ pub mod liferay_security;
 pub mod joomla_scanner;
 pub mod rails_scanner;
 pub mod spring_scanner;
+pub mod fastapi_scanner;
+pub mod aspnet_scanner;
+pub mod go_frameworks_scanner;
 pub mod parameter_filter;
 pub mod parameter_prioritizer;
 pub mod attack_surface;
@@ -142,6 +145,9 @@ pub mod web_cache_deception;
 pub mod idor_analyzer;
 pub mod jwt_analyzer;
 pub mod session_analyzer;
+pub mod compliance_scanner;
+pub mod dora_scanner;
+pub mod nis2_scanner;
 
 // External security scanners
 pub mod external;
@@ -247,6 +253,9 @@ pub use liferay_security::LiferaySecurityScanner;
 pub use joomla_scanner::JoomlaScanner;
 pub use rails_scanner::RailsScanner;
 pub use spring_scanner::SpringScanner;
+pub use fastapi_scanner::FastApiScanner;
+pub use aspnet_scanner::AspNetScanner;
+pub use go_frameworks_scanner::GoFrameworksScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use host_header_injection::HostHeaderInjectionScanner;
 pub use cognito_enum::CognitoEnumScanner;
@@ -256,6 +265,9 @@ pub use dom_xss_scanner::{DomXssScanner, DomSource, DomSink, SourceToSinkFlow};
 pub use twofa_bypass::TwoFaBypassScanner;
 pub use account_takeover::AccountTakeoverScanner;
 pub use openapi_analyzer::OpenApiAnalyzer;
+pub use compliance_scanner::ComplianceScanner;
+pub use dora_scanner::DoraScanner;
+pub use nis2_scanner::Nis2Scanner;
 pub use parameter_prioritizer::{
     ParameterPrioritizer, ParameterRisk, ParameterInfo, ParameterSource as PrioritizerParameterSource,
     FormContext, RiskFactor, ScannerType as PrioritizerScannerType,
@@ -367,12 +379,18 @@ pub struct ScanEngine {
     pub joomla_scanner: JoomlaScanner,
     pub rails_scanner: RailsScanner,
     pub spring_scanner: SpringScanner,
+    pub fastapi_scanner: FastApiScanner,
+    pub aspnet_scanner: AspNetScanner,
+    pub go_frameworks_scanner: GoFrameworksScanner,
     pub prototype_pollution_scanner: PrototypePollutionScanner,
     pub host_header_injection_scanner: HostHeaderInjectionScanner,
     pub cognito_enum_scanner: CognitoEnumScanner,
     pub google_dorking_scanner: GoogleDorkingScanner,
     pub log4j_scanner: Log4jScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
+    pub compliance_scanner: ComplianceScanner,
+    pub dora_scanner: DoraScanner,
+    pub nis2_scanner: Nis2Scanner,
 }
 
 impl ScanEngine {
@@ -558,12 +576,18 @@ impl ScanEngine {
             joomla_scanner: JoomlaScanner::new(Arc::clone(&http_client)),
             rails_scanner: RailsScanner::new(Arc::clone(&http_client)),
             spring_scanner: SpringScanner::new(Arc::clone(&http_client)),
+            fastapi_scanner: FastApiScanner::new(Arc::clone(&http_client)),
+            aspnet_scanner: AspNetScanner::new(Arc::clone(&http_client)),
+            go_frameworks_scanner: GoFrameworksScanner::new(Arc::clone(&http_client)),
             prototype_pollution_scanner: PrototypePollutionScanner::new(Arc::clone(&http_client)),
             host_header_injection_scanner: HostHeaderInjectionScanner::new(Arc::clone(&http_client)),
             cognito_enum_scanner: CognitoEnumScanner::new(Arc::clone(&http_client)),
             google_dorking_scanner: GoogleDorkingScanner::new(),
             log4j_scanner: Log4jScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
+            compliance_scanner: ComplianceScanner::new(Arc::clone(&http_client)),
+            dora_scanner: DoraScanner::new(Arc::clone(&http_client)),
+            nis2_scanner: Nis2Scanner::new(Arc::clone(&http_client)),
             http_client,
             config,
         })
@@ -1942,6 +1966,48 @@ impl ScanEngine {
             queue.increment_tests(scan_id.clone(), liferay_tests as u64).await?;
         } else {
             debug!("[Liferay] Module not authorized - skipping");
+        }
+
+        // SOC2/PCI-DSS/HIPAA Compliance Scanner (Enterprise license)
+        if scan_token.is_module_authorized(crate::modules::ids::enterprise::COMPLIANCE_SCANNER) {
+            info!("[Compliance] SOC2, PCI-DSS, and HIPAA compliance scanning");
+            modules_used.push(crate::modules::ids::enterprise::COMPLIANCE_SCANNER.to_string());
+            let (compliance_vulns, compliance_tests) = self.compliance_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(compliance_vulns);
+            total_tests += compliance_tests as u64;
+            queue.increment_tests(scan_id.clone(), compliance_tests as u64).await?;
+        } else {
+            debug!("[Compliance] Module not authorized - skipping");
+        }
+
+        // DORA Compliance Scanner (Enterprise license)
+        if scan_token.is_module_authorized(crate::modules::ids::enterprise::DORA_SCANNER) {
+            info!("[DORA] EU Digital Operational Resilience Act compliance scanning");
+            modules_used.push(crate::modules::ids::enterprise::DORA_SCANNER.to_string());
+            let (dora_vulns, dora_tests) = self.dora_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(dora_vulns);
+            total_tests += dora_tests as u64;
+            queue.increment_tests(scan_id.clone(), dora_tests as u64).await?;
+        } else {
+            debug!("[DORA] Module not authorized - skipping");
+        }
+
+        // NIS2 Compliance Scanner (Enterprise license)
+        if scan_token.is_module_authorized(crate::modules::ids::enterprise::NIS2_SCANNER) {
+            info!("[NIS2] EU Network and Information Security Directive 2 compliance scanning");
+            modules_used.push(crate::modules::ids::enterprise::NIS2_SCANNER.to_string());
+            let (nis2_vulns, nis2_tests) = self.nis2_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(nis2_vulns);
+            total_tests += nis2_tests as u64;
+            queue.increment_tests(scan_id.clone(), nis2_tests as u64).await?;
+        } else {
+            debug!("[NIS2] Module not authorized - skipping");
         }
 
         // Phase 2: Crawler (if enabled)

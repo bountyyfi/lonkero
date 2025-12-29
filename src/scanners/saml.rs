@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -45,9 +46,11 @@ impl SamlScanner {
             }
         };
 
+        // Intelligent detection
+        let characteristics = AppCharacteristics::from_response(&response, url);
         let is_saml = self.detect_saml_endpoint(&response);
-        if !is_saml {
-            info!("[NOTE] [SAML] Not a SAML endpoint, skipping");
+        if !is_saml || characteristics.should_skip_auth_tests() {
+            info!("[NOTE] [SAML] Not a SAML endpoint or no auth context, skipping");
             return Ok((vulnerabilities, tests_run));
         }
 

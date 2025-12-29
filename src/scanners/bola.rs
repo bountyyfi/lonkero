@@ -12,6 +12,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -51,6 +52,15 @@ impl BolaScanner {
         }
 
         info!("Starting BOLA (Broken Object Level Authorization) scan on {}", url);
+
+        // Intelligent detection - skip if no auth context
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_auth_tests() {
+                info!("[BOLA] Skipping - no authentication detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;

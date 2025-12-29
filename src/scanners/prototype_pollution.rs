@@ -15,6 +15,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -53,6 +54,16 @@ impl PrototypePollutionScanner {
         }
 
         info!("[ProtoPollution] Scanning for prototype pollution vulnerabilities");
+
+        // Intelligent detection - prototype pollution is JS-specific
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            // Only skip if NOT a JS app AND static
+            if !characteristics.is_spa && characteristics.should_skip_injection_tests() {
+                info!("[ProtoPollution] Skipping - not a JavaScript application");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;

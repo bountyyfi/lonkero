@@ -218,7 +218,13 @@ impl NetworkDiscoveryScanner {
         let mut tasks = Vec::new();
 
         for target in targets {
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(e) => {
+                    debug!("Failed to acquire semaphore: {}", e);
+                    continue;
+                }
+            };
             let target_clone = target.clone();
             let options_clone = options.clone();
             let scanner = Self::new();

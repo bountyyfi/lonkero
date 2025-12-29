@@ -17,6 +17,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
@@ -43,6 +44,15 @@ impl XMLInjectionScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Intelligent detection - skip for static sites
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_injection_tests() {
+                info!("[XML] Skipping - static/SPA site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
+
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 

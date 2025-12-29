@@ -79,3 +79,6 @@ pub mod signing;
 
 // Module IDs for server-side authorization
 pub mod modules;
+
+// Machine Learning module (federated learning, GDPR-compliant)
+pub mod ml;

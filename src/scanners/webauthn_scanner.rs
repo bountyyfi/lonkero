@@ -19,6 +19,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use regex::Regex;
@@ -417,8 +418,10 @@ impl WebAuthnScanner {
             return true;
         }
 
-        if challenge.chars().all(|c| c == challenge.chars().next().unwrap()) {
-            return true;
+        if let Some(first_char) = challenge.chars().next() {
+            if challenge.chars().all(|c| c == first_char) {
+                return true;
+            }
         }
 
         if challenge == "AAAAAAAAAAAAAAAA" ||
@@ -565,7 +568,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> WebAuthnScanner {

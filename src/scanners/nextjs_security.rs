@@ -24,6 +24,7 @@
  * @license Proprietary - Personal Edition and above
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -468,11 +469,13 @@ impl NextJsSecurityScanner {
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
 
-        if build_id.is_none() {
-            debug!("[Next.js] Could not extract buildId");
-            return Ok((vec![], tests_run));
-        }
-        let build_id = build_id.unwrap();
+        let build_id = match build_id {
+            Some(id) => id,
+            None => {
+                debug!("[Next.js] Could not extract buildId");
+                return Ok((vec![], tests_run));
+            }
+        };
 
         // Test _next/data endpoints for various pages
         let pages_to_test = [

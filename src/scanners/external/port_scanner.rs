@@ -284,9 +284,9 @@ impl ExternalPortScanner {
         timeout_duration: Duration,
     ) -> Result<PortScanResult> {
         let local_addr: SocketAddr = if ip.is_ipv4() {
-            "0.0.0.0:0".parse().unwrap()
+            "0.0.0.0:0".parse().expect("valid IPv4 wildcard address")
         } else {
-            "[::]:0".parse().unwrap()
+            "[::]:0".parse().expect("valid IPv6 wildcard address")
         };
 
         let socket = UdpSocket::bind(local_addr).await?;
@@ -492,7 +492,9 @@ impl ExternalPortScanner {
         use governor::{Quota, RateLimiter};
         use std::num::NonZeroU32;
 
-        let rate = NonZeroU32::new(self.config.max_rate).unwrap_or(NonZeroU32::new(1000).unwrap());
+        // SAFETY: 1000 is a valid non-zero value
+        let default_rate = NonZeroU32::new(1000).expect("1000 is non-zero");
+        let rate = NonZeroU32::new(self.config.max_rate).unwrap_or(default_rate);
         let quota = Quota::per_second(rate);
         RateLimiter::direct(quota)
     }

@@ -18,6 +18,7 @@
  * @license Proprietary - Personal+ License Required
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
@@ -694,7 +695,13 @@ impl LiferaySecurityScanner {
 
             // Test introspection query
             let introspection_query = r#"{"query": "{ __schema { types { name } } }"}"#;
-            let query: serde_json::Value = serde_json::from_str(introspection_query).unwrap();
+            let query: serde_json::Value = match serde_json::from_str(introspection_query) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!("Failed to parse introspection query: {}", e);
+                    continue;
+                }
+            };
 
             if let Ok(resp) = self.http_client.post_json(&url, &query).await {
                 if resp.status_code == 200 && resp.body.contains("__schema") {

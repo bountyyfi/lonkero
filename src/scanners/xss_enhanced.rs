@@ -10,6 +10,7 @@
  */
 
 use crate::headless_crawler::HeadlessCrawler;
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -175,7 +176,10 @@ impl EnhancedXssScanner {
                             let vuln_key = format!("{}:{}:{}", test_url, parameter_owned, context_clone as u8);
 
                             // Deduplicate
-                            let mut vulns = self.confirmed_vulns.lock().unwrap();
+                            let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                             if !vulns.contains(&vuln_key) {
                                 vulns.insert(vuln_key);
 
@@ -283,7 +287,10 @@ impl EnhancedXssScanner {
                 if detection.detected && detection.confidence > 0.6 {
                     let vuln_key = format!("{}:{}:POST", test_url, body_param_owned);
 
-                    let mut vulns = self.confirmed_vulns.lock().unwrap();
+                    let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                     if !vulns.contains(&vuln_key) {
                         vulns.insert(vuln_key);
 
@@ -490,7 +497,10 @@ impl EnhancedXssScanner {
                                 if distance < 500 {
                                     let vuln_key = format!("dom:{}:{}", source, sink);
 
-                                    let mut vulns = self.confirmed_vulns.lock().unwrap();
+                                    let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                                     if !vulns.contains(&vuln_key) {
                                         vulns.insert(vuln_key);
 
@@ -575,7 +585,10 @@ impl EnhancedXssScanner {
                     if detection.detected && detection.confidence > 0.6 {
                         let vuln_key = format!("header:{}:{}", header_name, payload);
 
-                        let mut vulns = self.confirmed_vulns.lock().unwrap();
+                        let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                         if !vulns.contains(&vuln_key) {
                             vulns.insert(vuln_key);
 
@@ -803,7 +816,10 @@ impl EnhancedXssScanner {
                 if (detection.detected && detection.confidence > 0.6) || marker_reflected {
                     let vuln_key = format!("svg:{}:{}", test_url, parameter);
 
-                    let mut vulns = self.confirmed_vulns.lock().unwrap();
+                    let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                     if !vulns.contains(&vuln_key) {
                         vulns.insert(vuln_key);
 
@@ -884,7 +900,10 @@ impl EnhancedXssScanner {
                 Ok(true) => {
                     let vuln_key = format!("dom_xss:{}:{}", url, parameter);
 
-                    let mut vulns = self.confirmed_vulns.lock().unwrap();
+                    let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                     if !vulns.contains(&vuln_key) {
                         vulns.insert(vuln_key);
 
@@ -1011,7 +1030,10 @@ impl EnhancedXssScanner {
                 if marker_reflected || mutation_occurred {
                     let vuln_key = format!("mxss:{}:{}", base_url, parameter);
 
-                    let mut vulns = self.confirmed_vulns.lock().unwrap();
+                    let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                     if !vulns.contains(&vuln_key) {
                         vulns.insert(vuln_key);
 
@@ -1281,7 +1303,10 @@ impl EnhancedXssScanner {
                 if template_evaluated {
                     let vuln_key = format!("template_xss:{}:{}:{}", base_url, parameter, template_type);
 
-                    let mut vulns = self.confirmed_vulns.lock().unwrap();
+                    let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                     if !vulns.contains(&vuln_key) {
                         vulns.insert(vuln_key);
 
@@ -1376,7 +1401,10 @@ impl EnhancedXssScanner {
             if has_websocket_code && has_unsafe_dom_insert && has_message_handler {
                 let vuln_key = format!("ws_xss:{}:{}", url, parameter);
 
-                let mut vulns = self.confirmed_vulns.lock().unwrap();
+                let mut vulns = match self.confirmed_vulns.lock() {
+                                Ok(guard) => guard,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
                 if !vulns.contains(&vuln_key) {
                     vulns.insert(vuln_key);
 

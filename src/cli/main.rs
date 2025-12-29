@@ -2628,6 +2628,20 @@ async fn execute_standalone_scan(
         }
     }
 
+    // Go Frameworks Security (Gin, Echo, Fiber, Chi) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::GO_FRAMEWORKS_SCANNER) {
+        if detected_technologies.iter().any(|t| {
+            let t_lower = t.to_lowercase();
+            t_lower.contains("go") || t_lower.contains("gin") || t_lower.contains("echo") ||
+            t_lower.contains("fiber") || t_lower.contains("chi")
+        }) {
+            info!("  - Testing Go Web Framework Security");
+            let (vulns, tests) = engine.go_frameworks_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
     // ============================================================
     // Server Misconfiguration Scanners (Professional+ tier)
     // ============================================================

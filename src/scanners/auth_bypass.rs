@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -31,6 +32,15 @@ impl AuthBypassScanner {
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("[AuthBypass] Scanning: {}", url);
+
+        // Get baseline response for intelligent detection
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_auth_tests() {
+                info!("[AuthBypass] Skipping - no authentication detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;

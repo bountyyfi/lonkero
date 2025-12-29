@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -49,11 +50,15 @@ impl WebSocketScanner {
             }
         };
 
+        // Intelligent detection
+        let characteristics = AppCharacteristics::from_response(&response, url);
         let is_websocket = self.detect_websocket_endpoint(&response, url);
         if !is_websocket {
             debug!("[NOTE] [WebSocket] Not a WebSocket endpoint");
             return Ok((vulnerabilities, tests_run));
         }
+        // Store characteristics for later use in tests
+        let _app_chars = characteristics;
 
         info!("[SUCCESS] [WebSocket] WebSocket endpoint detected");
 

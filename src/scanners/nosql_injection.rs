@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
@@ -32,6 +33,15 @@ impl NosqlInjectionScanner {
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         info!("Starting NoSQL injection scan on {}", url);
+
+        // Intelligent detection - skip for static sites/SPAs
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_injection_tests() {
+                info!("[NoSQLi] Skipping - static/SPA site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;

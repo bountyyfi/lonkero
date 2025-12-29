@@ -9,11 +9,13 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
 use std::sync::Arc;
+use tracing::info;
 
 pub struct IdorScanner {
     http_client: Arc<HttpClient>,
@@ -35,6 +37,13 @@ impl IdorScanner {
         // Test 1: Check for numeric ID patterns
         tests_run += 1;
         let response = self.http_client.get(url).await?;
+
+        // Intelligent detection - skip if no auth context
+        let characteristics = AppCharacteristics::from_response(&response, url);
+        if characteristics.should_skip_auth_tests() {
+            info!("[IDOR] Skipping - no authentication detected");
+            return Ok((Vec::new(), tests_run));
+        }
         self.check_numeric_ids(&response, url, &mut vulnerabilities);
 
         // Test 2: Test predictable sequential IDs

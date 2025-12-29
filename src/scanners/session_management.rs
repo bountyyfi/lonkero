@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -49,7 +50,9 @@ impl SessionManagementScanner {
         tests_run += 1;
         let has_session_mechanism = self.detect_session_mechanism(&response);
 
-        if !has_session_mechanism {
+        // Also use AppCharacteristics for intelligent detection
+        let characteristics = AppCharacteristics::from_response(&response, url);
+        if !has_session_mechanism || characteristics.should_skip_auth_tests() {
             info!("[SessionMgmt] No session mechanism detected - skipping session tests (likely static site)");
             return Ok((vulnerabilities, tests_run));
         }

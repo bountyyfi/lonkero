@@ -1813,9 +1813,14 @@ impl AdvancedAuthScanner {
             // Try changing to HS256
             header["alg"] = serde_json::Value::String("HS256".to_string());
 
-            let new_header = general_purpose::URL_SAFE_NO_PAD.encode(
-                serde_json::to_string(&header).unwrap()
-            );
+            let header_json = match serde_json::to_string(&header) {
+                Ok(s) => s,
+                Err(e) => {
+                    debug!("Failed to serialize JWT header: {}", e);
+                    return Ok((vulnerabilities, tests_run));
+                }
+            };
+            let new_header = general_purpose::URL_SAFE_NO_PAD.encode(header_json);
 
             // Create new JWT with HS256 (signed with public key as secret)
             let modified_token = format!("{}.{}.fake_signature", new_header, parts[1]);
@@ -1948,9 +1953,14 @@ impl AdvancedAuthScanner {
             payload["isAdmin"] = serde_json::Value::Bool(true);
         }
 
-        let modified_payload = general_purpose::URL_SAFE_NO_PAD.encode(
-            serde_json::to_string(&payload).unwrap()
-        );
+        let payload_json = match serde_json::to_string(&payload) {
+            Ok(s) => s,
+            Err(e) => {
+                debug!("Failed to serialize JWT payload: {}", e);
+                return Ok((vulnerabilities, tests_run));
+            }
+        };
+        let modified_payload = general_purpose::URL_SAFE_NO_PAD.encode(payload_json);
 
         // Create modified token (keep original signature - should fail but worth testing)
         let modified_token = format!("{}.{}.{}", parts[0], modified_payload, parts[2]);

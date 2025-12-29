@@ -9,6 +9,7 @@
 //! - Header injection (kid, jku, x5u)
 //! - Secret brute-forcing with wordlist
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

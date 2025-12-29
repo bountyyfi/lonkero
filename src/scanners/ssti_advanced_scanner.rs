@@ -19,6 +19,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
@@ -454,7 +455,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> SstiAdvancedScanner {

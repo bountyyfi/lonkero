@@ -12,6 +12,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::collections::HashMap;
@@ -38,6 +39,16 @@ impl Log4jScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Intelligent detection - Log4j is Java-specific but we test anyway for backend detection
+        // Only skip for clearly static sites
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.is_static {
+                info!("[Log4j] Skipping - static site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
+
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 

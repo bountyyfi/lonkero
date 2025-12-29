@@ -16,6 +16,7 @@
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, ScanMode, Severity, Vulnerability};
 use regex::Regex;
@@ -57,6 +58,15 @@ impl ApiFuzzerScanner {
         }
 
         info!("Starting advanced API fuzzing scan on {}", url);
+
+        // Intelligent detection - API fuzzing needs API endpoints
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.is_static {
+                info!("[ApiFuzzer] Skipping - static site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;

@@ -656,7 +656,7 @@ impl ParameterContext {
         // Apply source risk multipliers
         let max_multiplier = self.sources.iter()
             .map(|s| s.risk_multiplier())
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or(1.0);
         score *= max_multiplier;
 

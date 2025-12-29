@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -42,6 +43,11 @@ impl GraphQlScanner {
         if !is_graphql {
             info!("[NOTE] [GraphQL] Not a GraphQL endpoint, skipping");
             return Ok((vulnerabilities, tests_run));
+        }
+
+        // Store characteristics for intelligent testing
+        if let Ok(response) = self.http_client.get(url).await {
+            let _characteristics = AppCharacteristics::from_response(&response, url);
         }
 
         info!("[SUCCESS] [GraphQL] GraphQL endpoint detected");

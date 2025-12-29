@@ -14,6 +14,7 @@
 //! - API endpoint authorization testing
 
 use crate::auth_context::AuthSession;
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

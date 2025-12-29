@@ -25,6 +25,7 @@
  * @license Proprietary - Personal Edition and above
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -224,12 +225,14 @@ impl DrupalSecurityScanner {
         tests_run += 1;
         let drupal_info = self.detect_drupal(url).await;
 
-        if drupal_info.is_none() {
-            debug!("Not a Drupal site, skipping Drupal-specific tests");
-            return Ok((vulnerabilities, tests_run));
-        }
+        let (is_drupal, version) = match drupal_info {
+            Some(info) => info,
+            None => {
+                debug!("Not a Drupal site, skipping Drupal-specific tests");
+                return Ok((vulnerabilities, tests_run));
+            }
+        };
 
-        let (is_drupal, version) = drupal_info.unwrap();
         if !is_drupal {
             return Ok((vulnerabilities, tests_run));
         }
