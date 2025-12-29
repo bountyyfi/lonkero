@@ -696,6 +696,7 @@ References:
 - CWE-613 (Insufficient Session Expiration): https://cwe.mitre.org/data/definitions/613.html
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

@@ -403,6 +403,7 @@ impl XMLInjectionScanner {
                          9. Implement proper error handling without revealing XML structure\n\
                          10. Use SOAP message validation for web services".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

@@ -71,6 +71,49 @@ impl MlPipeline {
         self.enabled
     }
 
+    /// Process pre-extracted ML features for learning (GDPR-compliant)
+    /// Features are already extracted - no raw response data needed
+    pub async fn process_features(
+        &mut self,
+        vuln: &Vulnerability,
+        features: &super::VulnFeatures,
+    ) -> Result<bool> {
+        if !self.enabled {
+            return Ok(false);
+        }
+
+        // Use features directly for learning
+        let mut learner = self.auto_learner.write().await;
+        let verification = learner.learn_from_features(vuln, features)?;
+
+        self.findings_processed += 1;
+
+        match verification.status {
+            VerificationStatus::Confirmed => {
+                self.auto_confirmed += 1;
+                debug!(
+                    "ML: Auto-confirmed {} at {} (confidence: {:.0}%)",
+                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                );
+            }
+            VerificationStatus::FalsePositive => {
+                self.auto_rejected += 1;
+                debug!(
+                    "ML: Auto-rejected {} at {} as FP (confidence: {:.0}%)",
+                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                );
+            }
+            VerificationStatus::Unverified => {
+                debug!(
+                    "ML: {} at {} needs more data (confidence: {:.0}%)",
+                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                );
+            }
+        }
+
+        Ok(true)
+    }
+
     /// Process a vulnerability finding for learning
     /// Call this for each vulnerability found during scanning
     pub async fn process_finding(
@@ -196,6 +239,60 @@ impl MlPipeline {
         }
 
         Ok(filtered)
+    }
+
+    /// Predict if a vulnerability is likely a false positive using pre-extracted features
+    /// Use this when vulnerabilities already have MlResponseData attached
+    pub async fn predict_false_positive_from_features(
+        &self,
+        features: &super::VulnFeatures,
+    ) -> Result<f32> {
+        if !self.enabled {
+            return Ok(0.5); // Unknown
+        }
+
+        let classifier = self.fp_classifier.read().await;
+        let prediction = classifier.predict(features);
+
+        Ok(1.0 - prediction.true_positive_probability)
+    }
+
+    /// Filter vulnerabilities using their embedded ML features
+    /// Returns (filtered_vulns, filtered_count) - filtered_vulns are likely true positives
+    /// Vulnerabilities without ML features are kept (not filtered)
+    pub async fn filter_vulns_by_features(
+        &self,
+        vulns: Vec<Vulnerability>,
+        threshold: f32,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        if !self.enabled {
+            // Return all if ML disabled
+            return Ok((vulns, 0));
+        }
+
+        let mut filtered = Vec::new();
+        let mut filtered_count = 0;
+
+        for vuln in vulns {
+            if let Some(ref ml_data) = vuln.ml_data {
+                let fp_prob = self.predict_false_positive_from_features(&ml_data.features).await?;
+
+                if fp_prob < threshold {
+                    filtered.push(vuln);
+                } else {
+                    filtered_count += 1;
+                    debug!(
+                        "ML: Filtered {} at {} (FP probability: {:.0}%)",
+                        vuln.vuln_type, vuln.url, fp_prob * 100.0
+                    );
+                }
+            } else {
+                // No ML data - keep the vulnerability (can't predict)
+                filtered.push(vuln);
+            }
+        }
+
+        Ok((filtered, filtered_count))
     }
 
     /// Called at end of scan to potentially sync with federated network

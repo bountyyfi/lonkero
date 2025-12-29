@@ -890,8 +890,10 @@ impl ScanEngine {
                     && !self.should_skip_scanner("command_injection", &cdn_info)
                     && Self::should_run_scanner_for_param(TechScannerType::CommandInjection, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (cmdi_vulns, cmdi_tests) = self.cmdi_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(cmdi_vulns);
                     total_tests += cmdi_tests as u64;
@@ -904,8 +906,10 @@ impl ScanEngine {
                     && !self.should_skip_scanner("path_traversal", &cdn_info)
                     && Self::should_run_scanner_for_param(TechScannerType::PathTraversal, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (path_vulns, path_tests) = self.path_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(path_vulns);
                     total_tests += path_tests as u64;
@@ -939,8 +943,10 @@ impl ScanEngine {
                     && !self.should_skip_scanner("nosql", &cdn_info)
                     && Self::should_run_scanner_for_param(TechScannerType::NoSqlI, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (nosql_vulns, nosql_tests) = self.nosql_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(nosql_vulns);
                     total_tests += nosql_tests as u64;
@@ -953,8 +959,10 @@ impl ScanEngine {
                     && !self.should_skip_scanner("xxe", &cdn_info)
                     && Self::should_run_scanner_for_param(TechScannerType::Xxe, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (xxe_vulns, xxe_tests) = self.xxe_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(xxe_vulns);
                     total_tests += xxe_tests as u64;
@@ -966,8 +974,10 @@ impl ScanEngine {
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::REDOS_SCANNER)
                     && Self::should_run_scanner_for_param(TechScannerType::ReDoS, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (redos_vulns, redos_tests) = self.redos_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(redos_vulns);
                     total_tests += redos_tests as u64;
@@ -2357,6 +2367,16 @@ impl ScanEngine {
         in_global_plan
     }
 
+    /// Get the payload intensity for a specific parameter from the scan plan.
+    /// Returns the parameter's intensity if found, or Standard as default.
+    fn get_param_intensity(param_name: &str, scan_plan: &IntelligentScanPlan) -> registry::PayloadIntensity {
+        scan_plan.prioritized_params
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(param_name))
+            .map(|p| p.intensity.clone())
+            .unwrap_or(registry::PayloadIntensity::Standard)
+    }
+
     /// Check if an endpoint-level scanner should run based on the intelligent scan plan.
     /// This is for scanners that don't operate on specific parameters but on the endpoint itself.
     fn should_run_endpoint_scanner(
@@ -2561,6 +2581,7 @@ impl ScanEngine {
                                 false_positive: false,
                                 remediation: "1. Validate and sanitize all URLs\n2. Use allowlists for permitted domains\n3. Disable unnecessary URL schemes (file://, gopher://)\n4. Implement network segmentation".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             };
 
                             vulnerabilities.push(vuln);

@@ -938,7 +938,8 @@ impl EnhancedSqliScanner {
                               5. Enable WAF rules\n\
                               6. Monitor database queries".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
-            })
+                ml_data: None,
+            }.with_ml_data(true_response, Some(baseline), Some(pair.true_payload)))
         } else {
             None
         }
@@ -1137,7 +1138,7 @@ impl EnhancedSqliScanner {
                         category: "Injection".to_string(),
                         url: url.to_string(),
                         parameter: Some(param.to_string()),
-                        payload,
+                        payload: payload.clone(),
                         description: format!(
                             "UNION-based SQL injection in parameter '{}'. {} columns detected. \
                             Allows direct data extraction from database.",
@@ -1154,7 +1155,8 @@ impl EnhancedSqliScanner {
                                       4. Disable detailed errors\n\
                                       5. Use WAF rules".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    });
+                        ml_data: None,
+                    }.with_ml_data(&response, Some(baseline), Some(&payload)));
                 }
             }
             Err(_) => {}
@@ -1245,7 +1247,8 @@ impl EnhancedSqliScanner {
                                           3. Apply least privilege\n\
                                           4. Timeout protection".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                        };
+                            ml_data: None,
+                        }.with_ml_data(&response, None, Some(payload));
 
                         if self.is_new_vulnerability(&vuln) {
                             info!("Time-based blind SQLi detected: {}ms delay", response.duration_ms);
@@ -1475,7 +1478,8 @@ impl EnhancedSqliScanner {
                                       5. Implement rate limiting\n\
                                       6. Use WAF with blind SQLi detection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    };
+                        ml_data: None,
+                    }.with_ml_data(&true_response, Some(baseline), Some(true_payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         vulnerabilities.push(vuln);
@@ -1816,6 +1820,7 @@ impl EnhancedSqliScanner {
                                   5. Use WAF with time-based SQLi detection\n\
                                   6. Implement rate limiting".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 };
 
                 if self.is_new_vulnerability(&vuln) {
@@ -1991,7 +1996,7 @@ impl EnhancedSqliScanner {
                         category: "Injection".to_string(),
                         url: test_url,
                         parameter: Some(param.to_string()),
-                        payload,
+                        payload: payload.clone(),
                         description: format!(
                             "PostgreSQL JSON operator SQL injection in parameter '{}'. \
                             Technique: {}. JSON operators can bypass basic SQLi filters and WAFs. \
@@ -2010,7 +2015,8 @@ impl EnhancedSqliScanner {
                                       5. Update WAF rules for JSON operator patterns\n\
                                       6. Monitor for unusual JSON queries".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    };
+                        ml_data: None,
+                    }.with_ml_data(&response, Some(&baseline), Some(&payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         info!("PostgreSQL JSON operator SQLi detected: {}", technique);
@@ -2141,7 +2147,7 @@ impl EnhancedSqliScanner {
                         category: "Injection".to_string(),
                         url: test_url,
                         parameter: Some(param.to_string()),
-                        payload,
+                        payload: payload.clone(),
                         description: format!(
                             "Enhanced error-based SQL injection in parameter '{}'. Technique: {}. \
                             {}",
@@ -2166,7 +2172,8 @@ impl EnhancedSqliScanner {
                                       6. Log errors server-side only\n\
                                       7. Use WAF with error-based SQLi detection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    };
+                        ml_data: None,
+                    }.with_ml_data(&response, Some(&baseline), Some(&payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         info!("Enhanced error-based SQLi detected: {}", technique);

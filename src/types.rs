@@ -184,13 +184,48 @@ pub struct ScanResults {
     pub authorization_token_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// Response data captured for ML learning (GDPR-compliant)
+/// Stores only extracted features, NOT raw response bodies
+/// This is embedded in vulnerabilities when ML is enabled
+#[derive(Debug, Clone)]
+pub struct MlResponseData {
+    /// Extracted features from the response (GDPR-safe - no raw data)
+    pub features: crate::ml::VulnFeatures,
+    /// The payload type/category (not the actual payload content for privacy)
+    pub payload_category: Option<String>,
+}
+
+/// Simplified HTTP response metadata for ML (GDPR-compliant)
+/// Only stores metadata, not actual response bodies
+#[derive(Debug, Clone)]
+pub struct MlHttpResponse {
+    pub status_code: u16,
+    pub body_length: usize,
+    pub duration_ms: u64,
+    pub content_type: Option<String>,
+}
+
+impl MlHttpResponse {
+    /// Create from an http_client::HttpResponse (stores metadata only)
+    pub fn from_http_response(resp: &crate::http_client::HttpResponse) -> Self {
+        Self {
+            status_code: resp.status_code,
+            body_length: resp.body.len(),
+            duration_ms: resp.duration_ms,
+            content_type: resp.headers.get("content-type").cloned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Vulnerability {
     pub id: String,
     #[serde(rename = "type")]
     pub vuln_type: String,
+    #[serde(default)]
     pub severity: Severity,
+    #[serde(default)]
     pub confidence: Confidence,
     pub category: String,
     pub url: String,
@@ -204,13 +239,73 @@ pub struct Vulnerability {
     pub false_positive: bool,
     pub remediation: String,
     pub discovered_at: String,
+    /// ML response data for learning (not serialized to reports)
+    /// This field is skipped during serialization and defaults to None
+    #[serde(skip)]
+    pub ml_data: Option<MlResponseData>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+impl Vulnerability {
+    /// Attach ML response data to this vulnerability for learning (GDPR-compliant)
+    /// Extracts features immediately - no raw data is stored
+    /// Call this when creating a vulnerability to enable ML learning
+    pub fn with_ml_data(
+        mut self,
+        response: &crate::http_client::HttpResponse,
+        baseline: Option<&crate::http_client::HttpResponse>,
+        payload: Option<&str>,
+    ) -> Self {
+        // Extract features immediately - don't store raw response data
+        let extractor = crate::ml::FeatureExtractor::new();
+        let features = extractor.extract(response, baseline, payload);
+
+        // Categorize payload without storing actual content
+        let payload_category = payload.map(|p| Self::categorize_payload(p));
+
+        self.ml_data = Some(MlResponseData {
+            features,
+            payload_category,
+        });
+        self
+    }
+
+    /// Categorize a payload into a privacy-safe category
+    fn categorize_payload(payload: &str) -> String {
+        let p = payload.to_lowercase();
+        if p.contains("select") || p.contains("union") || p.contains("'--") {
+            "sqli".to_string()
+        } else if p.contains("<script") || p.contains("javascript:") || p.contains("onerror") {
+            "xss".to_string()
+        } else if p.contains("http://") || p.contains("https://") || p.contains("file://") {
+            "ssrf".to_string()
+        } else if p.contains(";") && (p.contains("ls") || p.contains("cat") || p.contains("id")) {
+            "cmdi".to_string()
+        } else if p.contains("../") || p.contains("..\\") {
+            "path_traversal".to_string()
+        } else if p.contains("sleep") || p.contains("waitfor") || p.contains("benchmark") {
+            "time_based".to_string()
+        } else {
+            "other".to_string()
+        }
+    }
+
+    /// Check if this vulnerability has ML data attached
+    pub fn has_ml_data(&self) -> bool {
+        self.ml_data.is_some()
+    }
+
+    /// Get extracted ML features (GDPR-safe - no raw data)
+    pub fn get_ml_features(&self) -> Option<&crate::ml::VulnFeatures> {
+        self.ml_data.as_ref().map(|ml| &ml.features)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Severity {
     Critical,
     High,
+    #[default]
     Medium,
     Low,
     Info,
@@ -228,10 +323,11 @@ impl std::fmt::Display for Severity {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Confidence {
     High,
+    #[default]
     Medium,
     Low,
 }

@@ -250,6 +250,7 @@ impl DoraScanner {
                         7. Cache-Control: no-store, no-cache for sensitive pages\n\n\
                         Reference: DORA Article 9 - ICT security policies".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
 
@@ -280,6 +281,7 @@ impl DoraScanner {
                         Consider HSTS preloading for maximum protection.\n\
                         Reference: DORA Article 9(4)(a)".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
 
@@ -328,6 +330,7 @@ impl DoraScanner {
                             - HttpOnly: Prevents XSS cookie theft\n\
                             - SameSite=Strict: Prevents CSRF attacks".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -373,6 +376,7 @@ impl DoraScanner {
                         - IIS: Remove X-Powered-By via URL Rewrite\n\
                         - Application: Configure framework to hide version info".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -453,6 +457,7 @@ impl DoraScanner {
                     4. Implement network segmentation\n\
                     5. Consider using dedicated monitoring solutions (Prometheus + Grafana with auth)".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -499,6 +504,7 @@ impl DoraScanner {
                         3. Consider OpenTelemetry/W3C Trace Context standard\n\
                         4. Log trace IDs with all events for correlation".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -590,6 +596,7 @@ impl DoraScanner {
                     4. Return appropriate status codes (200 OK, 503 Unavailable)\n\
                     5. Consider Kubernetes health probe patterns".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -630,6 +637,7 @@ impl DoraScanner {
                     3. Never expose connection strings or credentials\n\
                     4. Consider depth parameter (shallow vs deep health checks)".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -730,6 +738,7 @@ impl DoraScanner {
                         5. Conduct due diligence on CDN providers per DORA Article 28\n\
                         6. Include CDN providers in ICT third-party register".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
 
@@ -769,6 +778,7 @@ impl DoraScanner {
                         Generate SRI hashes using: https://www.srihash.org/\n\
                         Or via command line: openssl dgst -sha384 -binary file.js | openssl base64 -A".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
 
@@ -807,6 +817,7 @@ impl DoraScanner {
                         4. Conduct risk assessment for each provider\n\
                         5. Ensure contractual arrangements per DORA Article 30".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -886,6 +897,7 @@ impl DoraScanner {
                     Policy: https://example.com/security-policy\n\n\
                     Reference: RFC 9116, DORA Article 45".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         } else if !security_txt_issues.is_empty() {
             vulnerabilities.push(Vulnerability {
@@ -917,6 +929,7 @@ impl DoraScanner {
                     - Policy: - Link to disclosure policy\n\
                     - Acknowledgments: - Link to hall of fame".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -973,6 +986,7 @@ impl DoraScanner {
                     5. Recognition/rewards (if applicable)\n\n\
                     Consider ISO 29147 guidelines for vulnerability disclosure".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -1045,6 +1059,7 @@ impl DoraScanner {
                         4. Set up geographic distribution\n\
                         5. Configure failover origins".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
 
@@ -1081,6 +1096,7 @@ impl DoraScanner {
                         Retry-After: 60 (when limit exceeded)\n\n\
                         Use API gateway or reverse proxy for implementation".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -1175,6 +1191,7 @@ impl DoraScanner {
                             4. Configure custom error pages\n\
                             5. Never expose stack traces publicly".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1245,6 +1262,7 @@ impl DoraScanner {
                                     4. Use separate admin domains\n\
                                     5. Audit all admin actions".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break;
                         }

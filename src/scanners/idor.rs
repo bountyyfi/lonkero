@@ -134,6 +134,7 @@ impl IdorScanner {
                         false_positive: false,
                         remediation: "1. Implement proper authorization checks for all object access\n2. Use unpredictable UUIDs instead of sequential IDs\n3. Verify user ownership/permissions before returning objects\n4. Implement object-level access control (OLAC)\n5. Use indirect references (session-based mappings)\n6. Log and monitor suspicious access patterns".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break; // Only report once per response
                 }
@@ -161,6 +162,7 @@ impl IdorScanner {
                     false_positive: false,
                     remediation: "1. Use UUIDs or opaque tokens in public APIs\n2. Map internal IDs to external references\n3. Implement rate limiting to prevent enumeration\n4. Use GraphQL with proper field-level authorization\n5. Consider using HMACs to sign object references".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -241,6 +243,7 @@ impl IdorScanner {
                 false_positive: false,
                 remediation: "1. Use UUID v4 (random) instead of v1 (time-based)\n2. Consider using cryptographically secure random IDs\n3. Implement rate limiting to prevent enumeration\n4. Still enforce authorization checks regardless of ID type\n5. Monitor for enumeration attacks".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -355,6 +358,7 @@ impl IdorScanner {
                 false_positive: false,
                 remediation: "1. CRITICAL: Implement role-based access control (RBAC)\n2. Verify user roles server-side for all privileged operations\n3. Never trust client-supplied role/permission parameters\n4. Implement defense in depth with multiple authorization layers\n5. Use principle of least privilege\n6. Conduct regular privilege escalation testing\n7. Monitor for unauthorized privilege changes".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -412,6 +416,7 @@ impl IdorScanner {
                 false_positive: false,
                 remediation: "1. Implement authentication middleware for all protected routes\n2. Verify JWT/session tokens before processing requests\n3. Return 401 for unauthenticated requests\n4. Return 403 for authenticated but unauthorized requests\n5. Use security frameworks with built-in auth protection\n6. Implement defense in depth with multiple auth layers".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -481,6 +486,7 @@ impl IdorScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Validate all file paths against whitelist\n2. Use indirect file references (download tokens)\n3. Verify user authorization for each file access\n4. Strip path traversal sequences (../, .\\)\n5. Store files outside web root\n6. Use secure file serving libraries\n7. Log all file access attempts".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }

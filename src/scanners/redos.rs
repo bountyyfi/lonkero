@@ -3,6 +3,7 @@
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::scanners::registry::PayloadIntensity;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -26,12 +27,23 @@ impl RedosScanner {
         Self { http_client }
     }
 
-    /// Scan a parameter for ReDoS vulnerabilities
+    /// Scan a parameter for ReDoS vulnerabilities (default intensity)
     pub async fn scan_parameter(
         &self,
         base_url: &str,
         parameter: &str,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+    }
+
+    /// Scan a parameter for ReDoS vulnerabilities with specified intensity (intelligent mode)
+    pub async fn scan_parameter_with_intensity(
+        &self,
+        base_url: &str,
+        parameter: &str,
         _config: &ScanConfig,
+        intensity: PayloadIntensity,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Runtime verification (integrity check)
         if !crate::license::verify_scan_authorized() {
@@ -44,13 +56,22 @@ impl RedosScanner {
             return Ok((Vec::new(), 0));
         }
 
-        debug!("Testing parameter '{}' for ReDoS vulnerabilities", parameter);
+        debug!("[ReDoS] Intelligent scanner - parameter: {} (intensity: {:?})", parameter, intensity);
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
         // Get payloads for testing
-        let payloads = self.get_redos_payloads();
+        let mut payloads = self.get_redos_payloads();
+
+        // INTELLIGENT MODE: Limit payloads based on intensity
+        let payload_limit = intensity.payload_limit();
+        if payloads.len() > payload_limit {
+            let original_count = payloads.len();
+            payloads.truncate(payload_limit);
+            info!("[ReDoS] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
+                  original_count, payloads.len(), intensity);
+        }
 
         debug!("Testing {} ReDoS payload patterns", payloads.len());
 
@@ -290,6 +311,7 @@ impl RedosScanner {
 9. Test regex patterns with long inputs during development
 10. Consider using safe regex libraries with built-in protection"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

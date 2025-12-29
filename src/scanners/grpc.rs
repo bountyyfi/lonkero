@@ -579,6 +579,7 @@ References:
 - Protocol Buffers Validation: https://github.com/envoyproxy/protoc-gen-validate
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

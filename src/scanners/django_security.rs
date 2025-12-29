@@ -360,6 +360,7 @@ impl DjangoSecurityScanner {
                                       4. Configure proper error handling with custom 500 page\n\
                                       5. Review ALLOWED_HOSTS configuration".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -497,6 +498,7 @@ impl DjangoSecurityScanner {
                                               5. Enable two-factor authentication\n\
                                               6. Use strong, unique admin passwords".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break;
                         }
@@ -583,6 +585,7 @@ impl DjangoSecurityScanner {
                                                   4. Invalidate all existing sessions\n\
                                                   5. Use django-environ for secure config".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                 });
                                 return Ok((vulnerabilities, tests_run));
                             }
@@ -668,6 +671,7 @@ impl DjangoSecurityScanner {
                                   SECURE_CONTENT_TYPE_NOSNIFF = True\n\
                                   X_FRAME_OPTIONS = 'DENY'".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -714,6 +718,7 @@ impl DjangoSecurityScanner {
                                   3. Restrict INTERNAL_IPS to local addresses only\n\
                                   4. Use environment-specific settings files".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -740,6 +745,7 @@ impl DjangoSecurityScanner {
                     false_positive: false,
                     remediation: "Disable Debug Toolbar in production or restrict INTERNAL_IPS.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -823,6 +829,7 @@ impl DjangoSecurityScanner {
                                           2. Move sensitive files outside web root\n\
                                           3. Use proper deployment practices".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -880,6 +887,7 @@ impl DjangoSecurityScanner {
                         remediation: "Disable BrowsableAPIRenderer in production:\n\
                                       REST_FRAMEWORK = {'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer']}".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
 
@@ -920,6 +928,7 @@ impl DjangoSecurityScanner {
                                 false_positive: false,
                                 remediation: "Use django-cors-headers with specific CORS_ALLOWED_ORIGINS list.".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                         }
                     }
@@ -980,6 +989,7 @@ impl DjangoSecurityScanner {
                                       Apache: Options -Indexes\n\
                                       Nginx: autoindex off;".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -1039,6 +1049,7 @@ impl DjangoSecurityScanner {
                                       2. Restrict access via firewall/VPN\n\
                                       3. Use flower --url_prefix with reverse proxy".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1117,6 +1128,7 @@ impl DjangoSecurityScanner {
                         cve.cve_id
                     ),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }

@@ -498,6 +498,7 @@ impl FaviconHashScanner {
                 3. Ensure the identified technology is up to date\n\
                 4. Review security configuration for the detected technology".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -528,6 +529,7 @@ impl FaviconHashScanner {
             remediation: "Informational finding - the favicon hash can be used for \
                 reconnaissance to find related infrastructure.".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

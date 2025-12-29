@@ -455,6 +455,7 @@ impl EmailHeaderInjectionScanner {
                          7. Consider using a dedicated email service (SendGrid, AWS SES) with built-in protections\n\
                          8. Log and monitor for email header injection attempts".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

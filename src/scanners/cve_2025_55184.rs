@@ -131,6 +131,7 @@ impl Cve202555184Scanner {
                             waf
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 } else {
                     info!("[ALERT] CVE-2025-55184: Potentially vulnerable Next.js/React detected!");
@@ -183,6 +184,7 @@ impl Cve202555184Scanner {
                             Reference: https://nextjs.org/blog/security-update-2025-12-11"
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             } else if has_rsc || has_rsc_endpoint {

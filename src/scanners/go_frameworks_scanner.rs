@@ -260,6 +260,7 @@ impl GoFrameworksScanner {
                                 - Remove or protect all debug endpoints with authentication"
                             ),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -355,6 +356,7 @@ impl GoFrameworksScanner {
                                              ```\n\
                                           4. Bind pprof to localhost only in development".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -426,6 +428,7 @@ impl GoFrameworksScanner {
                                           3. If needed, protect with authentication middleware\n\
                                           4. Consider using Prometheus metrics instead with proper access control".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -504,6 +507,7 @@ impl GoFrameworksScanner {
                                           2. Add authentication middleware to swagger routes\n\
                                           3. Use IP whitelisting for internal access only".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -597,6 +601,7 @@ impl GoFrameworksScanner {
                             framework
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -679,6 +684,7 @@ impl GoFrameworksScanner {
                                           // Never use * with credentials\n\
                                           ```".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -755,6 +761,7 @@ impl GoFrameworksScanner {
                                         framework
                                     ),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                 });
                                 break;
                             }
@@ -861,6 +868,7 @@ impl GoFrameworksScanner {
                               3. Add authentication for metrics endpoint\n\
                               4. Use Kubernetes network policies to restrict access".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -971,6 +979,7 @@ impl GoFrameworksScanner {
                                               3. Sanitize input before template rendering\n\
                                               4. Avoid dynamic template compilation from user input".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
 
                             return (vulnerabilities, tests_run);

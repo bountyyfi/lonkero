@@ -252,6 +252,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Directive Article 21(2)(a) - Policies on risk analysis"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -285,6 +286,7 @@ impl Nis2Scanner {
                     header
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -378,6 +380,7 @@ impl Nis2Scanner {
                     Reference: RFC 9116, NIS2 Article 21(2)(b)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         } else if !security_txt_issues.is_empty() {
             vulnerabilities.push(Vulnerability {
@@ -409,6 +412,7 @@ impl Nis2Scanner {
                     Reference: RFC 9116, NIS2 Article 21(2)(b)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -458,6 +462,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Article 21(2)(b)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -555,6 +560,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Article 21(2)(c)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -699,6 +705,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Article 21(2)(d) - Supply chain security"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -781,6 +788,7 @@ impl Nis2Scanner {
                             Reference: NIS2 Article 21(2)(h)"
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -832,6 +840,7 @@ impl Nis2Scanner {
                             Reference: NIS2 Article 21(2)(h)"
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -868,6 +877,7 @@ impl Nis2Scanner {
                         Reference: NIS2 Article 21(2)(h)"
                     ),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -958,6 +968,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Article 21(2)(j)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -1064,6 +1075,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Article 21(2)(f)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -1138,6 +1150,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Article 21(2)(g)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -1198,6 +1211,7 @@ impl Nis2Scanner {
                     Reference: NIS2 Article 21(2)(g)"
                 ),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 

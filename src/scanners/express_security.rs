@@ -348,6 +348,7 @@ impl ExpressSecurityScanner {
                                   app.disable('x-powered-by');\n\
                                   ```".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -465,6 +466,7 @@ impl ExpressSecurityScanner {
                                       ```\n\
                                       3. Never expose environment variables in responses".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
 
                     break; // Found dev mode indicator
@@ -555,6 +557,7 @@ impl ExpressSecurityScanner {
                                   }));\n\
                                   ```".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -651,6 +654,7 @@ impl ExpressSecurityScanner {
                                 name
                             ),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -776,6 +780,7 @@ impl ExpressSecurityScanner {
                                 name
                             ),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -845,6 +850,7 @@ impl ExpressSecurityScanner {
                                           3. Block .map files at web server level:\n\
                                           - Nginx: location ~* \\.map$ { deny all; }".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
 
                         break; // Found one source map
@@ -922,6 +928,7 @@ impl ExpressSecurityScanner {
                                           2. Restrict access by IP address\n\
                                           3. Use internal network only for monitoring".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -997,6 +1004,7 @@ impl ExpressSecurityScanner {
                                           4. Validate and sanitize user input\n\
                                           5. Use Maps instead of Objects for untrusted keys".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
 
                         break;
@@ -1095,6 +1103,7 @@ impl ExpressSecurityScanner {
                                           ```\n\
                                           Never use wildcard (*) with credentials.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
 
                         break;
@@ -1171,6 +1180,7 @@ impl ExpressSecurityScanner {
                                           }));\n\
                                           ```".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1248,6 +1258,7 @@ impl ExpressSecurityScanner {
                                           3. Restrict by IP address\n\
                                           4. Use NODE_ENV to disable in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1315,6 +1326,7 @@ impl ExpressSecurityScanner {
                                                 cve.package, cve.package, cve.package
                                             ),
                                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                         });
                                     }
                                 }

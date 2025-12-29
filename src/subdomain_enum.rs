@@ -463,6 +463,7 @@ impl SubdomainEnumerator {
             false_positive: false,
             remediation: "Review exposed subdomains for sensitive information or unnecessary exposure. Ensure all subdomains have proper security controls.".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+            ml_data: None,
         });
 
         // Check for interesting records that might indicate security issues
@@ -486,6 +487,7 @@ impl SubdomainEnumerator {
                     false_positive: false,
                     remediation: "Remove development/staging subdomains from public DNS or ensure they have proper access controls and authentication.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                    ml_data: None,
                 });
             }
 
@@ -509,6 +511,7 @@ impl SubdomainEnumerator {
                         false_positive: false,
                         remediation: "Use '-all' instead of '~all' in SPF records for stricter email validation.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                        ml_data: None,
                     });
                 }
             }

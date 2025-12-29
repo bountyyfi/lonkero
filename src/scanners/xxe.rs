@@ -12,6 +12,7 @@
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::scanners::registry::PayloadIntensity;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -26,12 +27,23 @@ impl XxeScanner {
         Self { http_client }
     }
 
-    /// Scan parameter for XXE vulnerabilities
+    /// Scan parameter for XXE vulnerabilities (default intensity)
     pub async fn scan_parameter(
         &self,
         base_url: &str,
         parameter: &str,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+    }
+
+    /// Scan parameter for XXE vulnerabilities with specified intensity (intelligent mode)
+    pub async fn scan_parameter_with_intensity(
+        &self,
+        base_url: &str,
+        parameter: &str,
         _config: &ScanConfig,
+        intensity: PayloadIntensity,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - XXE only works on XML parameters
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::XXE) {
@@ -39,9 +51,10 @@ impl XxeScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[XXE] Scanning parameter: {} (priority: {})",
+        info!("[XXE] Intelligent scanner - parameter: {} (priority: {}, intensity: {:?})",
               parameter,
-              ParameterFilter::get_parameter_priority(parameter));
+              ParameterFilter::get_parameter_priority(parameter),
+              intensity);
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -467,6 +480,7 @@ References:
 - defusedxml: https://github.com/tiran/defusedxml
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

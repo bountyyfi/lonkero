@@ -328,6 +328,7 @@ impl JwtAnalyzer {
                     false_positive: false,
                     remediation: "Remove sensitive data from JWT claims or encrypt the token payload. Use opaque tokens for sensitive operations.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -354,6 +355,7 @@ impl JwtAnalyzer {
                     false_positive: false,
                     remediation: "Reject tokens with 'none' algorithm. Whitelist allowed algorithms and never accept unsigned tokens.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -378,6 +380,7 @@ impl JwtAnalyzer {
                 false_positive: false,
                 remediation: "Use a cryptographically strong random secret of at least 256 bits. Generate secrets using a secure random number generator.".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -412,6 +415,7 @@ impl JwtAnalyzer {
                         false_positive: false,
                         remediation: "Validate and sanitize the kid parameter. Use UUID-based key IDs instead of arbitrary strings.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -446,6 +450,7 @@ impl JwtAnalyzer {
                 false_positive: false,
                 remediation: "Always include an expiration claim with reasonable lifetime. Use short-lived tokens (15-60 minutes) with refresh token rotation.".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -472,6 +477,7 @@ impl JwtAnalyzer {
                     false_positive: false,
                     remediation: "Use short-lived tokens (15-60 minutes) with refresh token rotation for better security.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }

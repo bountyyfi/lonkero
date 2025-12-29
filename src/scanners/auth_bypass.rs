@@ -780,6 +780,7 @@ References:
 - CVE-2024-34351: https://nvd.nist.gov/vuln/detail/CVE-2024-34351
 "#.to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -986,6 +987,7 @@ References:
 - CWE-287: https://cwe.mitre.org/data/definitions/287.html
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -1066,6 +1068,7 @@ References:
                                           3. Configure middleware to block signup routes\n\
                                           4. Implement account provisioning only via SSO/SCIM".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -1098,6 +1101,7 @@ References:
                             false_positive: false,
                             remediation: "Block all HTTP methods on signup endpoints when SSO is enforced".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -1218,6 +1222,7 @@ References:
                                           6. Review and restrict script console access\n\
                                           7. Secure credentials plugin".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1308,6 +1313,7 @@ References:
                                               return $methods;\n\
                                           });".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     } else {
                         // xmlrpc enabled but multicall might be disabled
@@ -1329,6 +1335,7 @@ References:
                             false_positive: false,
                             remediation: "Disable XML-RPC if not needed for Jetpack or mobile apps".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1422,6 +1429,7 @@ References:
                                           3. Don't rely only on client-side route protection\n\
                                           4. Review and test all endpoints for proper access control".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1541,6 +1549,7 @@ References:
         //                     method
         //                 ),
         //                 discovered_at: chrono::Utc::now().to_rfc3339(),
+        //                 ml_data: None,
         //             });
         //
         //             break; // Found disclosure, no need to test more methods
@@ -1781,6 +1790,7 @@ References:
                                     path
                                 ),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break; // One bypass found for this path is enough
                         }
@@ -1838,6 +1848,7 @@ References:
                                     header_name, header_name, header_name
                                 ),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break;
                         }

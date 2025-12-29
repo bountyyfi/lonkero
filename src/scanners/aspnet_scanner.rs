@@ -428,6 +428,7 @@ impl AspNetScanner {
                                       5. Implement custom error pages"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -509,6 +510,7 @@ impl AspNetScanner {
                                     3. Consider obfuscation for sensitive assemblies"
                                         .to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                         }
                     }
@@ -548,6 +550,7 @@ impl AspNetScanner {
                               4. Consider Blazor Server for sensitive applications"
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -653,6 +656,7 @@ impl AspNetScanner {
                             4. Consider disabling unnecessary transports"
                                 .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -732,6 +736,7 @@ impl AspNetScanner {
                                   4. Use proper deployment configuration"
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -773,6 +778,7 @@ impl AspNetScanner {
                                       3. Add authentication to Swagger endpoints"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -895,6 +901,7 @@ impl AspNetScanner {
                                       4. Ensure proper file permissions are set"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -945,6 +952,7 @@ impl AspNetScanner {
                                       4. For APIs, use X-XSRF-TOKEN header pattern"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -993,6 +1001,7 @@ impl AspNetScanner {
                                           });"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1056,6 +1065,7 @@ impl AspNetScanner {
                                 "Review OIDC configuration for sensitive information exposure."
                                     .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     } else if path.contains("Register") {
                         vulnerabilities.push(Vulnerability {
@@ -1083,6 +1093,7 @@ impl AspNetScanner {
                                 4. Implement rate limiting"
                                     .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1194,6 +1205,7 @@ impl AspNetScanner {
                                     4. Limit information in health responses"
                                         .to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                         }
                     }
@@ -1265,6 +1277,7 @@ impl AspNetScanner {
                                           });"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1302,6 +1315,7 @@ impl AspNetScanner {
                     false_positive: false,
                     remediation: "No action needed - header limits are properly configured.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -1373,6 +1387,7 @@ impl AspNetScanner {
                         cve.cve_id
                     ),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }

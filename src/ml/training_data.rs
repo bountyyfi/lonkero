@@ -72,6 +72,37 @@ pub struct TrainingExample {
 }
 
 impl TrainingExample {
+    /// Create from pre-extracted features (GDPR-compliant - no raw data)
+    pub fn from_features(vuln: &Vulnerability, features: &super::VulnFeatures) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            vuln_type: vuln.vuln_type.clone(),
+            url_pattern: Self::anonymize_url(&vuln.url),
+            http_method: "GET".to_string(),
+            status_code: features.status_code,
+            response_length: features.response_length,
+            response_time_ms: features.response_time_ms,
+            content_type: if features.has_json {
+                Some("application/json".to_string())
+            } else if features.has_html {
+                Some("text/html".to_string())
+            } else if features.has_xml {
+                Some("application/xml".to_string())
+            } else {
+                None
+            },
+            payload_reflected: features.payload_reflected,
+            has_error_patterns: features.has_sql_error || features.has_stack_trace,
+            differs_from_baseline: features.differs_from_baseline,
+            severity: vuln.severity.clone(),
+            confidence: vuln.confidence.clone(),
+            verification: VerificationStatus::Unverified,
+            collected_at: Utc::now(),
+            verified_at: None,
+            features: features.to_vector(),
+        }
+    }
+
     /// Create from a vulnerability and response metadata
     pub fn from_vulnerability(
         vuln: &Vulnerability,

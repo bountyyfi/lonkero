@@ -521,6 +521,7 @@ impl HtmlInjectionScanner {
                          9. For rich text, use a trusted HTML sanitizer library\n\
                          10. Apply defense in depth: encode, validate, and use CSP".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

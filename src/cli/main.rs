@@ -27,11 +27,14 @@ use tracing::{debug, error, info, warn, Level};
 use std::collections::HashSet;
 
 use lonkero_scanner::config::ScannerConfig;
+use lonkero_scanner::crawler::CrawlResults;
 use lonkero_scanner::detection_helpers::detect_technology;
 use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
 use lonkero_scanner::modules::ids as module_ids;
-use lonkero_scanner::scanners::ScanEngine;
+use lonkero_scanner::scanners::{
+    ScanEngine, IntelligentScanOrchestrator, IntelligentScanPlan, TechCategory, PayloadIntensity,
+};
 use lonkero_scanner::signing::{self, SigningError, ScanToken};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults};
 
@@ -1077,7 +1080,7 @@ async fn run_scan(
 
     let elapsed = start_time.elapsed();
 
-    // ML Auto-Learning: Process scan results for ML training
+    // ML Auto-Learning: Process scan results for ML training (GDPR-compliant)
     {
         use lonkero_scanner::ml::MlPipeline;
         match MlPipeline::new() {
@@ -1085,11 +1088,38 @@ async fn run_scan(
                 if ml_pipeline.is_enabled() {
                     info!("[ML] Processing {} vulnerabilities for auto-learning", total_vulns);
 
-                    // Process each vulnerability for ML learning
-                    // Note: In production, we'd also capture HTTP responses for better learning
-                    // For now, we just signal scan completion to trigger federated sync
+                    // Process each vulnerability with its pre-extracted ML features
+                    let mut ml_processed = 0;
+                    let mut ml_with_data = 0;
+                    for result in &all_results {
+                        for vuln in &result.vulnerabilities {
+                            if let Some(features) = vuln.get_ml_features() {
+                                // Vulnerability has ML features attached - process it
+                                ml_with_data += 1;
+                                match ml_pipeline.process_features(vuln, features).await {
+                                    Ok(true) => {
+                                        ml_processed += 1;
+                                    }
+                                    Ok(false) => {
+                                        // ML skipped this finding
+                                    }
+                                    Err(e) => {
+                                        debug!("[ML] Failed to process finding: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if ml_with_data > 0 {
+                        info!("[ML] Processed {}/{} vulnerabilities with ML features", ml_processed, ml_with_data);
+                    } else {
+                        debug!("[ML] No vulnerabilities had ML features attached (scanners need to use with_ml_data())");
+                    }
+
+                    // Signal scan completion to trigger federated sync
                     if let Err(e) = ml_pipeline.on_scan_complete().await {
-                        warn!("[ML] Failed to process scan results: {}", e);
+                        warn!("[ML] Failed to complete scan processing: {}", e);
                     } else {
                         let stats = ml_pipeline.get_stats().await;
                         if stats.federated_enabled || stats.can_contribute {
@@ -1390,6 +1420,7 @@ async fn execute_standalone_scan(
     let mut discovered_params: Vec<String> = Vec::new();
     let mut discovered_forms: Vec<(String, Vec<lonkero_scanner::crawler::FormInput>)> = Vec::new(); // (action_url, form_inputs)
     let mut is_spa_detected = false;  // SPA detection from crawler
+    let mut crawl_results: Option<CrawlResults> = None;  // Store for intelligent orchestrator
 
     if scan_config.enable_crawler {
         info!("  - Running web crawler (depth: {})", scan_config.max_depth);
@@ -1398,6 +1429,7 @@ async fn execute_standalone_scan(
             Ok(results) => {
                 info!("  - Discovered {} URLs, {} forms", results.crawled_urls.len(), results.forms.len());
                 is_spa_detected = results.is_spa;  // Capture SPA detection
+                crawl_results = Some(results.clone());  // Store for intelligent orchestrator
 
                 // Extract parameters from discovered forms for XSS testing
                 for form in &results.forms {
@@ -1479,6 +1511,71 @@ async fn execute_standalone_scan(
         t.contains("github pages")
     );
 
+    // ==========================================================================
+    // INTELLIGENT SCAN ORCHESTRATION (v3.0)
+    // When in Intelligent mode, generate a context-aware scan plan that:
+    // - Selects scanners based on detected technologies
+    // - Deduplicates endpoints to avoid redundant testing
+    // - Assigns per-parameter payload intensity based on risk scoring
+    // ==========================================================================
+    let intelligent_scan_plan: Option<IntelligentScanPlan> = if scan_config.scan_mode.is_intelligent() {
+        info!("[Orchestrator] Intelligent mode enabled - generating context-aware scan plan");
+
+        // Convert detected_technologies HashSet<String> to Vec<TechCategory>
+        let tech_categories: Vec<TechCategory> = detected_technologies.iter()
+            .map(|t| TechCategory::from_detected_technology(t, ""))
+            .collect();
+
+        // Create orchestrator and generate scan plan
+        let orchestrator = IntelligentScanOrchestrator::new();
+        let plan = orchestrator.generate_scan_plan(
+            crawl_results.as_ref().unwrap_or(&CrawlResults::new()),
+            &tech_categories,
+            target,
+        );
+
+        // Log orchestration statistics
+        info!("[Orchestrator] Scan plan generated:");
+        info!("    - Scanners selected: {}", plan.stats.scanners_selected);
+        info!("    - Technologies detected: {:?}", plan.stats.technologies_detected);
+        info!("    - Targets: {}/{} ({:.1}% reduction from deduplication)",
+              plan.stats.total_deduplicated, plan.stats.total_original, plan.stats.reduction_percent);
+        info!("    - Parameter risk distribution: {} high, {} medium, {} low",
+              plan.stats.high_risk_params, plan.stats.medium_risk_params, plan.stats.low_risk_params);
+
+        // Log top prioritized parameters
+        if !plan.prioritized_params.is_empty() {
+            info!("    - Top priority parameters:");
+            for param in plan.prioritized_params.iter().take(5) {
+                info!("      - {} (risk: {}, intensity: {:?})", param.name, param.risk_score, param.intensity);
+            }
+        }
+
+        Some(plan)
+    } else {
+        info!("[Orchestrator] Legacy mode ({}) - using global payload count", scan_config.scan_mode);
+        None
+    };
+
+    // Helper function to get payload intensity for a parameter in intelligent mode
+    let get_param_intensity = |param_name: &str| -> PayloadIntensity {
+        if let Some(ref plan) = intelligent_scan_plan {
+            plan.prioritized_params.iter()
+                .find(|p| p.name == param_name)
+                .map(|p| p.intensity)
+                .unwrap_or(PayloadIntensity::Standard)
+        } else {
+            // Legacy mode: use global intensity based on scan mode
+            match scan_config.scan_mode {
+                ScanMode::Fast => PayloadIntensity::Minimal,
+                ScanMode::Normal => PayloadIntensity::Standard,
+                ScanMode::Thorough => PayloadIntensity::Extended,
+                ScanMode::Insane => PayloadIntensity::Maximum,
+                ScanMode::Intelligent => PayloadIntensity::Standard, // Fallback
+            }
+        }
+    };
+
     // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
     // Use headless if: (1) tech detection found JS framework, OR (2) crawler detected SPA pattern
     // AND static crawler found few/no forms
@@ -1495,14 +1592,14 @@ async fn execute_standalone_scan(
             let max_pages = 50; // Limit pages for reasonable scan time
 
             match headless.crawl_authenticated_site(target, max_pages).await {
-                Ok(crawl_results) => {
+                Ok(headless_crawl_results) => {
                     info!("[SUCCESS] Authenticated site crawl complete:");
-                    info!("    - Pages visited: {}", crawl_results.pages_visited.len());
-                    info!("    - Forms discovered: {}", crawl_results.forms.len());
-                    info!("    - API endpoints found: {}", crawl_results.api_endpoints.len());
+                    info!("    - Pages visited: {}", headless_crawl_results.pages_visited.len());
+                    info!("    - Forms discovered: {}", headless_crawl_results.forms.len());
+                    info!("    - API endpoints found: {}", headless_crawl_results.api_endpoints.len());
 
                     // Add all discovered forms
-                    for form in &crawl_results.forms {
+                    for form in &headless_crawl_results.forms {
                         let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
                             .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                            !input.input_type.eq_ignore_ascii_case("submit") &&
@@ -1529,20 +1626,20 @@ async fn execute_standalone_scan(
                     }
 
                     // Add all discovered API endpoints
-                    for ep in &crawl_results.api_endpoints {
+                    for ep in &headless_crawl_results.api_endpoints {
                         info!("    - API: {} {}", ep.method, ep.url);
                         intercepted_endpoints.push(ep.url.clone());
                     }
 
                     // Log discovered JS files for debugging
-                    if !crawl_results.js_files.is_empty() {
-                        info!("    - JS files discovered: {}", crawl_results.js_files.len());
+                    if !headless_crawl_results.js_files.is_empty() {
+                        info!("    - JS files discovered: {}", headless_crawl_results.js_files.len());
                     }
 
                     // Add discovered GraphQL endpoints to testing queue
-                    if !crawl_results.graphql_endpoints.is_empty() {
-                        info!("    - GraphQL endpoints: {}", crawl_results.graphql_endpoints.len());
-                        for gql_ep in &crawl_results.graphql_endpoints {
+                    if !headless_crawl_results.graphql_endpoints.is_empty() {
+                        info!("    - GraphQL endpoints: {}", headless_crawl_results.graphql_endpoints.len());
+                        for gql_ep in &headless_crawl_results.graphql_endpoints {
                             info!("      - {}", gql_ep);
                             // Add to intercepted endpoints for advanced testing
                             if !intercepted_endpoints.contains(gql_ep) {
@@ -1552,16 +1649,16 @@ async fn execute_standalone_scan(
                     }
 
                     // Log discovered GraphQL operations
-                    if !crawl_results.graphql_operations.is_empty() {
-                        info!("    - GraphQL operations discovered: {}", crawl_results.graphql_operations.len());
-                        for op in &crawl_results.graphql_operations {
+                    if !headless_crawl_results.graphql_operations.is_empty() {
+                        info!("    - GraphQL operations discovered: {}", headless_crawl_results.graphql_operations.len());
+                        for op in &headless_crawl_results.graphql_operations {
                             info!("      - {} {} (from {})", op.operation_type, op.name, op.source);
                         }
                     }
 
                     // Add pages visited (including redirect URLs) for Cognito/OAuth detection
                     // These may contain auth URLs like auth.idm.vrprod.io with client_id params
-                    for page_url in &crawl_results.pages_visited {
+                    for page_url in &headless_crawl_results.pages_visited {
                         if !intercepted_endpoints.contains(page_url) {
                             intercepted_endpoints.push(page_url.clone());
                         }
@@ -1569,7 +1666,7 @@ async fn execute_standalone_scan(
 
                     info!("  - Total: {} forms with {} fields, {} API endpoints, {} GraphQL endpoints",
                           discovered_forms.len(), discovered_params.len(),
-                          intercepted_endpoints.len(), crawl_results.graphql_endpoints.len());
+                          intercepted_endpoints.len(), headless_crawl_results.graphql_endpoints.len());
                 }
                 Err(e) => {
                     warn!("  - Full site crawl failed: {}", e);
@@ -2126,6 +2223,10 @@ async fn execute_standalone_scan(
                 info!("  - Testing XSS ({} parameters)", test_params.len());
                 for (param_name, _) in &test_params {
                     let context = build_scan_context(param_name);
+                    // In Intelligent mode, log per-parameter intensity
+                    let intensity = get_param_intensity(param_name);
+                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
+                           param_name, intensity, intensity.payload_limit());
                     let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config, Some(&context)).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
@@ -2146,6 +2247,10 @@ async fn execute_standalone_scan(
                 info!("  - Testing SQL Injection ({} parameters)", test_params.len());
                 for (param_name, _) in &test_params {
                     let context = build_scan_context(param_name);
+                    // In Intelligent mode, log per-parameter intensity
+                    let intensity = get_param_intensity(param_name);
+                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
+                           param_name, intensity, intensity.payload_limit());
                     let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config, Some(&context)).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
@@ -2165,6 +2270,10 @@ async fn execute_standalone_scan(
             if !is_static_site && !is_nodejs_stack && (is_php_stack || is_python_stack || is_java_stack) {
                 info!("  - Testing Command Injection");
                 for (param_name, _) in &test_params {
+                    // In Intelligent mode, log per-parameter intensity
+                    let intensity = get_param_intensity(param_name);
+                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
+                           param_name, intensity, intensity.payload_limit());
                     let (vulns, tests) = engine.cmdi_scanner.scan_parameter(target, param_name, scan_config).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
@@ -2182,6 +2291,10 @@ async fn execute_standalone_scan(
             if !is_static_site && !is_graphql_only {
                 info!("  - Testing Path Traversal");
                 for (param_name, _) in &test_params {
+                    // In Intelligent mode, log per-parameter intensity
+                    let intensity = get_param_intensity(param_name);
+                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
+                           param_name, intensity, intensity.payload_limit());
                     let (vulns, tests) = engine.path_scanner.scan_parameter(target, param_name, scan_config).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;

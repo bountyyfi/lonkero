@@ -500,6 +500,7 @@ impl XPathInjectionScanner {
                          9. Implement proper error handling without revealing XPath structure\n\
                          10. Consider using alternative query methods (e.g., DOM navigation)".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

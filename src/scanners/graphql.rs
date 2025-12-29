@@ -547,6 +547,7 @@ References:
 - Escape GraphQL Security Guide: https://escape.tech/blog/9-graphql-security-best-practices/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

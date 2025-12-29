@@ -487,6 +487,7 @@ References:
 - https://portswigger.net/web-security/prototype-pollution
 - https://github.com/nicolo-ribaudo/JSON.parseImmutable"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

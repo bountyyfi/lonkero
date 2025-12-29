@@ -870,6 +870,7 @@ impl DomXssScanner {
                         false_positive: false,
                         remediation: self.get_remediation_for_sink(&pattern.sink),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     };
 
                     info!(
@@ -989,6 +990,7 @@ impl DomXssScanner {
                             false_positive: false,
                             remediation: self.get_remediation_for_source(source),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         };
 
                         info!(
@@ -1038,6 +1040,7 @@ impl DomXssScanner {
                         false_positive: false,
                         remediation: "Sanitize user input before interpolation in templates. Use text bindings instead of HTML bindings.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     };
 
                     vulnerabilities.push(vuln);
@@ -1298,6 +1301,7 @@ impl DomXssScanner {
                             false_positive: false,
                             remediation: self.get_framework_remediation(framework),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         };
 
                         info!(
@@ -1349,6 +1353,7 @@ impl DomXssScanner {
             false_positive: false,
             remediation: self.get_remediation_for_sink(&flow.sink),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

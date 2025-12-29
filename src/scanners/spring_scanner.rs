@@ -137,6 +137,7 @@ impl SpringScanner {
                             false_positive: false,
                             remediation: "Secure actuator endpoints with authentication or disable in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -176,6 +177,7 @@ impl SpringScanner {
                         false_positive: false,
                         remediation: "Disable H2 Console in production (spring.h2.console.enabled=false)".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -225,6 +227,7 @@ impl SpringScanner {
                             false_positive: false,
                             remediation: "Secure Swagger UI with authentication or disable in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -267,6 +270,7 @@ impl SpringScanner {
                                 false_positive: false,
                                 remediation: "Remove configuration files from web-accessible paths".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break;
                         }
@@ -308,6 +312,7 @@ impl SpringScanner {
                         false_positive: false,
                         remediation: "Disable Jolokia or secure with authentication".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }

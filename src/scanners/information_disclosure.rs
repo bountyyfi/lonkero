@@ -623,6 +623,7 @@ impl InformationDisclosureScanner {
                          9. Remove development files from production\n\
                          10. Use Content Security Policy headers".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

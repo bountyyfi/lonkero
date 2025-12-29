@@ -436,6 +436,7 @@ impl ClientRouteAuthBypassScanner {
                              7. Validate JWT/session tokens server-side\n\
                              8. Log unauthorized access attempts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             })
         } else {
             None
@@ -501,6 +502,7 @@ impl ClientRouteAuthBypassScanner {
                              7. Log role bypass attempts for security monitoring\n\
                              8. Implement principle of least privilege".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             })
         } else {
             None
@@ -560,6 +562,7 @@ impl ClientRouteAuthBypassScanner {
                                      7. Implement row-level security in database\n\
                                      8. Use GraphQL field-level authorization".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }

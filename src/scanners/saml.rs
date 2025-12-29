@@ -633,6 +633,7 @@ References:
 - CVE-2018-0489 (Comment Injection): https://duo.com/blog/duo-finds-saml-vulnerabilities-affecting-multiple-implementations
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

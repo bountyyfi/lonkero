@@ -376,6 +376,7 @@ impl CachePoisoningScanner {
                          9. Monitor cache hit ratios for anomalies\n\
                          10. Use SameSite cookies to prevent cache deception".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

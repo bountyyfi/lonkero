@@ -458,6 +458,7 @@ impl CodeInjectionScanner {
                          9. Monitor for suspicious function calls in logs\n\
                          10. Consider using DSLs (Domain Specific Languages) instead of eval()".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

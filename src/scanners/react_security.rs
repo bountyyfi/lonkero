@@ -316,6 +316,7 @@ impl ReactSecurityScanner {
                                       4. Never use eval() or Function() with user data\n\
                                       5. Use Content Security Policy headers".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -400,6 +401,7 @@ impl ReactSecurityScanner {
                                   4. Configure webpack to strip development code\n\
                                   5. Use babel-plugin-transform-react-remove-prop-types".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -474,6 +476,7 @@ impl ReactSecurityScanner {
                                   4. Audit your build process for env exposure\n\
                                   5. Rotate any exposed credentials immediately".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -550,6 +553,7 @@ impl ReactSecurityScanner {
                                       3. Remove .map files from production deployment\n\
                                       4. Use source map upload to error tracking service".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -611,6 +615,7 @@ impl ReactSecurityScanner {
                                           3. Never include secrets in initial state\n\
                                           4. Fetch sensitive data client-side after auth".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -698,6 +703,7 @@ impl ReactSecurityScanner {
                                           3. Use .gitignore properly\n\
                                           4. Review your deployment pipeline".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -764,6 +770,7 @@ impl ReactSecurityScanner {
                                 false_positive: false,
                                 remediation: "Disable introspection in production using appropriate Apollo/graphql-yoga configuration.".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                         }
                     }
@@ -809,6 +816,7 @@ impl ReactSecurityScanner {
                                     false_positive: false,
                                     remediation: "Configure CORS to only allow specific trusted origins.".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                 });
                             }
                         }
@@ -888,6 +896,7 @@ impl ReactSecurityScanner {
                                                   3. Never render user input directly in href/src\n\
                                                   4. Implement Content Security Policy".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                 });
                                 return Ok((vulnerabilities, tests_run));
                             }
@@ -968,6 +977,7 @@ impl ReactSecurityScanner {
                                               4. Use Map instead of plain objects\n\
                                               5. Update vulnerable packages (lodash, immer)".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break;
                         }
@@ -1041,6 +1051,7 @@ impl ReactSecurityScanner {
                                             cve.package, cve.cve_id
                                         ),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                     });
                                 }
                             }

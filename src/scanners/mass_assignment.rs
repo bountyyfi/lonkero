@@ -1245,6 +1245,7 @@ impl MassAssignmentScanner {
                          14. Use Object.create(null) for objects without prototype\n\
                          15. Implement strict JSON schema validation for deep merges".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

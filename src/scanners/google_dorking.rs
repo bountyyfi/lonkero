@@ -497,6 +497,7 @@ impl GoogleDorkingScanner {
                 Remediate any findings by removing sensitive files, securing endpoints, or implementing \
                 proper access controls.".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         };
 
         Ok((vec![vuln], results.dorks.len(), results))

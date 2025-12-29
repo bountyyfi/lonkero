@@ -421,6 +421,7 @@ impl DrupalSecurityScanner {
                                   4. Review user accounts for unauthorized additions\n\
                                   Reference: https://www.drupal.org/SA-CORE-2014-005".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
 
@@ -465,6 +466,7 @@ impl DrupalSecurityScanner {
                                   Drupal 8.5.x: Update to 8.5.1 or later\n\
                                   Reference: https://www.drupal.org/SA-CORE-2018-002".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
 
@@ -506,6 +508,7 @@ impl DrupalSecurityScanner {
                                   Drupal 8.5.x: Update to 8.5.3 or later\n\
                                   Reference: https://www.drupal.org/SA-CORE-2018-004".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -587,6 +590,7 @@ impl DrupalSecurityScanner {
                                           2. Configure permissions to restrict user endpoint access\n\
                                           3. Use the JSON:API Extras module for fine-grained control".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -638,6 +642,7 @@ impl DrupalSecurityScanner {
                               2. Configure permissions to restrict user profile access\n\
                               3. Use the Rabbit Hole module to control access to user pages".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -702,6 +707,7 @@ impl DrupalSecurityScanner {
                                         Deny from all\n\
                                       </FilesMatch>".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break; // Found one, no need to continue
                 }
@@ -765,6 +771,7 @@ impl DrupalSecurityScanner {
                                           4. Regenerate hash_salt\n\
                                           5. Check for signs of compromise".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -825,6 +832,7 @@ impl DrupalSecurityScanner {
                                           4. Check for signs of compromise\n\
                                           5. Ensure anonymous user role has no admin permissions".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -873,6 +881,7 @@ impl DrupalSecurityScanner {
                                         Deny from all\n\
                                       </Files>".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -901,6 +910,7 @@ impl DrupalSecurityScanner {
                     remediation: "1. Set $settings['update_free_access'] = FALSE in settings.php\n\
                                   2. Block access via .htaccess when not needed".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -937,6 +947,7 @@ impl DrupalSecurityScanner {
                                   $settings['cron_key'] = 'YOUR_SECRET_KEY';\n\
                                   Then use: /cron/YOUR_SECRET_KEY".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -994,6 +1005,7 @@ impl DrupalSecurityScanner {
                                       3. Use authentication for sensitive endpoints\n\
                                       4. Consider disabling unused API modules".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1069,6 +1081,7 @@ impl DrupalSecurityScanner {
                                                 module_name, module_name, module_name
                                             ),
                                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                         });
                                     }
                                 }
@@ -1122,6 +1135,7 @@ impl DrupalSecurityScanner {
                             false_positive: false,
                             remediation: "Add to .htaccess: Options -Indexes".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1177,6 +1191,7 @@ impl DrupalSecurityScanner {
                                       2. Change all credentials\n\
                                       3. Never store backups in web-accessible directories".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1220,6 +1235,7 @@ impl DrupalSecurityScanner {
                                       2. Configure file system path in admin/config/media/file-system\n\
                                       3. Disable directory listing".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -1256,6 +1272,7 @@ impl DrupalSecurityScanner {
                     remediation: "Review and fix permissions for administrator role. \
                         Status report should only be accessible to authenticated admins.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -1301,6 +1318,7 @@ impl DrupalSecurityScanner {
                                       3. Audit content for embedded PHP code\n\
                                       4. Use safer alternatives like Twig templates".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1349,6 +1367,7 @@ impl DrupalSecurityScanner {
                                 false_positive: false,
                                 remediation: "Update Drupal core to the latest version and review form implementations.".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                         }
                     }

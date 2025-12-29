@@ -794,6 +794,7 @@ References:
 - Apollo Server Security: https://www.apollographql.com/docs/apollo-server/security/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -876,6 +877,7 @@ References:
 - GraphQL Alias Attacks: https://escape.tech/blog/graphql-alias-attacks/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -947,6 +949,7 @@ References:
 - GraphQL Query Complexity: https://www.apollographql.com/docs/apollo-server/security/performance/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -1028,6 +1031,7 @@ References:
 - GraphQL Rate Limiting: https://escape.tech/blog/graphql-rate-limiting/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -1119,6 +1123,7 @@ References:
 - GraphQL Authorization: https://www.apollographql.com/docs/apollo-server/security/authentication/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -1174,6 +1179,7 @@ References:
 - GraphQL Fragment Attacks: https://escape.tech/blog/graphql-fragment-attacks/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -1245,6 +1251,7 @@ References:
 - GraphQL Mutation Security: https://www.apollographql.com/docs/apollo-server/security/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

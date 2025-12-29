@@ -399,6 +399,7 @@ impl RaceConditionScanner {
                          11. Implement rate limiting at application AND infrastructure level\n\
                          12. Test with high concurrency scenarios".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

@@ -1270,6 +1270,7 @@ impl CspBypassScanner {
             false_positive: false,
             remediation: bypass.remediation,
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

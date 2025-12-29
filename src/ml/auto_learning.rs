@@ -428,6 +428,106 @@ impl AutoLearner {
         None
     }
 
+    /// Record learning from pre-extracted features (GDPR-compliant)
+    /// No raw response data needed - features are already extracted
+    pub fn learn_from_features(
+        &mut self,
+        vuln: &Vulnerability,
+        features: &super::VulnFeatures,
+    ) -> Result<AutoVerification> {
+        // Get automatic verification from features
+        let verification = self.auto_verify_from_features(vuln, features);
+
+        // Only learn from high-confidence verifications
+        if verification.confidence > 0.7 || verification.confidence < 0.3 {
+            // Create training example from features (GDPR-safe)
+            let example = TrainingExample::from_features(vuln, features);
+
+            // Record with auto-verification status
+            let mut example = example;
+            example.verification = verification.status;
+            self.data_collector.record_example(&example)?;
+
+            // Update historical patterns
+            let url_pattern = self.anonymize_url(&vuln.url);
+            let url_pattern_clone = url_pattern.clone();
+            let finding = HistoricalFinding {
+                vuln_type: vuln.vuln_type.clone(),
+                url_pattern: url_pattern_clone,
+                was_true_positive: verification.status == VerificationStatus::Confirmed,
+                features: features.to_vector(),
+            };
+            self.endpoint_history
+                .entry(url_pattern)
+                .or_default()
+                .push(finding);
+
+            debug!(
+                "Auto-learned from {}: {:?} (confidence: {:.0}%)",
+                vuln.vuln_type,
+                verification.status,
+                verification.confidence * 100.0
+            );
+        }
+
+        Ok(verification)
+    }
+
+    /// Auto-verify from pre-extracted features
+    fn auto_verify_from_features(
+        &self,
+        vuln: &Vulnerability,
+        features: &super::VulnFeatures,
+    ) -> AutoVerification {
+        let mut confidence = 0.5f32;
+        let mut reasons = Vec::new();
+
+        // Check SQL error patterns
+        if features.has_sql_error {
+            confidence += 0.3;
+            reasons.push("SQL error detected".to_string());
+        }
+
+        // Check payload reflection
+        if features.payload_reflected {
+            confidence += 0.2;
+            reasons.push("Payload reflected".to_string());
+        }
+
+        // Check response differences
+        if features.differs_from_baseline {
+            confidence += 0.15;
+            reasons.push("Response differs from baseline".to_string());
+        }
+
+        // Check timing anomaly
+        if features.timing_anomaly {
+            confidence += 0.2;
+            reasons.push("Timing anomaly detected".to_string());
+        }
+
+        // Check stack trace
+        if features.has_stack_trace {
+            confidence += 0.15;
+            reasons.push("Stack trace exposed".to_string());
+        }
+
+        let status = if confidence > 0.75 {
+            VerificationStatus::Confirmed
+        } else if confidence < 0.35 {
+            VerificationStatus::FalsePositive
+        } else {
+            VerificationStatus::Unverified
+        };
+
+        AutoVerification {
+            status,
+            confidence: confidence.min(1.0),
+            reasons,
+            evidence: Some(format!("{} at {}", vuln.vuln_type, vuln.url)),
+        }
+    }
+
     /// Record learning from this finding
     pub fn learn_from_finding(
         &mut self,

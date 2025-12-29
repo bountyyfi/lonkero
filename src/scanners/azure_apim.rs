@@ -117,6 +117,7 @@ impl AzureApimScanner {
 
 Reference: https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass"#.to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             } else {
                 // Basic Auth enabled with signup visible - can be used as attack source
@@ -155,6 +156,7 @@ Reference: https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass"#.
 
 Reference: https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass"#.to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }

@@ -205,6 +205,7 @@ impl EnhancedXssScanner {
                                     false_positive: false,
                                     remediation: self.get_remediation(&detection.context),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                 };
 
                                 info!(
@@ -316,6 +317,7 @@ impl EnhancedXssScanner {
                             false_positive: false,
                             remediation: self.get_remediation(&detection.context),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         };
 
                         info!(
@@ -531,6 +533,7 @@ impl EnhancedXssScanner {
                                             false_positive: false,
                                             remediation: "Sanitize data from DOM sources before using in DOM sinks. Use textContent instead of innerHTML. Validate and escape all user-controllable data.".to_string(),
                                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                         };
 
                                         info!("Potential DOM XSS pattern: {} -> {} (distance: {})", source, sink, distance);
@@ -611,6 +614,7 @@ impl EnhancedXssScanner {
                                 false_positive: false,
                                 remediation: "Sanitize and encode header values before reflection.".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             };
 
                             info!("Header XSS in {}", header_name);
@@ -839,6 +843,7 @@ impl EnhancedXssScanner {
                             false_positive: false,
                             remediation: "Sanitize SVG content. Set Content-Type header correctly. Use Content-Security-Policy to prevent inline scripts.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         };
 
                         info!("SVG XSS detected in parameter '{}'", parameter);
@@ -929,6 +934,7 @@ impl EnhancedXssScanner {
                             false_positive: false,
                             remediation: "Avoid using dangerous DOM sinks (innerHTML, document.write, eval). Use textContent instead of innerHTML. Validate and sanitize all data from DOM sources before using in sinks.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         };
 
                         info!("DOM XSS confirmed in parameter '{}' with marker '{}'", parameter, marker);
@@ -1059,6 +1065,7 @@ impl EnhancedXssScanner {
                             false_positive: false,
                             remediation: "Use a well-tested sanitization library that handles HTML mutations. Avoid custom HTML parsers. Consider using DOMPurify with strict configuration.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         };
 
                         info!("Mutation XSS detected in parameter '{}'", parameter);
@@ -1335,6 +1342,7 @@ impl EnhancedXssScanner {
                                 template_type
                             ),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         };
 
                         info!("Template XSS ({}) detected in parameter '{}'", template_type, parameter);
@@ -1430,6 +1438,7 @@ impl EnhancedXssScanner {
                         false_positive: false,
                         remediation: "Sanitize and encode all WebSocket messages before inserting into DOM. Use textContent instead of innerHTML. Validate message structure and content.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     };
 
                     info!("Potential WebSocket Message XSS detected");

@@ -3,6 +3,7 @@
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::scanners::registry::PayloadIntensity;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
@@ -11,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraversalBypassCategory {
     StandardTraversal,
     UrlEncoding,
@@ -59,11 +60,24 @@ impl PathTraversalScanner {
         Self { http_client }
     }
 
+    /// Scan parameter with default intensity (for backwards compatibility)
     pub async fn scan_parameter(
         &self,
         base_url: &str,
         parameter: &str,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        // Default to Standard intensity if not specified
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+    }
+
+    /// Scan parameter with specified payload intensity (intelligent mode)
+    pub async fn scan_parameter_with_intensity(
+        &self,
+        base_url: &str,
+        parameter: &str,
         _config: &ScanConfig,
+        intensity: PayloadIntensity,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - path traversal needs file/path parameters
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::PathTraversal) {
@@ -71,11 +85,13 @@ impl PathTraversalScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[PathTraversal] Enterprise scanner - testing parameter: {} (priority: {})",
+        info!("[PathTraversal] Intelligent scanner - testing parameter: {} (priority: {}, intensity: {:?})",
               parameter,
-              ParameterFilter::get_parameter_priority(parameter));
+              ParameterFilter::get_parameter_priority(parameter),
+              intensity);
 
-        let payloads = if crate::license::is_feature_available("enterprise_path_traversal") {
+        // Generate base payloads based on license tier
+        let mut payloads = if crate::license::is_feature_available("enterprise_path_traversal") {
             self.generate_enterprise_payloads()
         } else if crate::license::is_feature_available("path_traversal_scanning") {
             self.generate_professional_payloads()
@@ -83,8 +99,19 @@ impl PathTraversalScanner {
             self.generate_basic_payloads()
         };
 
+        // INTELLIGENT MODE: Limit payloads based on intensity
+        let payload_limit = intensity.payload_limit();
+        let original_count = payloads.len();
+
+        if payloads.len() > payload_limit {
+            // Prioritize payloads: keep diverse categories, not just first N
+            payloads = Self::select_diverse_payloads(payloads, payload_limit);
+            info!("[PathTraversal] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
+                  original_count, payloads.len(), intensity);
+        }
+
         let total_payloads = payloads.len();
-        info!("[PathTraversal] Testing {} generated payloads", total_payloads);
+        info!("[PathTraversal] Testing {} payloads", total_payloads);
 
         // Shared state for early termination
         let found_vuln = Arc::new(AtomicBool::new(false));
@@ -142,6 +169,74 @@ impl PathTraversalScanner {
         info!("[SUCCESS] [PathTraversal] Completed {} tests (skipped {} due to early termination), found {} vulnerabilities",
               tests_run, total_payloads - tests_run, final_vulns.len());
         Ok((final_vulns, total_payloads))
+    }
+
+    // ========================================================================
+    // INTELLIGENT PAYLOAD SELECTION
+    // ========================================================================
+
+    /// Select diverse payloads across categories up to the limit
+    /// This ensures we test different bypass techniques rather than just the first N
+    fn select_diverse_payloads(payloads: Vec<TraversalPayload>, limit: usize) -> Vec<TraversalPayload> {
+        use std::collections::HashMap;
+
+        if payloads.len() <= limit {
+            return payloads;
+        }
+
+        // Group payloads by category
+        let mut by_category: HashMap<TraversalBypassCategory, Vec<TraversalPayload>> = HashMap::new();
+        for payload in payloads {
+            by_category
+                .entry(payload.category.clone())
+                .or_insert_with(Vec::new)
+                .push(payload);
+        }
+
+        // Calculate how many from each category
+        let num_categories = by_category.len();
+        let per_category = limit / num_categories.max(1);
+        let remainder = limit % num_categories.max(1);
+
+        let mut selected = Vec::with_capacity(limit);
+        let mut extra_slots = remainder;
+
+        // Priority order for categories (most likely to succeed first)
+        let priority_order = [
+            TraversalBypassCategory::StandardTraversal,
+            TraversalBypassCategory::UrlEncoding,
+            TraversalBypassCategory::FilterBypass,
+            TraversalBypassCategory::DoubleEncoding,
+            TraversalBypassCategory::NullByte,
+            TraversalBypassCategory::WindowsSpecific,
+            TraversalBypassCategory::LinuxSpecific,
+            TraversalBypassCategory::PathNormalization,
+            TraversalBypassCategory::UnicodeEncoding,
+            TraversalBypassCategory::UncPath,
+            TraversalBypassCategory::WrapperProtocol,
+        ];
+
+        for category in &priority_order {
+            if let Some(category_payloads) = by_category.get_mut(category) {
+                let mut take = per_category;
+                if extra_slots > 0 {
+                    take += 1;
+                    extra_slots -= 1;
+                }
+                selected.extend(category_payloads.drain(..take.min(category_payloads.len())));
+            }
+        }
+
+        // If we still haven't filled up, take from any remaining
+        for (_cat, mut payloads_in_cat) in by_category {
+            if selected.len() >= limit {
+                break;
+            }
+            let remaining = limit - selected.len();
+            selected.extend(payloads_in_cat.drain(..remaining.min(payloads_in_cat.len())));
+        }
+
+        selected
     }
 
     // ========================================================================
@@ -1107,6 +1202,7 @@ impl PathTraversalScanner {
             false_positive: false,
             remediation: "Validate file paths, use allowlists, canonicalize paths, block traversal sequences.".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
