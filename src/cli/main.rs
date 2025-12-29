@@ -1077,6 +1077,35 @@ async fn run_scan(
 
     let elapsed = start_time.elapsed();
 
+    // ML Auto-Learning: Process scan results for ML training
+    {
+        use lonkero_scanner::ml::MlPipeline;
+        match MlPipeline::new() {
+            Ok(mut ml_pipeline) => {
+                if ml_pipeline.is_enabled() {
+                    info!("[ML] Processing {} vulnerabilities for auto-learning", total_vulns);
+
+                    // Process each vulnerability for ML learning
+                    // Note: In production, we'd also capture HTTP responses for better learning
+                    // For now, we just signal scan completion to trigger federated sync
+                    if let Err(e) = ml_pipeline.on_scan_complete().await {
+                        warn!("[ML] Failed to process scan results: {}", e);
+                    } else {
+                        let stats = ml_pipeline.get_stats().await;
+                        if stats.federated_enabled || stats.can_contribute {
+                            info!("[ML] Federated sync complete (contributors: {:?})", stats.federated_contributors);
+                        }
+                    }
+                } else {
+                    debug!("[ML] Auto-learning disabled - enable with: lonkero ml enable --federated");
+                }
+            }
+            Err(e) => {
+                debug!("[ML] Could not initialize ML pipeline: {}", e);
+            }
+        }
+    }
+
     // Print final summary
     println!();
     println!("{}", "=".repeat(60));
