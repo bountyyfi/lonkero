@@ -1,25 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - DORA (Digital Operational Resilience Act) Compliance Scanner
- * Comprehensive EU financial services operational resilience assessment
- *
- * REQUIRES: Enterprise license (custom_integrations feature)
- *
- * DORA Compliance Areas Covered:
- * - ICT Risk Management (Article 5-16): Security headers, error handling, access controls
- * - ICT Incident Reporting (Article 17-23): Logging capabilities, monitoring endpoints
- * - Digital Operational Resilience Testing (Article 24-27): Health endpoints, status pages
- * - Third-Party ICT Risk (Article 28-44): External dependencies, CDN/third-party scripts
- * - Information Sharing (Article 45): security.txt, disclosure policies
- * - Business Continuity (implied): Redundancy indicators, failover mechanisms
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

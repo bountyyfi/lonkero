@@ -1,25 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Container Security Scanner
- * Tests for container and orchestration vulnerabilities
- *
- * Detects:
- * - Docker API exposure (ports 2375, 2376)
- * - Kubernetes API exposure (port 6443, 8080, 10250)
- * - Container escape vectors
- * - Registry vulnerabilities (Docker Hub, ECR, GCR, ACR)
- * - Privileged container detection
- * - Container secrets exposure
- * - Misconfigured kubelet
- * - Exposed etcd endpoints
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use regex::Regex;

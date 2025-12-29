@@ -22,7 +22,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration, Instant};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Account Takeover Chains Scanner
 /// Detects complex attack chains that lead to full account compromise

@@ -33,7 +33,7 @@
  */
 
 use crate::http_client::HttpResponse;
-use crate::types::{Confidence, Severity, Vulnerability};
+use crate::types::{Confidence, Vulnerability};
 use super::features::{FeatureExtractor, VulnFeatures};
 use super::training_data::{TrainingDataCollector, TrainingExample, VerificationStatus};
 use anyhow::Result;

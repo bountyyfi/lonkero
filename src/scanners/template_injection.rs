@@ -1,34 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Template Injection Scanner (SSTI)
- * Tests for Server-Side Template Injection vulnerabilities
- *
- * Features:
- * - Framework-aware payload selection
- * - Context-based engine targeting
- * - GraphQL and static content filtering
- *
- * Detects:
- * - Jinja2 template injection (Python/Django/Flask)
- * - FreeMarker template injection (Java)
- * - Twig template injection (PHP/Symfony)
- * - Smarty template injection (PHP)
- * - Blade template injection (PHP/Laravel)
- * - ERB template injection (Ruby/Rails)
- * - Pug template injection (Node.js)
- * - EJS template injection (Node.js)
- * - Handlebars template injection (Node.js)
- * - Mathematical expression evaluation
- * - Template engine fingerprinting
- * - RCE via template injection
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability, ScanContext, EndpointType};

@@ -10,7 +10,6 @@
  */
 
 use crate::headless_crawler::HeadlessCrawler;
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};

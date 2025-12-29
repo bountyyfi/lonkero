@@ -1,25 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Cloud Security Scanner
- * Tests for cloud metadata service abuse and misconfigurations
- *
- * Detects:
- * - AWS metadata service abuse (169.254.169.254)
- * - GCP metadata API exposure
- * - Azure Instance Metadata Service (IMDS) attacks
- * - Cloud credential exposure
- * - IAM role enumeration
- * - Security token leakage
- * - Cloud storage bucket misconfigurations
- * - Container registry exposure
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use regex::Regex;

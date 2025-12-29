@@ -26,7 +26,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Known JSONP endpoints that can be used for CSP bypass
 const KNOWN_JSONP_ENDPOINTS: &[(&str, &str)] = &[

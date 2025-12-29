@@ -1,30 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced Next.js Security Scanner
- * Comprehensive Next.js vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Middleware bypass vulnerabilities (CVE-2024-34351, etc.)
- * - Server component data exposure
- * - _next/data endpoint leakage
- * - API route misconfigurations
- * - Environment variable exposure
- * - Image optimization SSRF
- * - Draft/Preview mode exposure
- * - ISR revalidation token exposure
- * - Source map disclosure
- * - Next.js config exposure
- * - Known Next.js CVEs
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - XPath Injection Scanner
- * Detects XPath injection vulnerabilities
- *
- * Detects:
- * - Boolean-based blind XPath injection
- * - Error-based XPath injection
- * - XPath string manipulation
- * - XPath function abuse
- * - Authentication bypass via XPath
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

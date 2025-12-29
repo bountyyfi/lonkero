@@ -1,16 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Authentication Manager Scanner
- * Tests for authentication and user management vulnerabilities
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use tracing::{debug, info};
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

@@ -1,29 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced WordPress Security Scanner
- * Comprehensive WordPress vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - User enumeration (author, REST API, login)
- * - Plugin/theme vulnerabilities
- * - Configuration file exposure
- * - Debug log leakage
- * - Database backup exposure
- * - Version disclosure
- * - XML-RPC attacks
- * - File upload bypass
- * - Directory traversal in plugins
- * - Known CVEs in popular plugins
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

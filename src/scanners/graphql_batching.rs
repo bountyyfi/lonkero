@@ -22,7 +22,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// GraphQL Batching Attack Scanner
 ///

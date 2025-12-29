@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - HTTP Request Smuggling Scanner
- * Detects HTTP request smuggling vulnerabilities using raw TCP sockets
- *
- * Detects:
- * - CL.TE (Content-Length vs Transfer-Encoding) desync
- * - TE.CL (Transfer-Encoding vs Content-Length) desync
- * - TE.TE (Dual Transfer-Encoding) obfuscation
- * - Request queue poisoning
- * - Timing-based desync detection
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::{anyhow, Context, Result};

@@ -1,28 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced SvelteKit Security Scanner
- * Comprehensive Svelte/SvelteKit vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Server load function data exposure
- * - Form actions CSRF issues
- * - Hooks bypass vulnerabilities
- * - +server.js endpoint misconfigurations
- * - Environment variable exposure
- * - Server-only module leakage
- * - Source map and config exposure
- * - Prerender data leakage
- * - Known SvelteKit CVEs
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

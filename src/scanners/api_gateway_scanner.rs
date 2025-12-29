@@ -1,25 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - API Gateway Security Scanner
- * Tests API Gateway-specific security vulnerabilities
- *
- * Detects:
- * - Rate limit bypass via header manipulation
- * - API key leakage in responses/headers
- * - Mass assignment vulnerabilities in API requests
- * - API versioning issues and deprecated endpoints
- * - Gateway configuration exposures
- * - Authentication bypass via path traversal
- * - Header injection in API gateways
- * - API schema disclosure
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use regex::Regex;

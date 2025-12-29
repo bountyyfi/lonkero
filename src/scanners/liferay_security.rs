@@ -1,24 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Liferay Security Scanner
- * Advanced security scanner for Liferay Portal/DXP
- *
- * Features:
- * - JSON Web Service API exposure detection
- * - Control Panel and admin interface security
- * - Default credentials detection
- * - Tunnel-web servlet RCE detection
- * - Known CVE detection (2019-2024)
- * - Configuration file exposure
- * - WebDAV and file disclosure
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal+ License Required
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

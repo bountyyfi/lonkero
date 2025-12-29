@@ -1,37 +1,10 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - NIS2 Compliance Scanner
- * EU Network and Information Security Directive 2 compliance assessment
- *
- * REQUIRES: Enterprise license
- *
- * NIS2 (Directive (EU) 2022/2555) is the updated EU cybersecurity directive
- * establishing baseline security requirements for critical infrastructure.
- *
- * This scanner assesses compliance with key NIS2 requirements:
- * - Article 21(2)(a): Risk management policies and procedures
- * - Article 21(2)(b): Incident handling capabilities
- * - Article 21(2)(c): Business continuity and crisis management
- * - Article 21(2)(d): Supply chain security
- * - Article 21(2)(e): Security in network acquisition and development
- * - Article 21(2)(f): Vulnerability handling and disclosure
- * - Article 21(2)(g): Cybersecurity assessment and testing
- * - Article 21(2)(h): Cryptography and encryption policies
- * - Article 21(2)(i): Human resources security
- * - Article 21(2)(j): Access control and asset management
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};

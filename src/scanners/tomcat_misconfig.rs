@@ -1,24 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Tomcat Misconfiguration Scanner
- * Tests for Apache Tomcat misconfigurations and information disclosure
- *
- * Detects:
- * - Stack traces enabled (error page information disclosure)
- * - Default error pages exposing server version
- * - Debug mode enabled
- * - Example applications accessible
- * - Manager/host-manager interfaces exposed
- * - Default credentials
- * - AJP protocol exposure (Ghostcat CVE-2020-1938)
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

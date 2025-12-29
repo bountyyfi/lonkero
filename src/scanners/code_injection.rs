@@ -1,23 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Code Injection Scanner
- * Detects code injection vulnerabilities
- *
- * Detects:
- * - PHP eval() injection
- * - Python exec()/eval() injection
- * - Ruby eval() injection
- * - JavaScript eval() injection
- * - Expression Language (EL) injection
- * - Time-based code injection
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

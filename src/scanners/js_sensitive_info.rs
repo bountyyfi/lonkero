@@ -1,28 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - JavaScript Sensitive Information Leakage Scanner
- * Analyzes JavaScript files for leaked sensitive information
- *
- * Detects:
- * - Jira links and ticket references
- * - Internal URLs and endpoints
- * - PDF and document file paths
- * - Admin logic and debug functions
- * - Sensitive comments (TODO, FIXME, HACK, passwords, etc.)
- * - isDev/isDebug/isTest flags
- * - PowerBI and analytics links
- * - Hardcoded credentials and API keys
- * - Employee names and emails
- * - Internal tool references (Confluence, Slack, etc.)
- * - Development/staging environment URLs
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

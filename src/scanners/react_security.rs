@@ -1,29 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced React Security Scanner
- * Comprehensive React.js vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - dangerouslySetInnerHTML XSS patterns
- * - React DevTools in production
- * - Redux DevTools exposure
- * - Environment variable leakage
- * - Source map exposure
- * - SSR data exposure
- * - href="javascript:" XSS
- * - Prototype pollution via props
- * - Build artifact exposure
- * - Known React CVEs
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

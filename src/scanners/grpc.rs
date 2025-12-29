@@ -1,15 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - gRPC Security Scanner
- * Tests for gRPC API vulnerabilities and misconfigurations
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

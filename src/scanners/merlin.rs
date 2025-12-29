@@ -5,7 +5,6 @@
 //! Detects vulnerable third-party JavaScript libraries and frameworks
 
 use crate::types::ScanConfig;
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, Severity, Vulnerability};
 use regex::Regex;

@@ -1,29 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Go Web Frameworks Security Scanner
- * Comprehensive security scanning for Gin, Echo, Fiber, and Chi frameworks
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Framework detection via headers and error pages
- * - Debug/development mode indicators
- * - pprof profiling endpoints exposure (/debug/pprof/)
- * - expvar exposure (/debug/vars)
- * - Swagger/OpenAPI documentation exposure
- * - Default error handling with stack traces
- * - CORS misconfiguration
- * - Middleware bypass vulnerabilities
- * - Health/metrics endpoint exposure
- * - Template injection in Go templates
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

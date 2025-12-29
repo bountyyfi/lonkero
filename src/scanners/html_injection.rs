@@ -1,48 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - HTML Injection Scanner
- * Detects HTML injection vulnerabilities (non-XSS markup injection)
- *
- * WHAT IS HTML INJECTION?
- * ======================
- * HTML injection is the ability to inject HTML markup into a web page WITHOUT executing
- * JavaScript. While less severe than XSS, it enables:
- * - Phishing attacks (fake login forms)
- * - Content defacement
- * - SEO poisoning
- * - Open redirects via meta tags and base href
- * - Data exfiltration via CSS and external resources
- * - Clickjacking via CSS manipulation
- *
- * KEY DIFFERENCE FROM XSS:
- * =======================
- * - HTML Injection: Markup rendered but no JavaScript execution
- * - XSS: JavaScript execution possible
- * This scanner focuses on HTML injection that does NOT execute JavaScript
- *
- * ATTACK VECTORS:
- * ==============
- * 1. Content Injection: <h1>, <marquee>, <iframe> tags
- * 2. Meta Tag Injection: <meta> for redirects and SEO poisoning
- * 3. Link Manipulation: <a href> for phishing
- * 4. Form Injection: Fake login forms
- * 5. Media Injection: <img>, <video> for tracking
- * 6. Style Injection: <style> for data exfiltration and UI manipulation
- *
- * DETECTION STRATEGY:
- * ==================
- * - Use unique markers (html_<uuid>) to verify injection
- * - Check if HTML tags are rendered (not encoded)
- * - Verify tags appear in response without HTML entity encoding
- * - Test multiple contexts: URL params, POST body, headers, cookies
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

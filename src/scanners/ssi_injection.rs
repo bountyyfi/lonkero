@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - SSI (Server-Side Includes) Injection Scanner
- * Detects Server-Side Includes injection vulnerabilities
- *
- * Detects:
- * - SSI command execution
- * - File inclusion via SSI
- * - Environment variable disclosure via SSI
- * - SSI config modification
- * - Time-based SSI injection
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

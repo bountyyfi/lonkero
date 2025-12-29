@@ -1,20 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - ReDoS Scanner Module
- * Tests for Regular Expression Denial of Service vulnerabilities
- *
- * Detects catastrophic backtracking in regex engines by:
- * - Sending escalating payloads that trigger exponential regex complexity
- * - Measuring response times for exponential growth patterns
- * - Detecting timeouts indicating regex DoS
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

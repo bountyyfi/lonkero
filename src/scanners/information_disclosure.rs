@@ -1,24 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Information Disclosure Scanner
- * Detects information disclosure vulnerabilities
- *
- * Detects:
- * - Stack traces in error messages
- * - Database error messages
- * - Server version disclosure
- * - Directory listing exposure
- * - Sensitive file exposure (.env, config files)
- * - Debug mode enabled
- * - Source code disclosure
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::baseline_detector::BaselineDetector;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

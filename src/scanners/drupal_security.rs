@@ -1,31 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced Drupal Security Scanner
- * Comprehensive Drupal vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Drupalgeddon vulnerabilities (SA-CORE-2014-005, SA-CORE-2018-002, SA-CORE-2018-004)
- * - User enumeration (via user paths, password reset, JSON API)
- * - Version disclosure (CHANGELOG.txt, README.txt, core files)
- * - Module/theme vulnerabilities
- * - Configuration exposure (settings.php backups)
- * - Update.php/install.php exposure
- * - Cron.php without cron key
- * - REST/JSON API exposure
- * - PHP filter module enabled
- * - Views/Services module vulnerabilities
- * - File upload bypasses
- * - Private file access
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

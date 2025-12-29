@@ -25,9 +25,8 @@ use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
-use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Detected caching infrastructure type
 #[derive(Debug, Clone, PartialEq)]

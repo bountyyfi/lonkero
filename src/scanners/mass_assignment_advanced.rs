@@ -68,7 +68,7 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Advanced Mass Assignment Scanner with context-aware detection
 pub struct AdvancedMassAssignmentScanner {

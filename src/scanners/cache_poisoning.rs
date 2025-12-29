@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Cache Poisoning Scanner
- * Detects web cache poisoning vulnerabilities
- *
- * Detects:
- * - Cache key manipulation
- * - Unkeyed header exploitation
- * - Cache deception attacks
- * - HTTP response splitting via cache
- * - XSS via cache poisoning
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

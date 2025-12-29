@@ -16,7 +16,6 @@
  */
 
 use crate::cdn_detector::is_waf_protected_against_cve;
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

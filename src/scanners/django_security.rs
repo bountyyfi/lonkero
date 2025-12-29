@@ -1,29 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced Django Security Scanner
- * Comprehensive Django/Python vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - DEBUG=True in production
- * - Admin interface exposure
- * - SECRET_KEY exposure
- * - ALLOWED_HOSTS misconfiguration
- * - Session/CSRF cookie issues
- * - Database credentials exposure
- * - Django Debug Toolbar exposure
- * - Static/media file issues
- * - Django REST Framework misconfigurations
- * - Known Django CVEs
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

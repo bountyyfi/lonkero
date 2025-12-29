@@ -1,30 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced Laravel Security Scanner
- * Comprehensive Laravel vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Debug mode enabled (APP_DEBUG=true) with stack trace exposure
- * - Laravel Ignition RCE (CVE-2021-3129)
- * - Telescope/Horizon/Nova admin panel exposure
- * - Environment file exposure (.env, .env.backup)
- * - Storage directory access
- * - Log file exposure (laravel.log)
- * - PHPUnit/vendor exposure
- * - Known Laravel CVEs by version
- * - API route enumeration
- * - Session/CSRF misconfigurations
- * - Livewire component vulnerabilities
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

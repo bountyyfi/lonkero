@@ -1,23 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Azure APIM Cross-Tenant Signup Bypass Scanner
- * Detects vulnerability in Azure API Management Developer Portal
- *
- * GHSA-vcwf-73jp-r7mv
- * CVSS: 6.5 (Medium-High)
- * CWE-284: Improper Access Control
- *
- * When Azure APIM Basic Authentication is configured, the signup API
- * remains active even when UI signup is disabled, allowing cross-tenant
- * account registration.
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

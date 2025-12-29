@@ -1,29 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - ASP.NET Core Security Scanner
- * Comprehensive ASP.NET Core / .NET vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - ASP.NET framework detection via headers
- * - Yellow Screen of Death (YSOD) detailed error pages
- * - Blazor endpoint exposure
- * - SignalR hub exposure
- * - Development mode indicators
- * - Exposed configuration endpoints
- * - Anti-forgery token issues
- * - Default authentication endpoints
- * - Health check endpoint exposure
- * - Kestrel-specific vulnerabilities
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

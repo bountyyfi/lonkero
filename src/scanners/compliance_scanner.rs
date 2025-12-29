@@ -1,26 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Compliance Scanner
- * SOC2, PCI-DSS, and HIPAA compliance requirement checking
- *
- * REQUIRES: Enterprise license
- *
- * Checks:
- * - Audit logging presence (security headers, logging endpoints)
- * - Encryption in transit (TLS 1.2+, HSTS)
- * - Access control indicators (authentication headers, session management)
- * - Data protection headers (CSP, X-Content-Type-Options)
- * - Cookie security flags (Secure, HttpOnly, SameSite)
- * - Error handling (no stack traces exposed)
- * - API authentication requirements
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

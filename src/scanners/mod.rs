@@ -883,9 +883,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), sqli_tests as u64).await?;
                 }
 
-                // Command Injection Testing (Professional+, skip if CDN protected)
+                // Command Injection Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::COMMAND_INJECTION)
                     && !self.should_skip_scanner("command_injection", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::CommandInjection, param_name, &scan_plan)
                 {
                     let (cmdi_vulns, cmdi_tests) = self.cmdi_scanner
                         .scan_parameter(&target, param_name, &config)
@@ -896,9 +897,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), cmdi_tests as u64).await?;
                 }
 
-                // Path Traversal Testing (Professional+, skip if CDN protected)
+                // Path Traversal Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::PATH_TRAVERSAL)
                     && !self.should_skip_scanner("path_traversal", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::PathTraversal, param_name, &scan_plan)
                 {
                     let (path_vulns, path_tests) = self.path_scanner
                         .scan_parameter(&target, param_name, &config)
@@ -930,9 +932,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), ssrf_blind_tests as u64).await?;
                 }
 
-                // NoSQL Injection Testing (Professional+, skip if CDN protected)
+                // NoSQL Injection Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::NOSQL_SCANNER)
                     && !self.should_skip_scanner("nosql", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::NoSqlI, param_name, &scan_plan)
                 {
                     let (nosql_vulns, nosql_tests) = self.nosql_scanner
                         .scan_parameter(&target, param_name, &config)
@@ -943,9 +946,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), nosql_tests as u64).await?;
                 }
 
-                // XXE Testing (Professional+, skip if CDN protected)
+                // XXE Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XXE_SCANNER)
                     && !self.should_skip_scanner("xxe", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::Xxe, param_name, &scan_plan)
                 {
                     let (xxe_vulns, xxe_tests) = self.xxe_scanner
                         .scan_parameter(&target, param_name, &config)
@@ -956,8 +960,10 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), xxe_tests as u64).await?;
                 }
 
-                // ReDoS Testing (Professional+)
-                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::REDOS_SCANNER) {
+                // ReDoS Testing (Professional+, intelligent routing)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::REDOS_SCANNER)
+                    && Self::should_run_scanner_for_param(TechScannerType::ReDoS, param_name, &scan_plan)
+                {
                     let (redos_vulns, redos_tests) = self.redos_scanner
                         .scan_parameter(&target, param_name, &config)
                         .await?;
@@ -2260,6 +2266,113 @@ impl ScanEngine {
             }
         }
         false
+    }
+
+    /// Check if a scanner should run for a specific parameter based on intelligent scan plan.
+    ///
+    /// This is the CORE of context-aware scanning:
+    /// 1. Check if the scanner is in the global scan_plan.scanners list (tech-based routing)
+    /// 2. Check if the parameter has this scanner in its suggested_scanners (parameter-specific routing)
+    /// 3. Universal/core scanners always run (XSS, SQLi, SSRF, CORS, SecurityHeaders)
+    fn should_run_scanner_for_param(
+        scanner_type: TechScannerType,
+        param_name: &str,
+        scan_plan: &IntelligentScanPlan,
+    ) -> bool {
+        // Universal scanners ALWAYS run regardless of context
+        let universal_scanners = [
+            TechScannerType::SecurityHeaders,
+            TechScannerType::Cors,
+        ];
+        if universal_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Core vulnerability scanners always run (deduplicated, not spray-and-pray)
+        let core_scanners = [
+            TechScannerType::Xss,
+            TechScannerType::SqlI,
+            TechScannerType::Ssrf,
+            TechScannerType::SsrfBlind,
+        ];
+        if core_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Check 1: Is this scanner in the global scan plan based on detected tech?
+        let in_global_plan = scan_plan.scanners.contains(&scanner_type);
+
+        // Check 2: Does this specific parameter suggest this scanner?
+        let param_suggests_scanner = scan_plan.prioritized_params
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(param_name))
+            .map(|p| p.suggested_scanners.contains(&scanner_type))
+            .unwrap_or(false);
+
+        // If parameter has specific suggestions, honor them
+        // If no specific suggestions, fall back to global plan
+        if let Some(param) = scan_plan.prioritized_params.iter().find(|p| p.name.eq_ignore_ascii_case(param_name)) {
+            if !param.suggested_scanners.is_empty() {
+                // Parameter has explicit suggestions - only run those
+                let should_run = param_suggests_scanner;
+                if !should_run {
+                    debug!(
+                        "[IntelligentRouting] Skipping {} for param '{}' (not in suggested_scanners: {:?})",
+                        scanner_type.display_name(), param_name, param.suggested_scanners
+                    );
+                }
+                return should_run;
+            }
+        }
+
+        // No parameter-specific suggestions - use global tech-based plan
+        if !in_global_plan {
+            debug!(
+                "[IntelligentRouting] Skipping {} for param '{}' (not in tech-based scan plan)",
+                scanner_type.display_name(), param_name
+            );
+        }
+        in_global_plan
+    }
+
+    /// Check if an endpoint-level scanner should run based on the intelligent scan plan.
+    /// This is for scanners that don't operate on specific parameters but on the endpoint itself.
+    fn should_run_endpoint_scanner(
+        scanner_type: TechScannerType,
+        scan_plan: &IntelligentScanPlan,
+    ) -> bool {
+        // Universal scanners ALWAYS run
+        let universal_scanners = [
+            TechScannerType::SecurityHeaders,
+            TechScannerType::Cors,
+            TechScannerType::Clickjacking,
+        ];
+        if universal_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Core vulnerability scanners always run
+        let core_scanners = [
+            TechScannerType::Xss,
+            TechScannerType::SqlI,
+            TechScannerType::Ssrf,
+            TechScannerType::SsrfBlind,
+            TechScannerType::Csrf,
+        ];
+        if core_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Check if scanner is in global scan plan
+        let in_plan = scan_plan.scanners.contains(&scanner_type);
+        if !in_plan {
+            debug!(
+                "[IntelligentRouting] Skipping endpoint scanner {} (not in tech-based scan plan, detected tech: {:?})",
+                scanner_type.display_name(),
+                scan_plan.technologies
+            );
+        }
+        in_plan
     }
 
     /// Check if we should terminate early due to critical vulnerabilities

@@ -14,14 +14,13 @@
 //! - API endpoint authorization testing
 
 use crate::auth_context::AuthSession;
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::info;
 
 /// Common patterns that indicate object IDs in URLs and responses
 const ID_PATTERNS: &[&str] = &[

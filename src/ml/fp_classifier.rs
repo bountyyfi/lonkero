@@ -14,7 +14,7 @@
  */
 
 use super::features::VulnFeatures;
-use super::training_data::{TrainingDataCollector, TrainingExample};
+use super::training_data::TrainingDataCollector;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -296,7 +296,7 @@ impl FalsePositiveClassifier {
         let local_weight = 0.7;
         let federated_weight = 0.3;
 
-        for (i, (local, federated)) in self.weights.weights.iter_mut()
+        for (_i, (local, federated)) in self.weights.weights.iter_mut()
             .zip(federated_weights.weights.iter())
             .enumerate()
         {

@@ -1,27 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced Rate Limiting & Bypass Scanner
- * Tests for insufficient rate limiting and common bypass techniques on critical endpoints
- *
- * Detects:
- * - Missing rate limiting on signup/registration endpoints
- * - Missing rate limiting on login endpoints
- * - Missing rate limiting on password reset
- * - Missing rate limiting on OTP/2FA endpoints
- * - Missing rate limiting on API endpoints
- * - X-Forwarded-For bypass vulnerabilities
- * - X-Real-IP, X-Client-IP, True-Client-IP bypass vulnerabilities
- * - User-Agent rotation bypasses
- * - Session token rotation bypasses
- * - Combined bypass techniques
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

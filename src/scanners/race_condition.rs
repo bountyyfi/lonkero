@@ -1,23 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Race Condition Scanner
- * Detects race condition vulnerabilities (TOCTOU)
- *
- * Detects:
- * - Concurrent transaction race conditions
- * - Coupon/discount code race conditions
- * - Account balance manipulation via race
- * - File upload race conditions
- * - Session/authentication race conditions
- * - Rate limit bypass via race conditions
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

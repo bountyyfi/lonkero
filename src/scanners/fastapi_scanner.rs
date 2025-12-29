@@ -1,27 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced FastAPI Security Scanner
- * Comprehensive FastAPI/Python vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - OpenAPI/Swagger endpoint exposure (/docs, /redoc, /openapi.json)
- * - Debug mode indicators
- * - Default CORS misconfigurations
- * - OAuth2 security issues
- * - Exposed internal endpoints
- * - Pydantic validation bypass attempts
- * - Dependency injection vulnerabilities
- * - Starlette-specific misconfigurations
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

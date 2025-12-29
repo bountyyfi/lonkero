@@ -1,25 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced SSTI Scanner
- * Tests for Server-Side Template Injection with modern engines
- *
- * Detects:
- * - Modern template engine vulnerabilities (2024-2025)
- * - Jinja2, Twig, Freemarker, Velocity, Handlebars, Pug
- * - Filter bypass techniques
- * - RCE payloads for various engines
- * - Sandbox escape vectors
- * - Expression language injection
- * - Template context manipulation
- * - Polyglot SSTI payloads
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

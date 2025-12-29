@@ -1,29 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Enterprise Command Injection Scanner
- * Advanced OS command injection detection with 1000+ programmatically generated payloads
- *
- * Features:
- * - 1000+ bypass payloads generated algorithmically
- * - Shell metacharacter matrix (all separators × all commands)
- * - Command substitution variations ($(), ``, $[])
- * - Encoding bypass matrix (URL, double, hex, octal, unicode)
- * - Environment variable exploitation ($IFS, $PATH, etc.)
- * - Time-based blind detection with multiple delay methods
- * - Newline/CR injection variations
- * - Filter evasion techniques (wildcards, quotes, concatenation)
- * - Windows and Unix specific payloads
- * - Context breaking (quote escape, argument injection)
- * - Obfuscation techniques (base64, hex, variable expansion)
- * - Polyglot payloads for multiple contexts
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

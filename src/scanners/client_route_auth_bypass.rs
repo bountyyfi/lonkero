@@ -1,31 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Client Route Authorization Bypass Scanner
- *
- * SMART DISCOVERY: Instead of guessing paths, we extract ACTUAL routes from JavaScript
- * and test them for authorization bypass based on their declared requirements.
- *
- * What makes this scanner intelligent:
- * 1. Extracts real client-side routes from Vue Router, React Router, Angular Router
- * 2. Discovers authentication requirements from route metadata
- * 3. Discovers role requirements (RBAC) from route guards
- * 4. Tests only routes that SHOULD be protected
- * 5. Identifies IDOR vulnerabilities in parameterized routes
- *
- * Detects:
- * - Authentication bypass (accessing requireAuth routes without token)
- * - Role-based access control (RBAC) bypass
- * - IDOR in parameterized routes (/user/:id)
- * - Horizontal privilege escalation
- * - Direct object reference vulnerabilities
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

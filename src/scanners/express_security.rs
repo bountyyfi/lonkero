@@ -1,30 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Advanced Express.js Security Scanner
- * Comprehensive Express/Node.js vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Development mode with stack trace exposure
- * - X-Powered-By header disclosure
- * - Missing security headers (Helmet.js)
- * - Exposed API documentation (Swagger, GraphQL)
- * - Source map and package.json exposure
- * - Session/cookie misconfigurations
- * - Prototype pollution vulnerabilities
- * - Known Express/Node.js CVEs
- * - PM2/process manager exposure
- * - Static file serving issues
- * - CORS misconfigurations
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

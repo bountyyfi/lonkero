@@ -1,23 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Varnish Cache Misconfiguration Scanner
- * Tests for Varnish cache server misconfigurations
- *
- * Detects:
- * - Unauthenticated cache purge (PURGE method without auth)
- * - Cache bypass vulnerabilities
- * - X-Varnish header disclosure
- * - Via header information disclosure
- * - Cache poisoning vectors
- * - BAN method without authentication
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Email Header Injection Scanner
- * Tests for email header injection vulnerabilities (CRLF injection in email contexts)
- *
- * Detects:
- * - BCC/CC/To header injection
- * - Email subject injection
- * - Email body injection via Content-Type
- * - CRLF injection in email-related parameters
- * - Header injection leading to spam/phishing attacks
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};

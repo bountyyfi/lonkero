@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Business Logic Scanner
- * Detects business logic vulnerabilities
- *
- * Detects:
- * - Negative quantity/price manipulation
- * - Workflow bypass
- * - Parameter tampering for discounts
- * - Insufficient process validation
- * - State manipulation
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

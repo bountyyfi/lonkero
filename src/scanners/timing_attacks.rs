@@ -24,17 +24,16 @@
  * @license Proprietary
  */
 
-use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use rand::Rng;
 use regex::Regex;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Minimum samples for statistical analysis
 const MIN_SAMPLES: usize = 10;

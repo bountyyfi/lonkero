@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - AWS Cognito User Enumeration Scanner
- *
- * Detects AWS Cognito User Pool configurations in JavaScript and tests
- * for user enumeration vulnerabilities via the ForgotPassword API.
- *
- * Cognito user pools may leak user existence through:
- * - Different responses for existing vs non-existing users
- * - CodeDeliveryDetails revealing partial email/phone
- * - InvalidParameterException indicating user exists but has no verified contact
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

@@ -1,22 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Enterprise Subdomain Takeover Scanner
- * Context-aware subdomain takeover vulnerability detection
- *
- * Features:
- * - DNS resolution analysis (CNAME/A records to decommissioned services)
- * - HTTP response fingerprinting for 17+ cloud providers
- * - Service-specific signature matching
- * - Integration with subdomain enumeration
- * - Context-aware scanning based on application characteristics
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

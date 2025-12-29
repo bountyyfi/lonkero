@@ -9,14 +9,13 @@
 //! - Comments, variable names, and business logic
 //! - Hardcoded secrets that were "hidden" by minification
 
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::info;
 
 pub struct SourceMapScanner {
     http_client: Arc<HttpClient>,

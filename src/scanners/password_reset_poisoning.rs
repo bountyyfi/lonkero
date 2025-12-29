@@ -1,26 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Password Reset Poisoning Scanner
- * Comprehensive scanner for password reset vulnerabilities
- *
- * Detects:
- * - Host header injection in password reset flows
- * - X-Forwarded-Host, X-Host, X-Forwarded-Server injection
- * - Dangling markup injection in email parameters
- * - Weak/predictable token generation
- * - Token reuse and expiration issues
- * - Email parameter manipulation (array injection, CC injection, separators)
- * - Rate limiting issues on reset endpoints
- * - Username enumeration via reset responses
- * - Password change without old password verification
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;

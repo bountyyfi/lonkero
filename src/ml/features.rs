@@ -10,7 +10,6 @@
  */
 
 use crate::http_client::HttpResponse;
-use crate::types::Vulnerability;
 use serde::{Deserialize, Serialize};
 
 /// Extracted features from a vulnerability finding

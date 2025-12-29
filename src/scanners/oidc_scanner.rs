@@ -18,13 +18,13 @@
  * @license Proprietary - Enterprise Edition
  */
 
-use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// OIDC Identity Provider types
 #[derive(Debug, Clone, PartialEq, Default)]

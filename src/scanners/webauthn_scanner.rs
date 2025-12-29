@@ -1,25 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - WebAuthn/FIDO2 Security Scanner
- * Tests for WebAuthn and FIDO2 implementation flaws
- *
- * Detects:
- * - Passkey implementation flaws
- * - Biometric bypass attempts
- * - Registration flow issues
- * - Weak challenge generation
- * - Missing origin validation
- * - Replay attack vulnerabilities
- * - User verification bypass
- * - Attestation statement issues
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use regex::Regex;

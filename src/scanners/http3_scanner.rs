@@ -1,26 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - HTTP/3 Alt-Svc Header Scanner
- * Tests for HTTP/3 Alt-Svc header misconfigurations via standard HTTP/HTTPS
- *
- * NOTE: This scanner does NOT use actual HTTP/3 protocol.
- * It only checks Alt-Svc headers via standard HTTP/HTTPS requests.
- *
- * Detects:
- * - Alt-Svc header misconfigurations
- * - Alt-Svc header injection vulnerabilities
- * - Excessive Alt-Svc max-age values
- * - Insecure Alt-Svc configurations
- * - Early-Data header acceptance issues
- * - Header injection via malformed values
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;

@@ -1,30 +1,6 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-/**
- * Bountyy Oy - Enterprise Path Traversal Scanner
- * TRULY Advanced LFI/Path Traversal detection with 3000+ generated payloads
- *
- * Features:
- * - Programmatic payload generation (like SecLists LFI-Jhaddix.txt)
- * - ALL encoding variations generated algorithmically
- * - 1-15 levels of directory traversal
- * - URL encoding, double encoding, triple encoding
- * - Unicode variations (%c0%ae, %u002e, fullwidth)
- * - UTF-8 overlong encoding (%e0%80%ae, %c0%af, %c1%9c)
- * - Null byte injection with all extensions
- * - Both Linux and Windows targets
- * - PHP wrappers (php://filter, data://, expect://)
- * - Filter bypass patterns (....// , ..;/ , ..././ , etc.)
- * - Platform-specific attacks (UNC paths, case insensitivity)
- * - Advanced path manipulation (mixed slashes, space/tab injection)
- * - Enhanced detection for hosts files, config files, and sensitive data
- *
- * @copyright 2026 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
-
-use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
