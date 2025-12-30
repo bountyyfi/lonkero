@@ -82,3 +82,6 @@ pub mod modules;
 
 // Machine Learning module (federated learning, GDPR-compliant)
 pub mod ml;
+
+// GraphQL introspection and schema parsing
+pub mod graphql_introspection;

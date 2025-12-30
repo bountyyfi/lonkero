@@ -295,6 +295,13 @@ impl SstiAdvancedScanner {
         engine: &str,
         description: &str,
     ) -> anyhow::Result<Option<Vulnerability>> {
+        // CRITICAL: Get baseline response first to avoid false positives
+        // Numbers like "49" can appear naturally in dates, IDs, prices, etc.
+        let baseline = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
+
         let test_params = vec!["name".to_string(), "template".to_string(), "content".to_string(), "message".to_string(), "comment".to_string(), "search".to_string(), "q".to_string()];
 
         for param in test_params {
@@ -306,7 +313,11 @@ impl SstiAdvancedScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && response.body.contains(indicator) {
+                    // CRITICAL: Indicator must be NEW (not present in baseline)
+                    // "49" appearing in baseline means it's not from template injection
+                    let indicator_is_new = response.body.contains(indicator) && !baseline.body.contains(indicator);
+
+                    if response.status_code == 200 && indicator_is_new {
                         info!("{} SSTI detected via parameter '{}': {}", engine, param, description);
 
                         let severity = if description.contains("RCE") || description.contains("exec") || description.contains("File read") {
@@ -334,14 +345,14 @@ impl SstiAdvancedScanner {
                             parameter: Some(param.to_string()),
                             payload: payload.to_string(),
                             description: format!("{} SSTI vulnerability - {}", engine, description),
-                            evidence: Some(format!("Payload executed successfully. Indicator '{}' found in response", indicator)),
+                            evidence: Some(format!("Payload executed successfully. Indicator '{}' is NEW in response (not in baseline)", indicator)),
                             cwe: "CWE-94".to_string(),
                             cvss: cvss as f32,
                             verified: true,
                             false_positive: false,
                             remediation: self.get_remediation(engine),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         }));
                     }
                 }

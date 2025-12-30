@@ -185,41 +185,57 @@ impl HttpParameterPollutionScanner {
                 }
             }
 
-            // Check comma-separated handling
-            if let Ok(comma_resp) = &comma {
-                if self.detect_value_accepted(&comma_resp.body, values[1]) {
-                    vulnerabilities.push(self.create_vulnerability(
-                        url,
-                        "HTTP Parameter Pollution (Comma-Separated)",
-                        &format!("{}={}", param, values.join(",")),
-                        &format!(
-                            "Server accepts comma-separated values for '{}' parameter. \
-                             Second value '{}' may override first value.",
-                            param, values[1]
-                        ),
-                        &format!("Comma-separated {} accepted", param),
-                        Severity::Medium,
-                        "CWE-235",
-                    ));
+            // NOTE: We do NOT report comma-separated or array bracket notation as vulnerabilities
+            // unless they cause an actual security-relevant behavioral change.
+            // Many APIs legitimately accept comma-separated values (e.g., ?fields=id,name,email)
+            // and array bracket notation (e.g., ?ids[]=1&ids[]=2) - this is normal behavior.
+            //
+            // Only report if there's evidence of:
+            // 1. Privilege escalation (second value grants higher privileges)
+            // 2. Security control bypass
+            // 3. Unexpected value override that causes business logic issues
+
+            // Check comma-separated handling - ONLY if it causes privilege escalation
+            if let (Ok(base_resp), Ok(comma_resp)) = (&baseline, &comma) {
+                // Only report if the second value (e.g., "admin") appears in a privileged context
+                // AND this is NEW (not in baseline)
+                if *param == "role" || *param == "user" {
+                    if self.detect_privilege_escalation_hpp(&comma_resp.body, &base_resp.body, values[1]) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "HTTP Parameter Pollution (Comma-Separated)",
+                            &format!("{}={}", param, values.join(",")),
+                            &format!(
+                                "Privilege escalation via comma-separated '{}' parameter. \
+                                 Second value '{}' grants elevated privileges.",
+                                param, values[1]
+                            ),
+                            &format!("Privilege escalation via comma-separated {}", param),
+                            Severity::High,
+                            "CWE-235",
+                        ));
+                    }
                 }
             }
 
-            // Check array bracket notation
-            if let Ok(bracket_resp) = &bracket {
-                if self.detect_value_accepted(&bracket_resp.body, values[1]) {
-                    vulnerabilities.push(self.create_vulnerability(
-                        url,
-                        "HTTP Parameter Pollution (Array Notation)",
-                        &bracket_query,
-                        &format!(
-                            "Server accepts array notation for '{}' parameter. \
-                             Multiple values can be injected via {}[]=value syntax.",
-                            param, param
-                        ),
-                        &format!("Array notation {}[] accepted", param),
-                        Severity::Low,
-                        "CWE-235",
-                    ));
+            // Check array bracket notation - ONLY if it causes privilege escalation
+            if let (Ok(base_resp), Ok(bracket_resp)) = (&baseline, &bracket) {
+                if *param == "role" || *param == "user" {
+                    if self.detect_privilege_escalation_hpp(&bracket_resp.body, &base_resp.body, values[1]) {
+                        vulnerabilities.push(self.create_vulnerability(
+                            url,
+                            "HTTP Parameter Pollution (Array Notation)",
+                            &bracket_query,
+                            &format!(
+                                "Privilege escalation via array notation '{}[]' parameter. \
+                                 Injected value '{}' grants elevated privileges.",
+                                param, values[1]
+                            ),
+                            &format!("Privilege escalation via array notation {}[]", param),
+                            Severity::High,
+                            "CWE-235",
+                        ));
+                    }
                 }
             }
         }

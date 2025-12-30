@@ -352,6 +352,12 @@ impl BusinessLogicScanner {
 
         debug!("Testing price manipulation vulnerabilities");
 
+        // CRITICAL: Get baseline response first to compare against
+        let baseline = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
         let price_tests = vec![
             ("price", "0.01"),
             ("price", "0"),
@@ -373,7 +379,8 @@ impl BusinessLogicScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if self.detect_price_manipulation(&response.body, param, value) {
+                    // CRITICAL: Pass baseline for comparison to avoid false positives
+                    if self.detect_price_manipulation_with_baseline(&response.body, &baseline.body, param, value) {
                         info!("Price manipulation successful: {}={}", param, value);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -384,7 +391,7 @@ impl BusinessLogicScanner {
                                  manipulated to set arbitrary prices, potentially allowing free purchases.",
                                 param
                             ),
-                            &format!("Successfully set {} to {}", param, value),
+                            &format!("Price {} reflected in response as {}", param, value),
                             Severity::Critical,
                             "CWE-472",
                         ));
@@ -398,19 +405,27 @@ impl BusinessLogicScanner {
             let checkout_url = format!("{}/checkout", url.trim_end_matches('/'));
             let post_data = format!("{}={}&product_id=1", param, value);
 
+            // Get baseline for POST endpoint too
+            let post_baseline = self.http_client.post_with_headers(
+                &checkout_url,
+                "product_id=1",
+                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
+            ).await.ok();
+
             match self.http_client.post_with_headers(
                 &checkout_url,
                 &post_data,
                 vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
             ).await {
                 Ok(response) => {
-                    if self.detect_price_manipulation(&response.body, param, value) {
+                    let baseline_body = post_baseline.as_ref().map(|r| r.body.as_str()).unwrap_or("");
+                    if self.detect_price_manipulation_with_baseline(&response.body, baseline_body, param, value) {
                         vulnerabilities.push(self.create_vulnerability(
                             &checkout_url,
                             "Price Manipulation (POST)",
                             &post_data,
                             "Checkout endpoint accepts manipulated prices via POST request",
-                            &format!("Successfully set {} to {} via POST", param, value),
+                            &format!("Price {} reflected as {} via POST", param, value),
                             Severity::Critical,
                             "CWE-472",
                         ));
@@ -623,6 +638,12 @@ impl BusinessLogicScanner {
 
         debug!("Testing integer overflow/underflow vulnerabilities");
 
+        // CRITICAL: Get baseline response first to compare against
+        let baseline = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
         let overflow_tests = vec![
             ("amount", "2147483647"),   // Max int32
             ("amount", "2147483648"),   // Max int32 + 1
@@ -640,7 +661,8 @@ impl BusinessLogicScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if self.detect_integer_overflow(&response.body, param) {
+                    // CRITICAL: Pass baseline for comparison to avoid false positives
+                    if self.detect_integer_overflow_with_baseline(&response.body, &baseline.body, param, value) {
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "Integer Overflow/Underflow",
@@ -651,7 +673,7 @@ impl BusinessLogicScanner {
                                  incorrect calculations or security bypasses.",
                                 param
                             ),
-                            &format!("Overflow value {} accepted for {}", value, param),
+                            &format!("Overflow value {} caused behavioral change for {}", value, param),
                             Severity::High,
                             "CWE-190",
                         ));
@@ -1806,7 +1828,44 @@ impl BusinessLogicScanner {
         false
     }
 
-    /// Detect price manipulation success
+    /// Detect price manipulation success - REQUIRES baseline comparison
+    fn detect_price_manipulation_with_baseline(&self, body: &str, baseline_body: &str, param: &str, value: &str) -> bool {
+        let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
+
+        // CRITICAL: Check if manipulated price appears in response AND is NEW (not in baseline)
+        // This is the strongest evidence that the price was actually modified
+        if (body_lower.contains(&format!("\"{}\":{}", param, value)) ||
+            body_lower.contains(&format!("\"{}\":\"{}\"", param, value))) &&
+           (!baseline_lower.contains(&format!("\"{}\":{}", param, value)) &&
+            !baseline_lower.contains(&format!("\"{}\":\"{}\"", param, value))) {
+            return true;
+        }
+
+        // Check for NEW order confirmation with suspicious pricing
+        // Must show order created AND price appears to be the manipulated value
+        let order_created = body_lower.contains("order created") ||
+                           body_lower.contains("order confirmed") ||
+                           body_lower.contains("purchase complete");
+        let order_was_created_before = baseline_lower.contains("order created") ||
+                                       baseline_lower.contains("order confirmed") ||
+                                       baseline_lower.contains("purchase complete");
+
+        if order_created && !order_was_created_before {
+            // Check if the response shows our manipulated value
+            if body_lower.contains(&format!("\"total\":{}", value)) ||
+               body_lower.contains(&format!("\"price\":{}", value)) ||
+               body_lower.contains(&format!("\"amount\":{}", value)) {
+                return true;
+            }
+        }
+
+        // CRITICAL: Do NOT just check for generic "success" or "confirmed"
+        // These words are too common and cause false positives
+        false
+    }
+
+    /// Detect price manipulation success (legacy - kept for compatibility)
     fn detect_price_manipulation(&self, body: &str, param: &str, value: &str) -> bool {
         let body_lower = body.to_lowercase();
 
@@ -1890,36 +1949,60 @@ impl BusinessLogicScanner {
         first_success && second_success && no_reuse_error
     }
 
-    /// Detect integer overflow
-    fn detect_integer_overflow(&self, body: &str, param: &str) -> bool {
+    /// Detect integer overflow - REQUIRES baseline comparison to avoid false positives
+    fn detect_integer_overflow_with_baseline(&self, body: &str, baseline_body: &str, param: &str, value: &str) -> bool {
         let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
 
-        // Check for overflow indicators
+        // CRITICAL: Check for NEW overflow indicators (not present in baseline)
+        // These are strong evidence of actual overflow behavior
         let overflow_indicators = vec![
-            "negative",
-            "-2147483648",
-            "-9223372036854775808",
+            "-2147483648",  // Wrapped to min int32
+            "-9223372036854775808",  // Wrapped to min int64
             "infinity",
             "nan",
             "overflow",
+            "number too large",
+            "integer overflow",
+            "arithmetic overflow",
         ];
 
-        for indicator in overflow_indicators {
-            if body_lower.contains(indicator) {
+        for indicator in &overflow_indicators {
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
                 return true;
             }
         }
 
-        // Check if large value was accepted
-        let accepted = body_lower.contains("success") ||
-            body_lower.contains("accepted") ||
-            body_lower.contains(&format!("\"{}\":", param));
+        // Check if the overflow value caused a negative result (wrap-around)
+        // This is a real indicator - large positive becomes negative
+        if value.parse::<i64>().is_ok() && value.parse::<i64>().unwrap() > 0 {
+            // We sent a large positive value, check if response shows negative
+            if body_lower.contains("\"amount\":-") || body_lower.contains("\"total\":-") ||
+               body_lower.contains("\"balance\":-") || body_lower.contains("\"quantity\":-") {
+                if !baseline_lower.contains("\"amount\":-") && !baseline_lower.contains("\"total\":-") &&
+                   !baseline_lower.contains("\"balance\":-") && !baseline_lower.contains("\"quantity\":-") {
+                    return true;
+                }
+            }
+        }
 
-        let no_error = !body_lower.contains("error") &&
-            !body_lower.contains("invalid") &&
-            !body_lower.contains("too large");
+        // Check if the response contains our exact overflow value being echoed back
+        // in a way that suggests it was processed (not just rejected)
+        if body_lower.contains(&format!("\"{}\":{}", param, value)) ||
+           body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) {
+            // Value was accepted - but is this actually dangerous?
+            // Only report if there's also evidence of a calculation happening
+            if body_lower.contains("total") || body_lower.contains("calculated") ||
+               body_lower.contains("result") || body_lower.contains("processed") {
+                if !baseline_lower.contains(&format!("\"{}\":{}", param, value)) {
+                    return true;
+                }
+            }
+        }
 
-        accepted && no_error
+        // CRITICAL: Do NOT just check for generic "success" or "accepted"
+        // These words are too common and cause false positives
+        false
     }
 
     /// Detect timestamp manipulation success
@@ -2132,16 +2215,24 @@ use crate::http_client::HttpClient;
     fn test_detect_negative_value_accepted() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.detect_negative_value_accepted(r#"{"quantity":"-1"}"#, "quantity", "-1"));
-        assert!(scanner.detect_negative_value_accepted("Update successful", "price", "-10"));
+        // With baseline comparison - value must be NEW (not in baseline)
+        assert!(scanner.detect_negative_value_accepted(r#"{"quantity":"-1"}"#, r#"{"quantity":"5"}"#, "quantity", "-1"));
+        assert!(scanner.detect_negative_value_accepted(r#"{"transaction":"complete","price":"-10"}"#, r#"{}"#, "price", "-10"));
+
+        // Should NOT detect if value is already in baseline
+        assert!(!scanner.detect_negative_value_accepted(r#"{"quantity":"-1"}"#, r#"{"quantity":"-1"}"#, "quantity", "-1"));
     }
 
     #[test]
     fn test_detect_workflow_bypass() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.detect_workflow_bypass("Order completed successfully", "completed"));
-        assert!(scanner.detect_workflow_bypass("Payment verified", "verified"));
+        // With baseline comparison - indicators must be NEW
+        assert!(scanner.detect_workflow_bypass_with_baseline("Order completed step completed", "", "completed"));
+        assert!(scanner.detect_workflow_bypass_with_baseline("Payment verified process finished", "", "verified"));
+
+        // Should NOT detect if already in baseline
+        assert!(!scanner.detect_workflow_bypass_with_baseline("Order completed", "Order completed", "completed"));
     }
 
     #[test]
@@ -2156,8 +2247,9 @@ use crate::http_client::HttpClient;
     fn test_no_false_positives() {
         let scanner = create_test_scanner();
 
-        assert!(!scanner.detect_negative_value_accepted("Invalid input", "quantity", "-1"));
-        assert!(!scanner.detect_workflow_bypass("Error", "completed"));
+        // With baseline comparison - error messages should not trigger
+        assert!(!scanner.detect_negative_value_accepted("Invalid input", "", "quantity", "-1"));
+        assert!(!scanner.detect_workflow_bypass_with_baseline("Error", "", "completed"));
         assert!(!scanner.detect_parameter_tampering("Failed", "discount", "100"));
     }
 

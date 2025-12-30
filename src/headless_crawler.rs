@@ -2207,6 +2207,8 @@ pub struct SiteCrawlResults {
     pub graphql_endpoints: Vec<String>,
     /// WebSocket endpoints discovered (ws:// or wss://)
     pub websocket_endpoints: Vec<String>,
+    /// Login forms detected during crawl
+    pub login_forms: Vec<DetectedLoginForm>,
 }
 
 /// Discovered GraphQL operation (query, mutation, subscription)
@@ -2220,6 +2222,51 @@ pub struct GraphQLOperation {
     pub raw: String,
     /// Source file where discovered
     pub source: String,
+}
+
+/// Detected login form with auto-fill capability
+#[derive(Debug, Clone)]
+pub struct DetectedLoginForm {
+    /// URL where the login form was found
+    pub url: String,
+    /// Form action URL (may be same-page for SPA)
+    pub action: String,
+    /// Form method (POST/GET)
+    pub method: String,
+    /// Username/email field selector
+    pub username_selector: String,
+    /// Password field selector
+    pub password_selector: String,
+    /// Submit button selector (if found)
+    pub submit_selector: Option<String>,
+    /// Whether this is an OAuth/SSO login (detected external redirect)
+    pub is_oauth: bool,
+    /// OAuth provider detected (Google, GitHub, Okta, etc.)
+    pub oauth_provider: Option<String>,
+    /// Confidence score (0.0 - 1.0)
+    pub confidence: f32,
+}
+
+/// Credentials for auto-login
+#[derive(Debug, Clone)]
+pub struct LoginCredentials {
+    pub username: String,
+    pub password: String,
+}
+
+/// Result of login attempt
+#[derive(Debug, Clone)]
+pub struct LoginResult {
+    /// Whether login was successful
+    pub success: bool,
+    /// Auth token extracted after login (if any)
+    pub token: Option<String>,
+    /// Cookies set after login
+    pub cookies: HashMap<String, String>,
+    /// URL we landed on after login
+    pub redirect_url: Option<String>,
+    /// Error message if login failed
+    pub error: Option<String>,
 }
 
 impl HeadlessCrawler {
@@ -2337,16 +2384,40 @@ impl HeadlessCrawler {
                     &request.method
                 };
 
-                // Capture POST/PUT/PATCH/DELETE requests and XHR/fetch GETs to API endpoints
+                // Capture ALL HTTP methods for API endpoints (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+                // This ensures full coverage like Burp Suite's crawler
                 let url_lower = request.url.to_lowercase();
-                let is_api_request = url_lower.contains("/api/")
+
+                // Identify API-like endpoints
+                let is_api_path = url_lower.contains("/api/")
                     || url_lower.contains("/graphql")
+                    || url_lower.contains("/gql")
                     || url_lower.contains("/v1/")
                     || url_lower.contains("/v2/")
-                    || method != "GET";
+                    || url_lower.contains("/v3/")
+                    || url_lower.contains("/rest/")
+                    || url_lower.contains("/ajax/")
+                    || url_lower.contains("/rpc/")
+                    || url_lower.contains("/webhook")
+                    || url_lower.contains("/callback");
+
+                // All non-GET methods are interesting (POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+                let is_data_method = method != "GET";
+
+                // For GET requests, check if they look like API calls by extension/path
+                let is_api_get = method == "GET" && (
+                    is_api_path
+                    || url_lower.ends_with(".json")
+                    || url_lower.ends_with(".xml")
+                    || url_lower.contains("?format=json")
+                    || url_lower.contains("&format=json")
+                );
+
+                // Capture if it's an API path, data-modifying method, or API-like GET
+                let is_api_request = is_api_path || is_data_method || is_api_get;
 
                 if is_api_request {
-                    // Filter out tracking/analytics
+                    // Filter out tracking/analytics and static assets
                     let should_capture = !url_lower.contains("analytics")
                         && !url_lower.contains("tracking")
                         && !url_lower.contains("pixel")
