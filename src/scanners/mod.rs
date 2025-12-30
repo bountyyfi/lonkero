@@ -131,6 +131,7 @@ pub mod dom_clobbering;
 pub mod subdomain_takeover;
 pub mod password_reset_poisoning;
 pub mod dom_xss_scanner;
+pub mod chromium_xss_scanner;
 pub mod account_takeover;
 pub mod api_versioning;
 pub mod broken_function_auth;
@@ -262,6 +263,7 @@ pub use cognito_enum::CognitoEnumScanner;
 pub use subdomain_takeover::{SubdomainTakeoverScanner, scan_subdomain_takeover};
 pub use password_reset_poisoning::PasswordResetPoisoningScanner;
 pub use dom_xss_scanner::{DomXssScanner, DomSource, DomSink, SourceToSinkFlow};
+pub use chromium_xss_scanner::ChromiumXssScanner;
 pub use twofa_bypass::TwoFaBypassScanner;
 pub use account_takeover::AccountTakeoverScanner;
 pub use openapi_analyzer::OpenApiAnalyzer;
@@ -290,6 +292,7 @@ pub struct ScanEngine {
     pub adaptive_concurrency: Option<Arc<crate::adaptive_concurrency::AdaptiveConcurrencyTracker>>,
     pub dns_cache: Option<Arc<crate::dns_cache::DnsCache>>,
     pub xss_scanner: XssScanner,
+    pub chromium_xss_scanner: ChromiumXssScanner,
     pub sqli_scanner: SqliScanner,
     pub cmdi_scanner: CommandInjectionScanner,
     pub path_scanner: PathTraversalScanner,
@@ -489,6 +492,7 @@ impl ScanEngine {
             adaptive_concurrency,
             dns_cache,
             xss_scanner: XssScanner::new(Arc::clone(&http_client)),
+            chromium_xss_scanner: ChromiumXssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
             path_scanner: PathTraversalScanner::new(Arc::clone(&http_client)),
@@ -871,6 +875,14 @@ impl ScanEngine {
 
                     // Update progress
                     queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
+
+                    // Chromium-based XSS detection (real browser execution)
+                    let (chromium_xss_vulns, chromium_xss_tests) = self.chromium_xss_scanner
+                        .scan(&target, &config)
+                        .await?;
+                    all_vulnerabilities.extend(chromium_xss_vulns);
+                    total_tests += chromium_xss_tests as u64;
+                    queue.increment_tests(scan_id.clone(), chromium_xss_tests as u64).await?;
                 }
 
                 // SQLi Testing (Professional+, skip if CDN protected)

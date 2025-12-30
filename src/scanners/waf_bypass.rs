@@ -2,9 +2,9 @@
 // This software is proprietary and confidential.
 
 use crate::types::ScanConfig;
-use crate::http_client::HttpClient;
+use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, Severity, Vulnerability};
-use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously};
+use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously, did_payload_have_effect};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -44,62 +44,62 @@ impl WafBypassScanner {
         info!("[WAF-Bypass] Dynamic site detected - proceeding with WAF bypass tests");
 
         // Test encoding bypasses
-        let (enc_vulns, enc_tests) = self.test_encoding_bypasses(url).await?;
+        let (enc_vulns, enc_tests) = self.test_encoding_bypasses(url, &baseline_response).await?;
         vulnerabilities.extend(enc_vulns);
         tests_run += enc_tests;
 
         // Test case manipulation
-        let (case_vulns, case_tests) = self.test_case_manipulation(url).await?;
+        let (case_vulns, case_tests) = self.test_case_manipulation(url, &baseline_response).await?;
         vulnerabilities.extend(case_vulns);
         tests_run += case_tests;
 
         // Test null byte injection
-        let (null_vulns, null_tests) = self.test_null_byte_bypass(url).await?;
+        let (null_vulns, null_tests) = self.test_null_byte_bypass(url, &baseline_response).await?;
         vulnerabilities.extend(null_vulns);
         tests_run += null_tests;
 
         // Test comment injection bypasses
-        let (comment_vulns, comment_tests) = self.test_comment_injection(url).await?;
+        let (comment_vulns, comment_tests) = self.test_comment_injection(url, &baseline_response).await?;
         vulnerabilities.extend(comment_vulns);
         tests_run += comment_tests;
 
         // Test HTTP method bypasses
-        let (method_vulns, method_tests) = self.test_http_method_bypass(url).await?;
+        let (method_vulns, method_tests) = self.test_http_method_bypass(url, &baseline_response).await?;
         vulnerabilities.extend(method_vulns);
         tests_run += method_tests;
 
         // Test content-type manipulation
-        let (ct_vulns, ct_tests) = self.test_content_type_bypass(url).await?;
+        let (ct_vulns, ct_tests) = self.test_content_type_bypass(url, &baseline_response).await?;
         vulnerabilities.extend(ct_vulns);
         tests_run += ct_tests;
 
         // Test chunked encoding bypass
-        let (chunk_vulns, chunk_tests) = self.test_chunked_encoding_bypass(url).await?;
+        let (chunk_vulns, chunk_tests) = self.test_chunked_encoding_bypass(url, &baseline_response).await?;
         vulnerabilities.extend(chunk_vulns);
         tests_run += chunk_tests;
 
         // Test header injection bypasses
-        let (header_vulns, header_tests) = self.test_header_injection_bypass(url).await?;
+        let (header_vulns, header_tests) = self.test_header_injection_bypass(url, &baseline_response).await?;
         vulnerabilities.extend(header_vulns);
         tests_run += header_tests;
 
         // Test protocol smuggling
-        let (smuggle_vulns, smuggle_tests) = self.test_protocol_smuggling(url).await?;
+        let (smuggle_vulns, smuggle_tests) = self.test_protocol_smuggling(url, &baseline_response).await?;
         vulnerabilities.extend(smuggle_vulns);
         tests_run += smuggle_tests;
 
         // Test Unicode normalization bypass
-        let (unicode_vulns, unicode_tests) = self.test_unicode_normalization(url).await?;
+        let (unicode_vulns, unicode_tests) = self.test_unicode_normalization(url, &baseline_response).await?;
         vulnerabilities.extend(unicode_vulns);
         tests_run += unicode_tests;
 
         // Test JSON/XML payload bypass
-        let (payload_vulns, payload_tests) = self.test_payload_format_bypass(url).await?;
+        let (payload_vulns, payload_tests) = self.test_payload_format_bypass(url, &baseline_response).await?;
         vulnerabilities.extend(payload_vulns);
         tests_run += payload_tests;
 
         // Test HPP for WAF bypass
-        let (hpp_vulns, hpp_tests) = self.test_hpp_waf_bypass(url).await?;
+        let (hpp_vulns, hpp_tests) = self.test_hpp_waf_bypass(url, &baseline_response).await?;
         vulnerabilities.extend(hpp_vulns);
         tests_run += hpp_tests;
 
@@ -107,10 +107,7 @@ impl WafBypassScanner {
     }
 
     /// Test multiple encoding bypass techniques
-    async fn test_encoding_bypasses(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_encoding_bypasses(&self, url: &str, baseline: &HttpResponse) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -189,6 +186,7 @@ impl WafBypassScanner {
     async fn test_case_manipulation(
         &self,
         url: &str,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -259,9 +257,13 @@ impl WafBypassScanner {
     async fn test_null_byte_bypass(
         &self,
         url: &str,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
+
+        // Store baseline body for comparison
+        let baseline_lower = baseline.body.to_lowercase();
 
         let null_payloads = vec![
             ("%00<script>alert(1)</script>", "Null byte prefix"),
@@ -320,6 +322,7 @@ impl WafBypassScanner {
     async fn test_comment_injection(
         &self,
         url: &str,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -345,10 +348,17 @@ impl WafBypassScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
+                    // CRITICAL: Check if payload actually had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, payload) {
+                        debug!("[WAF-Bypass] Comment injection test {} - no behavioral change, skipping", technique);
+                        continue;
+                    }
+
+                    // Require REAL evidence of bypass - dangerous reflection or SQL error
                     if response.status_code != 403 &&
-                       (response.body.to_lowercase().contains("alert") ||
-                        response.body.contains("error") ||
-                        response.body.len() > 500) {
+                       (is_payload_reflected_dangerously(&response, "alert(1)") ||
+                        (response.body.contains("mysql") && response.body.contains("syntax")) ||
+                        (response.body.contains("ORA-") && response.body.contains("error"))) {
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_comment_{}", tests_run),
                             vuln_type: "WAF Bypass via Comment Injection".to_string(),
@@ -359,13 +369,13 @@ impl WafBypassScanner {
                             parameter: Some("id".to_string()),
                             payload: payload.to_string(),
                             description: format!(
-                                "Potential WAF bypass using {} technique.",
+                                "WAF bypass achieved using {} technique.",
                                 technique
                             ),
                             evidence: Some(format!("Status: {}, Body length: {}", response.status_code, response.body.len())),
                             cwe: "CWE-693".to_string(),
                             cvss: 5.3,
-                            verified: false,
+                            verified: true,
                             false_positive: false,
                             remediation: "Strip comments before WAF analysis".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
@@ -384,6 +394,7 @@ impl WafBypassScanner {
     async fn test_http_method_bypass(
         &self,
         url: &str,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -404,7 +415,13 @@ impl WafBypassScanner {
 
             match self.http_client.get_with_headers(url, headers).await {
                 Ok(response) => {
-                    // Check if method was overridden
+                    // CRITICAL: Check if header actually had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, header) {
+                        debug!("[WAF-Bypass] Method override test {} - no behavioral change, skipping", header);
+                        continue;
+                    }
+
+                    // Method override confirmed if response is meaningfully different
                     if response.status_code == 200 || response.status_code == 204 {
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_method_{}", tests_run),
@@ -480,6 +497,7 @@ impl WafBypassScanner {
     async fn test_content_type_bypass(
         &self,
         url: &str,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -505,8 +523,15 @@ impl WafBypassScanner {
 
             match self.http_client.post_with_headers(url, payload, headers).await {
                 Ok(response) => {
+                    // CRITICAL: Check if content-type manipulation actually had an effect
+                    if !did_payload_have_effect(baseline, &response, payload) {
+                        debug!("[WAF-Bypass] Content-type {} test - no behavioral change, skipping", ct);
+                        continue;
+                    }
+
+                    // Require DANGEROUS reflection, not just any substring match
                     if response.status_code != 403 &&
-                       (response.body.contains("alert(1)") || response.body.contains("script")) {
+                       is_payload_reflected_dangerously(&response, "alert(1)") {
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_content_type_{}", tests_run),
                             vuln_type: "WAF Bypass via Content-Type Manipulation".to_string(),
@@ -542,6 +567,7 @@ impl WafBypassScanner {
     async fn test_chunked_encoding_bypass(
         &self,
         url: &str,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -557,21 +583,24 @@ impl WafBypassScanner {
         tests_run += 1;
         match self.http_client.post_with_headers(url, chunked_payload, headers.clone()).await {
             Ok(response) => {
-                if response.status_code != 403 {
+                // CRITICAL: Check if chunked encoding actually had an effect
+                if !did_payload_have_effect(baseline, &response, chunked_payload) {
+                    debug!("[WAF-Bypass] Chunked encoding test - no behavioral change, skipping");
+                } else if response.status_code != 403 && is_payload_reflected_dangerously(&response, "alert(1)") {
                     vulnerabilities.push(Vulnerability {
                         id: format!("waf_bypass_chunked_{}", tests_run),
-                        vuln_type: "Potential WAF Bypass via Chunked Encoding".to_string(),
+                        vuln_type: "WAF Bypass via Chunked Encoding".to_string(),
                         severity: Severity::Medium,
-                        confidence: Confidence::Low,
+                        confidence: Confidence::Medium,
                         category: "WAF Bypass".to_string(),
                         url: url.to_string(),
                         parameter: None,
                         payload: "Chunked XSS payload".to_string(),
-                        description: "WAF may not properly reassemble chunked requests before inspection".to_string(),
+                        description: "WAF did not properly reassemble chunked requests before inspection".to_string(),
                         evidence: Some(format!("Status: {}", response.status_code)),
                         cwe: "CWE-444".to_string(),
                         cvss: 5.3,
-                        verified: false,
+                        verified: true,
                         false_positive: false,
                         remediation: "Configure WAF to reassemble chunked encoding before inspection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
@@ -623,6 +652,7 @@ impl WafBypassScanner {
     async fn test_header_injection_bypass(
         &self,
         url: &str,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -654,7 +684,14 @@ impl WafBypassScanner {
 
             match self.http_client.get_with_headers(&test_url, headers).await {
                 Ok(response) => {
-                    if response.status_code != 403 && response.body.contains("alert(1)") {
+                    // CRITICAL: Check if header spoofing actually had an effect
+                    if !did_payload_have_effect(baseline, &response, header) {
+                        debug!("[WAF-Bypass] Header spoof {} - no behavioral change, skipping", header);
+                        continue;
+                    }
+
+                    // Require dangerous reflection, not just "alert(1)" substring
+                    if response.status_code != 403 && is_payload_reflected_dangerously(&response, "alert(1)") {
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_header_spoof_{}", tests_run),
                             vuln_type: "WAF Bypass via IP Spoofing Header".to_string(),
@@ -690,6 +727,7 @@ impl WafBypassScanner {
     async fn test_protocol_smuggling(
         &self,
         url: &str,
+        _baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -754,6 +792,7 @@ impl WafBypassScanner {
     async fn test_unicode_normalization(
         &self,
         url: &str,
+        _baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -826,6 +865,7 @@ impl WafBypassScanner {
     async fn test_payload_format_bypass(
         &self,
         url: &str,
+        _baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -943,6 +983,7 @@ impl WafBypassScanner {
     async fn test_hpp_waf_bypass(
         &self,
         url: &str,
+        _baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;

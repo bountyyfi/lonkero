@@ -16,9 +16,9 @@
  * @license Proprietary
  */
 
-use crate::http_client::HttpClient;
+use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously};
+use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously, did_payload_have_effect};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -312,6 +312,12 @@ impl HttpParameterPollutionScanner {
         ];
 
         for endpoint in &auth_endpoints {
+            // Get baseline response for this endpoint first
+            let baseline_response = match self.http_client.get(endpoint).await {
+                Ok(r) => r,
+                Err(_) => continue, // Endpoint doesn't exist, skip
+            };
+
             for (param, values, description) in &auth_tests {
                 let polluted_query = values
                     .iter()
@@ -327,7 +333,8 @@ impl HttpParameterPollutionScanner {
 
                 match self.http_client.post_with_headers(endpoint, &post_body, headers).await {
                     Ok(response) => {
-                        let auth_bypassed = self.detect_auth_bypass(&response.body, param, values);
+                        // CRITICAL: Pass baseline body to detect_auth_bypass to avoid false positives
+                        let auth_bypassed = self.detect_auth_bypass(&response.body, &baseline_response.body, param, values);
 
                         if auth_bypassed {
                             vulnerabilities.push(self.create_vulnerability(
@@ -497,6 +504,12 @@ impl HttpParameterPollutionScanner {
         ];
 
         for endpoint in &api_endpoints {
+            // Get baseline response for this endpoint first
+            let baseline_response = match self.http_client.get(endpoint).await {
+                Ok(r) => r,
+                Err(_) => continue, // Endpoint doesn't exist, skip
+            };
+
             for (payload, description) in &json_tests {
                 let headers = vec![
                     ("Content-Type".to_string(), "application/json".to_string())
@@ -504,8 +517,8 @@ impl HttpParameterPollutionScanner {
 
                 match self.http_client.post_with_headers(endpoint, payload, headers).await {
                     Ok(response) => {
-                        // Check if duplicate keys caused issues
-                        let json_hpp = self.detect_json_hpp(&response.body, payload);
+                        // CRITICAL: Pass baseline body to detect_json_hpp to avoid false positives
+                        let json_hpp = self.detect_json_hpp(&response.body, &baseline_response.body, payload);
 
                         if json_hpp {
                             vulnerabilities.push(self.create_vulnerability(
@@ -531,7 +544,7 @@ impl HttpParameterPollutionScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Detect HPP behavior differences
+    /// Detect HPP behavior differences - requires significant change AND evidence of value usage
     fn detect_hpp_behavior(
         &self,
         baseline: &str,
@@ -539,21 +552,30 @@ impl HttpParameterPollutionScanner {
         _param: &str,
         values: &[&str],
     ) -> bool {
-        // Check for significant response differences
+        // Check for significant response differences (at least 20% change)
         let len_diff = (baseline.len() as i64 - polluted.len() as i64).abs();
-        let significant_diff = len_diff > 100;
+        let len_ratio = if baseline.len() > 0 {
+            len_diff as f64 / baseline.len() as f64
+        } else {
+            0.0
+        };
+        let significant_diff = len_ratio > 0.2;
 
-        // Check if second value appears in response but not first
-        let second_processed = polluted.contains(values[1]) && !polluted.contains(values[0]);
+        // CRITICAL: Only detect if values are NEW (not already in baseline)
+        // This prevents false positives from generic words appearing in the page
+        let baseline_lower = baseline.to_lowercase();
+        let polluted_lower = polluted.to_lowercase();
 
-        // Check for both values appearing (concatenation behavior)
-        let concatenated = polluted.contains(values[0]) && polluted.contains(values[1]);
+        // Check if second value appears in response but NOT in baseline (indicates processing)
+        let second_value_new = polluted_lower.contains(&values[1].to_lowercase()) &&
+            !baseline_lower.contains(&values[1].to_lowercase());
 
-        // Check for different status indicators
-        let status_change = (baseline.contains("success") != polluted.contains("success")) ||
-            (baseline.contains("error") != polluted.contains("error"));
+        // Check for NEW concatenation (both values appearing together, but not in baseline)
+        let new_concatenated = polluted.contains(values[0]) && polluted.contains(values[1]) &&
+            (!baseline.contains(values[0]) || !baseline.contains(values[1]));
 
-        significant_diff || second_processed || concatenated || status_change
+        // Must have BOTH: significant difference AND evidence of value processing
+        significant_diff && (second_value_new || new_concatenated)
     }
 
     /// Detect if a specific value was accepted
@@ -590,26 +612,28 @@ impl HttpParameterPollutionScanner {
         not_blocked && (body.contains(&combined) || body_lower.contains(&combined.to_lowercase()))
     }
 
-    /// Detect authentication bypass
-    fn detect_auth_bypass(&self, body: &str, _param: &str, values: &[&str]) -> bool {
+    /// Detect authentication bypass - REQUIRES baseline comparison to avoid false positives
+    fn detect_auth_bypass(&self, body: &str, baseline_body: &str, _param: &str, values: &[&str]) -> bool {
         let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
 
-        // Check for successful auth with privileged value
-        let auth_success = body_lower.contains("success") ||
-            body_lower.contains("welcome") ||
-            body_lower.contains("dashboard") ||
-            body_lower.contains("authenticated") ||
-            body_lower.contains("logged in");
+        // CRITICAL: Check for NEW auth success indicators (not present in baseline)
+        // This prevents false positives from pages that always show "success", "welcome", etc.
+        let new_auth_success =
+            (body_lower.contains("authenticated") && !baseline_lower.contains("authenticated")) ||
+            (body_lower.contains("logged in") && !baseline_lower.contains("logged in")) ||
+            (body_lower.contains("dashboard") && !baseline_lower.contains("dashboard"));
 
-        // Check if privileged value was processed
+        // Check if privileged value was processed AND is NEW (not in baseline)
         let privileged_accepted = if values[0].to_lowercase().contains("admin") ||
             values[0].to_lowercase() == "true" {
-            body_lower.contains("admin") || body_lower.contains("role\":\"admin")
+            (body_lower.contains("role\":\"admin") && !baseline_lower.contains("role\":\"admin")) ||
+            (body_lower.contains("is_admin\":true") && !baseline_lower.contains("is_admin\":true"))
         } else {
             false
         };
 
-        auth_success || privileged_accepted
+        new_auth_success || privileged_accepted
     }
 
     /// Detect dangerous reflection (XSS context)
@@ -657,22 +681,29 @@ impl HttpParameterPollutionScanner {
         false
     }
 
-    /// Detect JSON HPP
-    fn detect_json_hpp(&self, body: &str, payload: &str) -> bool {
+    /// Detect JSON HPP - requires baseline comparison to avoid false positives
+    fn detect_json_hpp(&self, body: &str, baseline_body: &str, payload: &str) -> bool {
         let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
 
-        // Check for prototype pollution indicators
-        if payload.contains("__proto__") && (body_lower.contains("admin") || body_lower.contains("true")) {
-            return true;
+        // Check for prototype pollution indicators - must be NEW (not in baseline)
+        if payload.contains("__proto__") {
+            let new_admin = body_lower.contains("admin") && !baseline_lower.contains("admin");
+            let new_privilege = body_lower.contains("is_admin\":true") && !baseline_lower.contains("is_admin\":true");
+            if new_admin || new_privilege {
+                return true;
+            }
         }
 
-        // Check if duplicate key's second value was used
-        if payload.contains(r#""role":"admin""#) && body_lower.contains("admin") {
-            return true;
+        // Check if duplicate key's second value was used - role must be NEW
+        if payload.contains(r#""role":"admin""#) {
+            if body_lower.contains("role\":\"admin") && !baseline_lower.contains("role\":\"admin") {
+                return true;
+            }
         }
 
-        // Check for success with polluted request
-        body_lower.contains("success") && !body_lower.contains("error")
+        // Don't return true just for "success" being present - that causes tons of false positives!
+        false
     }
 
     /// Create a vulnerability record
