@@ -97,7 +97,7 @@ scraper = "0.25"
 html-escape = "0.2"
 
 # WebSocket client for exploitation testing
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 tungstenite = "0.28"
 
 # TLS support for raw TCP sockets (HTTP smuggling)
