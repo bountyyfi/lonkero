@@ -165,6 +165,190 @@ const XSS_INTERCEPTOR: &str = r#"
         }
     }, true);
 
+    // FLOW-BASED TAINT TRACKING (minimal)
+    // Carry taint metadata through string operations
+    const TAINT_SYMBOL = Symbol('__tainted');
+
+    function taintString(str, source) {
+        if (typeof str !== 'string') return str;
+        const tainted = new String(str);
+        tainted[TAINT_SYMBOL] = {source: source, tainted: true};
+        return tainted;
+    }
+
+    function isTainted(str) {
+        return str && str[TAINT_SYMBOL] && str[TAINT_SYMBOL].tainted;
+    }
+
+    // Hook String.prototype methods to propagate taint
+    const origConcat = String.prototype.concat;
+    String.prototype.concat = function(...args) {
+        const result = origConcat.apply(this, args);
+        // If any input is tainted, result is tainted
+        if (isTainted(this) || args.some(isTainted)) {
+            return taintString(result, 'concat');
+        }
+        return result;
+    };
+
+    const origReplace = String.prototype.replace;
+    String.prototype.replace = function(searchValue, replaceValue) {
+        const result = origReplace.call(this, searchValue, replaceValue);
+        if (isTainted(this) || isTainted(replaceValue)) {
+            return taintString(result, 'replace');
+        }
+        return result;
+    };
+
+    const origSlice = String.prototype.slice;
+    String.prototype.slice = function(start, end) {
+        const result = origSlice.call(this, start, end);
+        if (isTainted(this)) {
+            return taintString(result, 'slice');
+        }
+        return result;
+    };
+
+    const origSubstring = String.prototype.substring;
+    String.prototype.substring = function(start, end) {
+        const result = origSubstring.call(this, start, end);
+        if (isTainted(this)) {
+            return taintString(result, 'substring');
+        }
+        return result;
+    };
+
+    const origSubstr = String.prototype.substr;
+    String.prototype.substr = function(start, length) {
+        const result = origSubstr.call(this, start, length);
+        if (isTainted(this)) {
+            return taintString(result, 'substr');
+        }
+        return result;
+    };
+
+    const origSplit = String.prototype.split;
+    String.prototype.split = function(separator, limit) {
+        const result = origSplit.call(this, separator, limit);
+        if (isTainted(this)) {
+            return result.map(s => taintString(s, 'split'));
+        }
+        return result;
+    };
+
+    // Taint URL parameters on access
+    try {
+        const origURLSearchParamsGet = URLSearchParams.prototype.get;
+        URLSearchParams.prototype.get = function(name) {
+            const val = origURLSearchParamsGet.call(this, name);
+            if (val && checkMarker(val)) {
+                return taintString(val, 'URLSearchParams.get');
+            }
+            return val;
+        };
+    } catch(e) {}
+
+    // TRUSTED TYPES HOOKS
+    if (window.trustedTypes) {
+        const origCreatePolicy = window.trustedTypes.createPolicy.bind(window.trustedTypes);
+        window.trustedTypes.createPolicy = function(name, rules) {
+            recordExecution('trusted-types-policy', name, 'trustedTypes');
+            const policy = origCreatePolicy(name, rules);
+            // Wrap policy methods to detect marker usage
+            const origCreateHTML = policy.createHTML?.bind(policy);
+            const origCreateScript = policy.createScript?.bind(policy);
+            const origCreateScriptURL = policy.createScriptURL?.bind(policy);
+
+            if (origCreateHTML) {
+                policy.createHTML = function(input) {
+                    if (checkMarker(input)) recordExecution('trusted-types-html', input, 'trustedTypes');
+                    return origCreateHTML(input);
+                };
+            }
+            if (origCreateScript) {
+                policy.createScript = function(input) {
+                    if (checkMarker(input)) recordExecution('trusted-types-script', input, 'trustedTypes');
+                    return origCreateScript(input);
+                };
+            }
+            if (origCreateScriptURL) {
+                policy.createScriptURL = function(input) {
+                    if (checkMarker(input)) recordExecution('trusted-types-url', input, 'trustedTypes');
+                    return origCreateScriptURL(input);
+                };
+            }
+            return policy;
+        };
+    }
+
+    // IFRAME RECURSIVE INJECTION
+    // Inject interceptor into same-origin iframes
+    function injectIntoFrame(frame) {
+        try {
+            if (!frame.contentWindow || !frame.contentDocument) return;
+            // Check same-origin
+            try { frame.contentDocument.body; } catch(e) { return; } // Cross-origin, skip
+
+            // Inject our marker
+            frame.contentWindow.__xssMarker = window.__xssMarker;
+            frame.contentWindow.__xssTriggered = false;
+            frame.contentWindow.__xssTriggerType = 'none';
+            frame.contentWindow.__xssExecutions = [];
+
+            // Hook alert/confirm/prompt in frame
+            frame.contentWindow.alert = function(msg) {
+                if (checkMarker(msg)) {
+                    window.__xssTriggered = true;
+                    window.__xssTriggerType = 'alert-iframe';
+                    window.__xssExecutions.push({type: 'alert-iframe', content: String(msg).substring(0, 200)});
+                }
+            };
+            frame.contentWindow.confirm = function(msg) {
+                if (checkMarker(msg)) {
+                    window.__xssTriggered = true;
+                    window.__xssTriggerType = 'confirm-iframe';
+                }
+                return true;
+            };
+            frame.contentWindow.prompt = function(msg) {
+                if (checkMarker(msg)) {
+                    window.__xssTriggered = true;
+                    window.__xssTriggerType = 'prompt-iframe';
+                }
+                return '';
+            };
+        } catch(e) { /* cross-origin or security error */ }
+    }
+
+    // Hook iframe creation to inject into new iframes
+    const origCreateElement = document.createElement.bind(document);
+    document.createElement = function(tagName, options) {
+        const el = origCreateElement(tagName, options);
+        if (tagName.toLowerCase() === 'iframe') {
+            el.addEventListener('load', function() {
+                injectIntoFrame(el);
+            });
+        }
+        return el;
+    };
+
+    // Inject into existing iframes
+    document.querySelectorAll('iframe').forEach(injectIntoFrame);
+
+    // Watch for dynamically added iframes
+    const iframeObserver = new MutationObserver(function(mutations) {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.tagName === 'IFRAME') {
+                    node.addEventListener('load', function() { injectIntoFrame(node); });
+                }
+            }
+        }
+    });
+    if (document.body) {
+        iframeObserver.observe(document.body, {childList: true, subtree: true});
+    }
+
     // 1. Dialog interception (alert, confirm, prompt)
     window.__originalAlert = window.alert;
     window.__originalConfirm = window.confirm;

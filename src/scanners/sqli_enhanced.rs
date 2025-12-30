@@ -3195,4 +3195,202 @@ mod tests {
         assert!(!payloads.is_empty());
         assert!(payloads.iter().any(|p| p.contains("__typename")));
     }
+
+    #[test]
+    fn test_extract_param_value() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        // Test basic extraction
+        let value = scanner.extract_param_value("http://example.com?id=123", "id");
+        assert_eq!(value, Some("123".to_string()));
+
+        // Test URL-encoded value
+        let value = scanner.extract_param_value("http://example.com?name=hello%20world", "name");
+        assert_eq!(value, Some("hello world".to_string()));
+
+        // Test missing parameter
+        let value = scanner.extract_param_value("http://example.com?foo=bar", "baz");
+        assert_eq!(value, None);
+
+        // Test multiple parameters
+        let value = scanner.extract_param_value("http://example.com?a=1&b=2&c=3", "b");
+        assert_eq!(value, Some("2".to_string()));
+
+        // Test no query string
+        let value = scanner.extract_param_value("http://example.com/path", "id");
+        assert_eq!(value, None);
+    }
+
+    #[test]
+    fn test_analyze_response_for_evidence() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "Normal response body".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        // Test SQL error detection
+        let error_response = HttpResponse {
+            status_code: 500,
+            body: "MySQL syntax error: You have an error in your SQL syntax".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &error_response,
+            &baseline,
+            "' OR '1'='1",
+            &EvidenceType::ErrorMessage,
+        );
+        assert!(matches!(evidence.evidence_type, EvidenceType::ErrorMessage));
+        assert!(evidence.likelihood_ratio > 10.0); // Strong evidence
+
+        // Test status code change (500)
+        let server_error = HttpResponse {
+            status_code: 500,
+            body: "Internal Server Error".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &server_error,
+            &baseline,
+            "test",
+            &EvidenceType::StatusCodeChange,
+        );
+        assert!(matches!(evidence.evidence_type, EvidenceType::StatusCodeChange));
+        assert!(evidence.likelihood_ratio > 3.0);
+
+        // Test timing anomaly
+        let slow_response = HttpResponse {
+            status_code: 200,
+            body: "Normal response".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 5200, // 5+ seconds delay
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &slow_response,
+            &baseline,
+            "' AND SLEEP(5)--",
+            &EvidenceType::TimingAnomaly,
+        );
+        assert!(matches!(evidence.evidence_type, EvidenceType::TimingAnomaly));
+        assert!(evidence.likelihood_ratio > 8.0); // Strong evidence for time-based
+
+        // Test no change (weak negative evidence)
+        let normal_response = HttpResponse {
+            status_code: 200,
+            body: "Normal response".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 105,
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &normal_response,
+            &baseline,
+            "test",
+            &EvidenceType::BehaviorChange,
+        );
+        assert!(evidence.likelihood_ratio < 1.0); // Weak negative evidence
+    }
+
+    #[test]
+    fn test_hypothesis_engine_integration() {
+        // Test that we can create and use the hypothesis engine
+        let mut engine = HypothesisEngine::new();
+
+        let hints = ResponseHints {
+            has_sql_keywords: true,
+            has_error_messages: false,
+            has_stack_trace: false,
+            has_path_disclosure: false,
+            reflects_input: true,
+            timing_ms: 100,
+            status_code: Some(200),
+            content_type: Some("text/html".to_string()),
+            body_length: 1000,
+            error_patterns: vec![],
+        };
+
+        // Generate hypotheses for a parameter that looks SQL-related
+        let hypotheses = engine.generate_hypotheses("id", "123", "http://example.com/api", &hints);
+
+        // Should have at least SQLi hypothesis
+        assert!(!hypotheses.is_empty());
+        let sqli_hyp = hypotheses.iter()
+            .find(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }));
+        assert!(sqli_hyp.is_some());
+
+        // SQLi prior should be boosted for "id" parameter
+        let sqli = sqli_hyp.unwrap();
+        assert!(sqli.prior_probability > 0.2); // Should have context boost
+
+        // Test evidence update
+        let evidence = Evidence::new(
+            EvidenceType::ErrorMessage,
+            "SQL syntax error detected".to_string(),
+            10.0,
+        );
+        engine.update_with_evidence(&sqli.id, evidence);
+
+        // Probability should have increased
+        let updated = engine.get_hypothesis(&sqli.id).unwrap();
+        assert!(updated.posterior_probability > sqli.prior_probability);
+    }
+
+    #[test]
+    fn test_create_vulnerability_from_hypothesis() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        // Create a hypothesis with evidence
+        let hypothesis = Hypothesis {
+            id: "test_hyp_1".to_string(),
+            hypothesis_type: HypothesisType::SqlInjection { db_type: None },
+            target: "http://example.com/api?id=1".to_string(),
+            prior_probability: 0.4,
+            posterior_probability: 0.95,
+            evidence: vec![
+                Evidence::new(
+                    EvidenceType::ErrorMessage,
+                    "MySQL syntax error".to_string(),
+                    12.0,
+                ).with_payload("' OR '1'='1"),
+                Evidence::new(
+                    EvidenceType::StatusCodeChange,
+                    "500 error".to_string(),
+                    5.0,
+                ),
+            ],
+            suggested_tests: vec![],
+            status: HypothesisStatus::Confirmed,
+            parent_hypothesis: None,
+            child_hypotheses: vec![],
+        };
+
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "Normal response".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        let vuln = scanner.create_vulnerability_from_hypothesis(
+            "http://example.com/api?id=1",
+            "id",
+            &hypothesis,
+            &baseline,
+        );
+
+        assert_eq!(vuln.vuln_type, "Bayesian-Confirmed SQL Injection");
+        assert!(matches!(vuln.severity, Severity::Critical));
+        assert!(matches!(vuln.confidence, Confidence::High)); // 0.95 > 0.95 threshold
+        assert_eq!(vuln.parameter, Some("id".to_string()));
+        assert!(vuln.description.contains("95.0%"));
+        assert!(vuln.evidence.unwrap().contains("Evidence collected"));
+    }
 }
