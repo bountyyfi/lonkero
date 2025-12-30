@@ -1051,8 +1051,8 @@ async fn run_scan(
         info!("[Auth] Authentication context ready - scanning authenticated endpoints");
     }
 
-    // Setup admin session for multi-role testing
-    let admin_session: Option<AuthSession> = if multi_role {
+    // Setup admin session for multi-role testing (used for pre-auth validation)
+    let _admin_session: Option<AuthSession> = if multi_role {
         if let (Some(admin_user), Some(admin_pass)) = (&admin_username, &admin_password) {
             info!("[MultiRole] Initializing admin session for authorization testing");
             let authenticator = Authenticator::new(timeout);

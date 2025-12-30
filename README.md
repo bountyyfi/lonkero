@@ -510,6 +510,18 @@ lonkero scan https://example.com --crawl --max-depth 5
 
 # Disable rate limiting (use with caution)
 lonkero scan https://example.com --no-rate-limit
+
+# Multi-role authorization testing (BOLA/BFLA detection)
+lonkero scan https://example.com \
+  --auth-username user@example.com --auth-password userpass \
+  --admin-username admin@example.com --admin-password adminpass \
+  --multi-role
+
+# Session recording (HAR format)
+lonkero scan https://example.com --record-session --session-format har
+
+# Session recording with custom output
+lonkero scan https://example.com --record-session --session-output scan_session.html --session-format html
 ```
 
 ### Crawler Priority System
