@@ -1,9 +1,9 @@
 // Test the Chromium XSS scanner directly
 // Run with: cargo run --example test_chromium_xss
 
-use lonkero::http_client::HttpClient;
-use lonkero::scanners::chromium_xss_scanner::ChromiumXssScanner;
-use lonkero::types::{ScanConfig, ScanMode};
+use lonkero_scanner::http_client::HttpClient;
+use lonkero_scanner::scanners::chromium_xss_scanner::ChromiumXssScanner;
+use lonkero_scanner::types::{ScanConfig, ScanMode};
 use std::sync::Arc;
 
 #[tokio::main]

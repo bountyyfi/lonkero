@@ -321,6 +321,113 @@ impl Default for FeatureExtractor {
     }
 }
 
+impl VulnFeatures {
+    /// Create GDPR-compliant features from vulnerability metadata only
+    /// No raw response data is stored - only statistical features extracted from
+    /// already-existing vulnerability evidence and description fields
+    ///
+    /// This method is safe to use without storing any PII or response data
+    pub fn from_vulnerability(vuln: &crate::types::Vulnerability) -> Self {
+        let evidence = vuln.evidence.as_deref().unwrap_or("");
+        let description = &vuln.description;
+        let evidence_lower = evidence.to_lowercase();
+        let desc_lower = description.to_lowercase();
+        let combined_lower = format!("{} {}", evidence_lower, desc_lower);
+
+        // SQL error patterns
+        let sql_patterns = [
+            "sql syntax", "mysql", "ora-", "postgresql", "sqlite",
+            "sqlstate", "syntax error", "quotation", "ole db", "odbc",
+        ];
+        let has_sql_error = sql_patterns.iter().any(|p| combined_lower.contains(p));
+
+        // Stack trace patterns
+        let stack_patterns = [
+            "at line", "stack trace", "traceback", "exception in",
+            ".java:", ".py:", ".php:", ".rb:", "at object.",
+        ];
+        let has_stack_trace = stack_patterns.iter().any(|p| combined_lower.contains(p));
+
+        // Path disclosure patterns
+        let path_patterns = [
+            "/var/www", "/home/", "c:\\", "d:\\", "/usr/",
+            "/opt/", "wwwroot", "htdocs", "public_html",
+        ];
+        let has_path_disclosure = path_patterns.iter().any(|p| evidence_lower.contains(p) || desc_lower.contains(p));
+
+        // Content type detection from vuln type/category
+        let vuln_type_lower = vuln.vuln_type.to_lowercase();
+        let category_lower = vuln.category.to_lowercase();
+
+        let has_html = vuln_type_lower.contains("xss") || vuln_type_lower.contains("html");
+        let has_json = category_lower.contains("api") || vuln_type_lower.contains("json");
+        let has_xml = vuln_type_lower.contains("xml") || vuln_type_lower.contains("xxe");
+        let has_javascript = vuln_type_lower.contains("xss") || vuln_type_lower.contains("dom");
+
+        // Reflection detection from evidence
+        let payload_reflected = evidence_lower.contains("reflected") ||
+            evidence_lower.contains("payload") ||
+            vuln.payload.as_ref().map(|p| evidence.contains(p)).unwrap_or(false);
+
+        let reflection_in_attribute = evidence_lower.contains("attribute") ||
+            evidence_lower.contains("=\"") || evidence_lower.contains("='");
+
+        let reflection_in_script = evidence_lower.contains("<script") ||
+            evidence_lower.contains("javascript:");
+
+        // Behavioral indicators from description
+        let timing_anomaly = desc_lower.contains("time") && (
+            desc_lower.contains("delay") || desc_lower.contains("slow") || desc_lower.contains("ms")
+        );
+
+        let differs_from_baseline = desc_lower.contains("different") ||
+            desc_lower.contains("changed") || desc_lower.contains("baseline");
+
+        // API endpoint detection from URL
+        let url_lower = vuln.url.to_lowercase();
+        let is_api_endpoint = url_lower.contains("/api/") ||
+            url_lower.contains("/graphql") ||
+            url_lower.contains("/v1/") ||
+            url_lower.contains("/v2/") ||
+            url_lower.contains("/rest/");
+
+        // Auth detection from evidence/description
+        let has_auth_headers = desc_lower.contains("authorization") ||
+            desc_lower.contains("auth header") ||
+            desc_lower.contains("bearer");
+
+        let has_session_cookie = desc_lower.contains("session") ||
+            desc_lower.contains("cookie");
+
+        Self {
+            // Use placeholder values since we don't have raw response
+            status_code: if vuln.verified { 200 } else { 0 },
+            response_length: evidence.len(),
+            response_time_ms: if timing_anomaly { 5000 } else { 100 },
+            has_html,
+            has_json,
+            has_xml,
+            has_javascript,
+            has_sql_error,
+            has_stack_trace,
+            has_debug_info: desc_lower.contains("debug") || evidence_lower.contains("debug"),
+            has_path_disclosure,
+            payload_reflected,
+            reflection_count: if payload_reflected { 1 } else { 0 },
+            reflection_in_attribute,
+            reflection_in_script,
+            reflection_encoded: evidence_lower.contains("encoded") || evidence_lower.contains("&lt;"),
+            differs_from_baseline,
+            timing_anomaly,
+            status_changed: false, // Can't determine without baseline
+            length_changed_significantly: false, // Can't determine without baseline
+            is_api_endpoint,
+            has_auth_headers,
+            has_session_cookie,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

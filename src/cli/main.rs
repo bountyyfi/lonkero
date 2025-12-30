@@ -1081,40 +1081,52 @@ async fn run_scan(
     let elapsed = start_time.elapsed();
 
     // ML Auto-Learning: Process scan results for ML training (GDPR-compliant)
+    // Features are extracted from vulnerability metadata only - no raw response data stored
     {
-        use lonkero_scanner::ml::MlPipeline;
+        use lonkero_scanner::ml::{MlPipeline, VulnFeatures};
         match MlPipeline::new() {
             Ok(mut ml_pipeline) => {
                 if ml_pipeline.is_enabled() {
                     info!("[ML] Processing {} vulnerabilities for auto-learning", total_vulns);
 
-                    // Process each vulnerability with its pre-extracted ML features
+                    // Process each vulnerability - auto-extract features if not attached
                     let mut ml_processed = 0;
-                    let mut ml_with_data = 0;
+                    let mut ml_with_scanner_data = 0;
+                    let mut ml_auto_extracted = 0;
+
                     for result in &all_results {
                         for vuln in &result.vulnerabilities {
-                            if let Some(features) = vuln.get_ml_features() {
-                                // Vulnerability has ML features attached - process it
-                                ml_with_data += 1;
-                                match ml_pipeline.process_features(vuln, features).await {
-                                    Ok(true) => {
-                                        ml_processed += 1;
-                                    }
-                                    Ok(false) => {
-                                        // ML skipped this finding
-                                    }
-                                    Err(e) => {
-                                        debug!("[ML] Failed to process finding: {}", e);
-                                    }
+                            // Try to use scanner-attached features first (more accurate)
+                            let features = if let Some(f) = vuln.get_ml_features() {
+                                ml_with_scanner_data += 1;
+                                f.clone()
+                            } else {
+                                // GDPR-compliant: Extract features from vulnerability metadata only
+                                // No raw response data is stored - only statistical patterns
+                                ml_auto_extracted += 1;
+                                VulnFeatures::from_vulnerability(vuln)
+                            };
+
+                            // Process the features for ML learning
+                            match ml_pipeline.process_features(vuln, &features).await {
+                                Ok(true) => {
+                                    ml_processed += 1;
+                                }
+                                Ok(false) => {
+                                    // ML skipped this finding (e.g., low confidence)
+                                }
+                                Err(e) => {
+                                    debug!("[ML] Failed to process finding: {}", e);
                                 }
                             }
                         }
                     }
 
-                    if ml_with_data > 0 {
-                        info!("[ML] Processed {}/{} vulnerabilities with ML features", ml_processed, ml_with_data);
-                    } else {
-                        debug!("[ML] No vulnerabilities had ML features attached (scanners need to use with_ml_data())");
+                    if ml_processed > 0 {
+                        info!(
+                            "[ML] Processed {} vulnerabilities ({} from scanners, {} auto-extracted)",
+                            ml_processed, ml_with_scanner_data, ml_auto_extracted
+                        );
                     }
 
                     // Signal scan completion to trigger federated sync
