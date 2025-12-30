@@ -1389,7 +1389,7 @@ async fn execute_standalone_scan(
     config: &ScannerConfig,
 ) -> Result<ScanResults> {
     use lonkero_scanner::crawler::WebCrawler;
-    use lonkero_scanner::headless_crawler::HeadlessCrawler;
+    use lonkero_scanner::headless_crawler::{HeadlessCrawler, should_use_headless};
     use lonkero_scanner::framework_detector::FrameworkDetector;
     
     use lonkero_scanner::types::Vulnerability;
@@ -1549,6 +1549,79 @@ async fn execute_standalone_scan(
         t.contains("cloudflare pages") || t.contains("vercel") || t.contains("netlify") ||
         t.contains("github pages")
     );
+
+    // ==========================================================================
+    // HEADLESS CRAWLER ENHANCEMENT (v3.0)
+    // Automatically switch to headless crawling for SPAs and JS-heavy sites
+    // Uses weighted scoring to decide when static crawling isn't enough
+    // ==========================================================================
+    if scan_config.enable_crawler && !is_static_site {
+        if let Some(ref static_crawl_results) = crawl_results {
+            // Fetch HTML for additional trigger signals
+            let html_content: Option<String> = match http_client.get(target).await {
+                Ok(response) => Some(response.body),
+                Err(_) => None,
+            };
+
+            if should_use_headless(static_crawl_results, &detected_technologies, html_content.as_deref()) {
+                info!("[HeadlessCrawler] Switching to headless crawling for enhanced SPA discovery");
+
+                let headless = HeadlessCrawler::new(30); // 30 second timeout
+                let max_pages = scan_config.max_pages.min(50) as usize; // Cap at 50 pages
+
+                match headless.crawl_authenticated_site(target, max_pages).await {
+                    Ok(headless_results) => {
+                        info!("[HeadlessCrawler] Headless crawl complete:");
+                        info!("    - Pages visited: {}", headless_results.pages_visited.len());
+                        info!("    - Forms discovered: {}", headless_results.forms.len());
+                        info!("    - API endpoints found: {}", headless_results.api_endpoints.len());
+
+                        // Merge headless results into static crawl results
+                        if let Some(ref mut results) = crawl_results {
+                            headless_results.merge_into(results);
+                            results.deduplicate_forms();
+
+                            // Update discovered forms and params with merged data
+                            for form in &results.forms {
+                                let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
+                                    .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
+                                                   !input.input_type.eq_ignore_ascii_case("submit") &&
+                                                   !input.name.is_empty())
+                                    .cloned()
+                                    .collect();
+
+                                if is_language_selector_form(&form_inputs, &form.action) {
+                                    continue;
+                                }
+
+                                if !form_inputs.is_empty() {
+                                    let action_url = if form.action.is_empty() {
+                                        target.to_string()
+                                    } else {
+                                        form.action.clone()
+                                    };
+
+                                    // Only add if not already discovered
+                                    if !discovered_forms.iter().any(|(url, _)| url == &action_url) {
+                                        let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
+                                        discovered_forms.push((action_url, form_inputs));
+                                        discovered_params.extend(param_names);
+                                    }
+                                }
+                            }
+
+                            info!("[HeadlessCrawler] After merge: {} total forms, {} total params",
+                                  discovered_forms.len(), discovered_params.len());
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[HeadlessCrawler] Headless crawl failed: {}", e);
+                        // Continue with static results - don't fail the entire scan
+                    }
+                }
+            }
+        }
+    }
 
     // ==========================================================================
     // INTELLIGENT SCAN ORCHESTRATION (v3.0)
@@ -2246,18 +2319,32 @@ async fn execute_standalone_scan(
             }
         };
 
-        // THEN: Test URL with Chromium-based XSS detection (runs ONCE per URL, not per-parameter)
+        // THEN: Test URL with Chromium-based XSS detection (runs on target + ALL crawled URLs)
         // Uses real browser execution to detect reflected, DOM, and stored XSS
         // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
         // XSS requires Professional+ license
         if scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER) {
             if !is_graphql_only {
-                info!("  - Testing XSS with Chromium (real browser execution)");
-                let (vulns, tests) = engine.chromium_xss_scanner
-                    .scan(target, scan_config, engine.shared_browser.as_ref())
-                    .await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
+                // Collect all URLs to test: target + crawled URLs (deduplicated)
+                let mut xss_urls_to_test: Vec<String> = vec![target.to_string()];
+                if let Some(ref crawl_data) = crawl_results {
+                    for crawled_url in &crawl_data.crawled_urls {
+                        if crawled_url != target && !xss_urls_to_test.contains(crawled_url) {
+                            xss_urls_to_test.push(crawled_url.clone());
+                        }
+                    }
+                }
+
+                info!("  - Testing XSS with Chromium (real browser execution) on {} URLs", xss_urls_to_test.len());
+
+                for (idx, xss_url) in xss_urls_to_test.iter().enumerate() {
+                    info!("    [XSS] Testing URL {}/{}: {}", idx + 1, xss_urls_to_test.len(), xss_url);
+                    let (vulns, tests) = engine.chromium_xss_scanner
+                        .scan(xss_url, scan_config, engine.shared_browser.as_ref())
+                        .await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests as u64;
+                }
             } else {
                 info!("  - Skipping XSS - GraphQL backend returns JSON, not HTML");
             }
