@@ -184,7 +184,18 @@ impl AutoLearner {
         let mut confidence = 0.0f32;
         let mut evidence = None;
 
-        // 1. Check for verified exploitation evidence
+        // PRIORITY 1: Browser-verified XSS (Chromium scanner with real JS execution)
+        // This is the ONLY scanner with undeniable proof - actual JavaScript execution
+        if self.is_browser_verified_xss(vuln) {
+            return AutoVerification {
+                status: VerificationStatus::Confirmed,
+                confidence: 0.99, // Near-certain - real browser execution
+                reasons: vec!["Browser-verified XSS: JavaScript executed in Chromium".to_string()],
+                evidence: Some(format!("Real browser execution at {}", vuln.url)),
+            };
+        }
+
+        // 2. Check for verified exploitation evidence (weaker than browser verification)
         let exploitation = self.check_exploitation_evidence(
             &vuln.vuln_type,
             response,
@@ -391,6 +402,41 @@ impl AutoLearner {
         }
     }
 
+    /// Check if this is a browser-verified XSS finding from Chromium scanner
+    /// This is the ONLY scanner we fully trust - real JavaScript execution proof
+    fn is_browser_verified_xss(&self, vuln: &Vulnerability) -> bool {
+        let vuln_type_upper = vuln.vuln_type.to_uppercase();
+
+        // Chromium XSS scanner marks findings with "(CONFIRMED)"
+        // e.g., "Reflected XSS (CONFIRMED)", "Stored XSS (CONFIRMED)"
+        if vuln_type_upper.contains("XSS") && vuln_type_upper.contains("CONFIRMED") {
+            return true;
+        }
+
+        // Also check evidence for browser execution markers
+        if let Some(ref evidence) = vuln.evidence {
+            let evidence_lower = evidence.to_lowercase();
+            // Chromium scanner adds these markers when JS actually executes
+            if evidence_lower.contains("javascript executed") ||
+               evidence_lower.contains("dialog intercepted") ||
+               evidence_lower.contains("alert triggered") ||
+               evidence_lower.contains("real browser") ||
+               evidence_lower.contains("chromium") {
+                return true;
+            }
+        }
+
+        // Check description for browser execution proof
+        let desc_lower = vuln.description.to_lowercase();
+        if desc_lower.contains("real browser") ||
+           desc_lower.contains("browser context") ||
+           desc_lower.contains("javascript executed") {
+            return true;
+        }
+
+        false
+    }
+
     /// Analyze scanner's own confidence assessment
     fn analyze_scanner_confidence(&self, vuln: &Vulnerability) -> f32 {
         let base = match vuln.confidence {
@@ -399,9 +445,15 @@ impl AutoLearner {
             Confidence::Low => 0.3,
         };
 
-        // Boost for verified flag
+        // Browser-verified XSS gets maximum confidence
+        if self.is_browser_verified_xss(vuln) {
+            return 0.99;
+        }
+
+        // Other verified findings get high but not maximum confidence
+        // Because only browser execution is undeniable proof
         if vuln.verified {
-            return 0.95;
+            return 0.85; // Reduced from 0.95 - not as trustworthy as browser proof
         }
 
         base
@@ -479,40 +531,52 @@ impl AutoLearner {
         vuln: &Vulnerability,
         features: &super::VulnFeatures,
     ) -> AutoVerification {
+        // PRIORITY 1: Browser-verified XSS - the ONLY undeniable proof
+        if self.is_browser_verified_xss(vuln) {
+            return AutoVerification {
+                status: VerificationStatus::Confirmed,
+                confidence: 0.99,
+                reasons: vec!["Browser-verified XSS: JavaScript executed in Chromium".to_string()],
+                evidence: Some(format!("Real browser execution at {}", vuln.url)),
+            };
+        }
+
         let mut confidence = 0.5f32;
         let mut reasons = Vec::new();
 
-        // Check SQL error patterns
+        // Check SQL error patterns (strong but not undeniable)
         if features.has_sql_error {
-            confidence += 0.3;
+            confidence += 0.25; // Reduced from 0.3 - could be pre-existing error
             reasons.push("SQL error detected".to_string());
         }
 
-        // Check payload reflection
+        // Check payload reflection (medium signal)
         if features.payload_reflected {
-            confidence += 0.2;
+            confidence += 0.15; // Reduced from 0.2 - reflection != execution
             reasons.push("Payload reflected".to_string());
         }
 
-        // Check response differences
+        // Check response differences (weak signal)
         if features.differs_from_baseline {
-            confidence += 0.15;
+            confidence += 0.1; // Reduced from 0.15 - could be coincidental
             reasons.push("Response differs from baseline".to_string());
         }
 
-        // Check timing anomaly
+        // Check timing anomaly (medium signal for blind injection)
         if features.timing_anomaly {
-            confidence += 0.2;
+            confidence += 0.15; // Reduced from 0.2 - network latency exists
             reasons.push("Timing anomaly detected".to_string());
         }
 
-        // Check stack trace
+        // Check stack trace (information disclosure, not exploitation proof)
         if features.has_stack_trace {
-            confidence += 0.15;
+            confidence += 0.1; // Reduced from 0.15
             reasons.push("Stack trace exposed".to_string());
         }
 
-        let status = if confidence > 0.75 {
+        // Raise threshold - we're more conservative now
+        // Only browser-verified XSS should easily reach Confirmed
+        let status = if confidence > 0.85 {  // Raised from 0.75
             VerificationStatus::Confirmed
         } else if confidence < 0.35 {
             VerificationStatus::FalsePositive
