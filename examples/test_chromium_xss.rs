@@ -2,7 +2,7 @@
 // Run with: cargo run --example test_chromium_xss
 
 use lonkero_scanner::http_client::HttpClient;
-use lonkero_scanner::scanners::chromium_xss_scanner::ChromiumXssScanner;
+use lonkero_scanner::scanners::chromium_xss_scanner::{ChromiumXssScanner, SharedBrowser};
 use lonkero_scanner::types::{ScanConfig, ScanMode};
 use std::sync::Arc;
 
@@ -15,8 +15,11 @@ async fn main() {
 
     println!("Testing Chromium XSS Scanner against training endpoint...\n");
 
-    let http_client = Arc::new(HttpClient::new().unwrap());
+    let http_client = Arc::new(HttpClient::new(30, 3).unwrap());
     let scanner = ChromiumXssScanner::new(http_client);
+
+    // Create shared browser for efficient testing
+    let shared_browser = SharedBrowser::new().expect("Failed to launch browser");
 
     let config = ScanConfig {
         scan_mode: ScanMode::Intelligent,
@@ -28,7 +31,7 @@ async fn main() {
 
     println!("Target: {}\n", url);
 
-    match scanner.scan(url, &config).await {
+    match scanner.scan(url, &config, Some(&shared_browser)).await {
         Ok((vulns, tests)) => {
             println!("\n=== Results ===");
             println!("Tests run: {}", tests);

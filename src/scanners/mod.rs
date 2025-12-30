@@ -23,8 +23,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
-pub mod xss_detection;
-pub mod xss_enhanced;
 pub mod sqli_enhanced;
 pub mod baseline_detector;
 pub mod command_injection;
@@ -130,7 +128,6 @@ pub mod cognito_enum;
 pub mod dom_clobbering;
 pub mod subdomain_takeover;
 pub mod password_reset_poisoning;
-pub mod dom_xss_scanner;
 pub mod chromium_xss_scanner;
 pub mod account_takeover;
 pub mod api_versioning;
@@ -154,7 +151,6 @@ pub mod nis2_scanner;
 pub mod external;
 
 // Re-export scanner types for easy access
-pub use xss_enhanced::EnhancedXssScanner as XssScanner;
 pub use sqli_enhanced::EnhancedSqliScanner as SqliScanner;
 pub use command_injection::CommandInjectionScanner;
 pub use path_traversal::PathTraversalScanner;
@@ -262,8 +258,7 @@ pub use host_header_injection::HostHeaderInjectionScanner;
 pub use cognito_enum::CognitoEnumScanner;
 pub use subdomain_takeover::{SubdomainTakeoverScanner, scan_subdomain_takeover};
 pub use password_reset_poisoning::PasswordResetPoisoningScanner;
-pub use dom_xss_scanner::{DomXssScanner, DomSource, DomSink, SourceToSinkFlow};
-pub use chromium_xss_scanner::ChromiumXssScanner;
+pub use chromium_xss_scanner::{ChromiumXssScanner, SharedBrowser};
 pub use twofa_bypass::TwoFaBypassScanner;
 pub use account_takeover::AccountTakeoverScanner;
 pub use openapi_analyzer::OpenApiAnalyzer;
@@ -291,7 +286,8 @@ pub struct ScanEngine {
     pub request_batcher: Option<Arc<crate::request_batcher::RequestBatcher>>,
     pub adaptive_concurrency: Option<Arc<crate::adaptive_concurrency::AdaptiveConcurrencyTracker>>,
     pub dns_cache: Option<Arc<crate::dns_cache::DnsCache>>,
-    pub xss_scanner: XssScanner,
+    /// Shared browser instance for Chromium-based scanning (XSS, DOM analysis)
+    pub shared_browser: Option<SharedBrowser>,
     pub chromium_xss_scanner: ChromiumXssScanner,
     pub sqli_scanner: SqliScanner,
     pub cmdi_scanner: CommandInjectionScanner,
@@ -487,11 +483,23 @@ impl ScanEngine {
             None
         };
 
+        // Initialize shared browser for Chromium-based XSS detection
+        let shared_browser = match SharedBrowser::new() {
+            Ok(browser) => {
+                info!("[SUCCESS] Shared browser initialized for XSS detection");
+                Some(browser)
+            }
+            Err(e) => {
+                warn!("[WARNING] Failed to initialize shared browser: {}. XSS detection will create browser per-scan.", e);
+                None
+            }
+        };
+
         Ok(Self {
             request_batcher,
             adaptive_concurrency,
             dns_cache,
-            xss_scanner: XssScanner::new(Arc::clone(&http_client)),
+            shared_browser,
             chromium_xss_scanner: ChromiumXssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
@@ -864,27 +872,6 @@ impl ScanEngine {
                     break;
                 }
 
-                // XSS Testing (Professional+)
-                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
-                    let (xss_vulns, xss_tests) = self.xss_scanner
-                        .scan_parameter(&target, param_name, &config, None)
-                        .await?;
-                    all_vulnerabilities.extend(xss_vulns);
-                    total_tests += xss_tests as u64;
-                    modules_used.push(crate::modules::ids::advanced_scanning::XSS_SCANNER.to_string());
-
-                    // Update progress
-                    queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
-
-                    // Chromium-based XSS detection (real browser execution)
-                    let (chromium_xss_vulns, chromium_xss_tests) = self.chromium_xss_scanner
-                        .scan(&target, &config)
-                        .await?;
-                    all_vulnerabilities.extend(chromium_xss_vulns);
-                    total_tests += chromium_xss_tests as u64;
-                    queue.increment_tests(scan_id.clone(), chromium_xss_tests as u64).await?;
-                }
-
                 // SQLi Testing (Professional+, skip if CDN protected)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SQLI_SCANNER)
                     && !self.should_skip_scanner("sqli", &cdn_info)
@@ -999,6 +986,21 @@ impl ScanEngine {
             }
         }
 
+        // Chromium-based XSS Detection (runs ONCE per URL, not per-parameter)
+        // Uses real browser execution to detect reflected, DOM, and stored XSS
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER)
+            && !self.should_terminate_early(&all_vulnerabilities)
+        {
+            info!("[Chromium-XSS] Running real browser XSS detection on: {}", target);
+            let (chromium_xss_vulns, chromium_xss_tests) = self.chromium_xss_scanner
+                .scan(&target, &config, self.shared_browser.as_ref())
+                .await?;
+            all_vulnerabilities.extend(chromium_xss_vulns);
+            total_tests += chromium_xss_tests as u64;
+            modules_used.push(crate::modules::ids::advanced_scanning::XSS_SCANNER.to_string());
+            queue.increment_tests(scan_id.clone(), chromium_xss_tests as u64).await?;
+        }
+
         // Phase 1b: Test discovered API endpoints from JavaScript
         let api_endpoints: Vec<String> = crawl_results.api_endpoints.iter().cloned().collect();
         if !api_endpoints.is_empty() {
@@ -1039,16 +1041,6 @@ impl ScanEngine {
                         break;
                     }
 
-                    // XSS on API endpoint (Professional+)
-                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
-                        let (xss_vulns, xss_tests) = self.xss_scanner
-                            .scan_parameter(&full_url, param, &config, None)
-                            .await?;
-                        all_vulnerabilities.extend(xss_vulns);
-                        total_tests += xss_tests as u64;
-                        queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
-                    }
-
                     // SQLi on API endpoint (Professional+)
                     if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SQLI_SCANNER)
                         && !self.should_skip_scanner("sqli", &cdn_info)
@@ -1062,22 +1054,6 @@ impl ScanEngine {
                     }
                 }
 
-                // Also test with common API parameters
-                for param in &["id", "user_id", "email", "query", "search", "filter", "sort"] {
-                    if self.should_terminate_early(&all_vulnerabilities) {
-                        break;
-                    }
-
-                    // XSS on API endpoint (Professional+)
-                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
-                        let (xss_vulns, xss_tests) = self.xss_scanner
-                            .scan_parameter(&full_url, param, &config, None)
-                            .await?;
-                        all_vulnerabilities.extend(xss_vulns);
-                        total_tests += xss_tests as u64;
-                        queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
-                    }
-                }
             }
         }
 
@@ -2070,18 +2046,16 @@ impl ScanEngine {
             match self.crawl_target(&target, config.max_depth).await {
                 Ok(discovered_urls) => {
                     info!("Crawler discovered {} additional URLs", discovered_urls.len());
-                    for discovered_url in discovered_urls {
-                        let url_data = match self.parse_target_url(&discovered_url) {
-                            Ok(data) => data,
-                            Err(e) => {
-                                warn!("Failed to parse discovered URL {}: {}", discovered_url, e);
-                                continue;
-                            }
-                        };
 
-                        for (param_name, _) in &url_data.parameters {
-                            let (vulns, tests) = self.xss_scanner
-                                .scan_parameter(&discovered_url, param_name, &config, None)
+                    // Run Chromium XSS on discovered URLs (limit to 10 for performance)
+                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
+                        for discovered_url in discovered_urls.iter().take(10) {
+                            if self.should_terminate_early(&all_vulnerabilities) {
+                                break;
+                            }
+
+                            let (vulns, tests) = self.chromium_xss_scanner
+                                .scan(discovered_url, &config, self.shared_browser.as_ref())
                                 .await?;
                             all_vulnerabilities.extend(vulns);
                             total_tests += tests as u64;

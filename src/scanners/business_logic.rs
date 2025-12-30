@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-use crate::http_client::HttpClient;
+use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use crate::detection_helpers::did_payload_have_effect;
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -124,6 +125,12 @@ impl BusinessLogicScanner {
 
         debug!("Testing negative value handling");
 
+        // Get baseline response first for comparison
+        let baseline_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
         let negative_tests = vec![
             ("quantity", "-1"),
             ("quantity", "-10"),
@@ -142,7 +149,8 @@ impl BusinessLogicScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if self.detect_negative_value_accepted(&response.body, param, value) {
+                    // CRITICAL: Pass baseline body to avoid false positives
+                    if self.detect_negative_value_accepted(&response.body, &baseline_response.body, param, value) {
                         info!("Negative/invalid value accepted: {}={}", param, value);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -172,6 +180,12 @@ impl BusinessLogicScanner {
 
         debug!("Testing workflow bypass");
 
+        // Get baseline response first for comparison
+        let baseline_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
         let workflow_tests = vec![
             ("step", "10"),  // Skip to final step
             ("status", "completed"),
@@ -188,7 +202,8 @@ impl BusinessLogicScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if self.detect_workflow_bypass(&response.body, value) {
+                    // CRITICAL: Pass baseline body to avoid false positives
+                    if self.detect_workflow_bypass_with_baseline(&response.body, &baseline_response.body, value) {
                         info!("Workflow bypass detected: {}={}", param, value);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -1938,28 +1953,34 @@ impl BusinessLogicScanner {
         accepted && no_error
     }
 
-    /// Detect if negative value was accepted
-    fn detect_negative_value_accepted(&self, body: &str, param: &str, value: &str) -> bool {
+    /// Detect if negative value was accepted - REQUIRES baseline comparison
+    fn detect_negative_value_accepted(&self, body: &str, baseline_body: &str, param: &str, value: &str) -> bool {
         let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
 
-        // Check if value appears in response as accepted
-        if body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) ||
-           body_lower.contains(&format!("\"{}\":{}", param, value)) ||
-           body_lower.contains(&format!("'{}':'{}'", param, value)) {
+        // Check if value appears in response as accepted (only if NEW, not in baseline)
+        let value_in_response =
+            (body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) &&
+             !baseline_lower.contains(&format!("\"{}\":\"{}\"", param, value))) ||
+            (body_lower.contains(&format!("\"{}\":{}", param, value)) &&
+             !baseline_lower.contains(&format!("\"{}\":{}", param, value)));
+
+        if value_in_response {
             return true;
         }
 
-        // Check for success indicators
-        let success_indicators = vec![
-            "success",
-            "updated",
-            "saved",
-            "accepted",
-            "confirmed",
+        // CRITICAL: Don't just check for generic "success" - require BOTH:
+        // 1. The response is different from baseline
+        // 2. A transaction-specific success indicator
+        let transaction_success = vec![
+            "transaction complete",
+            "order placed",
+            "payment processed",
+            "balance updated",
         ];
 
-        for indicator in success_indicators {
-            if body_lower.contains(indicator) {
+        for indicator in &transaction_success {
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
                 return true;
             }
         }
@@ -1967,24 +1988,24 @@ impl BusinessLogicScanner {
         false
     }
 
-    /// Detect workflow bypass
-    fn detect_workflow_bypass(&self, body: &str, target_state: &str) -> bool {
+    /// Detect workflow bypass - REQUIRES baseline comparison
+    fn detect_workflow_bypass_with_baseline(&self, body: &str, baseline_body: &str, target_state: &str) -> bool {
         let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
         let target_lower = target_state.to_lowercase();
 
-        // Check if target state is reflected
-        if body_lower.contains(&target_lower) {
-            // Check for success indicators
+        // Check if target state is reflected AND is NEW (not in baseline)
+        if body_lower.contains(&target_lower) && !baseline_lower.contains(&target_lower) {
+            // Check for NEW workflow completion indicators
             let success_indicators = vec![
-                "completed",
-                "success",
-                "confirmed",
-                "approved",
-                "verified",
+                "step completed",
+                "workflow complete",
+                "order confirmed",
+                "process finished",
             ];
 
-            for indicator in success_indicators {
-                if body_lower.contains(indicator) {
+            for indicator in &success_indicators {
+                if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
                     return true;
                 }
             }

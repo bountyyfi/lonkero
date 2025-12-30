@@ -2154,13 +2154,6 @@ async fn execute_standalone_scan(
                             (base_body.clone(), Some("application/x-www-form-urlencoded"))
                         };
 
-                        // XSS on form field
-                        let (vulns, tests) = engine.xss_scanner.scan_post_body(
-                            test_url, &input.name, &body_to_test, content_type, scan_config
-                        ).await?;
-                        all_vulnerabilities.extend(vulns);
-                        total_tests += tests as u64;
-
                         // SQLi on form field (if not static)
                         if !is_static_site {
                             let (vulns, tests) = engine.sqli_scanner.scan_post_body(
@@ -2226,26 +2219,20 @@ async fn execute_standalone_scan(
             }
         };
 
-        // THEN: Test URL parameters with GET (original behavior)
+        // THEN: Test URL with Chromium-based XSS detection (runs ONCE per URL, not per-parameter)
+        // Uses real browser execution to detect reflected, DOM, and stored XSS
         // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
-        // GraphQL APIs return JSON, not HTML, so XSS payloads won't be reflected
         // XSS requires Professional+ license
         if scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER) {
             if !is_graphql_only {
-                info!("  - Testing XSS ({} parameters)", test_params.len());
-                for (param_name, _) in &test_params {
-                    let context = build_scan_context(param_name);
-                    // In Intelligent mode, log per-parameter intensity
-                    let intensity = get_param_intensity(param_name);
-                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
-                           param_name, intensity, intensity.payload_limit());
-                    let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config, Some(&context)).await?;
-                    all_vulnerabilities.extend(vulns);
-                    total_tests += tests as u64;
-                }
+                info!("  - Testing XSS with Chromium (real browser execution)");
+                let (vulns, tests) = engine.chromium_xss_scanner
+                    .scan(target, scan_config, engine.shared_browser.as_ref())
+                    .await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
             } else {
-                info!("  - Skipping XSS ({} parameters) - GraphQL backend returns JSON, not HTML",
-                      test_params.len());
+                info!("  - Skipping XSS - GraphQL backend returns JSON, not HTML");
             }
         } else {
             info!("  [SKIP] XSS scanner requires Professional or higher license");
