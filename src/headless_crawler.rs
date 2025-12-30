@@ -2225,7 +2225,7 @@ pub struct GraphQLOperation {
 }
 
 /// Detected login form with auto-fill capability
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DetectedLoginForm {
     /// URL where the login form was found
     pub url: String,
@@ -2811,6 +2811,518 @@ impl HeadlessCrawler {
         results.links_found = to_visit.into_iter().collect();
 
         Ok(results)
+    }
+
+    /// Detect login forms on a page
+    /// Returns detected login forms with selectors for auto-fill
+    pub async fn detect_login_forms(&self, url: &str) -> Result<Vec<DetectedLoginForm>> {
+        info!("[Headless] Detecting login forms on: {}", url);
+
+        let url_owned = url.to_string();
+        let timeout = self.timeout;
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::detect_login_forms_sync(&url_owned, timeout)
+        })
+        .await
+        .context("Login form detection task panicked")??;
+
+        if !result.is_empty() {
+            info!("[Headless] Detected {} login form(s)", result.len());
+        }
+
+        Ok(result)
+    }
+
+    /// Synchronous login form detection
+    fn detect_login_forms_sync(url: &str, timeout: Duration) -> Result<Vec<DetectedLoginForm>> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch browser")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+        tab.navigate_to(url).context("Failed to navigate")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
+
+        // Wait for JS to render
+        std::thread::sleep(Duration::from_millis(1500));
+
+        // JavaScript to detect login forms
+        let detect_script = r#"
+            (function() {
+                const forms = [];
+
+                // Common login form patterns
+                const usernameSelectors = [
+                    'input[type="email"]',
+                    'input[name*="email" i]',
+                    'input[name*="username" i]',
+                    'input[name*="login" i]',
+                    'input[name*="user" i]',
+                    'input[id*="email" i]',
+                    'input[id*="username" i]',
+                    'input[id*="login" i]',
+                    'input[placeholder*="email" i]',
+                    'input[placeholder*="username" i]',
+                    'input[autocomplete="email"]',
+                    'input[autocomplete="username"]',
+                ];
+
+                const passwordSelectors = [
+                    'input[type="password"]',
+                    'input[name*="password" i]',
+                    'input[name*="passwd" i]',
+                    'input[id*="password" i]',
+                    'input[autocomplete="current-password"]',
+                    'input[autocomplete="new-password"]',
+                ];
+
+                const submitSelectors = [
+                    'button[type="submit"]',
+                    'input[type="submit"]',
+                    'button:contains("Login")',
+                    'button:contains("Sign in")',
+                    'button:contains("Log in")',
+                    '[class*="login" i][class*="btn" i]',
+                    '[class*="signin" i][class*="btn" i]',
+                    'button[class*="submit" i]',
+                ];
+
+                // OAuth provider patterns
+                const oauthPatterns = {
+                    'Google': [/accounts\.google\.com/, /oauth.*google/i, /google.*oauth/i, /Sign in with Google/i],
+                    'GitHub': [/github\.com.*oauth/, /oauth.*github/i, /Sign in with GitHub/i],
+                    'Microsoft': [/login\.microsoftonline\.com/, /oauth.*microsoft/i, /Sign in with Microsoft/i],
+                    'Okta': [/okta\.com/, /\/oauth2\//, /Sign in with Okta/i],
+                    'Auth0': [/auth0\.com/, /\/authorize\?/],
+                    'Facebook': [/facebook\.com.*oauth/, /Sign in with Facebook/i],
+                    'Apple': [/appleid\.apple\.com/, /Sign in with Apple/i],
+                    'AWS Cognito': [/cognito.*amazonaws\.com/, /amazoncognito/i],
+                };
+
+                // Find password fields first (most reliable indicator of login form)
+                document.querySelectorAll(passwordSelectors.join(', ')).forEach(passwordField => {
+                    // Find the form or container
+                    let container = passwordField.closest('form') || passwordField.closest('[class*="login" i]') ||
+                                   passwordField.closest('[class*="signin" i]') || passwordField.closest('[class*="auth" i]');
+
+                    if (!container) {
+                        // No form, look for nearby username field
+                        container = passwordField.parentElement?.parentElement?.parentElement;
+                    }
+
+                    if (!container) return;
+
+                    // Find username field in same container
+                    let usernameField = null;
+                    for (const sel of usernameSelectors) {
+                        usernameField = container.querySelector(sel);
+                        if (usernameField && usernameField !== passwordField) break;
+                    }
+
+                    // Fall back to any visible text input before password
+                    if (!usernameField) {
+                        const allInputs = container.querySelectorAll('input[type="text"], input[type="email"], input:not([type])');
+                        for (const inp of allInputs) {
+                            if (inp.offsetParent !== null && inp !== passwordField) {
+                                usernameField = inp;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!usernameField) return;
+
+                    // Find submit button
+                    let submitButton = null;
+                    for (const sel of submitSelectors) {
+                        try {
+                            submitButton = container.querySelector(sel);
+                            if (submitButton) break;
+                        } catch (e) {}
+                    }
+
+                    // Check for OAuth buttons/links
+                    let isOAuth = false;
+                    let oauthProvider = null;
+                    const containerHtml = container.innerHTML.toLowerCase();
+                    const links = container.querySelectorAll('a[href]');
+
+                    for (const [provider, patterns] of Object.entries(oauthPatterns)) {
+                        for (const pattern of patterns) {
+                            if (pattern.test(containerHtml)) {
+                                isOAuth = true;
+                                oauthProvider = provider;
+                                break;
+                            }
+                            for (const link of links) {
+                                if (pattern.test(link.href)) {
+                                    isOAuth = true;
+                                    oauthProvider = provider;
+                                    break;
+                                }
+                            }
+                            if (isOAuth) break;
+                        }
+                        if (isOAuth) break;
+                    }
+
+                    // Generate unique selector for username field
+                    const usernameSelector = usernameField.id ? '#' + CSS.escape(usernameField.id) :
+                                            usernameField.name ? `input[name="${CSS.escape(usernameField.name)}"]` :
+                                            generateSelector(usernameField);
+
+                    // Generate unique selector for password field
+                    const passwordSelector = passwordField.id ? '#' + CSS.escape(passwordField.id) :
+                                            passwordField.name ? `input[name="${CSS.escape(passwordField.name)}"]` :
+                                            'input[type="password"]';
+
+                    // Generate submit selector
+                    let submitSelector = null;
+                    if (submitButton) {
+                        submitSelector = submitButton.id ? '#' + CSS.escape(submitButton.id) :
+                                        submitButton.type === 'submit' ? '[type="submit"]' :
+                                        generateSelector(submitButton);
+                    }
+
+                    // Calculate confidence
+                    let confidence = 0.5;
+                    if (container.tagName === 'FORM') confidence += 0.2;
+                    if (usernameField.type === 'email' || usernameField.name?.includes('email')) confidence += 0.1;
+                    if (submitButton) confidence += 0.1;
+                    if (containerHtml.includes('login') || containerHtml.includes('sign in')) confidence += 0.1;
+
+                    forms.push({
+                        url: window.location.href,
+                        action: container.tagName === 'FORM' ? (container.action || window.location.href) : window.location.href,
+                        method: container.tagName === 'FORM' ? (container.method || 'POST').toUpperCase() : 'POST',
+                        usernameSelector: usernameSelector,
+                        passwordSelector: passwordSelector,
+                        submitSelector: submitSelector,
+                        isOAuth: isOAuth,
+                        oauthProvider: oauthProvider,
+                        confidence: Math.min(confidence, 1.0)
+                    });
+                });
+
+                // Helper to generate CSS selector
+                function generateSelector(el) {
+                    if (el.id) return '#' + CSS.escape(el.id);
+                    const path = [];
+                    while (el && el.nodeType === 1) {
+                        let selector = el.tagName.toLowerCase();
+                        if (el.className) {
+                            selector += '.' + el.className.split(/\s+/).filter(c => c).map(c => CSS.escape(c)).join('.');
+                        }
+                        path.unshift(selector);
+                        el = el.parentElement;
+                        if (path.length > 3) break;
+                    }
+                    return path.join(' > ');
+                }
+
+                return JSON.stringify(forms);
+            })()
+        "#;
+
+        let mut detected_forms = Vec::new();
+
+        if let Ok(result) = tab.evaluate(detect_script, true) {
+            if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Ok(forms) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                    for form in forms {
+                        let login_form = DetectedLoginForm {
+                            url: form.get("url").and_then(|v| v.as_str()).unwrap_or(url).to_string(),
+                            action: form.get("action").and_then(|v| v.as_str()).unwrap_or(url).to_string(),
+                            method: form.get("method").and_then(|v| v.as_str()).unwrap_or("POST").to_string(),
+                            username_selector: form.get("usernameSelector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            password_selector: form.get("passwordSelector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            submit_selector: form.get("submitSelector").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            is_oauth: form.get("isOAuth").and_then(|v| v.as_bool()).unwrap_or(false),
+                            oauth_provider: form.get("oauthProvider").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            confidence: form.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.5) as f32,
+                        };
+
+                        if !login_form.username_selector.is_empty() && !login_form.password_selector.is_empty() {
+                            debug!("[Headless] Found login form: username={}, password={}, confidence={}",
+                                login_form.username_selector, login_form.password_selector, login_form.confidence);
+                            detected_forms.push(login_form);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(detected_forms)
+    }
+
+    /// Attempt to login using detected form and provided credentials
+    /// Returns the auth token if login is successful
+    pub async fn attempt_login(
+        &self,
+        login_form: &DetectedLoginForm,
+        credentials: &LoginCredentials,
+    ) -> Result<LoginResult> {
+        info!("[Headless] Attempting login at: {}", login_form.url);
+
+        let form = login_form.clone();
+        let creds = credentials.clone();
+        let timeout = self.timeout;
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::attempt_login_sync(&form, &creds, timeout)
+        })
+        .await
+        .context("Login attempt task panicked")??;
+
+        if result.success {
+            info!("[Headless] Login successful! Token extracted: {}", result.token.is_some());
+        } else {
+            warn!("[Headless] Login failed: {:?}", result.error);
+        }
+
+        Ok(result)
+    }
+
+    /// Synchronous login attempt
+    fn attempt_login_sync(
+        form: &DetectedLoginForm,
+        credentials: &LoginCredentials,
+        timeout: Duration,
+    ) -> Result<LoginResult> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch browser")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+        tab.navigate_to(&form.url).context("Failed to navigate")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
+
+        // Wait for form to render
+        std::thread::sleep(Duration::from_millis(1500));
+
+        // Fill in username
+        let fill_username = format!(
+            r#"
+            (function() {{
+                const field = document.querySelector('{}');
+                if (!field) return 'Username field not found';
+                field.value = '{}';
+                field.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                field.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return 'ok';
+            }})()
+            "#,
+            form.username_selector.replace('\'', "\\'"),
+            credentials.username.replace('\'', "\\'")
+        );
+
+        if let Ok(result) = tab.evaluate(&fill_username, true) {
+            if let Some(s) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if s != "ok" {
+                    return Ok(LoginResult {
+                        success: false,
+                        token: None,
+                        cookies: HashMap::new(),
+                        redirect_url: None,
+                        error: Some(s),
+                    });
+                }
+            }
+        }
+
+        // Fill in password
+        let fill_password = format!(
+            r#"
+            (function() {{
+                const field = document.querySelector('{}');
+                if (!field) return 'Password field not found';
+                field.value = '{}';
+                field.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                field.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return 'ok';
+            }})()
+            "#,
+            form.password_selector.replace('\'', "\\'"),
+            credentials.password.replace('\'', "\\'")
+        );
+
+        if let Ok(result) = tab.evaluate(&fill_password, true) {
+            if let Some(s) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if s != "ok" {
+                    return Ok(LoginResult {
+                        success: false,
+                        token: None,
+                        cookies: HashMap::new(),
+                        redirect_url: None,
+                        error: Some(s),
+                    });
+                }
+            }
+        }
+
+        // Small delay to let any JS validation run
+        std::thread::sleep(Duration::from_millis(300));
+
+        // Submit the form
+        let submit_script = if let Some(ref submit_sel) = form.submit_selector {
+            format!(
+                r#"
+                (function() {{
+                    const btn = document.querySelector('{}');
+                    if (btn) {{
+                        btn.click();
+                        return 'clicked';
+                    }}
+                    // Fallback: submit form directly
+                    const form = document.querySelector('form');
+                    if (form) {{
+                        form.submit();
+                        return 'submitted';
+                    }}
+                    return 'no_submit';
+                }})()
+                "#,
+                submit_sel.replace('\'', "\\'")
+            )
+        } else {
+            r#"
+            (function() {
+                // Try Enter key on password field
+                const pwd = document.querySelector('input[type="password"]');
+                if (pwd) {
+                    pwd.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                    return 'enter';
+                }
+                // Fallback: submit form
+                const form = document.querySelector('form');
+                if (form) {
+                    form.submit();
+                    return 'submitted';
+                }
+                return 'no_submit';
+            })()
+            "#.to_string()
+        };
+
+        let _ = tab.evaluate(&submit_script, true);
+
+        // Wait for login to complete (navigation or AJAX)
+        std::thread::sleep(Duration::from_millis(3000));
+
+        // Check if we navigated somewhere new (success indicator)
+        let current_url = tab.get_url();
+        let redirected = current_url != form.url;
+
+        // Try to extract auth token from localStorage/sessionStorage
+        let extract_token = r#"
+            (function() {
+                const tokens = {};
+
+                // Check localStorage
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    const value = localStorage.getItem(key);
+                    if (key.toLowerCase().includes('token') ||
+                        key.toLowerCase().includes('jwt') ||
+                        key.toLowerCase().includes('auth') ||
+                        key.toLowerCase().includes('access')) {
+                        tokens[key] = value;
+                    }
+                }
+
+                // Check sessionStorage
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    const value = sessionStorage.getItem(key);
+                    if (key.toLowerCase().includes('token') ||
+                        key.toLowerCase().includes('jwt') ||
+                        key.toLowerCase().includes('auth') ||
+                        key.toLowerCase().includes('access')) {
+                        tokens['session_' + key] = value;
+                    }
+                }
+
+                return JSON.stringify(tokens);
+            })()
+        "#;
+
+        let mut extracted_token: Option<String> = None;
+        if let Ok(result) = tab.evaluate(extract_token, true) {
+            if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Ok(tokens) = serde_json::from_str::<HashMap<String, String>>(&json_str) {
+                    // Get the first token found
+                    for (key, value) in tokens {
+                        if !value.is_empty() && value.len() > 10 {
+                            debug!("[Headless] Found token in {}: {}...", key, &value[..value.len().min(20)]);
+                            extracted_token = Some(value);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Get cookies
+        let mut cookies = HashMap::new();
+        if let Ok(cookie_list) = tab.get_cookies() {
+            for cookie in cookie_list {
+                cookies.insert(cookie.name, cookie.value);
+            }
+        }
+
+        // Determine success
+        let success = extracted_token.is_some() || redirected || !cookies.is_empty();
+
+        Ok(LoginResult {
+            success,
+            token: extracted_token,
+            cookies,
+            redirect_url: if redirected { Some(current_url) } else { None },
+            error: if !success { Some("Login may have failed - no token or redirect detected".to_string()) } else { None },
+        })
+    }
+
+    /// Discover login pages by crawling common paths
+    pub async fn discover_login_pages(&self, base_url: &str) -> Result<Vec<String>> {
+        let common_login_paths = vec![
+            "/login",
+            "/signin",
+            "/sign-in",
+            "/auth/login",
+            "/auth/signin",
+            "/user/login",
+            "/account/login",
+            "/admin/login",
+            "/admin",
+            "/portal",
+            "/sso",
+            "/oauth",
+        ];
+
+        let base = base_url.trim_end_matches('/');
+        let mut login_pages = Vec::new();
+
+        for path in common_login_paths {
+            let url = format!("{}{}", base, path);
+            if let Ok(forms) = self.detect_login_forms(&url).await {
+                if !forms.is_empty() {
+                    login_pages.push(url);
+                }
+            }
+        }
+
+        Ok(login_pages)
     }
 }
 
