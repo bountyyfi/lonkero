@@ -228,7 +228,8 @@ impl FormSubmission {
 
         let mut hasher = DefaultHasher::new();
         self.action_url.hash(&mut hasher);
-        self.method.hash(&mut hasher);
+        // Normalize method to uppercase for consistent hashing (POST == post)
+        self.method.to_uppercase().hash(&mut hasher);
 
         // Sort field names for consistent hashing
         let mut names: Vec<_> = self.fields.iter().map(|f| &f.name).collect();

@@ -43,11 +43,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
 
 // ============================================================================
 // Configuration
@@ -1228,7 +1225,6 @@ impl StateTracker {
             current_state: None,
             csrf_tokens: HashMap::new(),
             detected_patterns: Vec::new(),
-            lock: Arc::new(Mutex::new(())),
         }
     }
 

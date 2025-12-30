@@ -1356,6 +1356,20 @@ pub struct AccessMatrix {
 }
 
 impl AccessMatrix {
+    /// Sanitize a CSV field to prevent CSV injection
+    /// Prefixes values starting with =, +, -, @, or tab with a single quote
+    fn sanitize_csv_field(field: &str) -> String {
+        let field = field.replace(',', "%2C").replace('"', "\"\"");
+        if field.starts_with('=') || field.starts_with('+') ||
+           field.starts_with('-') || field.starts_with('@') ||
+           field.starts_with('\t') || field.starts_with('\r') ||
+           field.starts_with('\n') {
+            format!("'{}", field)
+        } else {
+            field
+        }
+    }
+
     /// Export as CSV format
     pub fn to_csv(&self) -> String {
         let mut csv = String::new();
@@ -1364,20 +1378,20 @@ impl AccessMatrix {
         csv.push_str("URL");
         for role in &self.roles {
             csv.push(',');
-            csv.push_str(role);
+            csv.push_str(&Self::sanitize_csv_field(role));
         }
         csv.push('\n');
 
         // Data rows
         for entry in &self.entries {
-            csv.push_str(&entry.url.replace(',', "%2C"));
+            csv.push_str(&Self::sanitize_csv_field(&entry.url));
             for role in &self.roles {
                 csv.push(',');
                 let result = entry
                     .role_access
                     .get(role)
                     .unwrap_or(&AccessResult::NotTested);
-                csv.push_str(&result.to_string());
+                csv.push_str(&Self::sanitize_csv_field(&result.to_string()));
             }
             csv.push('\n');
         }

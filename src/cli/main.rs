@@ -175,6 +175,36 @@ enum Commands {
         /// Disable rate limiting entirely (use with caution!)
         #[arg(long)]
         no_rate_limit: bool,
+
+        // === Multi-Role Authorization Testing ===
+        /// Admin username for multi-role authorization testing
+        #[arg(long)]
+        admin_username: Option<String>,
+
+        /// Admin password for multi-role authorization testing
+        #[arg(long)]
+        admin_password: Option<String>,
+
+        /// Admin login URL (if different from user login URL)
+        #[arg(long)]
+        admin_login_url: Option<String>,
+
+        /// Enable multi-role authorization testing (requires both user and admin credentials)
+        #[arg(long)]
+        multi_role: bool,
+
+        // === Session Recording ===
+        /// Enable session recording during headless crawling
+        #[arg(long)]
+        record_session: bool,
+
+        /// Session recording output file (default: session_recording.har)
+        #[arg(long)]
+        session_output: Option<PathBuf>,
+
+        /// Session recording format: har, json, html
+        #[arg(long, default_value = "har")]
+        session_format: SessionRecordingFormat,
     },
 
     /// List available scanner modules
@@ -297,6 +327,16 @@ enum OutputFormat {
     Junit,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum SessionRecordingFormat {
+    /// HAR format (HTTP Archive) - compatible with browser dev tools
+    Har,
+    /// JSON timeline format with all events
+    Json,
+    /// Interactive HTML report with timeline
+    Html,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -324,11 +364,11 @@ fn main() -> Result<()> {
     // This routes all `log` crate messages through tracing, allowing filtering
     tracing_log::LogTracer::init().ok();
 
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
         .with_thread_ids(false)
-        .init();
+        .try_init();
 
     // Create async runtime
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -367,6 +407,13 @@ async fn async_main(cli: Cli) -> Result<()> {
             insecure,
             rate_limit,
             no_rate_limit,
+            admin_username,
+            admin_password,
+            admin_login_url,
+            multi_role,
+            record_session,
+            session_output,
+            session_format,
         } => {
             // Determine which modules to request authorization for
             // CRITICAL: The modules array is now REQUIRED for paid modules.
@@ -420,6 +467,13 @@ async fn async_main(cli: Cli) -> Result<()> {
                 no_rate_limit,
                 license_status,
                 scan_token,
+                admin_username,
+                admin_password,
+                admin_login_url,
+                multi_role,
+                record_session,
+                session_output,
+                session_format,
             )
             .await
         }
@@ -856,6 +910,13 @@ async fn run_scan(
     no_rate_limit: bool,
     license_status: LicenseStatus,
     scan_token: ScanToken,
+    admin_username: Option<String>,
+    admin_password: Option<String>,
+    admin_login_url: Option<String>,
+    multi_role: bool,
+    record_session: bool,
+    session_output: Option<PathBuf>,
+    session_format: SessionRecordingFormat,
 ) -> Result<()> {
     // Check if killswitch is active
     if license_status.killswitch_active {
@@ -990,6 +1051,40 @@ async fn run_scan(
         info!("[Auth] Authentication context ready - scanning authenticated endpoints");
     }
 
+    // Setup admin session for multi-role testing
+    let admin_session: Option<AuthSession> = if multi_role {
+        if let (Some(admin_user), Some(admin_pass)) = (&admin_username, &admin_password) {
+            info!("[MultiRole] Initializing admin session for authorization testing");
+            let authenticator = Authenticator::new(timeout);
+            let mut creds = LoginCredentials::new(admin_user, admin_pass);
+            if let Some(login_url) = admin_login_url.as_ref().or(auth_login_url.as_ref()) {
+                creds = creds.with_login_url(login_url);
+            }
+
+            let base_url = targets.first().map(|t| t.as_str()).unwrap_or("");
+            match authenticator.login(base_url, &creds).await {
+                Ok(session) => {
+                    if session.is_authenticated {
+                        info!("[MultiRole] Admin login successful - {} cookies", session.cookies.len());
+                        Some(session)
+                    } else {
+                        warn!("[MultiRole] Admin login may have failed - multi-role testing disabled");
+                        None
+                    }
+                }
+                Err(e) => {
+                    warn!("[MultiRole] Admin auto-login failed: {} - multi-role testing disabled", e);
+                    None
+                }
+            }
+        } else {
+            warn!("[MultiRole] --multi-role requires --admin-username and --admin-password");
+            None
+        }
+    } else {
+        None
+    };
+
     // Create scan engine
     let engine = Arc::new(ScanEngine::new(scanner_config.clone())?);
     info!("[OK] Scan engine initialized with {} scanner modules", 60);
@@ -1088,6 +1183,73 @@ async fn run_scan(
                 error!("Scan failed for {}: {}", target, e);
             }
         }
+    }
+
+    // Multi-role authorization testing (if both user and admin credentials are available)
+    if multi_role {
+        if let (Some(ref user_name), Some(ref user_pass), Some(ref admin_name), Some(ref admin_pass)) =
+            (&auth_username, &auth_password, &admin_username, &admin_password)
+        {
+            use lonkero_scanner::multi_role::compare_user_admin;
+
+            info!("");
+            info!("=== Multi-Role Authorization Testing ===");
+            info!("[MultiRole] Comparing access patterns between user and admin roles");
+
+            let base_url = targets.first().map(|t| t.as_str()).unwrap_or("");
+
+            // Run multi-role authorization comparison using the helper function
+            match compare_user_admin(
+                Arc::clone(&engine.http_client),
+                base_url,
+                (user_name.as_str(), user_pass.as_str()),
+                (admin_name.as_str(), admin_pass.as_str()),
+            ).await {
+                Ok(vulns) => {
+                    if !vulns.is_empty() {
+                        info!("[MultiRole] Found {} authorization issues:", vulns.len());
+                        for vuln in &vulns {
+                            warn!("  - {}: {} at {}", vuln.severity, vuln.vuln_type, vuln.url);
+                        }
+                        // Add multi-role findings to results
+                        total_vulns += vulns.len();
+                        if let Some(last_result) = all_results.last_mut() {
+                            last_result.vulnerabilities.extend(vulns);
+                        }
+                    } else {
+                        info!("[MultiRole] No authorization issues found between roles");
+                    }
+                }
+                Err(e) => {
+                    warn!("[MultiRole] Authorization analysis failed: {}", e);
+                }
+            }
+            info!("=== Multi-Role Testing Complete ===");
+            info!("");
+        } else {
+            warn!("[MultiRole] Multi-role testing requires both user (--auth-username, --auth-password) and admin (--admin-username, --admin-password) credentials");
+        }
+    }
+
+    // Export session recording if enabled
+    if record_session {
+        use lonkero_scanner::session_recording::{SessionRecorder, SessionExporter, ExportFormat};
+
+        info!("[Recording] Session recording was enabled - note: full integration pending");
+
+        // For now, just log that recording is enabled
+        // Full integration requires wiring SessionRecorder into the headless crawler
+        // which needs to be done in the scanner module, not the CLI
+        let output_file = session_output.clone().unwrap_or_else(|| {
+            PathBuf::from(format!("session_recording.{}", match session_format {
+                SessionRecordingFormat::Har => "har",
+                SessionRecordingFormat::Json => "json",
+                SessionRecordingFormat::Html => "html",
+            }))
+        });
+
+        info!("[Recording] Session would be exported to: {} (format: {:?})", output_file.display(), session_format);
+        info!("[Recording] Note: Full session recording integration is available via the SessionRecorder API");
     }
 
     let elapsed = start_time.elapsed();

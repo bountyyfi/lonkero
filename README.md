@@ -82,6 +82,10 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 - **Route Discovery** - Automatically extracts routes from JavaScript bundles (Next.js App Router)
 - **Headless Browser** - Network interception, WebSocket capture, multi-stage form detection, authenticated crawling
 - **Smart Crawler** - Priority queue (high-value targets first), semantic URL deduplication, adaptive rate limiting
+- **State-Aware Crawling** - Tracks cookies, localStorage, sessionStorage across requests; detects state dependencies and CSRF tokens
+- **Multi-Role Testing** - Parallel crawling with different user roles to detect BOLA, BFLA, and privilege escalation vulnerabilities
+- **Form Replay System** - Records and replays multi-step wizard forms with dynamic token handling for security testing
+- **Session Recording** - Full session capture (HAR format) with network, DOM interactions, and screenshots for vulnerability reproduction
 
 ### Enterprise Integration
 
@@ -293,6 +297,141 @@ query {
   # ... 100 aliases = 100x server load
 }
 ```
+
+---
+
+## State-Aware Crawling
+
+Lonkero v3.0 includes intelligent state tracking that understands stateful web applications:
+
+### State Capture
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  State Tracking Across Requests                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  • Cookies (auth tokens, session IDs, preferences)              │
+│  • localStorage/sessionStorage values                           │
+│  • URL parameters and hash fragments                            │
+│  • Hidden form fields (CSRF tokens, state tokens)               │
+│  • Authentication state detection                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+- **Dependency Detection**: Identifies which requests depend on state from previous requests
+- **CSRF Token Tracking**: Detects tokens that need refreshing between requests
+- **Pattern Recognition**: Identifies common state flows (login, cart, wizard forms)
+- **Dependency Graph**: Builds a graph of state dependencies between endpoints
+
+### Detected Patterns
+| Pattern | Detection |
+|---------|-----------|
+| Auth Flow | Session cookies, JWT tokens, auth headers |
+| Shopping Cart | Cart ID cookies, checkout state |
+| Wizard Forms | Step tokens, form sequence tracking |
+| CSRF Protection | Token fields matching common patterns |
+
+---
+
+## Multi-Role Authorization Testing
+
+Parallel testing with multiple user roles to detect authorization vulnerabilities:
+
+### How It Works
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Multi-Role Orchestrator                                        │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Initialize sessions for each role (guest, user, admin)      │
+│  2. Synchronized crawl - test same URLs with all roles          │
+│  3. Compare access patterns between roles                       │
+│  4. Detect privilege escalation (vertical & horizontal)         │
+│  5. Generate access matrix for review                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Detected Vulnerabilities
+| Vulnerability | Description |
+|---------------|-------------|
+| **Vertical Privilege Escalation** | User accessing admin functions |
+| **Horizontal Privilege Escalation (IDOR)** | User A accessing User B's data |
+| **BOLA** | Broken Object Level Authorization |
+| **BFLA** | Broken Function Level Authorization |
+
+### Permission Levels
+- `Guest` - Unauthenticated user
+- `User` - Basic authenticated user
+- `Moderator` - Power user
+- `Admin` - Administrator
+- `SuperAdmin` - System level access
+
+### Usage
+```bash
+# Enable multi-role testing with credentials
+lonkero scan https://example.com \
+  --auth-username user@example.com --auth-password userpass \
+  --admin-username admin@example.com --admin-password adminpass
+```
+
+---
+
+## Form Replay System
+
+Comprehensive recording and replay of multi-step form sequences for security testing:
+
+### Capabilities
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Form Replay Architecture                                       │
+├─────────────────────────────────────────────────────────────────┤
+│  FormRecorder → Records submissions during headless crawl       │
+│  FormSequence → Ordered list of submissions (wizard flows)      │
+│  FormReplayer → Replays sequences with payload injection        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+- **Multi-Step Wizards**: Handles checkout flows, registration wizards, multi-page forms
+- **Dynamic Token Handling**: Automatically refreshes CSRF tokens, nonces, timestamps
+- **State Preservation**: Maintains session state between steps
+- **Payload Injection**: Injects security payloads into specific fields while preserving flow
+
+### Token Types Handled
+| Token Type | Example |
+|------------|---------|
+| CSRF | `_token`, `csrf_token`, `authenticity_token` |
+| Nonce | Single-use values that change per request |
+| Timestamp | Time-based tokens for request validation |
+| Session | Session-bound tokens |
+| Captcha | Captcha challenge tokens (detected, not bypassed) |
+
+---
+
+## Session Recording
+
+Full session capture for vulnerability reproduction and debugging:
+
+### Recording Capabilities
+- **Network**: All HTTP requests/responses with headers and bodies
+- **DOM Interactions**: Clicks, form inputs, scrolls, submissions
+- **Console**: JavaScript console messages and errors
+- **Screenshots**: Captured at key events (navigation, errors)
+- **WebSocket**: Message capture for real-time communications
+- **Storage**: localStorage/sessionStorage/cookie changes
+
+### Export Formats
+| Format | Description |
+|--------|-------------|
+| **HAR** | HTTP Archive format - compatible with browser dev tools |
+| **JSON** | Full timeline with all events |
+| **JSON (Compressed)** | Gzip-compressed for storage efficiency |
+| **HTML** | Interactive report with timeline and embedded screenshots |
+
+### Use Cases
+1. **Vulnerability Reproduction**: Replay exact steps that triggered a vulnerability
+2. **Debug Complex Flows**: Understand multi-step attack chains
+3. **Evidence Collection**: Export HAR/HTML for penetration test reports
+4. **Session Analysis**: Review all network traffic for security issues
 
 ---
 
