@@ -2223,6 +2223,7 @@ dependencies = [
  "tokio-tungstenite",
  "toml",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "tungstenite 0.27.0",
  "url",

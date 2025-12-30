@@ -312,11 +312,17 @@ fn main() -> Result<()> {
     };
 
     // Use EnvFilter to suppress noisy warnings from html5ever (foster parenting spam)
+    // The "foster parenting not implemented" warnings come from html5ever via the `log` crate.
+    // We use tracing-log to bridge log events to tracing so they can be filtered.
     use tracing_subscriber::EnvFilter;
     let filter = EnvFilter::new(format!(
-        "{},html5ever=error,selectors=error,scraper=error",
+        "{},html5ever=error,html5ever::tree_builder=off,selectors=error,scraper=error,markup5ever=error,headless_chrome=warn",
         log_level
     ));
+
+    // Initialize tracing-log bridge BEFORE tracing subscriber
+    // This routes all `log` crate messages through tracing, allowing filtering
+    tracing_log::LogTracer::init().ok();
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
