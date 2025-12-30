@@ -367,7 +367,7 @@ impl VulnFeatures {
         // Reflection detection from evidence
         let payload_reflected = evidence_lower.contains("reflected") ||
             evidence_lower.contains("payload") ||
-            evidence.contains(&vuln.payload);
+            evidence.contains(vuln.payload.as_str());
 
         let reflection_in_attribute = evidence_lower.contains("attribute") ||
             evidence_lower.contains("=\"") || evidence_lower.contains("='");
