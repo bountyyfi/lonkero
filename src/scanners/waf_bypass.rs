@@ -347,14 +347,20 @@ impl WafBypassScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    // Check for successful bypass indicators
-                    let bypass_detected =
-                        response.body.to_lowercase().contains("alert(1)") ||
-                        response.body.contains("root:") ||
-                        response.body.to_lowercase().contains("select") ||
-                        (response.status_code >= 200 && response.status_code < 300 && !response.body.contains("blocked"));
+                    // CRITICAL: First check if payload actually had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, payload) {
+                        debug!("[WAF-Bypass] Case manipulation {} - no behavioral change, skipping", technique);
+                        continue;
+                    }
 
-                    if bypass_detected && response.status_code != 403 {
+                    // Check for REAL successful bypass indicators - not just "200 OK"
+                    // Require dangerous reflection or actual sensitive data exposure
+                    let real_bypass_detected =
+                        is_payload_reflected_dangerously(&response, "alert(1)") ||
+                        (response.body.contains("root:") && response.body.contains("/bin/")) ||  // Real /etc/passwd
+                        (response.body.to_lowercase().contains("mysql") && response.body.to_lowercase().contains("syntax")); // Real SQL error
+
+                    if real_bypass_detected && response.status_code != 403 {
                         // Broadcast bypass discovery to other scanners
                         self.broadcast_bypass_found("Case manipulation", technique).await;
 
@@ -368,13 +374,13 @@ impl WafBypassScanner {
                             parameter: Some("q".to_string()),
                             payload: payload.to_string(),
                             description: format!(
-                                "Potential WAF bypass using {} technique. Request was not blocked.",
+                                "WAF bypass achieved using {} technique. Payload was executed.",
                                 technique
                             ),
                             evidence: Some(format!("Status: {}", response.status_code)),
                             cwe: "CWE-693".to_string(),
                             cvss: 5.3,
-                            verified: false,
+                            verified: true,
                             false_positive: false,
                             remediation: "Implement case-insensitive pattern matching in WAF rules".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
@@ -416,12 +422,26 @@ impl WafBypassScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code != 403 && !response.body.to_lowercase().contains("blocked") {
-                        let has_sensitive = response.body.contains("root:") ||
-                                          response.body.to_lowercase().contains("alert(1)") ||
-                                          response.body.contains("admin");
+                    // CRITICAL: First check if payload actually had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, payload) {
+                        debug!("[WAF-Bypass] Null byte {} - no behavioral change, skipping", technique);
+                        continue;
+                    }
 
-                        if has_sensitive {
+                    let resp_lower = response.body.to_lowercase();
+
+                    if response.status_code != 403 && !resp_lower.contains("blocked") {
+                        // CRITICAL: Check for NEW sensitive data not in baseline
+                        let has_new_sensitive =
+                            // Real /etc/passwd content (not just "root:")
+                            (response.body.contains("root:") && response.body.contains("/bin/") && !baseline.body.contains("root:")) ||
+                            // Real XSS execution
+                            is_payload_reflected_dangerously(&response, "alert(1)") ||
+                            // NEW admin panel access (not already in baseline)
+                            (resp_lower.contains("admin panel") && !baseline_lower.contains("admin panel")) ||
+                            (resp_lower.contains("administrator") && !baseline_lower.contains("administrator"));
+
+                        if has_new_sensitive {
                             // Broadcast bypass discovery to other scanners
                             self.broadcast_bypass_found("Null byte injection", technique).await;
 
@@ -952,7 +972,7 @@ impl WafBypassScanner {
     async fn test_unicode_normalization(
         &self,
         url: &str,
-        _baseline: &HttpResponse,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -982,39 +1002,56 @@ impl WafBypassScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code != 403 && !response.body.to_lowercase().contains("blocked") {
-                        // Check if payload was normalized and executed
-                        let reflected = response.body.contains("alert") ||
-                                       response.body.contains("select") ||
-                                       response.body.contains("script");
+                    // CRITICAL: First check if payload actually had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, payload) {
+                        debug!("[WAF-Bypass] Unicode {} - no behavioral change, skipping", technique);
+                        continue;
+                    }
 
-                        if reflected {
-                            // Broadcast bypass discovery to other scanners
-                            self.broadcast_bypass_found("Unicode normalization", technique).await;
+                    // Must NOT be blocked by WAF
+                    if response.status_code == 403 || response.body.to_lowercase().contains("blocked") {
+                        continue;
+                    }
 
-                            vulnerabilities.push(Vulnerability {
-                                id: format!("waf_bypass_unicode_{}", tests_run),
-                                vuln_type: "WAF Bypass via Unicode Normalization".to_string(),
-                                severity: Severity::High,
-                                confidence: Confidence::Medium,
-                                category: "WAF Bypass".to_string(),
-                                url: test_url.clone(),
-                                parameter: Some("q".to_string()),
-                                payload: payload.to_string(),
-                                description: format!(
-                                    "WAF bypass achieved using {} technique. Server normalized Unicode differently than WAF.",
-                                    technique
-                                ),
-                                evidence: Some(format!("Payload reflected after normalization")),
-                                cwe: "CWE-176".to_string(),
-                                cvss: 7.5,
-                                verified: true,
-                                false_positive: false,
-                                remediation: "1. Normalize Unicode (NFC/NFKC) before WAF inspection\n2. Strip zero-width characters\n3. Use Unicode-aware pattern matching".to_string(),
-                                discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
-                            });
-                        }
+                    // Check for REAL bypass indicators - payload must be reflected dangerously
+                    // NOT just any "alert" or "script" substring which could be in any page
+                    let real_bypass =
+                        is_payload_reflected_dangerously(&response, "alert(1)") ||
+                        is_payload_reflected_dangerously(&response, "<script>") ||
+                        // For SQL payloads, check for actual SQL execution indicators
+                        (payload.contains("select") && response.body.contains("mysql") &&
+                         response.body.to_lowercase().contains("syntax") &&
+                         !baseline.body.to_lowercase().contains("syntax")) ||
+                        // For file inclusion, check for actual file contents
+                        (payload.contains("etc/passwd") && response.body.contains("root:") &&
+                         response.body.contains("/bin/") && !baseline.body.contains("root:"));
+
+                    if real_bypass {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("Unicode normalization", technique).await;
+
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("waf_bypass_unicode_{}", tests_run),
+                            vuln_type: "WAF Bypass via Unicode Normalization".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::Medium,
+                            category: "WAF Bypass".to_string(),
+                            url: test_url.clone(),
+                            parameter: Some("q".to_string()),
+                            payload: payload.to_string(),
+                            description: format!(
+                                "WAF bypass achieved using {} technique. Server normalized Unicode differently than WAF.",
+                                technique
+                            ),
+                            evidence: Some(format!("Payload reflected after normalization")),
+                            cwe: "CWE-176".to_string(),
+                            cvss: 7.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Normalize Unicode (NFC/NFKC) before WAF inspection\n2. Strip zero-width characters\n3. Use Unicode-aware pattern matching".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                            ml_data: None,
+                        });
                     }
                 }
                 Err(_) => {}
@@ -1028,7 +1065,7 @@ impl WafBypassScanner {
     async fn test_payload_format_bypass(
         &self,
         url: &str,
-        _baseline: &HttpResponse,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -1056,38 +1093,52 @@ impl WafBypassScanner {
 
             match self.http_client.post_with_headers(url, payload, headers).await {
                 Ok(response) => {
-                    if response.status_code != 403 {
-                        let has_reflection = response.body.contains("alert") ||
-                                           response.body.contains("script") ||
-                                           response.body.contains("DROP");
+                    // CRITICAL: First check if payload had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, payload) {
+                        debug!("[WAF-Bypass] JSON {} - no behavioral change, skipping", technique);
+                        continue;
+                    }
 
-                        if has_reflection {
-                            // Broadcast bypass discovery to other scanners
-                            self.broadcast_bypass_found("JSON payload", technique).await;
+                    // Must not be blocked
+                    if response.status_code == 403 || response.body.to_lowercase().contains("blocked") {
+                        continue;
+                    }
 
-                            vulnerabilities.push(Vulnerability {
-                                id: format!("waf_bypass_json_{}", tests_run),
-                                vuln_type: "WAF Bypass via JSON Payload".to_string(),
-                                severity: Severity::High,
-                                confidence: Confidence::Medium,
-                                category: "WAF Bypass".to_string(),
-                                url: url.to_string(),
-                                parameter: None,
-                                payload: payload.to_string(),
-                                description: format!(
-                                    "WAF bypass using {} technique in JSON payload.",
-                                    technique
-                                ),
-                                evidence: Some(format!("Malicious payload in JSON was not blocked")),
-                                cwe: "CWE-693".to_string(),
-                                cvss: 7.5,
-                                verified: true,
-                                false_positive: false,
-                                remediation: "Parse and validate JSON before WAF inspection".to_string(),
-                                discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
-                            });
-                        }
+                    // Check for REAL bypass - payload must be reflected dangerously
+                    // NOT just any "alert" or "script" substring
+                    let real_bypass =
+                        is_payload_reflected_dangerously(&response, "alert(1)") ||
+                        is_payload_reflected_dangerously(&response, "<script>") ||
+                        // For SQL payloads, check for actual SQL error indicators
+                        (payload.contains("DROP") && response.body.to_lowercase().contains("syntax") &&
+                         !baseline.body.to_lowercase().contains("syntax"));
+
+                    if real_bypass {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("JSON payload", technique).await;
+
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("waf_bypass_json_{}", tests_run),
+                            vuln_type: "WAF Bypass via JSON Payload".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::Medium,
+                            category: "WAF Bypass".to_string(),
+                            url: url.to_string(),
+                            parameter: None,
+                            payload: payload.to_string(),
+                            description: format!(
+                                "WAF bypass using {} technique in JSON payload.",
+                                technique
+                            ),
+                            evidence: Some(format!("Malicious payload in JSON was not blocked")),
+                            cwe: "CWE-693".to_string(),
+                            cvss: 7.5,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Parse and validate JSON before WAF inspection".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                            ml_data: None,
+                        });
                     }
                 }
                 Err(_) => {}
@@ -1113,7 +1164,22 @@ impl WafBypassScanner {
 
             match self.http_client.post_with_headers(url, payload, headers).await {
                 Ok(response) => {
-                    if response.status_code != 403 && response.body.contains("alert") {
+                    // CRITICAL: First check if payload had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, payload) {
+                        debug!("[WAF-Bypass] XML {} - no behavioral change, skipping", technique);
+                        continue;
+                    }
+
+                    // Must not be blocked
+                    if response.status_code == 403 || response.body.to_lowercase().contains("blocked") {
+                        continue;
+                    }
+
+                    // Check for REAL bypass - payload must be reflected dangerously
+                    let real_bypass = is_payload_reflected_dangerously(&response, "alert(1)") ||
+                                     is_payload_reflected_dangerously(&response, "<script>");
+
+                    if real_bypass {
                         // Broadcast bypass discovery to other scanners
                         self.broadcast_bypass_found("XML payload", technique).await;
 
@@ -1137,7 +1203,7 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "Parse XML and inspect content after entity resolution".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -1152,7 +1218,7 @@ impl WafBypassScanner {
     async fn test_hpp_waf_bypass(
         &self,
         url: &str,
-        _baseline: &HttpResponse,
+        baseline: &HttpResponse,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -1177,39 +1243,57 @@ impl WafBypassScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code != 403 {
-                        let has_injection = response.body.contains("alert") ||
-                                          response.body.contains("script") ||
-                                          response.body.contains("DROP") ||
-                                          (params.contains("admin=true") && response.body.to_lowercase().contains("admin"));
+                    // CRITICAL: First check if payload had an effect vs baseline
+                    if !did_payload_have_effect(baseline, &response, params) {
+                        debug!("[WAF-Bypass] HPP {} - no behavioral change, skipping", technique);
+                        continue;
+                    }
 
-                        if has_injection {
-                            // Broadcast bypass discovery to other scanners
-                            self.broadcast_bypass_found("HTTP Parameter Pollution", technique).await;
+                    // Must not be blocked
+                    if response.status_code == 403 || response.body.to_lowercase().contains("blocked") {
+                        continue;
+                    }
 
-                            vulnerabilities.push(Vulnerability {
-                                id: format!("waf_bypass_hpp_{}", tests_run),
-                                vuln_type: "WAF Bypass via HTTP Parameter Pollution".to_string(),
-                                severity: Severity::High,
-                                confidence: Confidence::High,
-                                category: "WAF Bypass".to_string(),
-                                url: test_url.clone(),
-                                parameter: None,
-                                payload: params.to_string(),
-                                description: format!(
-                                    "WAF bypass achieved using {}. The WAF inspected parameters differently than the backend server.",
-                                    technique
-                                ),
-                                evidence: Some("Split payload was concatenated by backend".to_string()),
-                                cwe: "CWE-235".to_string(),
-                                cvss: 8.1,
-                                verified: true,
-                                false_positive: false,
-                                remediation: "1. Normalize parameters before WAF inspection\n2. Use same parsing logic as backend\n3. Reject duplicate parameters".to_string(),
-                                discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
-                            });
-                        }
+                    // Check for REAL bypass indicators - payload must be reflected dangerously
+                    // NOT just any "alert", "script", or "admin" substring
+                    let baseline_lower = baseline.body.to_lowercase();
+                    let real_bypass =
+                        is_payload_reflected_dangerously(&response, "alert(1)") ||
+                        is_payload_reflected_dangerously(&response, "<script>") ||
+                        // For SQL payloads, check for actual SQL error or execution
+                        (params.contains("DROP") && response.body.to_lowercase().contains("syntax") &&
+                         !baseline_lower.contains("syntax")) ||
+                        // For admin=true, check for NEW admin content not in baseline
+                        (params.contains("admin=true") &&
+                         (response.body.to_lowercase().contains("admin panel") && !baseline_lower.contains("admin panel")) ||
+                         (response.body.to_lowercase().contains("administrator") && !baseline_lower.contains("administrator")));
+
+                    if real_bypass {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("HTTP Parameter Pollution", technique).await;
+
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("waf_bypass_hpp_{}", tests_run),
+                            vuln_type: "WAF Bypass via HTTP Parameter Pollution".to_string(),
+                            severity: Severity::High,
+                            confidence: Confidence::High,
+                            category: "WAF Bypass".to_string(),
+                            url: test_url.clone(),
+                            parameter: None,
+                            payload: params.to_string(),
+                            description: format!(
+                                "WAF bypass achieved using {}. The WAF inspected parameters differently than the backend server.",
+                                technique
+                            ),
+                            evidence: Some("Split payload was concatenated by backend".to_string()),
+                            cwe: "CWE-235".to_string(),
+                            cvss: 8.1,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Normalize parameters before WAF inspection\n2. Use same parsing logic as backend\n3. Reject duplicate parameters".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                            ml_data: None,
+                        });
                     }
                 }
                 Err(_) => {}

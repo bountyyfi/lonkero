@@ -843,6 +843,8 @@ pub struct XssDetectionResult {
     pub stack_trace: Option<String>,
     pub source: Option<String>,
     pub timestamp: Option<u64>,
+    pub parameter: Option<String>,     // Which form field(s) were injected
+    pub injection_point: Option<String>, // Where in DOM it was found
 }
 
 /// How the XSS was triggered
@@ -1154,33 +1156,77 @@ impl ChromiumXssScanner {
                     false
                 );
 
+                // Get input field names for evidence (needed for all detection paths)
+                let input_names: Vec<String> = inputs.iter()
+                    .filter_map(|i| i.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .collect();
+                let input_names_str = input_names.join(", ");
+
                 // Check if XSS triggered immediately (same-page render via hooks)
-                if let Some(result) = Self::check_xss_triggered(&tab, url, payload)? {
+                if let Some(mut result) = Self::check_xss_triggered(&tab, url, payload)? {
                     if result.xss_triggered {
                         info!("[Chromium-XSS] CONFIRMED stored XSS via form (hook detected)!");
+                        result.parameter = Some(input_names_str.clone());
+                        result.injection_point = Some("Hook interception".to_string());
                         results.push(result);
                         return Ok(results);
                     }
                 }
 
                 // CRITICAL: Also check if marker appears in DOM directly (for cases where hooks didn't fire)
+
                 let dom_check_js = format!(r#"
                     (function() {{
                         const marker = '{}';
                         const html = document.documentElement.innerHTML;
                         if (html.includes(marker)) {{
+                            // Find WHERE in the DOM the marker appears
+                            let location = 'unknown';
+                            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                            while (walker.nextNode()) {{
+                                if (walker.currentNode.textContent.includes(marker)) {{
+                                    const parent = walker.currentNode.parentElement;
+                                    if (parent) {{
+                                        location = parent.tagName + (parent.className ? '.' + parent.className.split(' ')[0] : '');
+                                    }}
+                                    break;
+                                }}
+                            }}
+                            // Also check element attributes
+                            if (location === 'unknown') {{
+                                document.querySelectorAll('*').forEach(el => {{
+                                    for (const attr of el.attributes) {{
+                                        if (attr.value.includes(marker)) {{
+                                            location = el.tagName + '[' + attr.name + ']';
+                                            return;
+                                        }}
+                                    }}
+                                }});
+                            }}
                             window.__xssTriggered = true;
                             window.__xssTriggerType = 'dom-content';
-                            window.__xssMessage = 'Marker found in rendered DOM';
-                            return true;
+                            window.__xssMessage = 'Marker found in: ' + location;
+                            window.__xssSeverity = 'HIGH';
+                            return location;
                         }}
                         return false;
                     }})()
                 "#, marker);
                 if let Ok(dom_result) = tab.evaluate(&dom_check_js, false) {
-                    if dom_result.value.and_then(|v| v.as_bool()).unwrap_or(false) {
-                        info!("[Chromium-XSS] CONFIRMED stored XSS - marker found in DOM!");
-                        if let Some(result) = Self::check_xss_triggered(&tab, url, payload)? {
+                    let location = dom_result.value.and_then(|v| v.as_str().map(|s| s.to_string()));
+                    if location.is_some() && location.as_ref().map(|s| s != "false").unwrap_or(false) {
+                        let loc_str = location.clone().unwrap_or_else(|| "DOM".to_string());
+                        info!("[Chromium-XSS] CONFIRMED stored XSS - marker found in DOM at: {}", loc_str);
+                        if let Some(mut result) = Self::check_xss_triggered(&tab, url, payload)? {
+                            // Set the parameter and injection point for the report
+                            result.parameter = Some(input_names_str.clone());
+                            result.injection_point = Some(loc_str.clone());
+                            result.dialog_message = Some(format!(
+                                "Stored via form #{} fields [{}]. Found at: {}",
+                                form_idx,
+                                input_names_str,
+                                loc_str
+                            ));
                             results.push(result);
                             return Ok(results);
                         }
@@ -1253,9 +1299,11 @@ impl ChromiumXssScanner {
                 std::thread::sleep(Duration::from_millis(3000)); // Longer wait for full bootstrap
 
                 // Check if XSS triggered during bootstrap render
-                if let Some(result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
+                if let Some(mut result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
                     if result.xss_triggered {
                         info!("[Chromium-XSS] CONFIRMED stored XSS during bootstrap render!");
+                        result.parameter = Some(input_names_str.clone());
+                        result.injection_point = Some("Bootstrap render".to_string());
                         results.push(result);
                         return Ok(results);
                     }
@@ -1292,9 +1340,11 @@ impl ChromiumXssScanner {
                 std::thread::sleep(Duration::from_millis(1500));
 
                 // Final check after forced render
-                if let Some(result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
+                if let Some(mut result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
                     if result.xss_triggered {
                         info!("[Chromium-XSS] CONFIRMED stored XSS after forced render!");
+                        result.parameter = Some(input_names_str.clone());
+                        result.injection_point = Some("Forced render".to_string());
                         results.push(result);
                         return Ok(results);
                     }
@@ -1315,9 +1365,11 @@ impl ChromiumXssScanner {
                         );
                         if tab.navigate_to(endpoint).is_ok() {
                             std::thread::sleep(Duration::from_millis(1500));
-                            if let Some(result) = Self::check_xss_triggered(&tab, endpoint, payload)? {
+                            if let Some(mut result) = Self::check_xss_triggered(&tab, endpoint, payload)? {
                                 if result.xss_triggered {
                                     info!("[Chromium-XSS] CONFIRMED stored XSS at render endpoint: {}", endpoint);
+                                    result.parameter = Some(input_names_str.clone());
+                                    result.injection_point = Some(format!("Render endpoint: {}", endpoint));
                                     results.push(result);
                                     return Ok(results);
                                 }
@@ -1366,6 +1418,8 @@ impl ChromiumXssScanner {
                 stack_trace: None,
                 source: None,
                 timestamp: None,
+                parameter: None,
+                injection_point: None,
             });
         }
 
@@ -1482,6 +1536,8 @@ impl ChromiumXssScanner {
                         stack_trace: stack,
                         source,
                         timestamp,
+                        parameter: None,
+                        injection_point: None,
                     }));
                 }
             }
@@ -1530,6 +1586,12 @@ impl ChromiumXssScanner {
             format!("Payload: {}", result.payload),
         ];
 
+        if let Some(ref injection_point) = result.injection_point {
+            evidence_parts.push(format!("Found in: {}", injection_point));
+        }
+        if let Some(ref param) = result.parameter {
+            evidence_parts.push(format!("Injected via: {}", param));
+        }
         if let Some(ref msg) = result.dialog_message {
             evidence_parts.push(format!("Message: {}", msg));
         }
@@ -1550,7 +1612,7 @@ impl ChromiumXssScanner {
             confidence: Confidence::High,
             category: "Injection".to_string(),
             url: result.url.clone(),
-            parameter: None,
+            parameter: result.parameter.clone(),
             payload: result.payload.clone(),
             description: format!(
                 "CONFIRMED {} vulnerability ({:?} severity). {}. Payload executed in real browser context.",

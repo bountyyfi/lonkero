@@ -234,6 +234,12 @@ impl HttpParameterPollutionScanner {
 
         info!("[HPP] Testing WAF bypass via HTTP Parameter Pollution");
 
+        // Get baseline response for comparison
+        let baseline = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
         // WAF bypass payloads using HPP
         let waf_bypass_tests = vec![
             // SQL injection split across parameters
@@ -263,8 +269,15 @@ impl HttpParameterPollutionScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    // Check if WAF blocked single payload but allowed split
-                    let waf_bypassed = self.detect_waf_bypass(&response.body, values);
+                    // CRITICAL: First check if payload had any effect vs baseline
+                    let combined_payload = values.join("");
+                    if !did_payload_have_effect(&baseline, &response, &combined_payload) {
+                        debug!("[HPP] WAF bypass {} - no behavioral change, skipping", description);
+                        continue;
+                    }
+
+                    // Check if WAF blocked single payload but allowed split (with baseline comparison)
+                    let waf_bypassed = self.detect_waf_bypass(&response.body, &baseline.body, values);
 
                     if waf_bypassed {
                         vulnerabilities.push(self.create_vulnerability(
@@ -584,32 +597,49 @@ impl HttpParameterPollutionScanner {
             body.to_lowercase().contains(&value.to_lowercase())
     }
 
-    /// Detect WAF bypass
-    fn detect_waf_bypass(&self, body: &str, split_values: &[&str]) -> bool {
+    /// Detect WAF bypass - REQUIRES baseline comparison to avoid false positives
+    fn detect_waf_bypass(&self, body: &str, baseline_body: &str, split_values: &[&str]) -> bool {
         let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
 
-        // Check for SQL error (injection worked)
-        let sql_indicators = vec!["sql", "syntax", "mysql", "postgresql", "sqlite", "ora-"];
+        // CRITICAL: Check for NEW SQL error indicators (not present in baseline)
+        // This prevents false positives from pages that normally contain "sql" or "syntax"
+        let sql_indicators = vec![
+            "you have an error in your sql",
+            "sql syntax",
+            "mysql_fetch",
+            "pg_query",
+            "sqlstate",
+            "oledbexception",
+            "sqlexception",
+        ];
         for indicator in &sql_indicators {
-            if body_lower.contains(indicator) {
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) {
                 return true;
             }
         }
 
-        // Check for command execution indicators
-        if body.contains("root:") || body.contains("/bin/") || body.contains("etc/passwd") {
+        // Check for NEW command execution indicators (not in baseline)
+        if (body.contains("root:") && body.contains("/bin/") && !baseline_body.contains("root:")) {
             return true;
         }
 
-        // Check if response doesn't contain WAF block message
-        let not_blocked = !body_lower.contains("blocked") &&
-            !body_lower.contains("forbidden") &&
-            !body_lower.contains("waf") &&
-            !body_lower.contains("firewall");
-
-        // Check if combined payload might have been processed
+        // Check for NEW XSS reflection of the actual payload
+        // The combined payload must be reflected in a dangerous context
         let combined = split_values.join("");
-        not_blocked && (body.contains(&combined) || body_lower.contains(&combined.to_lowercase()))
+        if combined.contains("script") || combined.contains("alert") {
+            // Check for dangerous reflection of the XSS payload
+            if is_payload_reflected_dangerously(&HttpResponse {
+                status_code: 200,
+                headers: std::collections::HashMap::new(),
+                body: body.to_string(),
+                duration_ms: 0,
+            }, "alert(1)") {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Detect authentication bypass - REQUIRES baseline comparison to avoid false positives
