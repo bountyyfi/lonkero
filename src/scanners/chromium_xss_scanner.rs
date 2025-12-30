@@ -465,6 +465,15 @@ const XSS_INTERCEPTOR: &str = r#"
         return originalInsertAdjacentHTML.call(this, position, text);
     };
 
+    // 6b. setAttribute - CRITICAL for event handler injection (onclick, onerror, etc)
+    const origSetAttribute = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {
+        if (typeof value === 'string' && checkMarker(value) && name.toLowerCase().startsWith('on')) {
+            recordExecution('dom-event-attribute', name + '=' + value, 'setAttribute');
+        }
+        return origSetAttribute.call(this, name, value);
+    };
+
     // 7. Hook fetch with RESPONSE body monitoring AND request logging for replay
     window.__xssRequests = [];
     const originalFetch = window.fetch;
@@ -1101,18 +1110,27 @@ impl ChromiumXssScanner {
                 for input in &inputs {
                     if let Some(selector) = input.get("selector").and_then(|v| v.as_str()) {
                         if !selector.is_empty() {
+                            // Use JSON encoding for clean escaping
+                            let escaped_selector = selector.replace('\\', "\\\\").replace('"', "\\\"");
+                            let escaped_payload = serde_json::to_string(payload).unwrap_or_else(|_| format!("\"{}\"", payload));
                             let fill_js = format!(
                                 r#"(function() {{
-                                    const el = document.querySelector('{}');
-                                    if (el) {{ el.value = '{}'; }}
+                                    const el = document.querySelector("{}");
+                                    if (el) {{
+                                        el.value = {};
+                                        console.log('[XSS-FILL]', el.name || el.id, '=', el.value.substring(0, 50));
+                                    }}
                                 }})()"#,
-                                selector.replace("'", "\\'"),
-                                payload.replace("'", "\\'").replace("\\", "\\\\")
+                                escaped_selector,
+                                escaped_payload
                             );
                             let _ = tab.evaluate(&fill_js, false);
                         }
                     }
                 }
+
+                // Log what we're about to submit
+                info!("[Chromium-XSS] Submitting form {} with payload: {}...", form_idx, &payload[..std::cmp::min(50, payload.len())]);
 
                 // Submit form
                 let submit_js = format!(
@@ -1127,15 +1145,45 @@ impl ChromiumXssScanner {
                 );
                 let _ = tab.evaluate(&submit_js, false);
 
-                // Wait for submission
-                std::thread::sleep(Duration::from_millis(1500));
+                // Wait for submission and page render
+                std::thread::sleep(Duration::from_millis(2000));
 
-                // Check if XSS triggered immediately (same-page render)
+                // Reset marker after form submit (page may have reloaded)
+                let _ = tab.evaluate(
+                    &format!("window.__xssMarker='{}'; window.__xssTriggered=false; window.__xssTriggerType='none';", marker),
+                    false
+                );
+
+                // Check if XSS triggered immediately (same-page render via hooks)
                 if let Some(result) = Self::check_xss_triggered(&tab, url, payload)? {
                     if result.xss_triggered {
-                        info!("[Chromium-XSS] CONFIRMED stored XSS via form (immediate)!");
+                        info!("[Chromium-XSS] CONFIRMED stored XSS via form (hook detected)!");
                         results.push(result);
                         return Ok(results);
+                    }
+                }
+
+                // CRITICAL: Also check if marker appears in DOM directly (for cases where hooks didn't fire)
+                let dom_check_js = format!(r#"
+                    (function() {{
+                        const marker = '{}';
+                        const html = document.documentElement.innerHTML;
+                        if (html.includes(marker)) {{
+                            window.__xssTriggered = true;
+                            window.__xssTriggerType = 'dom-content';
+                            window.__xssMessage = 'Marker found in rendered DOM';
+                            return true;
+                        }}
+                        return false;
+                    }})()
+                "#, marker);
+                if let Ok(dom_result) = tab.evaluate(&dom_check_js, false) {
+                    if dom_result.value.and_then(|v| v.as_bool()).unwrap_or(false) {
+                        info!("[Chromium-XSS] CONFIRMED stored XSS - marker found in DOM!");
+                        if let Some(result) = Self::check_xss_triggered(&tab, url, payload)? {
+                            results.push(result);
+                            return Ok(results);
+                        }
                     }
                 }
 
@@ -1281,6 +1329,12 @@ impl ChromiumXssScanner {
                 // Navigate back for next payload
                 let _ = tab.navigate_to(url);
                 std::thread::sleep(Duration::from_millis(800));
+
+                // Reset marker after SPA navigation (SPAs may overwrite globals)
+                let _ = tab.evaluate(
+                    &format!("window.__xssMarker='{}'; window.__xssTriggered=false; window.__xssTriggerType='none';", marker),
+                    false
+                );
             }
         }
 
@@ -1321,6 +1375,12 @@ impl ChromiumXssScanner {
 
         // Brief pause for JS execution
         std::thread::sleep(Duration::from_millis(300));
+
+        // Reset marker after navigation (SPAs may overwrite globals during hydration)
+        let _ = tab.evaluate(
+            &format!("window.__xssMarker='{}'; if(!window.__xssTriggered) window.__xssTriggerType='none';", marker),
+            false
+        );
 
         // Simulate events to trigger event-handler XSS (click, focus, mouseover)
         let _ = tab.evaluate(r#"
@@ -1394,10 +1454,14 @@ impl ChromiumXssScanner {
                         "innerHTML" | "outerHTML" | "insertAdjacentHTML" => XssTriggerType::InnerHtml,
                         "document.write" | "document.writeln" => XssTriggerType::DocumentWrite,
                         "location.assign" | "location.replace" => XssTriggerType::LocationChange,
-                        "fetch" | "img.src" => XssTriggerType::DataExfil,
+                        "fetch-url" | "img.src" => XssTriggerType::DataExfil,
+                        "fetch-response" | "fetch-response-bootstrap" | "xhr-response" => XssTriggerType::InnerHtml, // Response contains XSS
+                        "textContent" | "innerText" => XssTriggerType::DomExecution,
                         s if s.contains("shadow") => XssTriggerType::ShadowDom,
+                        s if s.starts_with("dom-") => XssTriggerType::DomExecution, // dom-html, dom-event-attribute, etc
+                        s if s.starts_with("js-") => XssTriggerType::Eval,          // js-eval, js-function
                         s if s.contains("DOM") => XssTriggerType::DomExecution,
-                        _ => XssTriggerType::None,
+                        _ => XssTriggerType::DomExecution, // Default to DOM execution instead of None - if triggered, it's XSS
                     };
 
                     let severity = match severity_str {
