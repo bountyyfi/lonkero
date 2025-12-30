@@ -158,11 +158,18 @@ const XSS_INTERCEPTOR: &str = r#"
         return val;
     };
 
-    // Hook postMessage listener
+    // Hook postMessage listener (with origin tracking)
     window.addEventListener('message', function(e) {
-        if (e.data && checkMarker(JSON.stringify(e.data))) {
-            window.__xssTaintedData.set('postMessage', JSON.stringify(e.data).substring(0, 200));
-        }
+        try {
+            const data = JSON.stringify(e.data);
+            if (checkMarker(data)) {
+                window.__xssTaintedData.set('postMessage', {
+                    data: data.substring(0, 200),
+                    origin: e.origin,
+                    source: e.source === window ? 'self' : 'other'
+                });
+            }
+        } catch(err) {}
     }, true);
 
     // FLOW-BASED TAINT TRACKING (minimal)
@@ -233,6 +240,21 @@ const XSS_INTERCEPTOR: &str = r#"
         if (isTainted(this)) {
             return result.map(s => taintString(s, 'split'));
         }
+        return result;
+    };
+
+    // Hook toString/valueOf for implicit coercion taint propagation
+    const origToString = String.prototype.toString;
+    String.prototype.toString = function() {
+        const result = origToString.call(this);
+        if (isTainted(this)) return taintString(result, 'toString');
+        return result;
+    };
+
+    const origValueOf = String.prototype.valueOf;
+    String.prototype.valueOf = function() {
+        const result = origValueOf.call(this);
+        if (isTainted(this)) return taintString(result, 'valueOf');
         return result;
     };
 
@@ -443,12 +465,73 @@ const XSS_INTERCEPTOR: &str = r#"
         return originalInsertAdjacentHTML.call(this, position, text);
     };
 
-    // 7. Also hook fetch/XHR to detect data exfiltration attempts
+    // 7. Hook fetch with RESPONSE body monitoring AND request logging for replay
+    window.__xssRequests = [];
     const originalFetch = window.fetch;
-    window.fetch = function(url, options) {
-        if (checkMarker(url)) recordExecution('fetch', url);
-        return originalFetch.call(window, url, options);
+    window.fetch = async function(...args) {
+        const [url, options] = args;
+        if (checkMarker(url)) recordExecution('fetch-url', url);
+
+        const res = await originalFetch.apply(this, args);
+        try {
+            const clone = res.clone();
+            const text = await clone.text();
+            if (checkMarker(text)) {
+                recordExecution('fetch-response', text.substring(0, 300), 'fetch');
+            }
+        } catch(e) {}
+
+        // ALWAYS log fetch requests for replay
+        window.__xssRequests.push({
+            type: 'fetch',
+            url: String(url),
+            method: options?.method || 'GET'
+        });
+
+        return res;
     };
+
+    // 7b. Hook XHR with response monitoring AND request logging
+    const origXHROpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this.__xssUrl = url;
+        this.__xssMethod = method;
+        this.addEventListener('load', function() {
+            try {
+                if (checkMarker(this.responseText)) {
+                    recordExecution('xhr-response', this.responseText.substring(0, 300), 'xhr');
+                }
+            } catch(e) {}
+        });
+
+        // Log XHR for replay
+        window.__xssRequests.push({
+            type: 'xhr',
+            url: String(url),
+            method: method
+        });
+
+        return origXHROpen.call(this, method, url, ...rest);
+    };
+
+    // 7c. textContent and innerText hooks (CRITICAL - modern XSS often uses these)
+    ['textContent', 'innerText'].forEach(function(prop) {
+        try {
+            const desc = Object.getOwnPropertyDescriptor(Node.prototype, prop);
+            if (desc && desc.set) {
+                Object.defineProperty(Node.prototype, prop, {
+                    set: function(value) {
+                        if (checkMarker(value)) {
+                            recordExecution(prop, value, 'text-sink');
+                        }
+                        return desc.set.call(this, value);
+                    },
+                    get: desc.get,
+                    configurable: true
+                });
+            }
+        } catch(e) {}
+    });
 
     // 8. Location changes (open redirect / JS redirect)
     const originalLocationAssign = window.location.assign;
@@ -589,6 +672,19 @@ const XSS_INTERCEPTOR: &str = r#"
                 return originalIframeSrc.set.call(this, value);
             },
             get: originalIframeSrc.get,
+            configurable: true
+        });
+    }
+
+    // 14b. Iframe srcdoc hooking (executes BEFORE load event)
+    const origSrcdoc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'srcdoc');
+    if (origSrcdoc && origSrcdoc.set) {
+        Object.defineProperty(HTMLIFrameElement.prototype, 'srcdoc', {
+            set: function(value) {
+                if (checkMarker(value)) recordExecution('iframe.srcdoc', value, 'iframe-srcdoc');
+                return origSrcdoc.set.call(this, value);
+            },
+            get: origSrcdoc.get,
             configurable: true
         });
     }
@@ -1031,19 +1127,158 @@ impl ChromiumXssScanner {
                 );
                 let _ = tab.evaluate(&submit_js, false);
 
-                // Wait for submission and potential redirect (reduced from 3s)
-                std::thread::sleep(Duration::from_millis(2000));
+                // Wait for submission
+                std::thread::sleep(Duration::from_millis(1500));
 
-                // Check if XSS triggered
+                // Check if XSS triggered immediately (same-page render)
                 if let Some(result) = Self::check_xss_triggered(&tab, url, payload)? {
                     if result.xss_triggered {
-                        info!("[Chromium-XSS] CONFIRMED stored XSS via form!");
+                        info!("[Chromium-XSS] CONFIRMED stored XSS via form (immediate)!");
                         results.push(result);
-                        return Ok(results); // One stored XSS is enough
+                        return Ok(results);
                     }
                 }
 
-                // Navigate back to test next payload
+                // CRITICAL: Capture recorded requests BEFORE reload
+                let requests_js = "JSON.stringify(window.__xssRequests || [])";
+                let recorded_requests: Vec<serde_json::Value> = if let Ok(req_result) = tab.evaluate(requests_js, false) {
+                    if let Some(value) = req_result.value {
+                        if let Some(json_str) = value.as_str() {
+                            serde_json::from_str(json_str).unwrap_or_default()
+                        } else { Vec::new() }
+                    } else { Vec::new() }
+                } else { Vec::new() };
+
+                info!("[Chromium-XSS] Captured {} requests, setting up bootstrap replay...", recorded_requests.len());
+
+                // Create a NEW tab with fresh interceptor for bootstrap replay
+                let replay_tab = browser.new_tab_with_interceptor(&marker)?;
+                replay_tab.set_default_timeout(Duration::from_secs(15));
+
+                // CRITICAL: Inject fetch override BEFORE navigation to replay during bootstrap
+                // This intercepts fetch calls during page load and ensures stored data triggers render
+                let replay_urls: Vec<String> = recorded_requests.iter()
+                    .filter_map(|r| r.get("url").and_then(|v| v.as_str()))
+                    .filter(|u| u.contains("comment") || u.contains("api") || u.contains("data") || u.contains("load"))
+                    .map(|s| s.to_string())
+                    .collect();
+
+                if !replay_urls.is_empty() {
+                    let replay_setup_js = format!(r#"
+                        (function() {{
+                            window.__replayUrls = {};
+                            window.__replayDone = false;
+
+                            const origFetch = window.fetch;
+                            window.fetch = async function(...args) {{
+                                const [url] = args;
+                                const urlStr = String(url);
+
+                                // During bootstrap, ensure we hit the real endpoint (which now has stored payload)
+                                console.log('[XSS-REPLAY] Fetch intercepted during bootstrap:', urlStr);
+
+                                const res = await origFetch.apply(this, args);
+
+                                // Check response for our marker
+                                try {{
+                                    const clone = res.clone();
+                                    const text = await clone.text();
+                                    if (text.includes(window.__xssMarker)) {{
+                                        console.log('[XSS-REPLAY] MARKER FOUND IN RESPONSE!');
+                                        window.__xssTriggered = true;
+                                        window.__xssTriggerType = 'fetch-response-bootstrap';
+                                        window.__xssMessage = text.substring(0, 300);
+                                    }}
+                                }} catch(e) {{}}
+
+                                return res;
+                            }};
+                        }})();
+                    "#, serde_json::to_string(&replay_urls).unwrap_or("[]".to_string()));
+
+                    let _ = replay_tab.evaluate(&replay_setup_js, false);
+                }
+
+                // NOW navigate - fetch override is in place for bootstrap
+                info!("[Chromium-XSS] Navigating with bootstrap replay active...");
+                let _ = replay_tab.navigate_to(url);
+                std::thread::sleep(Duration::from_millis(3000)); // Longer wait for full bootstrap
+
+                // Check if XSS triggered during bootstrap render
+                if let Some(result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
+                    if result.xss_triggered {
+                        info!("[Chromium-XSS] CONFIRMED stored XSS during bootstrap render!");
+                        results.push(result);
+                        return Ok(results);
+                    }
+                }
+
+                // Also try forcing render after bootstrap (for lazy-loaded content)
+                let _ = replay_tab.evaluate(r#"
+                    (function() {
+                        // Force re-render by triggering common events
+                        document.dispatchEvent(new Event('visibilitychange'));
+                        window.dispatchEvent(new Event('focus'));
+                        window.dispatchEvent(new Event('hashchange'));
+
+                        // Try common SPA render hooks
+                        if (window.renderComments) try { window.renderComments(); } catch(e) {}
+                        if (window.loadComments) try { window.loadComments(); } catch(e) {}
+                        if (window.refreshComments) try { window.refreshComments(); } catch(e) {}
+                        if (window.loadData) try { window.loadData(); } catch(e) {}
+                        if (window.refresh) try { window.refresh(); } catch(e) {}
+
+                        // Click refresh/load buttons
+                        document.querySelectorAll('[class*="refresh"], [class*="reload"], [class*="load"], [onclick*="load"]').forEach(el => {
+                            try { el.click(); } catch(e) {}
+                        });
+
+                        // Trigger any pending promises
+                        setTimeout(() => {
+                            document.querySelectorAll('[data-load], [data-fetch]').forEach(el => {
+                                try { el.dispatchEvent(new Event('load')); } catch(e) {}
+                            });
+                        }, 100);
+                    })();
+                "#, false);
+                std::thread::sleep(Duration::from_millis(1500));
+
+                // Final check after forced render
+                if let Some(result) = Self::check_xss_triggered(&replay_tab, url, payload)? {
+                    if result.xss_triggered {
+                        info!("[Chromium-XSS] CONFIRMED stored XSS after forced render!");
+                        results.push(result);
+                        return Ok(results);
+                    }
+                }
+
+                // Also check potential render endpoints (common API patterns)
+                let render_endpoints = vec![
+                    format!("{}/comments", url.split('?').next().unwrap_or(url)),
+                    format!("{}?action=view", url.split('?').next().unwrap_or(url)),
+                    url.replace("admin", "view"),
+                ];
+
+                for endpoint in render_endpoints.iter().take(2) {
+                    if endpoint != url {
+                        let _ = tab.evaluate(
+                            &format!("window.__xssMarker = '{}'; window.__xssTriggered = false;", marker),
+                            false
+                        );
+                        if tab.navigate_to(endpoint).is_ok() {
+                            std::thread::sleep(Duration::from_millis(1500));
+                            if let Some(result) = Self::check_xss_triggered(&tab, endpoint, payload)? {
+                                if result.xss_triggered {
+                                    info!("[Chromium-XSS] CONFIRMED stored XSS at render endpoint: {}", endpoint);
+                                    results.push(result);
+                                    return Ok(results);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Navigate back for next payload
                 let _ = tab.navigate_to(url);
                 std::thread::sleep(Duration::from_millis(800));
             }
