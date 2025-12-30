@@ -660,7 +660,7 @@ impl GraphQLIntrospector {
             .map(|field| {
                 let likely_requires_auth = self.likely_requires_auth(&field.name, &field.args);
                 let handles_sensitive_data =
-                    self.handles_sensitive_data(&field.name, &field.return_type, &field.args);
+                    self.handles_sensitive_data(&field.name, &field.type_name, &field.args);
 
                 GraphQLOperation {
                     name: field.name.clone(),

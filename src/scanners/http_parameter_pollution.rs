@@ -705,22 +705,59 @@ impl HttpParameterPollutionScanner {
         body.contains("<script>") || body.contains("onerror=") || body.contains("onload=")
     }
 
-    /// Detect array processing
+    /// Detect array processing - REQUIRES baseline comparison
     fn detect_array_processing(&self, body: &str, injected_value: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check if injected value appears
-        if body.contains(injected_value) {
+        // CRITICAL: Don't just check if value appears - that causes false positives
+        // The value must be in a security-relevant context
+
+        // Check for SQL errors (if SQLi was attempted) - this is real evidence
+        if injected_value.contains("'") &&
+           (body_lower.contains("sql syntax") || body_lower.contains("you have an error in your sql")) {
             return true;
         }
 
-        // Check for SQL errors (if SQLi was attempted)
-        if injected_value.contains("'") && (body_lower.contains("sql") || body_lower.contains("syntax")) {
-            return true;
+        // Check for admin/privilege indicators in JSON context (structured data)
+        if injected_value.contains("admin") {
+            // Must be in JSON format to indicate actual privilege escalation
+            if body_lower.contains("\"role\":\"admin\"") || body_lower.contains("\"is_admin\":true") {
+                return true;
+            }
         }
 
-        // Check for admin/privilege indicators
-        if injected_value.contains("admin") && body_lower.contains("admin") {
+        // Don't report just because the value appears somewhere in the page
+        // That's not evidence of a vulnerability
+        false
+    }
+
+    /// Detect privilege escalation via HPP - REQUIRES baseline comparison
+    fn detect_privilege_escalation_hpp(&self, body: &str, baseline_body: &str, privileged_value: &str) -> bool {
+        let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
+        let value_lower = privileged_value.to_lowercase();
+
+        // CRITICAL: Only detect if the privileged value appears in a NEW context
+        // that indicates actual privilege escalation (not just reflection)
+
+        // Check for NEW role/privilege assignment in JSON response
+        if value_lower == "admin" {
+            // Must be in structured response showing admin role was assigned
+            let admin_role_new = body_lower.contains("\"role\":\"admin\"") &&
+                                 !baseline_lower.contains("\"role\":\"admin\"");
+            let is_admin_new = body_lower.contains("\"is_admin\":true") &&
+                              !baseline_lower.contains("\"is_admin\":true");
+            let admin_granted_new = body_lower.contains("admin access granted") &&
+                                   !baseline_lower.contains("admin access granted");
+
+            if admin_role_new || is_admin_new || admin_granted_new {
+                return true;
+            }
+        }
+
+        // Check for NEW dashboard/admin panel access
+        if (body_lower.contains("admin panel") || body_lower.contains("dashboard")) &&
+           (!baseline_lower.contains("admin panel") && !baseline_lower.contains("dashboard")) {
             return true;
         }
 
@@ -903,10 +940,43 @@ mod tests {
     fn test_waf_bypass_detection() {
         let scanner = create_test_scanner();
 
-        // SQL error indicates bypass
-        assert!(scanner.detect_waf_bypass("SQL syntax error near...", &["' OR", " '1'='1"]));
+        // SQL error indicates bypass - must be NEW (not in baseline)
+        assert!(scanner.detect_waf_bypass(
+            "You have an error in your SQL syntax near...",
+            "Normal page content",  // baseline without SQL error
+            &["' OR", " '1'='1"]
+        ));
 
-        // Blocked by WAF
-        assert!(!scanner.detect_waf_bypass("Request blocked by firewall", &["' OR", " '1'='1"]));
+        // Blocked by WAF - no vulnerability indicators
+        assert!(!scanner.detect_waf_bypass(
+            "Request blocked by firewall",
+            "Normal page content",
+            &["' OR", " '1'='1"]
+        ));
+
+        // SQL error already in baseline - not a NEW finding
+        assert!(!scanner.detect_waf_bypass(
+            "You have an error in your SQL syntax",
+            "You have an error in your SQL syntax",  // same in baseline
+            &["' OR", " '1'='1"]
+        ));
+    }
+
+    #[test]
+    fn test_no_false_positives_for_normal_arrays() {
+        let scanner = create_test_scanner();
+
+        // Normal API response should not be flagged as vulnerability
+        assert!(!scanner.detect_array_processing(
+            r#"{"items": ["item1", "item2"], "success": true}"#,
+            "item2"
+        ));
+
+        // Comma-separated values in normal response - not a vuln
+        assert!(!scanner.detect_privilege_escalation_hpp(
+            r#"{"fields": "id,name,email"}"#,
+            r#"{"fields": "id,name,email"}"#,
+            "admin"
+        ));
     }
 }
