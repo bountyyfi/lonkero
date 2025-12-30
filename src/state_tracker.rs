@@ -1209,8 +1209,6 @@ pub struct StateTracker {
     csrf_tokens: HashMap<String, CsrfTokenState>,
     /// State patterns detected
     detected_patterns: Vec<StatePattern>,
-    /// Lock for thread-safe updates
-    lock: Arc<Mutex<()>>,
 }
 
 impl Default for StateTracker {
