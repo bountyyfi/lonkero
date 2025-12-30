@@ -16,6 +16,7 @@ pub mod config;
 pub mod crawler;
 pub mod headless_crawler;
 pub mod auth_context;
+pub mod multi_role;
 pub mod database;
 pub mod detection_helpers;
 pub mod dns_cache;
@@ -85,3 +86,12 @@ pub mod ml;
 
 // GraphQL introspection and schema parsing
 pub mod graphql_introspection;
+
+// State-aware crawling module
+pub mod state_tracker;
+
+// Form replay system for security testing
+pub mod form_replay;
+
+// Session recording for browser session capture and replay
+pub mod session_recording;

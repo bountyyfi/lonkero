@@ -2209,6 +2209,10 @@ pub struct SiteCrawlResults {
     pub websocket_endpoints: Vec<String>,
     /// Login forms detected during crawl
     pub login_forms: Vec<DetectedLoginForm>,
+    /// State tracking results (state changes, dependencies, patterns)
+    pub state_tracking: Option<crate::state_tracker::StateTrackingResults>,
+    /// Form replay data (recorded sequences for security testing)
+    pub form_replay_data: Option<crate::form_replay::FormRecorderResults>,
 }
 
 /// Discovered GraphQL operation (query, mutation, subscription)

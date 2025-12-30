@@ -140,6 +140,9 @@ rust_xlsxwriter = "0.92.1"
 # Additional security dependencies
 hex = "0.4"
 
+# Compression for session recordings
+flate2 = "1.0"
+
 # License and configuration directories
 dirs = "5.0"
 

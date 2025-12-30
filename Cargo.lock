@@ -2181,6 +2181,7 @@ dependencies = [
  "deadpool-postgres",
  "deadpool-redis",
  "dirs",
+ "flate2",
  "futures",
  "futures-util",
  "governor",
