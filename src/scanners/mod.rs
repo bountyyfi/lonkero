@@ -1007,19 +1007,36 @@ impl ScanEngine {
             }
         }
 
-        // Chromium-based XSS Detection (runs ONCE per URL, not per-parameter)
+        // Chromium-based XSS Detection (runs on target + all crawled URLs)
         // Uses real browser execution to detect reflected, DOM, and stored XSS
         if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER)
             && !self.should_terminate_early(&all_vulnerabilities)
         {
-            info!("[Chromium-XSS] Running real browser XSS detection on: {}", target);
-            let (chromium_xss_vulns, chromium_xss_tests) = self.chromium_xss_scanner
-                .scan(&target, &config, self.shared_browser.as_ref())
-                .await?;
-            all_vulnerabilities.extend(chromium_xss_vulns);
-            total_tests += chromium_xss_tests as u64;
+            // Collect all URLs to test: target + crawled URLs (deduplicated)
+            let mut xss_urls_to_test: Vec<String> = vec![target.clone()];
+            for crawled_url in &crawl_results.crawled_urls {
+                if crawled_url != &target && !xss_urls_to_test.contains(crawled_url) {
+                    xss_urls_to_test.push(crawled_url.clone());
+                }
+            }
+
+            info!("[Chromium-XSS] Running real browser XSS detection on {} URLs", xss_urls_to_test.len());
+
+            for (idx, xss_url) in xss_urls_to_test.iter().enumerate() {
+                if self.should_terminate_early(&all_vulnerabilities) {
+                    break;
+                }
+
+                info!("[Chromium-XSS] Testing URL {}/{}: {}", idx + 1, xss_urls_to_test.len(), xss_url);
+                let (chromium_xss_vulns, chromium_xss_tests) = self.chromium_xss_scanner
+                    .scan(xss_url, &config, self.shared_browser.as_ref())
+                    .await?;
+                all_vulnerabilities.extend(chromium_xss_vulns);
+                total_tests += chromium_xss_tests as u64;
+                queue.increment_tests(scan_id.clone(), chromium_xss_tests as u64).await?;
+            }
+
             modules_used.push(crate::modules::ids::advanced_scanning::XSS_SCANNER.to_string());
-            queue.increment_tests(scan_id.clone(), chromium_xss_tests as u64).await?;
         }
 
         // Phase 1b: Test discovered API endpoints from JavaScript
@@ -2067,22 +2084,7 @@ impl ScanEngine {
             match self.crawl_target(&target, config.max_depth).await {
                 Ok(discovered_urls) => {
                     info!("Crawler discovered {} additional URLs", discovered_urls.len());
-
-                    // Run Chromium XSS on discovered URLs (limit to 10 for performance)
-                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
-                        for discovered_url in discovered_urls.iter().take(10) {
-                            if self.should_terminate_early(&all_vulnerabilities) {
-                                break;
-                            }
-
-                            let (vulns, tests) = self.chromium_xss_scanner
-                                .scan(discovered_url, &config, self.shared_browser.as_ref())
-                                .await?;
-                            all_vulnerabilities.extend(vulns);
-                            total_tests += tests as u64;
-                            queue.increment_tests(scan_id.clone(), tests as u64).await?;
-                        }
-                    }
+                    // XSS testing on crawled URLs is now handled in Phase 1
                 }
                 Err(e) => {
                     warn!("Crawler failed: {}", e);

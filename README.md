@@ -189,10 +189,13 @@ Lonkero detects SPA signatures and handles soft-404s intelligently:
 ```
 
 ### Headless Browser Features
+- **Shared Browser Instance** - Single Chromium instance reused across all XSS tests for maximum performance
+- **Real XSS Execution** - Detects XSS by monitoring actual JavaScript execution (alert/confirm/prompt interception, DOM sink hooks)
 - **Network Interception** - Captures actual API endpoints from JavaScript
 - **Multi-Stage Forms** - Detects forms that appear after initial form submission
 - **Authenticated Crawling** - Injects tokens into localStorage for auth-required SPAs
 - **Route Discovery** - Extracts routes from JavaScript bundles
+- **All Crawled URLs Tested** - XSS scanner runs on target URL plus all discovered/crawled URLs
 
 ---
 
@@ -416,8 +419,8 @@ lonkero scan --config lonkero.yml
 ### Injection Vulnerabilities (30 scanners)
 
 - **SQL Injection** - Enhanced detection, blind (boolean/time/binary search), second-order
-- **XSS** - Enhanced detection, DOM-based, mutation XSS, SVG-based, stored/reflected
-- **DOM XSS** - Source-to-sink flow analysis, framework-specific patterns (React, Vue, Angular, Svelte), taint tracking
+- **XSS (Chromium-Based)** - Real browser execution detection with single shared browser instance. Detects reflected, stored, and DOM XSS via JavaScript execution verification. No false positives from string matching.
+- **DOM XSS** - Source-to-sink flow analysis with taint tracking, Shadow DOM support, MutationObserver hooks for innerHTML/outerHTML/insertAdjacentHTML/setAttribute sinks
 - **XXE** - XML external entity, billion laughs, parameter entity
 - **NoSQL Injection** - MongoDB, CouchDB, operator injection
 - **Command Injection** - OS command execution, blind detection
