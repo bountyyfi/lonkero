@@ -38,6 +38,12 @@ use lonkero_scanner::scanners::{
 use lonkero_scanner::signing::{self, SigningError, ScanToken};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults};
 
+// Intelligence system imports
+use lonkero_scanner::analysis::{
+    IntelligenceBus, ResponseAnalyzer, AttackPlanner, AttackGoal, StateUpdate,
+    AuthType as IntelAuthType, PatternType, ParameterType as IntelParamType,
+};
+
 /// Lonkero - Enterprise Web Security Scanner
 #[derive(Parser)]
 #[command(name = "lonkero")]
@@ -1425,6 +1431,18 @@ async fn execute_standalone_scan(
     let mut all_vulnerabilities: Vec<Vulnerability> = Vec::new();
     let mut total_tests: u64 = 0;
 
+    // ==========================================================================
+    // INTELLIGENCE SYSTEM INITIALIZATION (v3.0)
+    // Creates the scanner intelligence components for real-time communication,
+    // semantic response analysis, and multi-step attack planning.
+    // ==========================================================================
+    let intelligence_bus = Arc::new(IntelligenceBus::new());
+    let response_analyzer = Arc::new(ResponseAnalyzer::new());
+    let mut attack_planner = AttackPlanner::new();
+
+    info!("[Intelligence] Scanner intelligence system initialized");
+    debug!("[Intelligence] Components: IntelligenceBus, ResponseAnalyzer, AttackPlanner");
+
     // Phase 0: Reconnaissance
     info!("Phase 0: Reconnaissance");
 
@@ -1490,6 +1508,15 @@ async fn execute_standalone_scan(
                 info!("[SUCCESS] Detected {} technologies", techs.len());
                 for tech in &techs {
                     info!("    - {} ({:?})", tech.name, tech.category);
+
+                    // Broadcast to intelligence bus so other scanners can adapt
+                    let version = tech.version.as_deref();
+                    let confidence = match tech.confidence {
+                        lonkero_scanner::framework_detector::Confidence::High => 0.9,
+                        lonkero_scanner::framework_detector::Confidence::Medium => 0.7,
+                        lonkero_scanner::framework_detector::Confidence::Low => 0.5,
+                    };
+                    intelligence_bus.report_framework(&tech.name, version, confidence).await;
                 }
             }
             techs.iter().map(|t| t.name.to_lowercase()).collect()
@@ -3183,6 +3210,77 @@ async fn execute_standalone_scan(
     info!("");
     info!("Scan completed: {} vulnerabilities, {} tests, {:.2}s",
         all_vulnerabilities.len(), total_tests, elapsed.as_secs_f64());
+
+    // ==========================================================================
+    // INTELLIGENCE SYSTEM POST-PROCESSING (v3.0)
+    // Update attack planner with discovered vulnerabilities and analyze chains
+    // ==========================================================================
+    {
+        use lonkero_scanner::analysis::{KnownVulnerability, AttackSeverity};
+
+        // Feed discovered vulnerabilities into attack planner
+        for vuln in &all_vulnerabilities {
+            let severity = match vuln.severity {
+                lonkero_scanner::types::Severity::Critical => AttackSeverity::Critical,
+                lonkero_scanner::types::Severity::High => AttackSeverity::High,
+                lonkero_scanner::types::Severity::Medium => AttackSeverity::Medium,
+                lonkero_scanner::types::Severity::Low => AttackSeverity::Low,
+                lonkero_scanner::types::Severity::Info => AttackSeverity::Low,
+            };
+
+            let known_vuln = KnownVulnerability {
+                vuln_type: vuln.vuln_type.clone(),
+                endpoint: vuln.url.clone(),
+                parameter: vuln.parameter.clone(),
+                severity,
+                exploitable: vuln.verified,
+                payload: Some(vuln.payload.clone()),
+                notes: vuln.evidence.clone(),
+            };
+            attack_planner.update_state(StateUpdate::VulnFound(known_vuln));
+        }
+
+        // Check for achievable attack goals
+        let achievable_goals = attack_planner.get_achievable_goals();
+        if !achievable_goals.is_empty() {
+            info!("");
+            info!("[Intelligence] Attack chain analysis:");
+            for goal in &achievable_goals {
+                if let Some(plan) = attack_planner.plan_attack(goal.clone()) {
+                    info!("  - {:?}: {} steps (success probability: {:.0}%)",
+                        goal, plan.steps.len(), plan.estimated_success * 100.0);
+                    for (i, step) in plan.steps.iter().enumerate() {
+                        debug!("    {}. {}", i + 1, step.name);
+                    }
+                }
+            }
+        }
+
+        // Log intelligence summary
+        let accumulated = intelligence_bus.get_accumulated().await;
+        if !accumulated.frameworks.is_empty() || accumulated.waf_info.is_some() {
+            info!("");
+            info!("[Intelligence] Accumulated intelligence:");
+            if !accumulated.frameworks.is_empty() {
+                let frameworks: Vec<String> = accumulated.frameworks.iter()
+                    .map(|(name, ver, _)| {
+                        if let Some(v) = ver {
+                            format!("{} {}", name, v)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect();
+                info!("  - Frameworks: {}", frameworks.join(", "));
+            }
+            if let Some((waf, hints)) = &accumulated.waf_info {
+                info!("  - WAF detected: {} ({} bypass hints)", waf, hints.len());
+            }
+            if !accumulated.auth_types.is_empty() {
+                info!("  - Auth types: {:?}", accumulated.auth_types.iter().map(|(t, _, _)| t).collect::<Vec<_>>());
+            }
+        }
+    }
 
     // Create preliminary results for hashing
     let mut results = ScanResults {

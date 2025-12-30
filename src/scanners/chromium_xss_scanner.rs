@@ -19,46 +19,204 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
-/// JavaScript code to intercept alert/confirm/prompt
+/// JavaScript code to intercept XSS execution - hooks dialogs AND dangerous sinks
 const XSS_INTERCEPTOR: &str = r#"
 (function() {
     window.__xssMarker = null;
     window.__xssTriggered = false;
     window.__xssTriggerType = 'none';
     window.__xssMessage = '';
+    window.__xssExecutions = [];
 
+    // Helper to check if content contains marker
+    function checkMarker(content) {
+        if (!window.__xssMarker) return false;
+        return String(content).includes(window.__xssMarker);
+    }
+
+    function recordExecution(type, content) {
+        window.__xssTriggered = true;
+        window.__xssTriggerType = type;
+        window.__xssMessage = String(content).substring(0, 500);
+        window.__xssExecutions.push({type: type, content: String(content).substring(0, 200)});
+        console.log('[XSS-DETECTED]', type + ':', content);
+    }
+
+    // 1. Dialog interception (alert, confirm, prompt)
     window.__originalAlert = window.alert;
     window.__originalConfirm = window.confirm;
     window.__originalPrompt = window.prompt;
 
     window.alert = function(msg) {
-        window.__xssMessage = String(msg);
-        if (window.__xssMarker && String(msg).includes(window.__xssMarker)) {
-            window.__xssTriggered = true;
-            window.__xssTriggerType = 'alert';
-        }
-        console.log('[XSS-DETECTED] alert:', msg);
+        if (checkMarker(msg)) recordExecution('alert', msg);
+        // Don't call original - avoid blocking
     };
 
     window.confirm = function(msg) {
-        window.__xssMessage = String(msg);
-        if (window.__xssMarker && String(msg).includes(window.__xssMarker)) {
-            window.__xssTriggered = true;
-            window.__xssTriggerType = 'confirm';
-        }
+        if (checkMarker(msg)) recordExecution('confirm', msg);
         return true;
     };
 
     window.prompt = function(msg, def) {
-        window.__xssMessage = String(msg);
-        if (window.__xssMarker && String(msg).includes(window.__xssMarker)) {
-            window.__xssTriggered = true;
-            window.__xssTriggerType = 'prompt';
-        }
+        if (checkMarker(msg)) recordExecution('prompt', msg);
         return def || '';
     };
 
-    console.log('[XSS-SCANNER] Interceptor installed');
+    // 2. DOM Sink hooking - detect marker reaching innerHTML, outerHTML, etc.
+    const originalInnerHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (originalInnerHTMLDescriptor && originalInnerHTMLDescriptor.set) {
+        Object.defineProperty(Element.prototype, 'innerHTML', {
+            set: function(value) {
+                if (checkMarker(value)) recordExecution('innerHTML', value);
+                return originalInnerHTMLDescriptor.set.call(this, value);
+            },
+            get: originalInnerHTMLDescriptor.get,
+            configurable: true
+        });
+    }
+
+    const originalOuterHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML');
+    if (originalOuterHTMLDescriptor && originalOuterHTMLDescriptor.set) {
+        Object.defineProperty(Element.prototype, 'outerHTML', {
+            set: function(value) {
+                if (checkMarker(value)) recordExecution('outerHTML', value);
+                return originalOuterHTMLDescriptor.set.call(this, value);
+            },
+            get: originalOuterHTMLDescriptor.get,
+            configurable: true
+        });
+    }
+
+    // 3. document.write/writeln
+    const originalWrite = document.write.bind(document);
+    const originalWriteln = document.writeln.bind(document);
+    document.write = function(...args) {
+        for (const arg of args) {
+            if (checkMarker(arg)) recordExecution('document.write', arg);
+        }
+        return originalWrite(...args);
+    };
+    document.writeln = function(...args) {
+        for (const arg of args) {
+            if (checkMarker(arg)) recordExecution('document.writeln', arg);
+        }
+        return originalWriteln(...args);
+    };
+
+    // 4. eval/Function constructor
+    const originalEval = window.eval;
+    window.eval = function(code) {
+        if (checkMarker(code)) recordExecution('eval', code);
+        return originalEval.call(window, code);
+    };
+
+    const OriginalFunction = window.Function;
+    window.Function = function(...args) {
+        const code = args.join(' ');
+        if (checkMarker(code)) recordExecution('Function', code);
+        return new OriginalFunction(...args);
+    };
+
+    // 5. setTimeout/setInterval with string (dangerous)
+    const originalSetTimeout = window.setTimeout;
+    const originalSetInterval = window.setInterval;
+    window.setTimeout = function(fn, delay, ...args) {
+        if (typeof fn === 'string' && checkMarker(fn)) recordExecution('setTimeout', fn);
+        return originalSetTimeout.call(window, fn, delay, ...args);
+    };
+    window.setInterval = function(fn, delay, ...args) {
+        if (typeof fn === 'string' && checkMarker(fn)) recordExecution('setInterval', fn);
+        return originalSetInterval.call(window, fn, delay, ...args);
+    };
+
+    // 6. insertAdjacentHTML
+    const originalInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+    Element.prototype.insertAdjacentHTML = function(position, text) {
+        if (checkMarker(text)) recordExecution('insertAdjacentHTML', text);
+        return originalInsertAdjacentHTML.call(this, position, text);
+    };
+
+    // 7. Also hook fetch/XHR to detect data exfiltration attempts
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options) {
+        if (checkMarker(url)) recordExecution('fetch', url);
+        return originalFetch.call(window, url, options);
+    };
+
+    // 8. Location changes (open redirect / JS redirect)
+    const originalLocationAssign = window.location.assign;
+    const originalLocationReplace = window.location.replace;
+    if (originalLocationAssign) {
+        window.location.assign = function(url) {
+            if (checkMarker(url)) recordExecution('location.assign', url);
+            return originalLocationAssign.call(window.location, url);
+        };
+    }
+    if (originalLocationReplace) {
+        window.location.replace = function(url) {
+            if (checkMarker(url)) recordExecution('location.replace', url);
+            return originalLocationReplace.call(window.location, url);
+        };
+    }
+
+    // 9. DOM Mutation Observer - detect marker appearing in DOM
+    const observer = new MutationObserver(function(mutations) {
+        for (const mutation of mutations) {
+            if (mutation.type === 'childList') {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === 1) { // Element
+                        const html = node.outerHTML || '';
+                        if (checkMarker(html)) {
+                            recordExecution('DOM-mutation', html);
+                        }
+                    } else if (node.nodeType === 3) { // Text
+                        if (checkMarker(node.textContent)) {
+                            recordExecution('DOM-text', node.textContent);
+                        }
+                    }
+                }
+            } else if (mutation.type === 'attributes') {
+                const value = mutation.target.getAttribute(mutation.attributeName) || '';
+                if (checkMarker(value)) {
+                    recordExecution('DOM-attr', mutation.attributeName + '=' + value);
+                }
+            }
+        }
+    });
+
+    // Start observing when DOM is ready
+    if (document.body) {
+        observer.observe(document.body, {childList: true, subtree: true, attributes: true});
+    } else {
+        document.addEventListener('DOMContentLoaded', function() {
+            observer.observe(document.body, {childList: true, subtree: true, attributes: true});
+        });
+    }
+
+    // 10. Console error hook for CSP violations
+    const originalConsoleError = console.error;
+    console.error = function(...args) {
+        const msg = args.join(' ');
+        if (msg.includes('Content Security Policy') || msg.includes('CSP')) {
+            recordExecution('CSP-violation', msg);
+        }
+        return originalConsoleError.apply(console, args);
+    };
+
+    // 11. Image/Script src hooking (for data exfil detection)
+    const originalImageSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    if (originalImageSrc && originalImageSrc.set) {
+        Object.defineProperty(HTMLImageElement.prototype, 'src', {
+            set: function(value) {
+                if (checkMarker(value)) recordExecution('img.src', value);
+                return originalImageSrc.set.call(this, value);
+            },
+            get: originalImageSrc.get,
+            configurable: true
+        });
+    }
+
+    console.log('[XSS-SCANNER] Advanced interceptor installed (dialogs + sinks + DOM observer)');
 })();
 "#;
 
@@ -97,22 +255,36 @@ impl SharedBrowser {
     }
 
     /// Create a new tab with XSS interceptor pre-installed
+    /// Uses CDP Page.addScriptToEvaluateOnNewDocument to inject BEFORE any page JS runs
     pub fn new_tab_with_interceptor(&self, marker: &str) -> Result<Arc<Tab>> {
         let browser = self.browser.read()
             .map_err(|e| anyhow::anyhow!("Failed to lock browser: {}", e))?;
         let tab = browser.new_tab()?;
 
-        // Set the marker and install interceptor
+        // Set shorter timeout for navigation
+        tab.set_default_timeout(Duration::from_secs(10));
+
+        // Enable JavaScript dialogs to be auto-handled
+        // This ensures dialogs don't block execution
+        tab.call_method(headless_chrome::protocol::cdp::Page::Enable {
+            enable_file_chooser_opened_event: None,
+        })?;
+
+        // Inject interceptor script BEFORE page JS runs using CDP
+        // This is the correct way - runs at document_start
         let setup_js = format!(
             "{}\nwindow.__xssMarker = '{}';",
             XSS_INTERCEPTOR,
             marker
         );
 
-        // Navigate to about:blank first and inject interceptor
-        tab.navigate_to("about:blank")?;
-        std::thread::sleep(Duration::from_millis(100));
-        tab.evaluate(&setup_js, false)?;
+        // Use Page.addScriptToEvaluateOnNewDocument - this injects BEFORE any page JS
+        tab.call_method(headless_chrome::protocol::cdp::Page::AddScriptToEvaluateOnNewDocument {
+            source: setup_js,
+            world_name: None,
+            include_command_line_api: None,
+            run_immediately: None,
+        })?;
 
         Ok(tab)
     }
@@ -463,7 +635,30 @@ impl ChromiumXssScanner {
         let _ = tab.wait_until_navigated();
 
         // Brief pause for JS execution
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(300));
+
+        // Simulate events to trigger event-handler XSS (click, focus, mouseover)
+        let _ = tab.evaluate(r#"
+            (function() {
+                // Trigger focus on inputs (for onfocus handlers)
+                document.querySelectorAll('input, textarea').forEach(el => {
+                    try { el.focus(); el.blur(); } catch(e) {}
+                });
+                // Trigger mouseover on interactive elements
+                document.querySelectorAll('a, button, [onclick], [onmouseover]').forEach(el => {
+                    try {
+                        el.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
+                        el.dispatchEvent(new MouseEvent('mouseenter', {bubbles: true}));
+                    } catch(e) {}
+                });
+                // Click autofocus elements
+                const autofocus = document.querySelector('[autofocus]');
+                if (autofocus) try { autofocus.click(); } catch(e) {}
+            })();
+        "#, false);
+
+        // Wait for event handlers to execute
+        std::thread::sleep(Duration::from_millis(300));
 
         // Check if XSS was triggered
         Self::check_xss_triggered(&tab, url, url)?
