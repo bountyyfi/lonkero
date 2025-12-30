@@ -27,6 +27,30 @@ const XSS_INTERCEPTOR: &str = r#"
     window.__xssTriggerType = 'none';
     window.__xssMessage = '';
     window.__xssExecutions = [];
+    window.__xssSeverity = 'none';
+    window.__xssTaintedData = new Map(); // Source tagging: track tainted inputs
+
+    // Severity levels: CRITICAL > HIGH > MEDIUM > LOW
+    const SINK_SEVERITY = {
+        'eval': 'CRITICAL',
+        'Function': 'CRITICAL',
+        'setTimeout': 'CRITICAL',
+        'setInterval': 'CRITICAL',
+        'document.write': 'HIGH',
+        'innerHTML': 'HIGH',
+        'outerHTML': 'HIGH',
+        'insertAdjacentHTML': 'HIGH',
+        'location.assign': 'HIGH',
+        'location.replace': 'HIGH',
+        'alert': 'MEDIUM',
+        'confirm': 'MEDIUM',
+        'prompt': 'MEDIUM',
+        'fetch': 'MEDIUM',
+        'img.src': 'LOW',
+        'DOM-mutation': 'LOW',
+        'DOM-text': 'LOW',
+        'DOM-attr': 'LOW'
+    };
 
     // Helper to check if content contains marker
     function checkMarker(content) {
@@ -34,13 +58,112 @@ const XSS_INTERCEPTOR: &str = r#"
         return String(content).includes(window.__xssMarker);
     }
 
-    function recordExecution(type, content) {
+    // Get stack trace for debugging source->sink path
+    function getStackTrace() {
+        try {
+            throw new Error('XSS-STACK');
+        } catch (e) {
+            return e.stack.split('\n').slice(2, 8).join('\n'); // Skip first 2 lines (Error + this func)
+        }
+    }
+
+    function recordExecution(type, content, source) {
         window.__xssTriggered = true;
         window.__xssTriggerType = type;
         window.__xssMessage = String(content).substring(0, 500);
-        window.__xssExecutions.push({type: type, content: String(content).substring(0, 200)});
-        console.log('[XSS-DETECTED]', type + ':', content);
+        window.__xssSeverity = SINK_SEVERITY[type] || 'MEDIUM';
+
+        const execution = {
+            type: type,
+            content: String(content).substring(0, 200),
+            severity: window.__xssSeverity,
+            timestamp: Date.now(),
+            stack: getStackTrace(),
+            source: source || 'unknown'
+        };
+        window.__xssExecutions.push(execution);
+        console.log('[XSS-DETECTED]', type + ':', content, 'severity:', window.__xssSeverity);
     }
+
+    // SOURCE TAGGING: Track user input sources
+    // Hook location.search (URL params)
+    try {
+        const origSearch = Object.getOwnPropertyDescriptor(Location.prototype, 'search');
+        if (origSearch && origSearch.get) {
+            Object.defineProperty(Location.prototype, 'search', {
+                get: function() {
+                    const val = origSearch.get.call(this);
+                    if (checkMarker(val)) {
+                        window.__xssTaintedData.set('location.search', val);
+                    }
+                    return val;
+                },
+                configurable: true
+            });
+        }
+    } catch(e) {}
+
+    // Hook location.hash (URL fragment)
+    try {
+        const origHash = Object.getOwnPropertyDescriptor(Location.prototype, 'hash');
+        if (origHash && origHash.get) {
+            Object.defineProperty(Location.prototype, 'hash', {
+                get: function() {
+                    const val = origHash.get.call(this);
+                    if (checkMarker(val)) {
+                        window.__xssTaintedData.set('location.hash', val);
+                    }
+                    return val;
+                },
+                configurable: true
+            });
+        }
+    } catch(e) {}
+
+    // Hook document.cookie
+    try {
+        const origCookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+        if (origCookie && origCookie.get) {
+            Object.defineProperty(Document.prototype, 'cookie', {
+                get: function() {
+                    const val = origCookie.get.call(this);
+                    if (checkMarker(val)) {
+                        window.__xssTaintedData.set('document.cookie', val);
+                    }
+                    return val;
+                },
+                set: origCookie.set,
+                configurable: true
+            });
+        }
+    } catch(e) {}
+
+    // Hook localStorage
+    const origLocalGetItem = localStorage.getItem.bind(localStorage);
+    localStorage.getItem = function(key) {
+        const val = origLocalGetItem(key);
+        if (val && checkMarker(val)) {
+            window.__xssTaintedData.set('localStorage.' + key, val);
+        }
+        return val;
+    };
+
+    // Hook sessionStorage
+    const origSessionGetItem = sessionStorage.getItem.bind(sessionStorage);
+    sessionStorage.getItem = function(key) {
+        const val = origSessionGetItem(key);
+        if (val && checkMarker(val)) {
+            window.__xssTaintedData.set('sessionStorage.' + key, val);
+        }
+        return val;
+    };
+
+    // Hook postMessage listener
+    window.addEventListener('message', function(e) {
+        if (e.data && checkMarker(JSON.stringify(e.data))) {
+            window.__xssTaintedData.set('postMessage', JSON.stringify(e.data).substring(0, 200));
+        }
+    }, true);
 
     // 1. Dialog interception (alert, confirm, prompt)
     window.__originalAlert = window.alert;
@@ -208,7 +331,7 @@ const XSS_INTERCEPTOR: &str = r#"
     if (originalImageSrc && originalImageSrc.set) {
         Object.defineProperty(HTMLImageElement.prototype, 'src', {
             set: function(value) {
-                if (checkMarker(value)) recordExecution('img.src', value);
+                if (checkMarker(value)) recordExecution('img.src', value, 'img-element');
                 return originalImageSrc.set.call(this, value);
             },
             get: originalImageSrc.get,
@@ -216,7 +339,126 @@ const XSS_INTERCEPTOR: &str = r#"
         });
     }
 
-    console.log('[XSS-SCANNER] Advanced interceptor installed (dialogs + sinks + DOM observer)');
+    // 12. Shadow DOM support - hook attachShadow to monitor shadow roots
+    const originalAttachShadow = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function(init) {
+        const shadowRoot = originalAttachShadow.call(this, init);
+
+        // Observe shadow root for mutations
+        const shadowObserver = new MutationObserver(function(mutations) {
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList') {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === 1) {
+                            const html = node.outerHTML || '';
+                            if (checkMarker(html)) {
+                                recordExecution('shadow-DOM-mutation', html, 'shadow-root');
+                            }
+                            // Check scripts inside shadow DOM
+                            if (node.tagName === 'SCRIPT' && checkMarker(node.textContent)) {
+                                recordExecution('shadow-DOM-script', node.textContent, 'shadow-root');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        shadowObserver.observe(shadowRoot, {childList: true, subtree: true});
+
+        // Hook innerHTML on shadow root
+        const origShadowInnerHTML = Object.getOwnPropertyDescriptor(ShadowRoot.prototype, 'innerHTML');
+        if (origShadowInnerHTML && origShadowInnerHTML.set) {
+            Object.defineProperty(shadowRoot, 'innerHTML', {
+                set: function(value) {
+                    if (checkMarker(value)) recordExecution('shadow-innerHTML', value, 'shadow-root');
+                    return origShadowInnerHTML.set.call(this, value);
+                },
+                get: origShadowInnerHTML.get,
+                configurable: true
+            });
+        }
+
+        return shadowRoot;
+    };
+
+    // 13. Script element src and textContent hooking
+    const originalScriptSrc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+    if (originalScriptSrc && originalScriptSrc.set) {
+        Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+            set: function(value) {
+                if (checkMarker(value)) recordExecution('script.src', value, 'script-element');
+                return originalScriptSrc.set.call(this, value);
+            },
+            get: originalScriptSrc.get,
+            configurable: true
+        });
+    }
+
+    // 14. Iframe src hooking (can be used for XSS via javascript: URLs)
+    const originalIframeSrc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src');
+    if (originalIframeSrc && originalIframeSrc.set) {
+        Object.defineProperty(HTMLIFrameElement.prototype, 'src', {
+            set: function(value) {
+                if (checkMarker(value) || (value && value.startsWith('javascript:'))) {
+                    recordExecution('iframe.src', value, 'iframe-element');
+                }
+                return originalIframeSrc.set.call(this, value);
+            },
+            get: originalIframeSrc.get,
+            configurable: true
+        });
+    }
+
+    // 15. Object/Embed data attribute (for plugin-based XSS)
+    const originalObjectData = Object.getOwnPropertyDescriptor(HTMLObjectElement.prototype, 'data');
+    if (originalObjectData && originalObjectData.set) {
+        Object.defineProperty(HTMLObjectElement.prototype, 'data', {
+            set: function(value) {
+                if (checkMarker(value)) recordExecution('object.data', value, 'object-element');
+                return originalObjectData.set.call(this, value);
+            },
+            get: originalObjectData.get,
+            configurable: true
+        });
+    }
+
+    // 16. Link href hooking (javascript: URLs)
+    const originalLinkHref = Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'href');
+    if (originalLinkHref && originalLinkHref.set) {
+        Object.defineProperty(HTMLAnchorElement.prototype, 'href', {
+            set: function(value) {
+                if (value && (checkMarker(value) || value.startsWith('javascript:'))) {
+                    recordExecution('a.href', value, 'anchor-element');
+                }
+                return originalLinkHref.set.call(this, value);
+            },
+            get: originalLinkHref.get,
+            configurable: true
+        });
+    }
+
+    // 17. Range.createContextualFragment (another DOM XSS vector)
+    const originalCreateContextualFragment = Range.prototype.createContextualFragment;
+    Range.prototype.createContextualFragment = function(html) {
+        if (checkMarker(html)) recordExecution('createContextualFragment', html, 'range-api');
+        return originalCreateContextualFragment.call(this, html);
+    };
+
+    // 18. DOMParser (can parse HTML with scripts)
+    const OriginalDOMParser = window.DOMParser;
+    window.DOMParser = function() {
+        const parser = new OriginalDOMParser();
+        const originalParseFromString = parser.parseFromString.bind(parser);
+        parser.parseFromString = function(str, type) {
+            if (type.includes('html') && checkMarker(str)) {
+                recordExecution('DOMParser.parseFromString', str, 'dom-parser');
+            }
+            return originalParseFromString(str, type);
+        };
+        return parser;
+    };
+
+    console.log('[XSS-SCANNER] Production-grade interceptor installed (dialogs + sinks + DOM + Shadow DOM + sources)');
 })();
 "#;
 
@@ -308,6 +550,10 @@ pub struct XssDetectionResult {
     pub payload: String,
     pub dialog_message: Option<String>,
     pub url: String,
+    pub severity: XssSeverity,
+    pub stack_trace: Option<String>,
+    pub source: Option<String>,
+    pub timestamp: Option<u64>,
 }
 
 /// How the XSS was triggered
@@ -317,7 +563,23 @@ pub enum XssTriggerType {
     ConfirmDialog,
     PromptDialog,
     DomExecution,
+    ShadowDom,
+    Eval,
+    InnerHtml,
+    DocumentWrite,
+    LocationChange,
+    DataExfil,
     None,
+}
+
+/// XSS severity classification
+#[derive(Debug, Clone, PartialEq)]
+pub enum XssSeverity {
+    Critical, // eval, Function, setTimeout with string
+    High,     // innerHTML, document.write, location changes
+    Medium,   // dialogs, fetch
+    Low,      // DOM mutations, img.src
+    Unknown,
 }
 
 /// Chromium-based XSS Scanner - the ONLY XSS scanner
@@ -627,6 +889,10 @@ impl ChromiumXssScanner {
                 payload: url.to_string(),
                 dialog_message: None,
                 url: url.to_string(),
+                severity: XssSeverity::Unknown,
+                stack_trace: None,
+                source: None,
+                timestamp: None,
             });
         }
 
@@ -672,11 +938,20 @@ impl ChromiumXssScanner {
         payload: &str,
     ) -> Result<Option<XssDetectionResult>> {
         let check_js = r#"
-            JSON.stringify({
-                triggered: window.__xssTriggered || false,
-                type: window.__xssTriggerType || 'none',
-                message: window.__xssMessage || ''
-            })
+            (function() {
+                const executions = window.__xssExecutions || [];
+                const latest = executions.length > 0 ? executions[executions.length - 1] : null;
+                return JSON.stringify({
+                    triggered: window.__xssTriggered || false,
+                    type: window.__xssTriggerType || 'none',
+                    message: window.__xssMessage || '',
+                    severity: window.__xssSeverity || 'UNKNOWN',
+                    stack: latest ? latest.stack : null,
+                    source: latest ? latest.source : null,
+                    timestamp: latest ? latest.timestamp : null,
+                    executions: executions.length
+                });
+            })()
         "#;
 
         let result = tab.evaluate(check_js, false)?;
@@ -687,12 +962,31 @@ impl ChromiumXssScanner {
                     let triggered = parsed.get("triggered").and_then(|v| v.as_bool()).unwrap_or(false);
                     let trigger_str = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("none");
                     let message = parsed.get("message").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let severity_str = parsed.get("severity").and_then(|v| v.as_str()).unwrap_or("UNKNOWN");
+                    let stack = parsed.get("stack").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let source = parsed.get("source").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let timestamp = parsed.get("timestamp").and_then(|v| v.as_u64());
 
                     let trigger_type = match trigger_str {
                         "alert" => XssTriggerType::AlertDialog,
                         "confirm" => XssTriggerType::ConfirmDialog,
                         "prompt" => XssTriggerType::PromptDialog,
+                        "eval" | "Function" | "setTimeout" | "setInterval" => XssTriggerType::Eval,
+                        "innerHTML" | "outerHTML" | "insertAdjacentHTML" => XssTriggerType::InnerHtml,
+                        "document.write" | "document.writeln" => XssTriggerType::DocumentWrite,
+                        "location.assign" | "location.replace" => XssTriggerType::LocationChange,
+                        "fetch" | "img.src" => XssTriggerType::DataExfil,
+                        s if s.contains("shadow") => XssTriggerType::ShadowDom,
+                        s if s.contains("DOM") => XssTriggerType::DomExecution,
                         _ => XssTriggerType::None,
+                    };
+
+                    let severity = match severity_str {
+                        "CRITICAL" => XssSeverity::Critical,
+                        "HIGH" => XssSeverity::High,
+                        "MEDIUM" => XssSeverity::Medium,
+                        "LOW" => XssSeverity::Low,
+                        _ => XssSeverity::Unknown,
                     };
 
                     return Ok(Some(XssDetectionResult {
@@ -701,6 +995,10 @@ impl ChromiumXssScanner {
                         payload: payload.to_string(),
                         dialog_message: message,
                         url: url.to_string(),
+                        severity,
+                        stack_trace: stack,
+                        source,
+                        timestamp,
                     }));
                 }
             }
@@ -715,7 +1013,13 @@ impl ChromiumXssScanner {
             XssTriggerType::AlertDialog => "JavaScript alert() executed",
             XssTriggerType::ConfirmDialog => "JavaScript confirm() executed",
             XssTriggerType::PromptDialog => "JavaScript prompt() executed",
-            XssTriggerType::DomExecution => "DOM script execution detected",
+            XssTriggerType::DomExecution => "DOM mutation detected with payload",
+            XssTriggerType::ShadowDom => "Shadow DOM injection detected",
+            XssTriggerType::Eval => "Code execution via eval/Function",
+            XssTriggerType::InnerHtml => "DOM sink innerHTML/outerHTML triggered",
+            XssTriggerType::DocumentWrite => "document.write injection detected",
+            XssTriggerType::LocationChange => "Location manipulation detected",
+            XssTriggerType::DataExfil => "Data exfiltration attempt detected",
             XssTriggerType::None => "Unknown trigger",
         };
 
@@ -727,33 +1031,58 @@ impl ChromiumXssScanner {
             "Reflected XSS"
         };
 
+        // Map XssSeverity to Severity and CVSS
+        let (severity, cvss) = match result.severity {
+            XssSeverity::Critical => (Severity::Critical, 9.6),
+            XssSeverity::High => (Severity::High, 8.2),
+            XssSeverity::Medium => (Severity::Medium, 6.5),
+            XssSeverity::Low => (Severity::Low, 4.3),
+            XssSeverity::Unknown => (Severity::High, 7.5), // Default for unknown
+        };
+
+        // Build detailed evidence with all available info
+        let mut evidence_parts = vec![
+            format!("Trigger: {}", trigger_desc),
+            format!("Severity: {:?}", result.severity),
+            format!("Payload: {}", result.payload),
+        ];
+
+        if let Some(ref msg) = result.dialog_message {
+            evidence_parts.push(format!("Message: {}", msg));
+        }
+        if let Some(ref source) = result.source {
+            evidence_parts.push(format!("Source: {}", source));
+        }
+        if let Some(ts) = result.timestamp {
+            evidence_parts.push(format!("Timestamp: {}ms", ts));
+        }
+        if let Some(ref stack) = result.stack_trace {
+            evidence_parts.push(format!("Stack trace:\n{}", stack));
+        }
+
         Ok(Vulnerability {
             id: format!("xss_{}", uuid::Uuid::new_v4()),
             vuln_type: format!("{} (CONFIRMED)", xss_type),
-            severity: Severity::High,
+            severity,
             confidence: Confidence::High,
             category: "Injection".to_string(),
             url: result.url.clone(),
             parameter: None,
             payload: result.payload.clone(),
             description: format!(
-                "CONFIRMED {} vulnerability. {}. Payload executed in real browser context.",
-                xss_type, trigger_desc
+                "CONFIRMED {} vulnerability ({:?} severity). {}. Payload executed in real browser context.",
+                xss_type, result.severity, trigger_desc
             ),
-            evidence: Some(format!(
-                "Trigger: {}\nPayload: {}\nMessage: {}",
-                trigger_desc,
-                result.payload,
-                result.dialog_message.as_deref().unwrap_or("N/A")
-            )),
+            evidence: Some(evidence_parts.join("\n")),
             cwe: "CWE-79".to_string(),
-            cvss: 7.5,
+            cvss,
             verified: true,
             false_positive: false,
             remediation: "1. Encode all user input before rendering\n\
                          2. Use Content Security Policy (CSP)\n\
                          3. Use HTTP-only cookies\n\
-                         4. Sanitize HTML with DOMPurify".to_string(),
+                         4. Sanitize HTML with DOMPurify\n\
+                         5. Use frameworks with auto-escaping (React, Vue, Angular)".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
             ml_data: None,
         })

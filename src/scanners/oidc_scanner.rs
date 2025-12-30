@@ -18,6 +18,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::analysis::{IntelligenceBus, AuthType};
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -165,11 +166,28 @@ struct OidcDetection {
 
 pub struct OidcScanner {
     http_client: Arc<HttpClient>,
+    intelligence_bus: Option<Arc<IntelligenceBus>>,
 }
 
 impl OidcScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        Self {
+            http_client,
+            intelligence_bus: None,
+        }
+    }
+
+    /// Configure the scanner with an intelligence bus for cross-scanner communication
+    pub fn with_intelligence(mut self, bus: Arc<IntelligenceBus>) -> Self {
+        self.intelligence_bus = Some(bus);
+        self
+    }
+
+    /// Broadcast OIDC authentication detected
+    async fn broadcast_oidc_detected(&self, url: &str, confidence: f32) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_auth_type(AuthType::OIDC, confidence, url).await;
+        }
     }
 
     /// Scan URL for OIDC vulnerabilities
@@ -216,6 +234,17 @@ impl OidcScanner {
         }
 
         info!("[OIDC] OIDC implementation detected: {:?}", detection.evidence);
+
+        // Broadcast OIDC detection to Intelligence Bus
+        // Higher confidence if we have a valid discovery configuration
+        let confidence = if detection.configuration.is_some() {
+            0.95
+        } else if detection.discovery_url.is_some() {
+            0.85
+        } else {
+            0.70
+        };
+        self.broadcast_oidc_detected(url, confidence).await;
 
         // If we have a configuration, run comprehensive tests
         if let Some(ref config) = detection.configuration {

@@ -9,6 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::analysis::{IntelligenceBus, AuthType, InsightType};
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
@@ -19,6 +20,7 @@ use tracing::{info, debug};
 
 pub struct OAuthScanner {
     http_client: Arc<HttpClient>,
+    intelligence_bus: Option<Arc<IntelligenceBus>>,
 }
 
 /// OAuth detection result
@@ -32,7 +34,37 @@ struct OAuthDetection {
 
 impl OAuthScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        Self {
+            http_client,
+            intelligence_bus: None,
+        }
+    }
+
+    /// Configure the scanner with an intelligence bus for cross-scanner communication
+    pub fn with_intelligence(mut self, bus: Arc<IntelligenceBus>) -> Self {
+        self.intelligence_bus = Some(bus);
+        self
+    }
+
+    /// Broadcast OAuth2 authentication detected
+    async fn broadcast_oauth2_detected(&self, url: &str, confidence: f32) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_auth_type(AuthType::OAuth2, confidence, url).await;
+        }
+    }
+
+    /// Broadcast PKCE bypass possibility insight
+    async fn broadcast_pkce_bypass(&self) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_insight("oauth", InsightType::WeakValidation, "PKCE not enforced").await;
+        }
+    }
+
+    /// Broadcast open redirect in callback insight
+    async fn broadcast_redirect_bypass(&self) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_insight("oauth", InsightType::BypassFound, "Open redirect in callback").await;
+        }
     }
 
     /// Scan URL for OAuth 2.0 vulnerabilities
@@ -78,6 +110,17 @@ impl OAuthScanner {
         }
 
         info!("[OAuth] OAuth implementation detected: {:?}", oauth_detection.evidence);
+
+        // Broadcast OAuth2 detection to Intelligence Bus
+        // Higher confidence if we found actual OAuth endpoints or flow
+        let confidence = if oauth_detection.has_oauth_endpoint && oauth_detection.has_oauth_flow {
+            0.95
+        } else if oauth_detection.has_oauth_endpoint || oauth_detection.has_oauth_flow {
+            0.85
+        } else {
+            0.70
+        };
+        self.broadcast_oauth2_detected(url, confidence).await;
 
         // Test 2: Check for authorization code in URL (always relevant if URL has code)
         tests_run += 1;
@@ -128,7 +171,12 @@ impl OAuthScanner {
         if oauth_detection.has_oauth_endpoint {
             if let Ok(response) = self.test_open_redirect(url).await {
                 if endpoint_exists(&response, &[302, 301]) {
+                    let vuln_count_before = vulnerabilities.len();
                     self.check_open_redirect(&response, url, &mut vulnerabilities);
+                    // Broadcast if open redirect vulnerability was found
+                    if vulnerabilities.len() > vuln_count_before {
+                        self.broadcast_redirect_bypass().await;
+                    }
                 }
             }
         }
@@ -146,7 +194,12 @@ impl OAuthScanner {
         if oauth_detection.has_oauth_endpoint {
             if let Ok(response) = self.test_pkce_support(url).await {
                 if endpoint_exists(&response, &[200, 400]) {
+                    let vuln_count_before = vulnerabilities.len();
                     self.check_pkce_support(&response, url, &mut vulnerabilities);
+                    // Broadcast if PKCE vulnerability was found
+                    if vulnerabilities.len() > vuln_count_before {
+                        self.broadcast_pkce_bypass().await;
+                    }
                 }
             }
         }

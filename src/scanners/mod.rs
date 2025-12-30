@@ -9,6 +9,7 @@
  * @license Proprietary
  */
 
+use crate::analysis::{IntelligenceBus, ResponseAnalyzer};
 use crate::config::ScannerConfig;
 use crate::crawler::{WebCrawler, CrawlResults};
 use crate::framework_detector::FrameworkDetector;
@@ -392,6 +393,10 @@ pub struct ScanEngine {
     pub nis2_scanner: Nis2Scanner,
     /// ML integration for automatic learning from scan results
     pub ml_integration: Option<crate::ml::MlIntegration>,
+    /// Shared intelligence bus for cross-scanner communication
+    pub intelligence_bus: Arc<IntelligenceBus>,
+    /// Shared response analyzer for intelligent response analysis
+    pub response_analyzer: Arc<ResponseAnalyzer>,
 }
 
 impl ScanEngine {
@@ -494,6 +499,10 @@ impl ScanEngine {
                 None
             }
         };
+
+        // Initialize intelligence bus and response analyzer for cross-scanner communication
+        let intelligence_bus = Arc::new(IntelligenceBus::new());
+        let response_analyzer = Arc::new(ResponseAnalyzer::new());
 
         Ok(Self {
             request_batcher,
@@ -604,9 +613,21 @@ impl ScanEngine {
             nis2_scanner: Nis2Scanner::new(Arc::clone(&http_client)),
             // Initialize ML integration (fails gracefully if ~/.lonkero not writable)
             ml_integration: crate::ml::MlIntegration::new().ok(),
+            intelligence_bus,
+            response_analyzer,
             http_client,
             config,
         })
+    }
+
+    /// Get the shared intelligence bus for cross-scanner communication
+    pub fn intelligence_bus(&self) -> Arc<IntelligenceBus> {
+        Arc::clone(&self.intelligence_bus)
+    }
+
+    /// Get the shared response analyzer for intelligent response analysis
+    pub fn response_analyzer(&self) -> Arc<ResponseAnalyzer> {
+        Arc::clone(&self.response_analyzer)
     }
 
     /// Execute a complete scan job

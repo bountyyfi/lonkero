@@ -5,6 +5,7 @@ use crate::types::ScanConfig;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, Severity, Vulnerability};
 use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously, did_payload_have_effect};
+use crate::analysis::{IntelligenceBus, InsightType};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -12,11 +13,125 @@ use tracing::{debug, info};
 /// Tests multiple bypass techniques to detect WAF weaknesses
 pub struct WafBypassScanner {
     http_client: Arc<HttpClient>,
+    intelligence_bus: Option<Arc<IntelligenceBus>>,
 }
 
 impl WafBypassScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        Self {
+            http_client,
+            intelligence_bus: None,
+        }
+    }
+
+    /// Configure the scanner with an IntelligenceBus for cross-scanner communication
+    pub fn with_intelligence(mut self, bus: Arc<IntelligenceBus>) -> Self {
+        self.intelligence_bus = Some(bus);
+        self
+    }
+
+    /// Broadcast WAF detection to other scanners
+    async fn broadcast_waf_detected(&self, waf_type: &str, bypass_hints: Vec<String>) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_waf(waf_type, bypass_hints).await;
+        }
+    }
+
+    /// Broadcast a bypass technique discovery
+    async fn broadcast_bypass_found(&self, technique: &str, details: &str) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_insight("waf_bypass", InsightType::BypassFound, &format!("{}: {}", technique, details)).await;
+        }
+    }
+
+    /// Detect WAF from response headers and body
+    fn detect_waf(&self, response: &HttpResponse) -> Option<(String, Vec<String>)> {
+        let headers_str = format!("{:?}", response.headers).to_lowercase();
+        let body_lower = response.body.to_lowercase();
+
+        // Cloudflare detection
+        if headers_str.contains("cf-ray") || headers_str.contains("cloudflare") ||
+           body_lower.contains("cloudflare") || body_lower.contains("cf-ray") {
+            return Some(("Cloudflare".to_string(), vec![
+                "URL encoding bypass".to_string(),
+                "Case variation".to_string(),
+                "Unicode normalization".to_string(),
+            ]));
+        }
+
+        // Akamai detection
+        if headers_str.contains("akamai") || headers_str.contains("x-akamai") ||
+           body_lower.contains("akamai") {
+            return Some(("Akamai".to_string(), vec![
+                "Parameter pollution".to_string(),
+                "Chunked encoding".to_string(),
+                "Header injection".to_string(),
+            ]));
+        }
+
+        // AWS WAF detection
+        if headers_str.contains("x-amzn-requestid") || headers_str.contains("awselb") ||
+           body_lower.contains("aws waf") {
+            return Some(("AWS WAF".to_string(), vec![
+                "Unicode bypass".to_string(),
+                "JSON payload manipulation".to_string(),
+                "Content-type switching".to_string(),
+            ]));
+        }
+
+        // ModSecurity detection
+        if headers_str.contains("mod_security") || headers_str.contains("modsecurity") ||
+           body_lower.contains("mod_security") || body_lower.contains("modsecurity") {
+            return Some(("ModSecurity".to_string(), vec![
+                "Comment injection".to_string(),
+                "Case manipulation".to_string(),
+                "Null byte injection".to_string(),
+            ]));
+        }
+
+        // Imperva/Incapsula detection
+        if headers_str.contains("incapsula") || headers_str.contains("imperva") ||
+           body_lower.contains("incapsula") || body_lower.contains("imperva") {
+            return Some(("Imperva".to_string(), vec![
+                "IP header spoofing".to_string(),
+                "Method override".to_string(),
+                "Encoding bypass".to_string(),
+            ]));
+        }
+
+        // F5 BIG-IP ASM detection
+        if headers_str.contains("bigip") || headers_str.contains("f5") ||
+           headers_str.contains("x-wa-info") {
+            return Some(("F5 BIG-IP".to_string(), vec![
+                "HTTP smuggling".to_string(),
+                "Parameter pollution".to_string(),
+                "Unicode bypass".to_string(),
+            ]));
+        }
+
+        // Sucuri detection
+        if headers_str.contains("sucuri") || headers_str.contains("x-sucuri") ||
+           body_lower.contains("sucuri") {
+            return Some(("Sucuri".to_string(), vec![
+                "Case variation".to_string(),
+                "Double encoding".to_string(),
+                "Comment injection".to_string(),
+            ]));
+        }
+
+        // Check for generic WAF indicators (403 with specific patterns)
+        if response.status_code == 403 {
+            if body_lower.contains("blocked") || body_lower.contains("forbidden") ||
+               body_lower.contains("security") || body_lower.contains("firewall") {
+                return Some(("Unknown WAF".to_string(), vec![
+                    "Try encoding variations".to_string(),
+                    "Try case manipulation".to_string(),
+                    "Try HTTP smuggling".to_string(),
+                ]));
+            }
+        }
+
+        None
     }
 
     pub async fn scan(
@@ -42,6 +157,21 @@ impl WafBypassScanner {
         }
 
         info!("[WAF-Bypass] Dynamic site detected - proceeding with WAF bypass tests");
+
+        // Detect WAF from baseline response and broadcast if found
+        if let Some((waf_type, bypass_hints)) = self.detect_waf(&baseline_response) {
+            info!("[WAF-Bypass] Detected WAF: {} with {} bypass hints", waf_type, bypass_hints.len());
+            self.broadcast_waf_detected(&waf_type, bypass_hints).await;
+        }
+
+        // Also try to detect WAF by sending a known malicious payload
+        let waf_test_url = format!("{}?test=<script>alert(1)</script>", url);
+        if let Ok(waf_response) = self.http_client.get(&waf_test_url).await {
+            if let Some((waf_type, bypass_hints)) = self.detect_waf(&waf_response) {
+                info!("[WAF-Bypass] Detected WAF from blocked response: {} with {} bypass hints", waf_type, bypass_hints.len());
+                self.broadcast_waf_detected(&waf_type, bypass_hints).await;
+            }
+        }
 
         // Test encoding bypasses
         let (enc_vulns, enc_tests) = self.test_encoding_bypasses(url, &baseline_response).await?;
@@ -149,6 +279,9 @@ impl WafBypassScanner {
                        is_payload_reflected_dangerously(&response, "<script>") {
                         info!("[WAF-Bypass] Encoding bypass successful: {}", technique);
 
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("Encoding bypass", technique).await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_encoding_{}", tests_run),
                             vuln_type: "WAF Bypass via Encoding".to_string(),
@@ -222,6 +355,9 @@ impl WafBypassScanner {
                         (response.status_code >= 200 && response.status_code < 300 && !response.body.contains("blocked"));
 
                     if bypass_detected && response.status_code != 403 {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("Case manipulation", technique).await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_case_{}", tests_run),
                             vuln_type: "WAF Bypass via Case Manipulation".to_string(),
@@ -286,6 +422,9 @@ impl WafBypassScanner {
                                           response.body.contains("admin");
 
                         if has_sensitive {
+                            // Broadcast bypass discovery to other scanners
+                            self.broadcast_bypass_found("Null byte injection", technique).await;
+
                             vulnerabilities.push(Vulnerability {
                                 id: format!("waf_bypass_null_{}", tests_run),
                                 vuln_type: "WAF Bypass via Null Byte Injection".to_string(),
@@ -359,6 +498,9 @@ impl WafBypassScanner {
                        (is_payload_reflected_dangerously(&response, "alert(1)") ||
                         (response.body.contains("mysql") && response.body.contains("syntax")) ||
                         (response.body.contains("ORA-") && response.body.contains("error"))) {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("Comment injection", technique).await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_comment_{}", tests_run),
                             vuln_type: "WAF Bypass via Comment Injection".to_string(),
@@ -423,6 +565,9 @@ impl WafBypassScanner {
 
                     // Method override confirmed if response is meaningfully different
                     if response.status_code == 200 || response.status_code == 204 {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("HTTP method override", &format!("{}: {}", header, method)).await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_method_{}", tests_run),
                             vuln_type: "HTTP Method Override Bypass".to_string(),
@@ -532,6 +677,9 @@ impl WafBypassScanner {
                     // Require DANGEROUS reflection, not just any substring match
                     if response.status_code != 403 &&
                        is_payload_reflected_dangerously(&response, "alert(1)") {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("Content-Type manipulation", ct).await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_content_type_{}", tests_run),
                             vuln_type: "WAF Bypass via Content-Type Manipulation".to_string(),
@@ -587,6 +735,9 @@ impl WafBypassScanner {
                 if !did_payload_have_effect(baseline, &response, chunked_payload) {
                     debug!("[WAF-Bypass] Chunked encoding test - no behavioral change, skipping");
                 } else if response.status_code != 403 && is_payload_reflected_dangerously(&response, "alert(1)") {
+                    // Broadcast bypass discovery to other scanners
+                    self.broadcast_bypass_found("Chunked encoding", "Transfer-Encoding chunked bypass").await;
+
                     vulnerabilities.push(Vulnerability {
                         id: format!("waf_bypass_chunked_{}", tests_run),
                         vuln_type: "WAF Bypass via Chunked Encoding".to_string(),
@@ -621,6 +772,9 @@ impl WafBypassScanner {
         match self.http_client.post_with_headers(url, "test", smuggle_headers).await {
             Ok(response) => {
                 if response.status_code == 200 {
+                    // Broadcast bypass discovery to other scanners
+                    self.broadcast_bypass_found("Transfer-Encoding smuggling", "Multiple TE headers accepted").await;
+
                     vulnerabilities.push(Vulnerability {
                         id: format!("waf_bypass_te_smuggle_{}", tests_run),
                         vuln_type: "Transfer-Encoding Header Smuggling".to_string(),
@@ -692,6 +846,9 @@ impl WafBypassScanner {
 
                     // Require dangerous reflection, not just "alert(1)" substring
                     if response.status_code != 403 && is_payload_reflected_dangerously(&response, "alert(1)") {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("IP spoofing header", &format!("{}: {}", header, value)).await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_header_spoof_{}", tests_run),
                             vuln_type: "WAF Bypass via IP Spoofing Header".to_string(),
@@ -760,6 +917,9 @@ impl WafBypassScanner {
             match self.http_client.get_with_headers(&absolute_url, headers).await {
                 Ok(response) => {
                     if response.status_code != 403 && response.body.contains("alert") {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("URI format", "Absolute URI bypass").await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_uri_format_{}", tests_run),
                             vuln_type: "WAF Bypass via URI Format".to_string(),
@@ -829,6 +989,9 @@ impl WafBypassScanner {
                                        response.body.contains("script");
 
                         if reflected {
+                            // Broadcast bypass discovery to other scanners
+                            self.broadcast_bypass_found("Unicode normalization", technique).await;
+
                             vulnerabilities.push(Vulnerability {
                                 id: format!("waf_bypass_unicode_{}", tests_run),
                                 vuln_type: "WAF Bypass via Unicode Normalization".to_string(),
@@ -899,6 +1062,9 @@ impl WafBypassScanner {
                                            response.body.contains("DROP");
 
                         if has_reflection {
+                            // Broadcast bypass discovery to other scanners
+                            self.broadcast_bypass_found("JSON payload", technique).await;
+
                             vulnerabilities.push(Vulnerability {
                                 id: format!("waf_bypass_json_{}", tests_run),
                                 vuln_type: "WAF Bypass via JSON Payload".to_string(),
@@ -948,6 +1114,9 @@ impl WafBypassScanner {
             match self.http_client.post_with_headers(url, payload, headers).await {
                 Ok(response) => {
                     if response.status_code != 403 && response.body.contains("alert") {
+                        // Broadcast bypass discovery to other scanners
+                        self.broadcast_bypass_found("XML payload", technique).await;
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("waf_bypass_xml_{}", tests_run),
                             vuln_type: "WAF Bypass via XML Payload".to_string(),
@@ -1015,6 +1184,9 @@ impl WafBypassScanner {
                                           (params.contains("admin=true") && response.body.to_lowercase().contains("admin"));
 
                         if has_injection {
+                            // Broadcast bypass discovery to other scanners
+                            self.broadcast_bypass_found("HTTP Parameter Pollution", technique).await;
+
                             vulnerabilities.push(Vulnerability {
                                 id: format!("waf_bypass_hpp_{}", tests_run),
                                 vuln_type: "WAF Bypass via HTTP Parameter Pollution".to_string(),

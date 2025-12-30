@@ -9,6 +9,7 @@
 //! - Header injection (kid, jku, x5u)
 //! - Secret brute-forcing with wordlist
 
+use crate::analysis::{IntelligenceBus, AuthType, InsightType};
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -270,11 +271,42 @@ pub struct SensitiveClaim {
 /// Advanced JWT Security Scanner
 pub struct JwtAnalyzer {
     http_client: Arc<HttpClient>,
+    intelligence_bus: Option<Arc<IntelligenceBus>>,
 }
 
 impl JwtAnalyzer {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        Self {
+            http_client,
+            intelligence_bus: None,
+        }
+    }
+
+    /// Configure the analyzer with an intelligence bus for cross-scanner communication
+    pub fn with_intelligence(mut self, bus: Arc<IntelligenceBus>) -> Self {
+        self.intelligence_bus = Some(bus);
+        self
+    }
+
+    /// Broadcast JWT authentication detected
+    async fn broadcast_auth_detected(&self, url: &str, confidence: f32) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_auth_type(AuthType::JWT, confidence, url).await;
+        }
+    }
+
+    /// Broadcast algorithm confusion vulnerability insight
+    async fn broadcast_algorithm_confusion(&self) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_insight("jwt", InsightType::WeakValidation, "Algorithm confusion possible").await;
+        }
+    }
+
+    /// Broadcast weak secret found insight
+    async fn broadcast_weak_secret(&self, secret: &str) {
+        if let Some(ref bus) = self.intelligence_bus {
+            bus.report_insight("jwt", InsightType::BypassFound, &format!("Weak secret: {}", secret)).await;
+        }
     }
 
     /// Comprehensive JWT security analysis
@@ -299,6 +331,17 @@ impl JwtAnalyzer {
         };
 
         info!("[JWT] Token decoded - Algorithm: {:?}", jwt.algorithm());
+
+        // Broadcast JWT authentication detected to intelligence bus
+        self.broadcast_auth_detected(url, 0.95).await;
+
+        // Check if algorithm confusion attack is possible (RS256/RS384/RS512 -> HS256)
+        if let Some(alg) = jwt.algorithm() {
+            if alg.starts_with("RS") || alg.starts_with("ES") || alg.starts_with("PS") {
+                // Asymmetric algorithm detected - algorithm confusion attack may be possible
+                self.broadcast_algorithm_confusion().await;
+            }
+        }
 
         // 1. Analyze claims for sensitive data
         tests_run += 1;
@@ -363,6 +406,9 @@ impl JwtAnalyzer {
         // 3. Test weak secrets
         tests_run += 1;
         if let Some(cracked_secret) = jwt.try_crack_secret() {
+            // Broadcast weak secret found to intelligence bus
+            self.broadcast_weak_secret(&cracked_secret).await;
+
             vulnerabilities.push(Vulnerability {
                 id: format!("jwt-weak-{}", uuid::Uuid::new_v4()),
                 vuln_type: "JWT Weak Secret".to_string(),
