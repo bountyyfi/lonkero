@@ -402,6 +402,32 @@ The crawler uses a priority queue to maximize attack surface discovery:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Semantic URL Deduplication
+
+Vulnerabilities are deduplicated using semantic URL normalization to avoid duplicate reports:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  URL Normalization Examples                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Numeric IDs:                                                   │
+│  /users/123/posts/456  →  /users/{id}/posts/{id}                │
+│  /users/789/posts/101  →  /users/{id}/posts/{id}  ✓ Same        │
+├─────────────────────────────────────────────────────────────────┤
+│  UUIDs:                                                         │
+│  /item/550e8400-e29b-41d4-...  →  /item/{uuid}                  │
+│  /item/f47ac10b-58cc-4372-...  →  /item/{uuid}    ✓ Same        │
+├─────────────────────────────────────────────────────────────────┤
+│  MongoDB ObjectIds:                                             │
+│  /doc/507f1f77bcf86cd799439011  →  /doc/{oid}                   │
+│  /doc/5eb63bbbe01eeed093cb22bb  →  /doc/{oid}     ✓ Same        │
+├─────────────────────────────────────────────────────────────────┤
+│  Query Parameters (sorted alphabetically):                      │
+│  /search?b=2&a=1&c=3  →  /search?a=1&b=2&c=3                    │
+│  /search?a=1&b=2&c=3  →  /search?a=1&b=2&c=3      ✓ Same        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### Configuration File
 
 ```yaml
