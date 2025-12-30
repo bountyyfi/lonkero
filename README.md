@@ -80,7 +80,8 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 - **Context-Aware** - Adapts testing based on detected technology stack
 - **SPA Detection** - Identifies React/Vue/Angular apps, handles soft-404 pages, discovers real API endpoints
 - **Route Discovery** - Automatically extracts routes from JavaScript bundles (Next.js App Router)
-- **Headless Browser** - Network interception, multi-stage form detection, authenticated crawling
+- **Headless Browser** - Network interception, WebSocket capture, multi-stage form detection, authenticated crawling
+- **Smart Crawler** - Priority queue (high-value targets first), semantic URL deduplication, adaptive rate limiting
 
 ### Enterprise Integration
 
@@ -192,10 +193,17 @@ Lonkero detects SPA signatures and handles soft-404s intelligently:
 - **Shared Browser Instance** - Single Chromium instance reused across all XSS tests for maximum performance
 - **Real XSS Execution** - Detects XSS by monitoring actual JavaScript execution (alert/confirm/prompt interception, DOM sink hooks)
 - **Network Interception** - Captures actual API endpoints from JavaScript
+- **WebSocket Capture** - Intercepts WebSocket connections (ws://, wss://) for security testing
 - **Multi-Stage Forms** - Detects forms that appear after initial form submission
 - **Authenticated Crawling** - Injects tokens into localStorage for auth-required SPAs
 - **Route Discovery** - Extracts routes from JavaScript bundles
 - **All Crawled URLs Tested** - XSS scanner runs on target URL plus all discovered/crawled URLs
+
+### Smart Crawler Features
+- **Priority Queue Crawling** - Crawls high-value targets first (login, admin, API endpoints)
+- **Semantic URL Deduplication** - Normalizes IDs, UUIDs, and query params to avoid duplicate testing
+- **Adaptive Rate Limiting** - Respects robots.txt Crawl-delay, backs off on 429/503
+- **Sitemap Discovery** - Automatically discovers URLs from sitemap.xml
 
 ---
 
@@ -363,6 +371,35 @@ lonkero scan https://example.com --crawl --max-depth 5
 
 # Disable rate limiting (use with caution)
 lonkero scan https://example.com --no-rate-limit
+```
+
+### Crawler Priority System
+
+The crawler uses a priority queue to maximize attack surface discovery:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  URL Priority Scoring (higher = crawled first)                  │
+├─────────────────────────────────────────────────────────────────┤
+│  HIGH PRIORITY (+35 to +50):                                    │
+│  • /login, /signin                     (+50)                    │
+│  • /register, /signup                  (+45)                    │
+│  • /admin, /dashboard                  (+40)                    │
+│  • /graphql                            (+35)                    │
+│  • /profile, /account, /settings       (+35)                    │
+│  • /checkout, /payment, /cart          (+35)                    │
+├─────────────────────────────────────────────────────────────────┤
+│  MEDIUM PRIORITY (+10 to +30):                                  │
+│  • Query parameters                    (+10 each, max +40)      │
+│  • Dynamic path segments (/users/123)  (+10 each, max +30)      │
+│  • /api, /v1/, /v2/                    (+25)                    │
+│  • /search, /filter                    (+30)                    │
+├─────────────────────────────────────────────────────────────────┤
+│  LOW PRIORITY (deprioritized):                                  │
+│  • Static files (.css, .js, .png)      (-80)                    │
+│  • /static/, /assets/, /cdn/           (-40)                    │
+│  • /blog/, /news/, /about              (-20)                    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Configuration File

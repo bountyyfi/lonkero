@@ -13,7 +13,8 @@ use crate::http_client::HttpClient;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use anyhow::{Context, Result};
 use scraper::{Html, Selector};
-use std::collections::{HashSet, HashMap};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashSet, HashMap};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
@@ -21,6 +22,140 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 use url::Url;
+
+// ============================================================================
+// Priority Queue for Coverage-Based Crawling
+// ============================================================================
+
+/// URL to crawl with priority score for coverage-based prioritization
+#[derive(Debug, Clone)]
+struct PrioritizedUrl {
+    url: String,
+    depth: usize,
+    /// Higher score = higher priority (crawl first)
+    priority: u32,
+}
+
+impl PartialEq for PrioritizedUrl {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+
+impl Eq for PrioritizedUrl {}
+
+impl PartialOrd for PrioritizedUrl {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PrioritizedUrl {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Higher priority first (reverse order for max-heap)
+        // Also prefer lower depth for same priority
+        self.priority.cmp(&other.priority)
+            .then_with(|| other.depth.cmp(&self.depth))
+    }
+}
+
+/// URL priority calculator for coverage-based crawling
+pub struct UrlPrioritizer;
+
+impl UrlPrioritizer {
+    /// Calculate priority score for a URL based on potential attack surface
+    /// Higher score = higher priority (crawl first)
+    pub fn calculate_priority(url: &str, depth: usize) -> u32 {
+        let mut score: u32 = 100; // Base score
+
+        // Penalize deep URLs
+        score = score.saturating_sub((depth * 5) as u32);
+
+        let url_lower = url.to_lowercase();
+        let path = url.split('?').next().unwrap_or(url);
+        let query = url.split('?').nth(1).unwrap_or("");
+
+        // HIGH PRIORITY: URLs likely to have forms/inputs
+        if url_lower.contains("login") || url_lower.contains("signin") {
+            score += 50; // Login forms are high value
+        }
+        if url_lower.contains("register") || url_lower.contains("signup") {
+            score += 45;
+        }
+        if url_lower.contains("admin") || url_lower.contains("dashboard") {
+            score += 40;
+        }
+        if url_lower.contains("profile") || url_lower.contains("account") || url_lower.contains("settings") {
+            score += 35;
+        }
+        if url_lower.contains("checkout") || url_lower.contains("payment") || url_lower.contains("cart") {
+            score += 35;
+        }
+        if url_lower.contains("search") || url_lower.contains("filter") {
+            score += 30;
+        }
+        if url_lower.contains("upload") || url_lower.contains("import") {
+            score += 30;
+        }
+        if url_lower.contains("api") || url_lower.contains("/v1/") || url_lower.contains("/v2/") {
+            score += 25; // API endpoints
+        }
+        if url_lower.contains("graphql") {
+            score += 35; // GraphQL endpoints are high value
+        }
+        if url_lower.contains("webhook") || url_lower.contains("callback") {
+            score += 25;
+        }
+        if url_lower.contains("form") || url_lower.contains("submit") {
+            score += 20;
+        }
+        if url_lower.contains("contact") || url_lower.contains("feedback") {
+            score += 20;
+        }
+
+        // MEDIUM PRIORITY: URLs with query parameters (potential injection points)
+        let param_count = query.matches('&').count() + if query.is_empty() { 0 } else { 1 };
+        score += (param_count * 10).min(40) as u32;
+
+        // URLs with ID patterns (potential IDOR)
+        if path.contains("/id/") || url_lower.contains("userid") || url_lower.contains("user_id") {
+            score += 15;
+        }
+
+        // Dynamic-looking paths (numbers in path)
+        let dynamic_segments = path.split('/')
+            .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
+            .count();
+        score += (dynamic_segments * 10).min(30) as u32;
+
+        // LOW PRIORITY: Static resources
+        if path.ends_with(".css") || path.ends_with(".js") || path.ends_with(".png")
+            || path.ends_with(".jpg") || path.ends_with(".gif") || path.ends_with(".svg")
+            || path.ends_with(".woff") || path.ends_with(".woff2") || path.ends_with(".ttf") {
+            score = score.saturating_sub(80);
+        }
+
+        // Deprioritize likely static pages
+        if url_lower.contains("/static/") || url_lower.contains("/assets/")
+            || url_lower.contains("/public/") || url_lower.contains("/cdn/") {
+            score = score.saturating_sub(40);
+        }
+
+        // Deprioritize blog/news/about (usually static content)
+        if url_lower.contains("/blog/") || url_lower.contains("/news/")
+            || url_lower.contains("/about") || url_lower.contains("/faq") {
+            score = score.saturating_sub(20);
+        }
+
+        score
+    }
+
+    /// Create a prioritized URL entry
+    pub fn prioritize(url: String, depth: usize) -> PrioritizedUrl {
+        let priority = Self::calculate_priority(&url, depth);
+        PrioritizedUrl { url, depth, priority }
+    }
+}
 
 /// Discovered form on a webpage
 #[derive(Debug, Clone)]
@@ -77,6 +212,8 @@ pub struct CrawlResults {
     pub parameters: HashMap<String, HashSet<String>>, // endpoint -> parameter names
     pub api_endpoints: HashSet<String>,
     pub crawled_urls: HashSet<String>,
+    /// WebSocket endpoints discovered (ws:// or wss://)
+    pub websocket_endpoints: HashSet<String>,
     /// True if site appears to be a client-side rendered SPA (React/Vue/Angular/Nuxt)
     pub is_spa: bool,
 }
@@ -90,6 +227,7 @@ impl CrawlResults {
             parameters: HashMap::new(),
             api_endpoints: HashSet::new(),
             crawled_urls: HashSet::new(),
+            websocket_endpoints: HashSet::new(),
             is_spa: false,
         }
     }
@@ -101,6 +239,7 @@ impl CrawlResults {
         self.scripts.extend(other.scripts);
         self.crawled_urls.extend(other.crawled_urls);
         self.api_endpoints.extend(other.api_endpoints);
+        self.websocket_endpoints.extend(other.websocket_endpoints);
         self.is_spa = self.is_spa || other.is_spa;
 
         for (endpoint, params) in other.parameters {
@@ -285,7 +424,8 @@ impl WebCrawler {
         info!("[Crawler] Starting crawl of {}", start_url);
 
         let mut results = CrawlResults::new();
-        let mut to_visit: Vec<(String, usize)> = vec![(start_url.to_string(), 0)];
+        let mut to_visit: BinaryHeap<PrioritizedUrl> = BinaryHeap::new();
+        to_visit.push(UrlPrioritizer::prioritize(start_url.to_string(), 0));
         let mut visited: HashSet<String> = HashSet::new();
 
         // Validate URL for SSRF protection
@@ -297,10 +437,11 @@ impl WebCrawler {
         // Discover URLs from sitemap.xml
         let sitemap_urls = self.discover_sitemap(&base_url).await;
         for url in sitemap_urls {
-            to_visit.push((url, 0));
+            to_visit.push(UrlPrioritizer::prioritize(url, 0));
         }
 
-        while let Some((url, depth)) = to_visit.pop() {
+        while let Some(PrioritizedUrl { url, depth, priority }) = to_visit.pop() {
+            debug!("[Priority] Crawling URL with priority {}: {}", priority, url);
             // Check limits
             if visited.len() >= self.max_pages {
                 warn!("[WARNING]  Reached max pages limit ({})", self.max_pages);
@@ -377,8 +518,11 @@ impl WebCrawler {
             if response.status_code == 429 {
                 self.rate_limiter.record_rate_limit(&url, 429).await;
                 warn!("Rate limited (429) on {}, backing off", url);
-                // Re-add to queue to try again later
-                to_visit.insert(0, (url.clone(), depth));
+                // Re-add to queue to try again later (with reduced priority)
+                visited.remove(&url); // Allow re-visit
+                let mut retry_url = UrlPrioritizer::prioritize(url.clone(), depth);
+                retry_url.priority = retry_url.priority.saturating_sub(50); // Lower priority for retry
+                to_visit.push(retry_url);
                 continue;
             } else if response.status_code == 503 {
                 self.rate_limiter.record_rate_limit(&url, 503).await;
@@ -408,7 +552,7 @@ impl WebCrawler {
 
             for link in links {
                 if !visited.contains(&link) {
-                    to_visit.push((link.clone(), depth + 1));
+                    to_visit.push(UrlPrioritizer::prioritize(link.clone(), depth + 1));
                     results.links.insert(link);
                 }
             }

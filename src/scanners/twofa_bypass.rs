@@ -1670,6 +1670,7 @@ fn deduplicate_vulnerabilities(vulnerabilities: Vec<Vulnerability>) -> Vec<Vulne
 mod tests {
     use super::*;
     use crate::http_client::HttpResponse;
+    use std::collections::HashMap;
 
     fn create_test_scanner() -> TwoFaBypassScanner {
         TwoFaBypassScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()))

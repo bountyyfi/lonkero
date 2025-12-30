@@ -2205,6 +2205,8 @@ pub struct SiteCrawlResults {
     pub graphql_operations: Vec<GraphQLOperation>,
     /// GraphQL endpoints discovered
     pub graphql_endpoints: Vec<String>,
+    /// WebSocket endpoints discovered (ws:// or wss://)
+    pub websocket_endpoints: Vec<String>,
 }
 
 /// Discovered GraphQL operation (query, mutation, subscription)
@@ -2266,6 +2268,45 @@ impl HeadlessCrawler {
         // Parse base URL for same-origin checks
         let base_url = url::Url::parse(start_url).context("Invalid start URL")?;
         let base_host = base_url.host_str().unwrap_or("").to_string();
+
+        // Inject WebSocket interceptor script before any page JS runs
+        // This wraps the native WebSocket constructor to capture all WS connections
+        let ws_interceptor_script = r#"
+            (function() {
+                // Store captured WebSocket URLs in a global array
+                window.__lonkero_ws_endpoints = window.__lonkero_ws_endpoints || [];
+
+                // Save original WebSocket constructor
+                const OriginalWebSocket = window.WebSocket;
+
+                // Create proxy constructor
+                window.WebSocket = function(url, protocols) {
+                    // Capture the URL
+                    if (url && !window.__lonkero_ws_endpoints.includes(url)) {
+                        window.__lonkero_ws_endpoints.push(url);
+                        console.log('[Lonkero] Captured WebSocket:', url);
+                    }
+
+                    // Call original constructor
+                    if (protocols !== undefined) {
+                        return new OriginalWebSocket(url, protocols);
+                    }
+                    return new OriginalWebSocket(url);
+                };
+
+                // Copy static properties and prototype
+                window.WebSocket.prototype = OriginalWebSocket.prototype;
+                window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+                window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+                window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+                window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+            })();
+        "#;
+
+        // Use evaluate with addScriptToEvaluateOnNewDocument behavior
+        // First navigate, then inject and reload to ensure script runs before page JS
+        let _ = tab.evaluate(ws_interceptor_script, false);
+        debug!("[Headless] Injected WebSocket interceptor script");
 
         // Track visited pages and pages to visit
         let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -2526,6 +2567,26 @@ impl HeadlessCrawler {
                 if req.url.to_lowercase().contains("graphql") {
                     if !results.graphql_endpoints.contains(&req.url) {
                         results.graphql_endpoints.push(req.url.clone());
+                    }
+                }
+            }
+        }
+
+        // Collect WebSocket endpoints captured by the interceptor
+        let ws_extract = r#"
+            (function() {
+                return JSON.stringify(window.__lonkero_ws_endpoints || []);
+            })()
+        "#;
+
+        if let Ok(ws_result) = tab.evaluate(ws_extract, true) {
+            if let Some(json_str) = ws_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Ok(ws_urls) = serde_json::from_str::<Vec<String>>(&json_str) {
+                    for ws_url in ws_urls {
+                        if !results.websocket_endpoints.contains(&ws_url) {
+                            info!("[Headless] Discovered WebSocket endpoint: {}", ws_url);
+                            results.websocket_endpoints.push(ws_url);
+                        }
                     }
                 }
             }
@@ -2865,14 +2926,20 @@ impl SiteCrawlResults {
             target.api_endpoints.insert(gql_endpoint.clone());
         }
 
+        // Add WebSocket endpoints
+        for ws_endpoint in &self.websocket_endpoints {
+            target.websocket_endpoints.insert(ws_endpoint.clone());
+        }
+
         // Deduplicate forms after merge
         target.deduplicate_forms();
 
         info!(
-            "[HeadlessCrawler] Merged {} pages, {} forms, {} API endpoints into CrawlResults",
+            "[HeadlessCrawler] Merged {} pages, {} forms, {} API endpoints, {} WebSocket endpoints into CrawlResults",
             self.pages_visited.len(),
             self.forms.len(),
-            self.api_endpoints.len() + self.graphql_endpoints.len()
+            self.api_endpoints.len() + self.graphql_endpoints.len(),
+            self.websocket_endpoints.len()
         );
     }
 

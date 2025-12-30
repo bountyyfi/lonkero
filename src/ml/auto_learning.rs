@@ -702,6 +702,7 @@ pub struct LearningStats {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use crate::types::Severity;
 
     fn create_test_response(body: &str, status: u16) -> HttpResponse {
         HttpResponse {

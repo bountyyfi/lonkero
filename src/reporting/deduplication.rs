@@ -2,7 +2,9 @@
 // This software is proprietary and confidential.
 
 use crate::types::Vulnerability;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use url::Url;
 
 pub struct VulnerabilityDeduplicator {
     similarity_threshold: f64,
@@ -81,8 +83,95 @@ impl VulnerabilityDeduplicator {
         )
     }
 
-    fn normalize_url(&self, url: &str) -> String {
-        url.split('?').next().unwrap_or(url).to_lowercase()
+    /// Semantic URL normalization for deduplication
+    /// - Normalizes numeric IDs in path: /users/123/posts/456 -> /users/{id}/posts/{id}
+    /// - Sorts query parameters alphabetically: ?b=2&a=1 -> ?a=1&b=2
+    /// - Normalizes UUIDs: /item/550e8400-e29b-41d4-a716-446655440000 -> /item/{uuid}
+    /// - Lowercases scheme and host
+    fn normalize_url(&self, url_str: &str) -> String {
+        // Try to parse as URL
+        if let Ok(mut url) = Url::parse(url_str) {
+            // 1. Normalize path - replace numeric IDs and UUIDs with placeholders
+            let path = self.normalize_path(url.path());
+            url.set_path(&path);
+
+            // 2. Sort query parameters alphabetically
+            let sorted_query = self.normalize_query_params(url.query());
+            url.set_query(sorted_query.as_deref());
+
+            // Return normalized URL (scheme + host are auto-lowercased by url crate)
+            url.to_string()
+        } else {
+            // Fallback: just lowercase and strip query
+            url_str.split('?').next().unwrap_or(url_str).to_lowercase()
+        }
+    }
+
+    /// Normalize URL path by replacing dynamic segments with placeholders
+    fn normalize_path(&self, path: &str) -> String {
+        // UUID pattern (8-4-4-4-12 hex)
+        let uuid_re = Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").unwrap();
+        // Numeric ID pattern (standalone numbers in path segments)
+        let numeric_re = Regex::new(r"^[0-9]+$").unwrap();
+        // MongoDB ObjectId pattern (24 hex chars)
+        let objectid_re = Regex::new(r"^[0-9a-fA-F]{24}$").unwrap();
+        // Base64-like tokens (common for encoded IDs)
+        let base64_re = Regex::new(r"^[A-Za-z0-9_-]{20,}$").unwrap();
+
+        let segments: Vec<&str> = path.split('/').collect();
+        let normalized: Vec<String> = segments
+            .iter()
+            .map(|segment| {
+                if segment.is_empty() {
+                    String::new()
+                } else if uuid_re.is_match(segment) {
+                    "{uuid}".to_string()
+                } else if objectid_re.is_match(segment) {
+                    "{oid}".to_string()
+                } else if numeric_re.is_match(segment) {
+                    "{id}".to_string()
+                } else if base64_re.is_match(segment) && !segment.contains('.') {
+                    // Avoid matching file extensions
+                    "{token}".to_string()
+                } else {
+                    segment.to_lowercase()
+                }
+            })
+            .collect();
+
+        normalized.join("/")
+    }
+
+    /// Sort query parameters alphabetically for consistent comparison
+    fn normalize_query_params(&self, query: Option<&str>) -> Option<String> {
+        query.map(|q| {
+            let mut params: Vec<(&str, &str)> = q
+                .split('&')
+                .filter_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?;
+                    let value = parts.next().unwrap_or("");
+                    Some((key, value))
+                })
+                .collect();
+
+            // Sort by key name
+            params.sort_by(|a, b| a.0.cmp(b.0));
+
+            // Rebuild query string
+            params
+                .iter()
+                .map(|(k, v)| {
+                    if v.is_empty() {
+                        k.to_string()
+                    } else {
+                        format!("{}={}", k, v)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("&")
+        })
+        .filter(|s| !s.is_empty())
     }
 
     pub fn filter_false_positives(&self, vulnerabilities: Vec<Vulnerability>) -> Vec<Vulnerability> {
@@ -210,5 +299,45 @@ mod tests {
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].vuln_type, "SQLi");
+    }
+
+    #[test]
+    fn test_semantic_url_normalization() {
+        let deduplicator = VulnerabilityDeduplicator::new();
+
+        // Test numeric ID normalization
+        let url1 = deduplicator.normalize_url("https://example.com/users/123/posts/456");
+        let url2 = deduplicator.normalize_url("https://example.com/users/789/posts/101");
+        assert_eq!(url1, url2, "Numeric IDs should normalize to same pattern");
+
+        // Test query param sorting
+        let url3 = deduplicator.normalize_url("https://example.com/search?b=2&a=1&c=3");
+        let url4 = deduplicator.normalize_url("https://example.com/search?a=1&b=2&c=3");
+        assert_eq!(url3, url4, "Query params should be sorted alphabetically");
+
+        // Test UUID normalization
+        let url5 = deduplicator.normalize_url("https://example.com/item/550e8400-e29b-41d4-a716-446655440000");
+        let url6 = deduplicator.normalize_url("https://example.com/item/f47ac10b-58cc-4372-a567-0e02b2c3d479");
+        assert_eq!(url5, url6, "UUIDs should normalize to same pattern");
+
+        // Test MongoDB ObjectId normalization
+        let url7 = deduplicator.normalize_url("https://example.com/doc/507f1f77bcf86cd799439011");
+        let url8 = deduplicator.normalize_url("https://example.com/doc/5eb63bbbe01eeed093cb22bb");
+        assert_eq!(url7, url8, "ObjectIds should normalize to same pattern");
+    }
+
+    #[test]
+    fn test_semantic_deduplication() {
+        let deduplicator = VulnerabilityDeduplicator::new();
+
+        // Same vulnerability on different user IDs should deduplicate
+        let vulns = vec![
+            create_test_vulnerability("IDOR", "https://api.example.com/users/123/profile"),
+            create_test_vulnerability("IDOR", "https://api.example.com/users/456/profile"),
+            create_test_vulnerability("IDOR", "https://api.example.com/users/789/profile"),
+        ];
+
+        let deduplicated = deduplicator.deduplicate(vulns);
+        assert_eq!(deduplicated.len(), 1, "Same vuln on different IDs should deduplicate to 1");
     }
 }
