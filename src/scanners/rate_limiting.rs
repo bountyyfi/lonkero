@@ -1,25 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Advanced Rate Limiting & Bypass Scanner
- * Tests for insufficient rate limiting and common bypass techniques on critical endpoints
- *
- * Detects:
- * - Missing rate limiting on signup/registration endpoints
- * - Missing rate limiting on login endpoints
- * - Missing rate limiting on password reset
- * - Missing rate limiting on OTP/2FA endpoints
- * - Missing rate limiting on API endpoints
- * - X-Forwarded-For bypass vulnerabilities
- * - X-Real-IP, X-Client-IP, True-Client-IP bypass vulnerabilities
- * - User-Agent rotation bypasses
- * - Session token rotation bypasses
- * - Combined bypass techniques
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -364,7 +344,7 @@ impl RateLimitingScanner {
         let mut results = Vec::new();
         let mut total_tests = 0;
 
-        info!("Testing bypass techniques on {}", endpoint.url);
+        debug!("Testing bypass techniques on {}", endpoint.url);
 
         // Define bypass techniques to test
         let bypass_techniques = vec![
@@ -415,7 +395,7 @@ impl RateLimitingScanner {
         technique: BypassTechnique,
         header_name: &str,
     ) -> RateLimitTestResult {
-        info!("Testing {} bypass on {}", technique.as_string(), endpoint.url);
+        debug!("Testing {} bypass on {}", technique.as_string(), endpoint.url);
 
         let start = Instant::now();
         let mut successful = 0;
@@ -509,7 +489,7 @@ impl RateLimitingScanner {
         endpoint: &DetectedEndpoint,
         request_count: usize,
     ) -> RateLimitTestResult {
-        info!("Testing combined bypass techniques on {}", endpoint.url);
+        debug!("Testing combined bypass techniques on {}", endpoint.url);
 
         let start = Instant::now();
         let mut successful = 0;
@@ -697,7 +677,7 @@ impl RateLimitingScanner {
         bypass_technique: BypassTechnique,
         custom_headers: &[(String, String)],
     ) -> RateLimitTestResult {
-        info!("Testing rate limiting on {} ({:?})", endpoint.url, endpoint.endpoint_type);
+        debug!("Testing rate limiting on {} ({:?})", endpoint.url, endpoint.endpoint_type);
 
         let start = Instant::now();
         let mut successful = 0;
@@ -1050,6 +1030,7 @@ impl RateLimitingScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

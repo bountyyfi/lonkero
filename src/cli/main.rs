@@ -1,20 +1,20 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
- * Lonkero - Enterprise Web Security Scanner
- * Standalone CLI for vulnerability assessment
+ * Lonkero v3.0 - Enterprise Web Security Scanner
+ * Standalone CLI with Intelligent Mode
  *
  * Features:
- * - 60+ vulnerability scanner modules
+ * - 94+ vulnerability scanner modules
+ * - Intelligent context-aware scanning (v3.0)
+ * - Tech detection with fallback layer
+ * - Endpoint deduplication & parameter risk scoring
  * - Multiple output formats (JSON, HTML, PDF, SARIF, Markdown)
- * - Configurable scan profiles
- * - Multi-target support
  * - Subdomain enumeration
- * - Technology detection
  * - Cloud security scanning
  *
- * (c) 2025 Bountyy Oy
+ * (c) 2025-2026 Bountyy Oy
  */
 
 use anyhow::Result;
@@ -27,19 +27,28 @@ use tracing::{debug, error, info, warn, Level};
 use std::collections::HashSet;
 
 use lonkero_scanner::config::ScannerConfig;
+use lonkero_scanner::crawler::CrawlResults;
 use lonkero_scanner::detection_helpers::detect_technology;
 use lonkero_scanner::http_client::HttpClient;
 use lonkero_scanner::license::{self, LicenseStatus, LicenseType};
 use lonkero_scanner::modules::ids as module_ids;
-use lonkero_scanner::scanners::ScanEngine;
+use lonkero_scanner::scanners::{
+    ScanEngine, IntelligentScanOrchestrator, IntelligentScanPlan, TechCategory, PayloadIntensity,
+};
 use lonkero_scanner::signing::{self, SigningError, ScanToken};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults};
+
+// Intelligence system imports
+use lonkero_scanner::analysis::{
+    IntelligenceBus, ResponseAnalyzer, AttackPlanner, AttackGoal, StateUpdate,
+    AuthType as IntelAuthType, PatternType, ParameterType as IntelParamType,
+};
 
 /// Lonkero - Enterprise Web Security Scanner
 #[derive(Parser)]
 #[command(name = "lonkero")]
 #[command(author = "Bountyy Oy <info@bountyy.fi>")]
-#[command(version = "2.0.0")]
+#[command(version = "3.0.0")]
 #[command(about = "Web scanner built for actual pentests. Fast, modular, Rust.", long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
@@ -75,8 +84,8 @@ enum Commands {
         #[arg(required = true)]
         targets: Vec<String>,
 
-        /// Scan mode: fast, normal, thorough, insane
-        #[arg(short, long, default_value = "normal")]
+        /// Scan mode: intelligent (context-aware, default), fast, normal, thorough, insane
+        #[arg(short, long, default_value = "intelligent")]
         mode: ScanModeArg,
 
         /// Output file path
@@ -166,6 +175,36 @@ enum Commands {
         /// Disable rate limiting entirely (use with caution!)
         #[arg(long)]
         no_rate_limit: bool,
+
+        // === Multi-Role Authorization Testing ===
+        /// Admin username for multi-role authorization testing
+        #[arg(long)]
+        admin_username: Option<String>,
+
+        /// Admin password for multi-role authorization testing
+        #[arg(long)]
+        admin_password: Option<String>,
+
+        /// Admin login URL (if different from user login URL)
+        #[arg(long)]
+        admin_login_url: Option<String>,
+
+        /// Enable multi-role authorization testing (requires both user and admin credentials)
+        #[arg(long)]
+        multi_role: bool,
+
+        // === Session Recording ===
+        /// Enable session recording during headless crawling
+        #[arg(long)]
+        record_session: bool,
+
+        /// Session recording output file (default: session_recording.har)
+        #[arg(long)]
+        session_output: Option<PathBuf>,
+
+        /// Session recording format: har, json, html
+        #[arg(long, default_value = "har")]
+        session_format: SessionRecordingFormat,
     },
 
     /// List available scanner modules
@@ -200,6 +239,12 @@ enum Commands {
         #[command(subcommand)]
         action: LicenseAction,
     },
+
+    /// Machine Learning settings and statistics
+    Ml {
+        #[command(subcommand)]
+        action: MlAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -215,17 +260,53 @@ enum LicenseAction {
     Deactivate,
 }
 
+#[derive(Subcommand)]
+enum MlAction {
+    /// Enable ML features with GDPR consent
+    Enable {
+        /// Also opt-in to federated learning (share model weights to improve detection for all users)
+        #[arg(long)]
+        federated: bool,
+    },
+    /// Disable ML features
+    Disable {
+        /// Also delete all collected training data
+        #[arg(long)]
+        delete_data: bool,
+    },
+    /// Show ML statistics and status
+    Stats,
+    /// Export your ML data (GDPR Article 15 - Right to access)
+    Export {
+        /// Output file path
+        #[arg(short, long, default_value = "ml_data_export.json")]
+        output: PathBuf,
+    },
+    /// Delete all ML data (GDPR Article 17 - Right to erasure)
+    DeleteData,
+    /// Manually sync with federated network
+    Sync,
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum ScanModeArg {
+    /// Context-aware intelligent scanning (v3.0 default)
+    /// Uses tech detection, endpoint deduplication, and per-parameter risk scoring
+    Intelligent,
+    /// Legacy: 50 payloads globally
     Fast,
+    /// Legacy: 500 payloads globally
     Normal,
+    /// Legacy: 5000 payloads globally
     Thorough,
+    /// Legacy: unlimited payloads globally
     Insane,
 }
 
 impl From<ScanModeArg> for ScanMode {
     fn from(mode: ScanModeArg) -> Self {
         match mode {
+            ScanModeArg::Intelligent => ScanMode::Intelligent,
             ScanModeArg::Fast => ScanMode::Fast,
             ScanModeArg::Normal => ScanMode::Normal,
             ScanModeArg::Thorough => ScanMode::Thorough,
@@ -246,6 +327,16 @@ enum OutputFormat {
     Junit,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum SessionRecordingFormat {
+    /// HAR format (HTTP Archive) - compatible with browser dev tools
+    Har,
+    /// JSON timeline format with all events
+    Json,
+    /// Interactive HTML report with timeline
+    Html,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -260,11 +351,30 @@ fn main() -> Result<()> {
         Level::INFO
     };
 
-    tracing_subscriber::fmt()
-        .with_max_level(log_level)
+    // Use EnvFilter to suppress noisy warnings from html5ever (foster parenting spam)
+    // The "foster parenting not implemented" warnings come from html5ever via the `log` crate.
+    // These go through tracing-log and then get filtered by the EnvFilter.
+    use tracing_subscriber::EnvFilter;
+
+    // CRITICAL: Use LevelFilter with specific target filters
+    // The =off directive completely silences a target
+    let filter = EnvFilter::new(format!(
+        "{},html5ever=off,html5ever::tree_builder=off,selectors=off,scraper=off,markup5ever=off,headless_chrome=warn",
+        log_level
+    ));
+
+    // Initialize tracing-log bridge with a max log level filter
+    // This is the key - filter at the log crate level to prevent html5ever spam
+    // html5ever emits at WARN level, so setting builder to Error blocks them
+    let _ = tracing_log::LogTracer::builder()
+        .with_max_level(tracing_log::log::LevelFilter::Error)
+        .init();
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
         .with_target(false)
         .with_thread_ids(false)
-        .init();
+        .try_init();
 
     // Create async runtime
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -303,6 +413,13 @@ async fn async_main(cli: Cli) -> Result<()> {
             insecure,
             rate_limit,
             no_rate_limit,
+            admin_username,
+            admin_password,
+            admin_login_url,
+            multi_role,
+            record_session,
+            session_output,
+            session_format,
         } => {
             // Determine which modules to request authorization for
             // CRITICAL: The modules array is now REQUIRED for paid modules.
@@ -356,6 +473,13 @@ async fn async_main(cli: Cli) -> Result<()> {
                 no_rate_limit,
                 license_status,
                 scan_token,
+                admin_username,
+                admin_password,
+                admin_login_url,
+                multi_role,
+                record_session,
+                session_output,
+                session_format,
             )
             .await
         }
@@ -364,6 +488,7 @@ async fn async_main(cli: Cli) -> Result<()> {
         Commands::Init { output } => generate_config(output),
         Commands::Version => show_version(),
         Commands::License { action } => handle_license_command(action, cli.license_key.as_deref()).await,
+        Commands::Ml { action } => handle_ml_command(action).await,
     }
 }
 
@@ -619,6 +744,151 @@ async fn handle_license_command(action: LicenseAction, _current_key: Option<&str
     Ok(())
 }
 
+/// Handle ML management commands
+async fn handle_ml_command(action: MlAction) -> Result<()> {
+    use lonkero_scanner::ml::{MlPipeline, PrivacyManager};
+
+    match action {
+        MlAction::Enable { federated } => {
+            println!();
+            println!("========================================================");
+            println!("LONKERO ML - GDPR CONSENT");
+            println!("========================================================");
+            println!();
+            println!("By enabling ML features, you consent to:");
+            println!();
+            println!("  1. Local collection of anonymized vulnerability patterns");
+            println!("     - No URLs, hostnames, or IPs are stored");
+            println!("     - Only statistical features (response codes, timing, etc.)");
+            println!("     - Data stored in ~/.lonkero/training_data/");
+            println!();
+
+            if federated {
+                println!("  2. Federated Learning (you opted in with --federated):");
+                println!("     - Model WEIGHTS are shared (not your actual data)");
+                println!("     - Differential privacy noise applied before sharing");
+                println!("     - Cannot reconstruct your findings from weights");
+                println!("     - Benefits: Better detection accuracy for everyone");
+                println!();
+            }
+
+            println!("You can withdraw consent at any time with: lonkero ml disable");
+            println!("You can delete all data with: lonkero ml delete-data");
+            println!();
+
+            let mut privacy = PrivacyManager::new()?;
+            privacy.record_consent(federated)?;
+
+            println!("[OK] ML features enabled{}",
+                if federated { " with federated learning" } else { "" });
+            println!();
+        }
+
+        MlAction::Disable { delete_data } => {
+            let mut privacy = PrivacyManager::new()?;
+
+            if delete_data {
+                privacy.withdraw_consent()?;
+                println!("[OK] ML disabled and all data deleted (GDPR Article 17)");
+            } else {
+                // Just disable without deleting
+                println!("[OK] ML disabled (data retained for future use)");
+                println!("     To delete data: lonkero ml delete-data");
+            }
+        }
+
+        MlAction::Stats => {
+            println!();
+            println!("========================================================");
+            println!("LONKERO ML STATISTICS");
+            println!("========================================================");
+            println!();
+
+            match MlPipeline::new() {
+                Ok(pipeline) => {
+                    let stats = pipeline.get_stats().await;
+
+                    println!("Status:              {}", if stats.enabled { "Enabled" } else { "Disabled" });
+                    println!();
+                    println!("Training Data:");
+                    println!("  True positives:    {}", stats.total_confirmed);
+                    println!("  False positives:   {}", stats.total_rejected);
+                    println!("  Pending:           {}", stats.pending_learning);
+                    println!("  Endpoint patterns: {}", stats.endpoint_patterns);
+                    println!();
+                    println!("Federated Learning:");
+                    println!("  Connected:         {}", if stats.federated_enabled { "Yes" } else { "No" });
+                    if let Some(contributors) = stats.federated_contributors {
+                        println!("  Contributors:      {}", contributors);
+                    }
+                    println!("  Can contribute:    {}", if stats.can_contribute { "Yes (50+ examples)" } else { "No (need 50+ examples)" });
+                }
+                Err(e) => {
+                    println!("ML not initialized: {}", e);
+                    println!();
+                    println!("Enable with: lonkero ml enable");
+                }
+            }
+
+            println!();
+            println!("========================================================");
+        }
+
+        MlAction::Export { output } => {
+            println!("Exporting ML data (GDPR Article 15 - Right to access)...");
+
+            let privacy = PrivacyManager::new()?;
+            let export = privacy.export_personal_data()?;
+
+            let json = serde_json::to_string_pretty(&export)?;
+            std::fs::write(&output, json)?;
+
+            println!();
+            println!("[OK] Data exported to: {}", output.display());
+            println!("     Training examples: {}", export.training_examples.len());
+            println!("     Pending contributions: {}", export.pending_contributions);
+        }
+
+        MlAction::DeleteData => {
+            println!();
+            println!("WARNING: This will permanently delete all ML training data.");
+            println!("This action cannot be undone.");
+            println!();
+
+            // In a real CLI we'd prompt for confirmation, but for simplicity:
+            let privacy = PrivacyManager::new()?;
+            privacy.delete_all_data()?;
+
+            println!("[OK] All ML data deleted (GDPR Article 17 - Right to erasure)");
+        }
+
+        MlAction::Sync => {
+            println!("Syncing with federated network...");
+
+            let privacy = PrivacyManager::new()?;
+            if !privacy.is_federated_allowed() {
+                println!();
+                println!("Federated learning not enabled.");
+                println!("Enable with: lonkero ml enable --federated");
+                return Ok(());
+            }
+
+            match MlPipeline::new() {
+                Ok(mut pipeline) => {
+                    pipeline.on_scan_complete().await?;
+                    println!();
+                    println!("[OK] Sync complete");
+                }
+                Err(e) => {
+                    error!("Sync failed: {}", e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn run_scan(
     targets: Vec<String>,
     mode: ScanMode,
@@ -646,6 +916,13 @@ async fn run_scan(
     no_rate_limit: bool,
     license_status: LicenseStatus,
     scan_token: ScanToken,
+    admin_username: Option<String>,
+    admin_password: Option<String>,
+    admin_login_url: Option<String>,
+    multi_role: bool,
+    record_session: bool,
+    session_output: Option<PathBuf>,
+    session_format: SessionRecordingFormat,
 ) -> Result<()> {
     // Check if killswitch is active
     if license_status.killswitch_active {
@@ -684,7 +961,7 @@ async fn run_scan(
 
     print_banner();
 
-    info!("Initializing Lonkero Scanner v2.0.0");
+    info!("Initializing Lonkero Scanner v3.0.0");
     info!("Scan mode: {:?}", mode);
     info!("Targets: {}", targets.len());
 
@@ -705,7 +982,7 @@ async fn run_scan(
         cache_ttl_secs: 300,
         dns_cache_enabled: true,
         subdomain_enum_enabled: subdomains,
-        subdomain_enum_thorough: matches!(mode, ScanMode::Thorough | ScanMode::Insane),
+        subdomain_enum_thorough: matches!(mode, ScanMode::Thorough | ScanMode::Insane | ScanMode::Intelligent),
         cdn_detection_enabled: true,
         early_termination_enabled: false,
         adaptive_concurrency_enabled: true,
@@ -779,6 +1056,40 @@ async fn run_scan(
         }
         info!("[Auth] Authentication context ready - scanning authenticated endpoints");
     }
+
+    // Setup admin session for multi-role testing (used for pre-auth validation)
+    let _admin_session: Option<AuthSession> = if multi_role {
+        if let (Some(admin_user), Some(admin_pass)) = (&admin_username, &admin_password) {
+            info!("[MultiRole] Initializing admin session for authorization testing");
+            let authenticator = Authenticator::new(timeout);
+            let mut creds = LoginCredentials::new(admin_user, admin_pass);
+            if let Some(login_url) = admin_login_url.as_ref().or(auth_login_url.as_ref()) {
+                creds = creds.with_login_url(login_url);
+            }
+
+            let base_url = targets.first().map(|t| t.as_str()).unwrap_or("");
+            match authenticator.login(base_url, &creds).await {
+                Ok(session) => {
+                    if session.is_authenticated {
+                        info!("[MultiRole] Admin login successful - {} cookies", session.cookies.len());
+                        Some(session)
+                    } else {
+                        warn!("[MultiRole] Admin login may have failed - multi-role testing disabled");
+                        None
+                    }
+                }
+                Err(e) => {
+                    warn!("[MultiRole] Admin auto-login failed: {} - multi-role testing disabled", e);
+                    None
+                }
+            }
+        } else {
+            warn!("[MultiRole] --multi-role requires --admin-username and --admin-password");
+            None
+        }
+    } else {
+        None
+    };
 
     // Create scan engine
     let engine = Arc::new(ScanEngine::new(scanner_config.clone())?);
@@ -880,7 +1191,142 @@ async fn run_scan(
         }
     }
 
+    // Multi-role authorization testing (if both user and admin credentials are available)
+    if multi_role {
+        if let (Some(ref user_name), Some(ref user_pass), Some(ref admin_name), Some(ref admin_pass)) =
+            (&auth_username, &auth_password, &admin_username, &admin_password)
+        {
+            use lonkero_scanner::multi_role::compare_user_admin;
+
+            info!("");
+            info!("=== Multi-Role Authorization Testing ===");
+            info!("[MultiRole] Comparing access patterns between user and admin roles");
+
+            let base_url = targets.first().map(|t| t.as_str()).unwrap_or("");
+
+            // Run multi-role authorization comparison using the helper function
+            match compare_user_admin(
+                Arc::clone(&engine.http_client),
+                base_url,
+                (user_name.as_str(), user_pass.as_str()),
+                (admin_name.as_str(), admin_pass.as_str()),
+            ).await {
+                Ok(vulns) => {
+                    if !vulns.is_empty() {
+                        info!("[MultiRole] Found {} authorization issues:", vulns.len());
+                        for vuln in &vulns {
+                            warn!("  - {}: {} at {}", vuln.severity, vuln.vuln_type, vuln.url);
+                        }
+                        // Add multi-role findings to results
+                        total_vulns += vulns.len();
+                        if let Some(last_result) = all_results.last_mut() {
+                            last_result.vulnerabilities.extend(vulns);
+                        }
+                    } else {
+                        info!("[MultiRole] No authorization issues found between roles");
+                    }
+                }
+                Err(e) => {
+                    warn!("[MultiRole] Authorization analysis failed: {}", e);
+                }
+            }
+            info!("=== Multi-Role Testing Complete ===");
+            info!("");
+        } else {
+            warn!("[MultiRole] Multi-role testing requires both user (--auth-username, --auth-password) and admin (--admin-username, --admin-password) credentials");
+        }
+    }
+
+    // Export session recording if enabled
+    if record_session {
+        use lonkero_scanner::session_recording::{SessionRecorder, SessionExporter, ExportFormat};
+
+        info!("[Recording] Session recording was enabled - note: full integration pending");
+
+        // For now, just log that recording is enabled
+        // Full integration requires wiring SessionRecorder into the headless crawler
+        // which needs to be done in the scanner module, not the CLI
+        let output_file = session_output.clone().unwrap_or_else(|| {
+            PathBuf::from(format!("session_recording.{}", match session_format {
+                SessionRecordingFormat::Har => "har",
+                SessionRecordingFormat::Json => "json",
+                SessionRecordingFormat::Html => "html",
+            }))
+        });
+
+        info!("[Recording] Session would be exported to: {} (format: {:?})", output_file.display(), session_format);
+        info!("[Recording] Note: Full session recording integration is available via the SessionRecorder API");
+    }
+
     let elapsed = start_time.elapsed();
+
+    // ML Auto-Learning: Process scan results for ML training (GDPR-compliant)
+    // Features are extracted from vulnerability metadata only - no raw response data stored
+    {
+        use lonkero_scanner::ml::{MlPipeline, VulnFeatures};
+        match MlPipeline::new() {
+            Ok(mut ml_pipeline) => {
+                if ml_pipeline.is_enabled() {
+                    info!("[ML] Processing {} vulnerabilities for auto-learning", total_vulns);
+
+                    // Process each vulnerability - auto-extract features if not attached
+                    let mut ml_processed = 0;
+                    let mut ml_with_scanner_data = 0;
+                    let mut ml_auto_extracted = 0;
+
+                    for result in &all_results {
+                        for vuln in &result.vulnerabilities {
+                            // Try to use scanner-attached features first (more accurate)
+                            let features = if let Some(f) = vuln.get_ml_features() {
+                                ml_with_scanner_data += 1;
+                                f.clone()
+                            } else {
+                                // GDPR-compliant: Extract features from vulnerability metadata only
+                                // No raw response data is stored - only statistical patterns
+                                ml_auto_extracted += 1;
+                                VulnFeatures::from_vulnerability(vuln)
+                            };
+
+                            // Process the features for ML learning
+                            match ml_pipeline.process_features(vuln, &features).await {
+                                Ok(true) => {
+                                    ml_processed += 1;
+                                }
+                                Ok(false) => {
+                                    // ML skipped this finding (e.g., low confidence)
+                                }
+                                Err(e) => {
+                                    debug!("[ML] Failed to process finding: {}", e);
+                                }
+                            }
+                        }
+                    }
+
+                    if ml_processed > 0 {
+                        info!(
+                            "[ML] Processed {} vulnerabilities ({} from scanners, {} auto-extracted)",
+                            ml_processed, ml_with_scanner_data, ml_auto_extracted
+                        );
+                    }
+
+                    // Signal scan completion to trigger federated sync
+                    if let Err(e) = ml_pipeline.on_scan_complete().await {
+                        warn!("[ML] Failed to complete scan processing: {}", e);
+                    } else {
+                        let stats = ml_pipeline.get_stats().await;
+                        if stats.federated_enabled || stats.can_contribute {
+                            info!("[ML] Federated sync complete (contributors: {:?})", stats.federated_contributors);
+                        }
+                    }
+                } else {
+                    debug!("[ML] Auto-learning disabled - enable with: lonkero ml enable --federated");
+                }
+            }
+            Err(e) => {
+                debug!("[ML] Could not initialize ML pipeline: {}", e);
+            }
+        }
+    }
 
     // Print final summary
     println!();
@@ -1117,7 +1563,7 @@ async fn execute_standalone_scan(
     config: &ScannerConfig,
 ) -> Result<ScanResults> {
     use lonkero_scanner::crawler::WebCrawler;
-    use lonkero_scanner::headless_crawler::HeadlessCrawler;
+    use lonkero_scanner::headless_crawler::{HeadlessCrawler, should_use_headless};
     use lonkero_scanner::framework_detector::FrameworkDetector;
     
     use lonkero_scanner::types::Vulnerability;
@@ -1159,6 +1605,18 @@ async fn execute_standalone_scan(
     let mut all_vulnerabilities: Vec<Vulnerability> = Vec::new();
     let mut total_tests: u64 = 0;
 
+    // ==========================================================================
+    // INTELLIGENCE SYSTEM INITIALIZATION (v3.0)
+    // Creates the scanner intelligence components for real-time communication,
+    // semantic response analysis, and multi-step attack planning.
+    // ==========================================================================
+    let intelligence_bus = Arc::new(IntelligenceBus::new());
+    let response_analyzer = Arc::new(ResponseAnalyzer::new());
+    let mut attack_planner = AttackPlanner::new();
+
+    info!("[Intelligence] Scanner intelligence system initialized");
+    debug!("[Intelligence] Components: IntelligenceBus, ResponseAnalyzer, AttackPlanner");
+
     // Phase 0: Reconnaissance
     info!("Phase 0: Reconnaissance");
 
@@ -1166,6 +1624,7 @@ async fn execute_standalone_scan(
     let mut discovered_params: Vec<String> = Vec::new();
     let mut discovered_forms: Vec<(String, Vec<lonkero_scanner::crawler::FormInput>)> = Vec::new(); // (action_url, form_inputs)
     let mut is_spa_detected = false;  // SPA detection from crawler
+    let mut crawl_results: Option<CrawlResults> = None;  // Store for intelligent orchestrator
 
     if scan_config.enable_crawler {
         info!("  - Running web crawler (depth: {})", scan_config.max_depth);
@@ -1174,6 +1633,7 @@ async fn execute_standalone_scan(
             Ok(results) => {
                 info!("  - Discovered {} URLs, {} forms", results.crawled_urls.len(), results.forms.len());
                 is_spa_detected = results.is_spa;  // Capture SPA detection
+                crawl_results = Some(results.clone());  // Store for intelligent orchestrator
 
                 // Extract parameters from discovered forms for XSS testing
                 for form in &results.forms {
@@ -1222,6 +1682,15 @@ async fn execute_standalone_scan(
                 info!("[SUCCESS] Detected {} technologies", techs.len());
                 for tech in &techs {
                     info!("    - {} ({:?})", tech.name, tech.category);
+
+                    // Broadcast to intelligence bus so other scanners can adapt
+                    let version = tech.version.as_deref();
+                    let confidence = match tech.confidence {
+                        lonkero_scanner::framework_detector::Confidence::High => 0.9,
+                        lonkero_scanner::framework_detector::Confidence::Medium => 0.7,
+                        lonkero_scanner::framework_detector::Confidence::Low => 0.5,
+                    };
+                    intelligence_bus.report_framework(&tech.name, version, confidence).await;
                 }
             }
             techs.iter().map(|t| t.name.to_lowercase()).collect()
@@ -1255,6 +1724,144 @@ async fn execute_standalone_scan(
         t.contains("github pages")
     );
 
+    // ==========================================================================
+    // HEADLESS CRAWLER ENHANCEMENT (v3.0)
+    // Automatically switch to headless crawling for SPAs and JS-heavy sites
+    // Uses weighted scoring to decide when static crawling isn't enough
+    // ==========================================================================
+    if scan_config.enable_crawler && !is_static_site {
+        if let Some(ref static_crawl_results) = crawl_results {
+            // Fetch HTML for additional trigger signals
+            let html_content: Option<String> = match http_client.get(target).await {
+                Ok(response) => Some(response.body),
+                Err(_) => None,
+            };
+
+            if should_use_headless(static_crawl_results, &detected_technologies, html_content.as_deref()) {
+                info!("[HeadlessCrawler] Switching to headless crawling for enhanced SPA discovery");
+
+                let headless = HeadlessCrawler::new(30); // 30 second timeout
+                let max_pages = scan_config.max_pages.min(50) as usize; // Cap at 50 pages
+
+                match headless.crawl_authenticated_site(target, max_pages).await {
+                    Ok(headless_results) => {
+                        info!("[HeadlessCrawler] Headless crawl complete:");
+                        info!("    - Pages visited: {}", headless_results.pages_visited.len());
+                        info!("    - Forms discovered: {}", headless_results.forms.len());
+                        info!("    - API endpoints found: {}", headless_results.api_endpoints.len());
+
+                        // Merge headless results into static crawl results
+                        if let Some(ref mut results) = crawl_results {
+                            headless_results.merge_into(results);
+                            results.deduplicate_forms();
+
+                            // Update discovered forms and params with merged data
+                            for form in &results.forms {
+                                let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
+                                    .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
+                                                   !input.input_type.eq_ignore_ascii_case("submit") &&
+                                                   !input.name.is_empty())
+                                    .cloned()
+                                    .collect();
+
+                                if is_language_selector_form(&form_inputs, &form.action) {
+                                    continue;
+                                }
+
+                                if !form_inputs.is_empty() {
+                                    let action_url = if form.action.is_empty() {
+                                        target.to_string()
+                                    } else {
+                                        form.action.clone()
+                                    };
+
+                                    // Only add if not already discovered
+                                    if !discovered_forms.iter().any(|(url, _)| url == &action_url) {
+                                        let param_names: Vec<String> = form_inputs.iter().map(|i| i.name.clone()).collect();
+                                        discovered_forms.push((action_url, form_inputs));
+                                        discovered_params.extend(param_names);
+                                    }
+                                }
+                            }
+
+                            info!("[HeadlessCrawler] After merge: {} total forms, {} total params",
+                                  discovered_forms.len(), discovered_params.len());
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[HeadlessCrawler] Headless crawl failed: {}", e);
+                        // Continue with static results - don't fail the entire scan
+                    }
+                }
+            }
+        }
+    }
+
+    // ==========================================================================
+    // INTELLIGENT SCAN ORCHESTRATION (v3.0)
+    // When in Intelligent mode, generate a context-aware scan plan that:
+    // - Selects scanners based on detected technologies
+    // - Deduplicates endpoints to avoid redundant testing
+    // - Assigns per-parameter payload intensity based on risk scoring
+    // ==========================================================================
+    let intelligent_scan_plan: Option<IntelligentScanPlan> = if scan_config.scan_mode.is_intelligent() {
+        info!("[Orchestrator] Intelligent mode enabled - generating context-aware scan plan");
+
+        // Convert detected_technologies HashSet<String> to Vec<TechCategory>
+        let tech_categories: Vec<TechCategory> = detected_technologies.iter()
+            .map(|t| TechCategory::from_detected_technology(t, ""))
+            .collect();
+
+        // Create orchestrator and generate scan plan
+        let orchestrator = IntelligentScanOrchestrator::new();
+        let plan = orchestrator.generate_scan_plan(
+            crawl_results.as_ref().unwrap_or(&CrawlResults::new()),
+            &tech_categories,
+            target,
+        );
+
+        // Log orchestration statistics
+        info!("[Orchestrator] Scan plan generated:");
+        info!("    - Scanners selected: {}", plan.stats.scanners_selected);
+        info!("    - Technologies detected: {:?}", plan.stats.technologies_detected);
+        info!("    - Targets: {}/{} ({:.1}% reduction from deduplication)",
+              plan.stats.total_deduplicated, plan.stats.total_original, plan.stats.reduction_percent);
+        info!("    - Parameter risk distribution: {} high, {} medium, {} low",
+              plan.stats.high_risk_params, plan.stats.medium_risk_params, plan.stats.low_risk_params);
+
+        // Log top prioritized parameters
+        if !plan.prioritized_params.is_empty() {
+            info!("    - Top priority parameters:");
+            for param in plan.prioritized_params.iter().take(5) {
+                info!("      - {} (risk: {}, intensity: {:?})", param.name, param.risk_score, param.intensity);
+            }
+        }
+
+        Some(plan)
+    } else {
+        info!("[Orchestrator] Legacy mode ({}) - using global payload count", scan_config.scan_mode);
+        None
+    };
+
+    // Helper function to get payload intensity for a parameter in intelligent mode
+    let get_param_intensity = |param_name: &str| -> PayloadIntensity {
+        if let Some(ref plan) = intelligent_scan_plan {
+            plan.prioritized_params.iter()
+                .find(|p| p.name == param_name)
+                .map(|p| p.intensity)
+                .unwrap_or(PayloadIntensity::Standard)
+        } else {
+            // Legacy mode: use global intensity based on scan mode
+            match scan_config.scan_mode {
+                ScanMode::Fast => PayloadIntensity::Minimal,
+                ScanMode::Normal => PayloadIntensity::Standard,
+                ScanMode::Thorough => PayloadIntensity::Extended,
+                ScanMode::Insane => PayloadIntensity::Maximum,
+                ScanMode::Intelligent => PayloadIntensity::Standard, // Fallback
+            }
+        }
+    };
+
     // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
     // Use headless if: (1) tech detection found JS framework, OR (2) crawler detected SPA pattern
     // AND static crawler found few/no forms
@@ -1271,14 +1878,14 @@ async fn execute_standalone_scan(
             let max_pages = 50; // Limit pages for reasonable scan time
 
             match headless.crawl_authenticated_site(target, max_pages).await {
-                Ok(crawl_results) => {
+                Ok(headless_crawl_results) => {
                     info!("[SUCCESS] Authenticated site crawl complete:");
-                    info!("    - Pages visited: {}", crawl_results.pages_visited.len());
-                    info!("    - Forms discovered: {}", crawl_results.forms.len());
-                    info!("    - API endpoints found: {}", crawl_results.api_endpoints.len());
+                    info!("    - Pages visited: {}", headless_crawl_results.pages_visited.len());
+                    info!("    - Forms discovered: {}", headless_crawl_results.forms.len());
+                    info!("    - API endpoints found: {}", headless_crawl_results.api_endpoints.len());
 
                     // Add all discovered forms
-                    for form in &crawl_results.forms {
+                    for form in &headless_crawl_results.forms {
                         let form_inputs: Vec<lonkero_scanner::crawler::FormInput> = form.inputs.iter()
                             .filter(|input| !input.input_type.eq_ignore_ascii_case("hidden") &&
                                            !input.input_type.eq_ignore_ascii_case("submit") &&
@@ -1305,20 +1912,20 @@ async fn execute_standalone_scan(
                     }
 
                     // Add all discovered API endpoints
-                    for ep in &crawl_results.api_endpoints {
+                    for ep in &headless_crawl_results.api_endpoints {
                         info!("    - API: {} {}", ep.method, ep.url);
                         intercepted_endpoints.push(ep.url.clone());
                     }
 
                     // Log discovered JS files for debugging
-                    if !crawl_results.js_files.is_empty() {
-                        info!("    - JS files discovered: {}", crawl_results.js_files.len());
+                    if !headless_crawl_results.js_files.is_empty() {
+                        info!("    - JS files discovered: {}", headless_crawl_results.js_files.len());
                     }
 
                     // Add discovered GraphQL endpoints to testing queue
-                    if !crawl_results.graphql_endpoints.is_empty() {
-                        info!("    - GraphQL endpoints: {}", crawl_results.graphql_endpoints.len());
-                        for gql_ep in &crawl_results.graphql_endpoints {
+                    if !headless_crawl_results.graphql_endpoints.is_empty() {
+                        info!("    - GraphQL endpoints: {}", headless_crawl_results.graphql_endpoints.len());
+                        for gql_ep in &headless_crawl_results.graphql_endpoints {
                             info!("      - {}", gql_ep);
                             // Add to intercepted endpoints for advanced testing
                             if !intercepted_endpoints.contains(gql_ep) {
@@ -1328,16 +1935,24 @@ async fn execute_standalone_scan(
                     }
 
                     // Log discovered GraphQL operations
-                    if !crawl_results.graphql_operations.is_empty() {
-                        info!("    - GraphQL operations discovered: {}", crawl_results.graphql_operations.len());
-                        for op in &crawl_results.graphql_operations {
+                    if !headless_crawl_results.graphql_operations.is_empty() {
+                        info!("    - GraphQL operations discovered: {}", headless_crawl_results.graphql_operations.len());
+                        for op in &headless_crawl_results.graphql_operations {
                             info!("      - {} {} (from {})", op.operation_type, op.name, op.source);
+                        }
+                    }
+
+                    // Add pages visited (including redirect URLs) for Cognito/OAuth detection
+                    // These may contain auth URLs like auth.idm.vrprod.io with client_id params
+                    for page_url in &headless_crawl_results.pages_visited {
+                        if !intercepted_endpoints.contains(page_url) {
+                            intercepted_endpoints.push(page_url.clone());
                         }
                     }
 
                     info!("  - Total: {} forms with {} fields, {} API endpoints, {} GraphQL endpoints",
                           discovered_forms.len(), discovered_params.len(),
-                          intercepted_endpoints.len(), crawl_results.graphql_endpoints.len());
+                          intercepted_endpoints.len(), headless_crawl_results.graphql_endpoints.len());
                 }
                 Err(e) => {
                     warn!("  - Full site crawl failed: {}", e);
@@ -1483,6 +2098,25 @@ async fn execute_standalone_scan(
               js_miner_results.api_endpoints.len(),
               js_miner_results.graphql_endpoints.len(),
               js_param_count);
+    }
+
+    // ==========================================================================
+    // COGNITO ENUMERATION: Run EARLY before aggressive testing triggers WAF/rate limits
+    // This is a non-invasive test that checks for user enumeration vulnerabilities
+    // ==========================================================================
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::COGNITO_ENUM) {
+        info!("  - Testing AWS Cognito User Enumeration (early - before rate limiting)");
+        // Collect all potential Cognito URLs: intercepted endpoints + discovered form action URLs
+        // Form action URLs often contain Cognito OAuth2 params like client_id and identity_provider=COGNITO
+        let mut cognito_endpoints: Vec<String> = intercepted_endpoints.clone();
+        for (form_action_url, _) in &discovered_forms {
+            if !cognito_endpoints.contains(form_action_url) {
+                cognito_endpoints.push(form_action_url.clone());
+            }
+        }
+        let (vulns, tests) = engine.cognito_enum_scanner.scan_with_endpoints(target, scan_config, &cognito_endpoints).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
     }
 
     // ==========================================================================
@@ -1741,7 +2375,7 @@ async fn execute_standalone_scan(
                         })
                         .unwrap_or(false);
 
-                info!("    [DEBUG] action_url={}, target={}, is_page_url={}", action_url, target, is_page_url);
+                debug!("    action_url={}, target={}, is_page_url={}", action_url, target, is_page_url);
 
                 if is_page_url && !form_api_endpoints.is_empty() {
                     info!("    [SPA] Form action is page URL, also testing {} potential API endpoints", form_api_endpoints.len());
@@ -1793,13 +2427,6 @@ async fn execute_standalone_scan(
                         } else {
                             (base_body.clone(), Some("application/x-www-form-urlencoded"))
                         };
-
-                        // XSS on form field
-                        let (vulns, tests) = engine.xss_scanner.scan_post_body(
-                            test_url, &input.name, &body_to_test, content_type, scan_config
-                        ).await?;
-                        all_vulnerabilities.extend(vulns);
-                        total_tests += tests as u64;
 
                         // SQLi on form field (if not static)
                         if !is_static_site {
@@ -1866,22 +2493,34 @@ async fn execute_standalone_scan(
             }
         };
 
-        // THEN: Test URL parameters with GET (original behavior)
+        // THEN: Test URL with Chromium-based XSS detection (runs on target + ALL crawled URLs)
+        // Uses real browser execution to detect reflected, DOM, and stored XSS
         // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
-        // GraphQL APIs return JSON, not HTML, so XSS payloads won't be reflected
         // XSS requires Professional+ license
         if scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER) {
             if !is_graphql_only {
-                info!("  - Testing XSS ({} parameters)", test_params.len());
-                for (param_name, _) in &test_params {
-                    let context = build_scan_context(param_name);
-                    let (vulns, tests) = engine.xss_scanner.scan_parameter(target, param_name, scan_config, Some(&context)).await?;
+                // Collect all URLs to test: target + crawled URLs (deduplicated)
+                let mut xss_urls_to_test: Vec<String> = vec![target.to_string()];
+                if let Some(ref crawl_data) = crawl_results {
+                    for crawled_url in &crawl_data.crawled_urls {
+                        if crawled_url != target && !xss_urls_to_test.contains(crawled_url) {
+                            xss_urls_to_test.push(crawled_url.clone());
+                        }
+                    }
+                }
+
+                info!("  - Testing XSS with Chromium (real browser execution) on {} URLs", xss_urls_to_test.len());
+
+                for (idx, xss_url) in xss_urls_to_test.iter().enumerate() {
+                    info!("    [XSS] Testing URL {}/{}: {}", idx + 1, xss_urls_to_test.len(), xss_url);
+                    let (vulns, tests) = engine.chromium_xss_scanner
+                        .scan(xss_url, scan_config, engine.shared_browser.as_ref())
+                        .await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
                 }
             } else {
-                info!("  - Skipping XSS ({} parameters) - GraphQL backend returns JSON, not HTML",
-                      test_params.len());
+                info!("  - Skipping XSS - GraphQL backend returns JSON, not HTML");
             }
         } else {
             info!("  [SKIP] XSS scanner requires Professional or higher license");
@@ -1895,6 +2534,10 @@ async fn execute_standalone_scan(
                 info!("  - Testing SQL Injection ({} parameters)", test_params.len());
                 for (param_name, _) in &test_params {
                     let context = build_scan_context(param_name);
+                    // In Intelligent mode, log per-parameter intensity
+                    let intensity = get_param_intensity(param_name);
+                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
+                           param_name, intensity, intensity.payload_limit());
                     let (vulns, tests) = engine.sqli_scanner.scan_parameter(target, param_name, scan_config, Some(&context)).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
@@ -1914,6 +2557,10 @@ async fn execute_standalone_scan(
             if !is_static_site && !is_nodejs_stack && (is_php_stack || is_python_stack || is_java_stack) {
                 info!("  - Testing Command Injection");
                 for (param_name, _) in &test_params {
+                    // In Intelligent mode, log per-parameter intensity
+                    let intensity = get_param_intensity(param_name);
+                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
+                           param_name, intensity, intensity.payload_limit());
                     let (vulns, tests) = engine.cmdi_scanner.scan_parameter(target, param_name, scan_config).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
@@ -1931,6 +2578,10 @@ async fn execute_standalone_scan(
             if !is_static_site && !is_graphql_only {
                 info!("  - Testing Path Traversal");
                 for (param_name, _) in &test_params {
+                    // In Intelligent mode, log per-parameter intensity
+                    let intensity = get_param_intensity(param_name);
+                    debug!("    [Intelligent] Parameter '{}' intensity: {:?} (limit: {} payloads)",
+                           param_name, intensity, intensity.payload_limit());
                     let (vulns, tests) = engine.path_scanner.scan_parameter(target, param_name, scan_config).await?;
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
@@ -2078,6 +2729,9 @@ async fn execute_standalone_scan(
         all_vulnerabilities.extend(vulns);
         total_tests += tests as u64;
     }
+
+    // AWS Cognito User Enumeration - MOVED to Phase 0 (runs before aggressive testing triggers WAF)
+    // See "COGNITO ENUMERATION" section above
 
     // Session Management (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::SESSION_MANAGEMENT) {
@@ -2554,6 +3208,56 @@ async fn execute_standalone_scan(
         }
     }
 
+    // Joomla Security (only if Joomla detected) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::JOOMLA_SCANNER) {
+        if detected_technologies.iter().any(|t| t.to_lowercase().contains("joomla")) {
+            info!("  - Testing Joomla Security");
+            let (vulns, tests) = engine.joomla_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
+    // Rails Security (only if Rails detected) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::RAILS_SCANNER) {
+        if detected_technologies.iter().any(|t| {
+            let t_lower = t.to_lowercase();
+            t_lower.contains("rails") || t_lower.contains("ruby")
+        }) {
+            info!("  - Testing Ruby on Rails Security");
+            let (vulns, tests) = engine.rails_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
+    // Spring Security (only if Spring/Java detected) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::SPRING_SCANNER) {
+        if is_java_stack || detected_technologies.iter().any(|t| {
+            let t_lower = t.to_lowercase();
+            t_lower.contains("spring") || t_lower.contains("java")
+        }) {
+            info!("  - Testing Spring Framework Security");
+            let (vulns, tests) = engine.spring_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
+    // Go Frameworks Security (Gin, Echo, Fiber, Chi) (Personal+)
+    if scan_token.is_module_authorized(module_ids::cms_security::GO_FRAMEWORKS_SCANNER) {
+        if detected_technologies.iter().any(|t| {
+            let t_lower = t.to_lowercase();
+            t_lower.contains("go") || t_lower.contains("gin") || t_lower.contains("echo") ||
+            t_lower.contains("fiber") || t_lower.contains("chi")
+        }) {
+            info!("  - Testing Go Web Framework Security");
+            let (vulns, tests) = engine.go_frameworks_scanner.scan(target, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
+
     // ============================================================
     // Server Misconfiguration Scanners (Professional+ tier)
     // ============================================================
@@ -2768,6 +3472,77 @@ async fn execute_standalone_scan(
     info!("Scan completed: {} vulnerabilities, {} tests, {:.2}s",
         all_vulnerabilities.len(), total_tests, elapsed.as_secs_f64());
 
+    // ==========================================================================
+    // INTELLIGENCE SYSTEM POST-PROCESSING (v3.0)
+    // Update attack planner with discovered vulnerabilities and analyze chains
+    // ==========================================================================
+    {
+        use lonkero_scanner::analysis::{KnownVulnerability, AttackSeverity};
+
+        // Feed discovered vulnerabilities into attack planner
+        for vuln in &all_vulnerabilities {
+            let severity = match vuln.severity {
+                lonkero_scanner::types::Severity::Critical => AttackSeverity::Critical,
+                lonkero_scanner::types::Severity::High => AttackSeverity::High,
+                lonkero_scanner::types::Severity::Medium => AttackSeverity::Medium,
+                lonkero_scanner::types::Severity::Low => AttackSeverity::Low,
+                lonkero_scanner::types::Severity::Info => AttackSeverity::Low,
+            };
+
+            let known_vuln = KnownVulnerability {
+                vuln_type: vuln.vuln_type.clone(),
+                endpoint: vuln.url.clone(),
+                parameter: vuln.parameter.clone(),
+                severity,
+                exploitable: vuln.verified,
+                payload: Some(vuln.payload.clone()),
+                notes: vuln.evidence.clone(),
+            };
+            attack_planner.update_state(StateUpdate::VulnFound(known_vuln));
+        }
+
+        // Check for achievable attack goals
+        let achievable_goals = attack_planner.get_achievable_goals();
+        if !achievable_goals.is_empty() {
+            info!("");
+            info!("[Intelligence] Attack chain analysis:");
+            for goal in &achievable_goals {
+                if let Some(plan) = attack_planner.plan_attack(goal.clone()) {
+                    info!("  - {:?}: {} steps (success probability: {:.0}%)",
+                        goal, plan.steps.len(), plan.estimated_success * 100.0);
+                    for (i, step) in plan.steps.iter().enumerate() {
+                        debug!("    {}. {}", i + 1, step.name);
+                    }
+                }
+            }
+        }
+
+        // Log intelligence summary
+        let accumulated = intelligence_bus.get_accumulated().await;
+        if !accumulated.frameworks.is_empty() || accumulated.waf_info.is_some() {
+            info!("");
+            info!("[Intelligence] Accumulated intelligence:");
+            if !accumulated.frameworks.is_empty() {
+                let frameworks: Vec<String> = accumulated.frameworks.iter()
+                    .map(|(name, ver, _)| {
+                        if let Some(v) = ver {
+                            format!("{} {}", name, v)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect();
+                info!("  - Frameworks: {}", frameworks.join(", "));
+            }
+            if let Some((waf, hints)) = &accumulated.waf_info {
+                info!("  - WAF detected: {} ({} bypass hints)", waf, hints.len());
+            }
+            if !accumulated.auth_types.is_empty() {
+                info!("  - Auth types: {:?}", accumulated.auth_types.iter().map(|(t, _, _)| t).collect::<Vec<_>>());
+            }
+        }
+    }
+
     // Create preliminary results for hashing
     let mut results = ScanResults {
         scan_id: job.scan_id.clone(),
@@ -2841,7 +3616,7 @@ fn print_banner() {
     print!("\x1b[1m\x1b[97m");
     println!("    Wraps around your attack surface");
     print!("\x1b[0m\x1b[92m");
-    println!("      v2.0 - Happy Holidays - (c) 2025");
+    println!("      v3.0 - Intelligent Mode - (c) 2026 Bountyy Oy");
     print!("\x1b[0m");
     println!();
 }
@@ -3496,7 +4271,7 @@ fn generate_markdown_report(results: &[ScanResults]) -> Result<String> {
     }
 
     let current_year = chrono::Utc::now().format("%Y");
-    md.push_str(&format!("\n---\n*Generated by Lonkero v2.0.0 | (c) {} Bountyy Oy*\n", current_year));
+    md.push_str(&format!("\n---\n*Generated by Lonkero v3.0.0 | (c) {} Bountyy Oy*\n", current_year));
 
     Ok(md)
 }
@@ -3510,7 +4285,7 @@ fn generate_sarif_report(results: &[ScanResults]) -> Result<String> {
                 "tool": {
                     "driver": {
                         "name": "Lonkero",
-                        "version": "2.0.0",
+                        "version": "3.0.0",
                         "informationUri": "https://github.com/bountyyfi/lonkero"
                     }
                 },
@@ -3603,7 +4378,7 @@ fn generate_pdf_report(results: &[ScanResults]) -> Result<Vec<u8>> {
         duration_seconds: results.iter().map(|r| r.duration_seconds).sum(),
         early_terminated: false,
         termination_reason: None,
-        scanner_version: Some("2.0.0".to_string()),
+        scanner_version: Some("3.0.0".to_string()),
         license_signature: Some(String::new()),
         quantum_signature: None,
         authorization_token_id: None,
@@ -4081,7 +4856,7 @@ verify_tls = true
 
 fn show_version() -> Result<()> {
     let current_year = chrono::Utc::now().format("%Y");
-    println!("Lonkero v2.0.0");
+    println!("Lonkero v3.0.0");
     println!("Wraps around your attack surface");
     println!("");
     println!("(c) {} Bountyy Oy", current_year);

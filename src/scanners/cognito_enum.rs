@@ -1,20 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - AWS Cognito User Enumeration Scanner
- *
- * Detects AWS Cognito User Pool configurations in JavaScript and tests
- * for user enumeration vulnerabilities via the ForgotPassword API.
- *
- * Cognito user pools may leak user existence through:
- * - Different responses for existing vs non-existing users
- * - CodeDeliveryDetails revealing partial email/phone
- * - InvalidParameterException indicating user exists but has no verified contact
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -61,6 +46,16 @@ impl CognitoEnumScanner {
         url: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        self.scan_with_endpoints(url, config, &[]).await
+    }
+
+    /// Scan for Cognito user enumeration vulnerabilities with additional intercepted endpoints
+    pub async fn scan_with_endpoints(
+        &self,
+        url: &str,
+        config: &ScanConfig,
+        additional_urls: &[String],
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
             return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
@@ -70,19 +65,59 @@ impl CognitoEnumScanner {
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
+        let mut found_client_ids: HashSet<String> = HashSet::new();
 
-        // First, extract Cognito configs from JavaScript
-        let configs = self.extract_cognito_configs(url).await?;
-
-        if configs.is_empty() {
-            debug!("[Cognito] No Cognito configurations found");
-            return Ok((all_vulnerabilities, 0));
+        // First, check additional URLs for Cognito params (e.g., intercepted form endpoints)
+        // These often contain the real Cognito auth URL with client_id
+        for additional_url in additional_urls {
+            if let Some(cognito_config) = self.extract_cognito_from_url(additional_url) {
+                if !cognito_config.client_id.is_empty() && !found_client_ids.contains(&cognito_config.client_id) {
+                    info!("[Cognito] Found Cognito config from intercepted URL: client_id={}...",
+                          &cognito_config.client_id[..cognito_config.client_id.len().min(8)]);
+                    found_client_ids.insert(cognito_config.client_id.clone());
+                    let (vulns, tests) = self.test_user_enumeration(url, &cognito_config, config).await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests;
+                }
+            }
         }
 
-        info!("[Cognito] Found {} Cognito configuration(s)", configs.len());
+        // Then extract Cognito configs from the main URL and its JavaScript
+        let mut configs = self.extract_cognito_configs(url).await?;
+
+        // If we found configs with empty client_id (e.g., from CSP header), try to find client_id from additional URLs
+        for cognito_config in &mut configs {
+            if cognito_config.client_id.is_empty() {
+                // Look through additional URLs for a client_id
+                for additional_url in additional_urls {
+                    if let Some(url_config) = self.extract_cognito_from_url(additional_url) {
+                        if !url_config.client_id.is_empty() {
+                            info!("[Cognito] Found client_id from redirect URL for region {}", cognito_config.region);
+                            cognito_config.client_id = url_config.client_id.clone();
+                            // Prefer the region from the URL if available
+                            if !url_config.region.is_empty() {
+                                cognito_config.region = url_config.region;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Filter out configs with empty client_id - we can't test without it
+        configs.retain(|c| !c.client_id.is_empty() && !found_client_ids.contains(&c.client_id));
+
+        if configs.is_empty() && all_vulnerabilities.is_empty() {
+            debug!("[Cognito] No usable Cognito configurations found (need client_id)");
+            return Ok((all_vulnerabilities, total_tests));
+        }
+
+        info!("[Cognito] Found {} Cognito configuration(s) with valid client_id", configs.len());
 
         // Test each configuration for user enumeration
         for cognito_config in &configs {
+            found_client_ids.insert(cognito_config.client_id.clone());
             let (vulns, tests) = self.test_user_enumeration(url, cognito_config, config).await?;
             all_vulnerabilities.extend(vulns);
             total_tests += tests;
@@ -106,6 +141,31 @@ impl CognitoEnumScanner {
             Ok(r) => r,
             Err(_) => return Ok(configs),
         };
+
+        // Check if the original URL contains Cognito params
+        if let Some(cognito_config) = self.extract_cognito_from_url(url) {
+            info!("[Cognito] Detected Cognito OAuth2 flow from URL parameters");
+            configs.push(cognito_config);
+        }
+
+        // Check CSP header for Cognito endpoints (common pattern for SPAs using Cognito)
+        // CSP often includes: connect-src 'self' https://cognito-idp.eu-west-1.amazonaws.com
+        if let Some(cognito_config) = self.extract_cognito_from_headers(&response.headers) {
+            info!("[Cognito] Detected Cognito from CSP/security headers");
+            configs.push(cognito_config);
+        }
+
+        // Check if this is a Cognito hosted UI page
+        if let Some(cognito_config) = self.detect_cognito_hosted_ui(url, &response.body) {
+            info!("[Cognito] Detected Cognito hosted UI page");
+            configs.push(cognito_config);
+        }
+
+        // Also look for Cognito URLs embedded in the page body (redirects, links, etc.)
+        if let Some(cognito_config) = self.extract_cognito_from_body_urls(&response.body) {
+            info!("[Cognito] Found Cognito OAuth2 URL in page body");
+            configs.push(cognito_config);
+        }
 
         // Extract from main page and linked JS files
         let mut js_contents = vec![response.body.clone()];
@@ -267,37 +327,42 @@ impl CognitoEnumScanner {
         );
 
         // Test 1: Check if SignUp is open (critical if should be restricted)
+        info!("[Cognito] Testing SignUp endpoint for open registration");
         let (signup_vulns, signup_tests) = self.test_open_signup(&endpoint, &config.client_id, url).await?;
         vulnerabilities.extend(signup_vulns);
         tests_run += signup_tests;
 
         // Test 2: Check for InitiateAuth enumeration
+        info!("[Cognito] Testing InitiateAuth for user enumeration");
         let (auth_vulns, auth_tests) = self.test_auth_enumeration(&endpoint, &config.client_id, url).await?;
         vulnerabilities.extend(auth_vulns);
         tests_run += auth_tests;
 
-        // Test with a small set of common usernames to detect enumeration
+        // Test 3: Check ForgotPassword for user enumeration
+        info!("[Cognito] Testing ForgotPassword for user enumeration");
+        let (forgot_vulns, forgot_tests) = self.test_forgot_password_enumeration(&endpoint, &config.client_id, url).await?;
+        vulnerabilities.extend(forgot_vulns);
+        tests_run += forgot_tests;
+
+        // Test with a small set of common usernames to find actual users
         let test_usernames = self.get_test_usernames();
         let mut found_users = Vec::new();
-        let mut enumerable = false;
 
+        info!("[Cognito] Testing {} common usernames for enumeration", test_usernames.len().min(10));
         for username in test_usernames.iter().take(10) {
             tests_run += 1;
 
             match self.check_user_exists(&endpoint, &config.client_id, username).await {
                 EnumResult::ExistsWithContact { destination, medium } => {
-                    enumerable = true;
                     found_users.push(format!("{} ({})", username, medium));
-                    debug!("[Cognito] User exists: {} -> {}", username, destination);
+                    info!("[Cognito] Found user: {} -> {}", username, destination);
                 }
                 EnumResult::ExistsNoContact => {
-                    enumerable = true;
                     found_users.push(format!("{} (no verified contact)", username));
-                    debug!("[Cognito] User exists without contact: {}", username);
+                    info!("[Cognito] Found user without contact: {}", username);
                 }
                 EnumResult::NotFound => {
-                    // User doesn't exist - this is expected for most test usernames
-                    // The difference in response indicates enumeration is possible
+                    // User doesn't exist - this is expected
                     debug!("[Cognito] User not found: {}", username);
                 }
                 EnumResult::Error(e) => {
@@ -313,43 +378,44 @@ impl CognitoEnumScanner {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
-        // If we found any users or detected different responses, report vulnerability
-        if enumerable {
+        // If we found actual users, report as high severity with user list
+        if !found_users.is_empty() {
+            info!("[Cognito] Found {} users via enumeration", found_users.len());
             vulnerabilities.push(Vulnerability {
-                id: format!("cognito-enum-{}", uuid::Uuid::new_v4()),
-                vuln_type: "AWS Cognito User Enumeration".to_string(),
-                severity: Severity::Medium,
+                id: format!("cognito-users-found-{}", uuid::Uuid::new_v4()),
+                vuln_type: "AWS Cognito Users Enumerated".to_string(),
+                severity: Severity::High,
                 confidence: Confidence::High,
                 category: "Authentication".to_string(),
                 url: url.to_string(),
                 parameter: Some("Username".to_string()),
                 payload: "X-Amz-Target: AWSCognitoIdentityProviderService.ForgotPassword".to_string(),
                 description:
-                    "AWS Cognito User Pool is vulnerable to user enumeration. \
-                     An attacker can determine valid usernames by analyzing responses \
-                     from the ForgotPassword API. This information can be used for \
-                     targeted phishing, credential stuffing, or brute force attacks.".to_string(),
+                    "Valid user accounts were discovered through AWS Cognito user enumeration. \
+                     Attackers can use this information for targeted phishing, credential \
+                     stuffing, or social engineering attacks against these specific users.".to_string(),
                 evidence: Some(format!(
-                    "Cognito User Pool allows user enumeration via ForgotPassword API.\n\
+                    "Found {} valid user accounts via Cognito ForgotPassword API:\n\
                      Region: {}\n\
-                     Client ID: {}...\n\
-                     Found {} potential users during limited test.\n\
-                     The API returns different responses for existing vs non-existing users.",
+                     Client ID: {}...\n\n\
+                     Discovered users:\n{}",
+                    found_users.len(),
                     config.region,
-                    &config.client_id[..12],
-                    found_users.len()
+                    &config.client_id[..config.client_id.len().min(12)],
+                    found_users.iter().map(|u| format!("  - {}", u)).collect::<Vec<_>>().join("\n")
                 )),
                 cwe: "CWE-204".to_string(),
-                cvss: 5.3,
+                cvss: 7.5,
                 verified: true,
                 false_positive: false,
                 remediation:
                     "1. Enable 'Prevent user existence errors' in Cognito User Pool settings\n\
-                     2. Configure custom messages that don't reveal user existence\n\
-                     3. Implement rate limiting and CAPTCHA on the forgot password flow\n\
-                     4. Monitor for enumeration attempts in CloudWatch logs\n\
-                     5. Consider using alias attributes to hide usernames".to_string(),
+                     2. Review the discovered accounts for potential compromise\n\
+                     3. Implement rate limiting and CAPTCHA on forgot password\n\
+                     4. Monitor for credential stuffing attempts on these accounts\n\
+                     5. Consider notifying affected users of potential exposure".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -387,6 +453,7 @@ impl CognitoEnumScanner {
                      3. Use CloudFront or WAF to add additional protection\n\
                      4. Monitor for suspicious authentication patterns".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -416,11 +483,11 @@ impl CognitoEnumScanner {
             ("X-Amz-Target".to_string(), "AWSCognitoIdentityProviderService.SignUp".to_string()),
         ];
 
-        debug!("[Cognito] Testing SignUp endpoint");
-
         match self.http_client.post_with_headers(endpoint, &body, headers).await {
             Ok(response) => {
                 let resp_body = &response.body;
+                info!("[Cognito] SignUp response: status={}, body_len={}",
+                      response.status_code, resp_body.len());
 
                 // If SignUp succeeds or asks for confirmation, registration is open
                 if resp_body.contains("UserSub") ||
@@ -456,6 +523,7 @@ impl CognitoEnumScanner {
                              4. Configure allowed sign-up attributes carefully\n\
                              5. Enable email/phone verification".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
 
@@ -484,16 +552,23 @@ impl CognitoEnumScanner {
                         remediation:
                             "Consider using generic error messages that don't reveal password requirements.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
 
                 // NotAuthorizedException with "SignUp is disabled" is good (not vulnerable)
-                if resp_body.contains("SignUp is disabled") || resp_body.contains("NotAuthorizedException") {
-                    debug!("[Cognito] SignUp is properly disabled");
+                if resp_body.contains("SignUp is disabled") {
+                    info!("[Cognito] SignUp is properly disabled");
+                } else if resp_body.contains("NotAuthorizedException") {
+                    info!("[Cognito] SignUp returned NotAuthorizedException");
+                } else {
+                    // Log unexpected response for debugging
+                    info!("[Cognito] SignUp unexpected response: {}",
+                          &resp_body[..resp_body.len().min(200)]);
                 }
             }
             Err(e) => {
-                debug!("[Cognito] SignUp test failed: {}", e);
+                warn!("[Cognito] SignUp test failed: {}", e);
             }
         }
 
@@ -521,15 +596,17 @@ impl CognitoEnumScanner {
             ("X-Amz-Target".to_string(), "AWSCognitoIdentityProviderService.InitiateAuth".to_string()),
         ];
 
-        debug!("[Cognito] Testing InitiateAuth for user enumeration");
-
         match self.http_client.post_with_headers(endpoint, &body, headers).await {
             Ok(response) => {
                 let resp_body = &response.body;
+                info!("[Cognito] InitiateAuth response: status={}, body_len={}",
+                      response.status_code, resp_body.len());
 
                 // If response explicitly says "User does not exist", enumeration is possible
                 if resp_body.contains("UserNotFoundException") ||
-                   resp_body.contains("User does not exist") {
+                   resp_body.contains("User does not exist") ||
+                   resp_body.contains("user does not exist") {
+                    info!("[Cognito] User enumeration vulnerability detected via InitiateAuth");
                     vulnerabilities.push(Vulnerability {
                         id: format!("cognito-auth-enum-{}", uuid::Uuid::new_v4()),
                         vuln_type: "AWS Cognito Auth User Enumeration".to_string(),
@@ -557,11 +634,96 @@ impl CognitoEnumScanner {
                              3. Implement account lockout and rate limiting\n\
                              4. Monitor for enumeration attempts".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
             Err(e) => {
                 debug!("[Cognito] InitiateAuth test failed: {}", e);
+            }
+        }
+
+        Ok((vulnerabilities, 1))
+    }
+
+    /// Test for ForgotPassword user enumeration by comparing responses for existing vs non-existing users
+    async fn test_forgot_password_enumeration(
+        &self,
+        endpoint: &str,
+        client_id: &str,
+        url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+
+        // Test with a definitely non-existent user
+        let fake_user = format!("nonexistent-test-user-{}", uuid::Uuid::new_v4());
+        let body = format!(
+            r#"{{"ClientId":"{}","Username":"{}"}}"#,
+            client_id, fake_user
+        );
+
+        let headers = vec![
+            ("Content-Type".to_string(), "application/x-amz-json-1.1".to_string()),
+            ("X-Amz-Target".to_string(), "AWSCognitoIdentityProviderService.ForgotPassword".to_string()),
+        ];
+
+        match self.http_client.post_with_headers(endpoint, &body, headers).await {
+            Ok(response) => {
+                let resp_body = &response.body;
+                info!("[Cognito] ForgotPassword response: status={}, body_len={}",
+                      response.status_code, resp_body.len());
+
+                // If response explicitly says "User does not exist", enumeration is possible
+                // A secure configuration would return a generic message like "If this user exists..."
+                if resp_body.contains("UserNotFoundException") ||
+                   resp_body.contains("User does not exist") ||
+                   resp_body.contains("user does not exist") {
+                    info!("[Cognito] User enumeration vulnerability detected via ForgotPassword");
+                    vulnerabilities.push(Vulnerability {
+                        id: format!("cognito-forgot-enum-{}", uuid::Uuid::new_v4()),
+                        vuln_type: "AWS Cognito ForgotPassword User Enumeration".to_string(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::High,
+                        category: "Authentication".to_string(),
+                        url: url.to_string(),
+                        parameter: Some("Username".to_string()),
+                        payload: "X-Amz-Target: AWSCognitoIdentityProviderService.ForgotPassword".to_string(),
+                        description:
+                            "AWS Cognito ForgotPassword API reveals whether a username exists. \
+                             When 'Prevent user existence errors' is disabled, attackers can \
+                             enumerate valid usernames by analyzing API responses.".to_string(),
+                        evidence: Some(format!(
+                            "Cognito reveals user existence through ForgotPassword API.\n\
+                             Test: Sent ForgotPassword request for non-existent user\n\
+                             Response: UserNotFoundException returned\n\
+                             A secure configuration returns 'If this user exists...' for all users."
+                        )),
+                        cwe: "CWE-204".to_string(),
+                        cvss: 5.3,
+                        verified: true,
+                        false_positive: false,
+                        remediation:
+                            "1. Enable 'Prevent user existence errors' in Cognito User Pool settings\n\
+                             2. Go to AWS Console > Cognito > User Pools > [Pool] > Sign-in experience\n\
+                             3. Under 'User existence errors', enable prevention\n\
+                             4. This returns generic messages for all forgot password requests\n\
+                             5. Add rate limiting via Lambda triggers or WAF".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
+                    });
+                } else if resp_body.contains("NotAuthorizedException") {
+                    // This is the expected secure response when enumeration prevention is enabled
+                    info!("[Cognito] ForgotPassword returns generic error - enumeration prevention may be enabled");
+                } else if resp_body.contains("InvalidParameterException") {
+                    debug!("[Cognito] InvalidParameterException - may indicate user pool configuration issue");
+                } else {
+                    // Log unexpected response for debugging
+                    info!("[Cognito] ForgotPassword unexpected response: {}",
+                          &resp_body[..resp_body.len().min(200)]);
+                }
+            }
+            Err(e) => {
+                warn!("[Cognito] ForgotPassword test failed: {}", e);
             }
         }
 
@@ -697,6 +859,258 @@ impl CognitoEnumScanner {
         usernames.extend(patterns.iter().map(|s| s.to_string()));
 
         usernames
+    }
+
+    /// Extract Cognito configuration from URLs found in body content
+    ///
+    /// Looks for URLs in the page body that contain Cognito OAuth2 parameters
+    fn extract_cognito_from_body_urls(&self, body: &str) -> Option<CognitoConfig> {
+        // Look for URLs with client_id and identity_provider=COGNITO
+        let url_pattern = Regex::new(r#"(?:href|action|src|url)[=:]["']?([^"'\s>]+client_id=[^"'\s>]+)"#).ok()?;
+
+        for cap in url_pattern.captures_iter(body) {
+            if let Some(url_match) = cap.get(1) {
+                let potential_url = url_match.as_str();
+
+                // URL decode if needed
+                let decoded = urlencoding::decode(potential_url).unwrap_or_else(|_| potential_url.into());
+
+                if let Some(config) = self.extract_cognito_from_url(&decoded) {
+                    return Some(config);
+                }
+            }
+        }
+
+        // Also look for client_id and identity_provider in query strings or JavaScript
+        if body.contains("identity_provider") && body.to_lowercase().contains("cognito") {
+            // Try to find client_id pattern
+            let client_pattern = Regex::new(r#"client_id[=:]["']?([a-z0-9]{20,32})"#).ok()?;
+            if let Some(cap) = client_pattern.captures(body) {
+                if let Some(client_id) = cap.get(1) {
+                    // Try to find region
+                    let region = if body.contains("eu-west-1") {
+                        "eu-west-1"
+                    } else if body.contains("us-east-1") {
+                        "us-east-1"
+                    } else if body.contains("eu-central-1") {
+                        "eu-central-1"
+                    } else {
+                        "eu-west-1"
+                    };
+
+                    return Some(CognitoConfig {
+                        region: region.to_string(),
+                        user_pool_id: String::new(),
+                        client_id: client_id.as_str().to_string(),
+                        source: "body_extraction".to_string(),
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Extract Cognito configuration from URL parameters
+    ///
+    /// Cognito OAuth2/OIDC flows often include client_id and identity_provider=COGNITO
+    /// Example: https://auth.example.com/login?client_id=1v1l3r2qvgohl8r2h572mqt966&identity_provider=COGNITO
+    fn extract_cognito_from_url(&self, url: &str) -> Option<CognitoConfig> {
+        let parsed = url::Url::parse(url).ok()?;
+
+        let mut client_id: Option<String> = None;
+        let mut is_cognito = false;
+        let mut region: Option<String> = None;
+
+        for (key, value) in parsed.query_pairs() {
+            match key.as_ref() {
+                "client_id" => {
+                    // Cognito client IDs are typically 26 lowercase alphanumeric chars
+                    let val = value.to_string();
+                    if val.len() >= 20 && val.len() <= 32 && val.chars().all(|c| c.is_ascii_alphanumeric()) {
+                        client_id = Some(val);
+                    }
+                }
+                "identity_provider" if value.to_uppercase() == "COGNITO" => {
+                    is_cognito = true;
+                }
+                _ => {}
+            }
+        }
+
+        // Check host for region hints
+        let host = parsed.host_str().unwrap_or("");
+        if host.contains("auth.") {
+            // Try to extract region from subdomain pattern
+            // Pattern: auth.idm.vrprod.io or something.auth.eu-west-1.amazoncognito.com
+            let region_pattern = Regex::new(r"auth\.([\w-]+)\.amazoncognito\.com").ok();
+            if let Some(re) = region_pattern {
+                if let Some(caps) = re.captures(host) {
+                    if let Some(r) = caps.get(1) {
+                        region = Some(r.as_str().to_string());
+                    }
+                }
+            }
+        }
+
+        // If we have a client_id and either identity_provider=COGNITO or it looks like a Cognito auth URL
+        if client_id.is_some() && (is_cognito || host.contains("auth.") || host.contains("cognito")) {
+            return Some(CognitoConfig {
+                region: region.unwrap_or_else(|| "eu-west-1".to_string()),
+                user_pool_id: String::new(),
+                client_id: client_id.unwrap_or_default(),
+                source: url.to_string(),
+            });
+        }
+
+        None
+    }
+
+    /// Detect if the page is a Cognito hosted UI login page
+    ///
+    /// Cognito hosted UI pages typically have:
+    /// - Domain patterns like *.auth.*.amazoncognito.com or custom domains
+    /// - Specific form structures and JavaScript references
+    /// - CSRF tokens and Cognito-specific meta tags
+    /// - URL parameters containing client_id and identity_provider=COGNITO
+    fn detect_cognito_hosted_ui(&self, url: &str, body: &str) -> Option<CognitoConfig> {
+        // First check if URL contains Cognito OAuth2 parameters
+        // Pattern: client_id=XXXX...&identity_provider=COGNITO
+        if let Some(config) = self.extract_cognito_from_url(url) {
+            info!("[Cognito] Detected Cognito OAuth2 flow from URL parameters");
+            return Some(config);
+        }
+
+        // Patterns that indicate a Cognito hosted UI page
+        let cognito_indicators = [
+            // Cognito hosted UI specific patterns
+            "cognito-idp",
+            "amazoncognito.com",
+            "CognitoUserPool",
+            "aws-amplify",
+            "AWSCognito",
+            "aws_cognito",
+            // Cognito login form patterns
+            r#"name="username""#,
+            r#"name="password""#,
+            "forgotPassword",
+            "cognitoUser",
+            // Cognito hosted UI specific JavaScript
+            "amazon-cognito-identity",
+            "cognito-auth",
+            "_csrf",
+            // Common Cognito hosted UI page indicators
+            "Sign in with your",
+            "Forgot your password",
+            // Identity provider indicator
+            "identity_provider",
+            "COGNITO",
+        ];
+
+        let body_lower = body.to_lowercase();
+        let indicator_count = cognito_indicators.iter()
+            .filter(|pattern| body_lower.contains(&pattern.to_lowercase()))
+            .count();
+
+        // Need at least 2 indicators to consider it a Cognito page
+        if indicator_count < 2 {
+            return None;
+        }
+
+        debug!("[Cognito] Found {} Cognito indicators on page", indicator_count);
+
+        // Try to extract region and client ID from the page
+        // Look for cognito-idp endpoint in the page
+        let endpoint_pattern = Regex::new(r#"cognito-idp\.([\w-]+)\.amazonaws\.com"#).ok()?;
+        let region = endpoint_pattern.captures(body)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Look for user pool ID in the page
+        let pool_pattern = Regex::new(r#"['"]((?:eu|us|ap|sa|ca|me|af)-[a-z]+-[0-9]+_[A-Za-z0-9]+)['"]"#).ok()?;
+        let pool_id = pool_pattern.captures(body)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Look for client ID (26 char alphanumeric)
+        let client_pattern = Regex::new(r#"['"]([\da-z]{26})['"]"#).ok()?;
+        let client_id = client_pattern.captures(body)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Try to extract from URL if it's a Cognito hosted domain
+        // Pattern: https://something.auth.region.amazoncognito.com
+        let url_pattern = Regex::new(r#"https?://[^/]+\.auth\.([\w-]+)\.amazoncognito\.com"#).ok()?;
+        let url_region = url_pattern.captures(url)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string());
+
+        // Also check for custom domain pattern that redirects to Cognito
+        // Look in meta tags or form actions
+        let redirect_pattern = Regex::new(r#"(?:action|href|redirect)[^"']*["']([^"']*cognito[^"']*)["']"#).ok()?;
+        let has_cognito_redirect = redirect_pattern.is_match(body);
+
+        // Determine the best region
+        let final_region = region
+            .or(url_region)
+            .or_else(|| {
+                // Try to extract from pool_id
+                pool_id.as_ref().and_then(|pid| {
+                    pid.find('_').map(|pos| pid[..pos].to_string())
+                })
+            })
+            .unwrap_or_else(|| "eu-west-1".to_string()); // Default to eu-west-1
+
+        // If we have either a client_id or indicators suggest Cognito
+        if client_id.is_some() || (indicator_count >= 3 && has_cognito_redirect) {
+            info!("[Cognito] Detected Cognito hosted UI - region: {}, has_client_id: {}",
+                  final_region, client_id.is_some());
+
+            return Some(CognitoConfig {
+                region: final_region,
+                user_pool_id: pool_id.unwrap_or_default(),
+                client_id: client_id.unwrap_or_default(),
+                source: url.to_string(),
+            });
+        }
+
+        None
+    }
+
+    /// Extract Cognito configuration from HTTP headers (CSP, etc.)
+    ///
+    /// SPAs using Cognito often have CSP headers that include the Cognito endpoint:
+    /// Content-Security-Policy: connect-src 'self' https://cognito-idp.eu-west-1.amazonaws.com
+    fn extract_cognito_from_headers(&self, headers: &std::collections::HashMap<String, String>) -> Option<CognitoConfig> {
+        // Look for Cognito endpoints in various security headers
+        let header_keys = ["content-security-policy", "content-security-policy-report-only"];
+
+        for key in &header_keys {
+            if let Some(header_value) = headers.get(*key) {
+                // Look for cognito-idp.REGION.amazonaws.com pattern
+                let cognito_pattern = Regex::new(r"cognito-idp\.([\w-]+)\.amazonaws\.com").ok()?;
+
+                if let Some(cap) = cognito_pattern.captures(header_value) {
+                    if let Some(region_match) = cap.get(1) {
+                        let region = region_match.as_str().to_string();
+
+                        info!("[Cognito] Found Cognito region {} in CSP header", region);
+
+                        // We have the region but need to discover client_id
+                        // This indicates Cognito is in use, so we should look harder for client_id
+                        // Return a partial config that can be used for further discovery
+                        return Some(CognitoConfig {
+                            region,
+                            user_pool_id: String::new(),
+                            client_id: String::new(), // Will be discovered via headless browser
+                            source: "csp_header".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Resolve relative URL to absolute

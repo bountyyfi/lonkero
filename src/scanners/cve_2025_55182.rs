@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -8,7 +8,7 @@
  * Critical CVSS 10.0 vulnerability in React/Next.js RSC Flight protocol
  * Also known as "React2Shell"
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -118,6 +118,7 @@ impl Cve202555182Scanner {
                             waf
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 } else {
                     info!("[ALERT] CVE-2025-55182: Potentially vulnerable Next.js/React detected!");
@@ -161,6 +162,7 @@ impl Cve202555182Scanner {
                             Reference: https://vercel.com/changelog/cve-2025-55182"
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             } else if has_rsc || has_rsc_endpoint {
@@ -193,6 +195,7 @@ impl Cve202555182Scanner {
                         Verify your React version is one of: 19.0.1, 19.1.2, 19.2.1\n\
                         If not, upgrade immediately.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }

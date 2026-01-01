@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Security Scanner Engine
  * Main scan orchestration and coordination
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::analysis::{IntelligenceBus, ResponseAnalyzer};
 use crate::config::ScannerConfig;
 use crate::crawler::{WebCrawler, CrawlResults};
 use crate::framework_detector::FrameworkDetector;
@@ -23,8 +24,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
-pub mod xss_detection;
-pub mod xss_enhanced;
 pub mod sqli_enhanced;
 pub mod baseline_detector;
 pub mod command_injection;
@@ -40,6 +39,7 @@ pub mod csrf;
 pub mod xxe;
 pub mod graphql;
 pub mod oauth;
+pub mod oidc_scanner;
 pub mod saml;
 pub mod websocket;
 pub mod grpc;
@@ -68,11 +68,13 @@ pub mod code_injection;
 pub mod ssi_injection;
 pub mod race_condition;
 pub mod mass_assignment;
+pub mod mass_assignment_advanced;
 pub mod information_disclosure;
 pub mod cache_poisoning;
 pub mod business_logic;
 pub mod jwt_vulnerabilities;
 pub mod graphql_security;
+pub mod graphql_batching;
 pub mod nosql_injection;
 pub mod file_upload_vulnerabilities;
 pub mod cors_misconfiguration;
@@ -112,16 +114,44 @@ pub mod sveltekit_security;
 pub mod react_security;
 pub mod django_security;
 pub mod liferay_security;
+pub mod joomla_scanner;
+pub mod rails_scanner;
+pub mod spring_scanner;
+pub mod fastapi_scanner;
+pub mod aspnet_scanner;
+pub mod go_frameworks_scanner;
 pub mod parameter_filter;
+pub mod parameter_prioritizer;
+pub mod attack_surface;
 pub mod prototype_pollution;
 pub mod host_header_injection;
 pub mod cognito_enum;
+pub mod dom_clobbering;
+pub mod subdomain_takeover;
+pub mod password_reset_poisoning;
+pub mod chromium_xss_scanner;
+pub mod account_takeover;
+pub mod api_versioning;
+pub mod broken_function_auth;
+pub mod twofa_bypass;
+pub mod timing_attacks;
+pub mod openapi_analyzer;
+pub mod registry;
+pub mod intelligent_orchestrator;
+pub mod csp_bypass;
+pub mod postmessage_vulns;
+pub mod web_cache_deception;
+pub mod idor_analyzer;
+pub mod jwt_analyzer;
+pub mod session_analyzer;
+pub mod compliance_scanner;
+pub mod dora_scanner;
+pub mod nis2_scanner;
 
 // External security scanners
 pub mod external;
 
 // Re-export scanner types for easy access
-pub use xss_enhanced::EnhancedXssScanner as XssScanner;
 pub use sqli_enhanced::EnhancedSqliScanner as SqliScanner;
 pub use command_injection::CommandInjectionScanner;
 pub use path_traversal::PathTraversalScanner;
@@ -136,6 +166,7 @@ pub use csrf::CsrfScanner;
 pub use xxe::XxeScanner;
 pub use graphql::GraphQlScanner;
 pub use oauth::OAuthScanner;
+pub use oidc_scanner::OidcScanner;
 pub use saml::SamlScanner;
 pub use websocket::WebSocketScanner;
 pub use grpc::GrpcScanner;
@@ -144,6 +175,7 @@ pub use session_management::SessionManagementScanner;
 pub use mfa::MfaScanner;
 pub use idor::IdorScanner;
 pub use bola::BolaScanner;
+pub use broken_function_auth::BrokenFunctionAuthScanner;
 pub use auth_manager::AuthManagerScanner;
 pub use advanced_auth::AdvancedAuthScanner;
 pub use ldap_injection::LdapInjectionScanner;
@@ -169,6 +201,7 @@ pub use cache_poisoning::CachePoisoningScanner;
 pub use business_logic::BusinessLogicScanner;
 pub use jwt_vulnerabilities::JwtVulnerabilitiesScanner;
 pub use graphql_security::GraphqlSecurityScanner;
+pub use graphql_batching::GraphQlBatchingScanner;
 pub use nosql_injection::NosqlInjectionScanner;
 pub use file_upload_vulnerabilities::FileUploadVulnerabilitiesScanner;
 pub use cors_misconfiguration::CorsMisconfigurationScanner;
@@ -178,6 +211,7 @@ pub use js_miner::{JsMinerScanner, JsMinerResults};
 pub use sensitive_data::SensitiveDataScanner;
 pub use api_fuzzer::ApiFuzzerScanner;
 pub use api_gateway_scanner::ApiGatewayScanner;
+pub use api_versioning::ApiVersioningScanner;
 pub use cloud_security_scanner::CloudSecurityScanner;
 pub use container_scanner::ContainerScanner;
 pub use webauthn_scanner::WebAuthnScanner;
@@ -196,6 +230,11 @@ pub use varnish_misconfig::VarnishMisconfigScanner;
 pub use js_sensitive_info::JsSensitiveInfoScanner;
 pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
 pub use baseline_detector::BaselineDetector;
+pub use attack_surface::{
+    AttackSurface, DeduplicatedTargets, EndpointSignature, FormSignature,
+    ParameterContext, ParameterSource, ContentType, ValueType,
+    TestEndpoint, TestForm, TestParameter, PathNormalizer, FormData,
+};
 pub use html_injection::HtmlInjectionScanner;
 pub use rate_limiting::RateLimitingScanner;
 pub use google_dorking::{GoogleDorkingScanner, GoogleDork, GoogleDorkingResults};
@@ -209,9 +248,38 @@ pub use sveltekit_security::SvelteKitSecurityScanner;
 pub use react_security::ReactSecurityScanner;
 pub use django_security::DjangoSecurityScanner;
 pub use liferay_security::LiferaySecurityScanner;
+pub use joomla_scanner::JoomlaScanner;
+pub use rails_scanner::RailsScanner;
+pub use spring_scanner::SpringScanner;
+pub use fastapi_scanner::FastApiScanner;
+pub use aspnet_scanner::AspNetScanner;
+pub use go_frameworks_scanner::GoFrameworksScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use host_header_injection::HostHeaderInjectionScanner;
 pub use cognito_enum::CognitoEnumScanner;
+pub use subdomain_takeover::{SubdomainTakeoverScanner, scan_subdomain_takeover};
+pub use password_reset_poisoning::PasswordResetPoisoningScanner;
+pub use chromium_xss_scanner::{ChromiumXssScanner, SharedBrowser};
+pub use twofa_bypass::TwoFaBypassScanner;
+pub use account_takeover::AccountTakeoverScanner;
+pub use openapi_analyzer::OpenApiAnalyzer;
+pub use compliance_scanner::ComplianceScanner;
+pub use dora_scanner::DoraScanner;
+pub use nis2_scanner::Nis2Scanner;
+pub use parameter_prioritizer::{
+    ParameterPrioritizer, ParameterRisk, ParameterInfo, ParameterSource as PrioritizerParameterSource,
+    FormContext, RiskFactor, ScannerType as PrioritizerScannerType,
+};
+pub use registry::{
+    ScannerRegistry as TechScannerRegistry, TechCategory, ScannerType as TechScannerType,
+    JsFramework, PhpFramework, PythonFramework, JavaFramework, DotNetFramework,
+    RubyFramework, GoFramework, RustFramework, StaticPlatform, CloudProvider,
+    ScannerTechMapping, PayloadIntensity,
+};
+pub use intelligent_orchestrator::{
+    IntelligentScanOrchestrator, IntelligentScanPlan, OrchestrationStats,
+    PrioritizedParameter,
+};
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -219,7 +287,9 @@ pub struct ScanEngine {
     pub request_batcher: Option<Arc<crate::request_batcher::RequestBatcher>>,
     pub adaptive_concurrency: Option<Arc<crate::adaptive_concurrency::AdaptiveConcurrencyTracker>>,
     pub dns_cache: Option<Arc<crate::dns_cache::DnsCache>>,
-    pub xss_scanner: XssScanner,
+    /// Shared browser instance for Chromium-based scanning (XSS, DOM analysis)
+    pub shared_browser: Option<SharedBrowser>,
+    pub chromium_xss_scanner: ChromiumXssScanner,
     pub sqli_scanner: SqliScanner,
     pub cmdi_scanner: CommandInjectionScanner,
     pub path_scanner: PathTraversalScanner,
@@ -234,6 +304,7 @@ pub struct ScanEngine {
     pub xxe_scanner: XxeScanner,
     pub graphql_scanner: GraphQlScanner,
     pub oauth_scanner: OAuthScanner,
+    pub oidc_scanner: OidcScanner,
     pub saml_scanner: SamlScanner,
     pub websocket_scanner: WebSocketScanner,
     pub grpc_scanner: GrpcScanner,
@@ -305,12 +376,27 @@ pub struct ScanEngine {
     pub react_security_scanner: ReactSecurityScanner,
     pub django_security_scanner: DjangoSecurityScanner,
     pub liferay_security_scanner: LiferaySecurityScanner,
+    pub joomla_scanner: JoomlaScanner,
+    pub rails_scanner: RailsScanner,
+    pub spring_scanner: SpringScanner,
+    pub fastapi_scanner: FastApiScanner,
+    pub aspnet_scanner: AspNetScanner,
+    pub go_frameworks_scanner: GoFrameworksScanner,
     pub prototype_pollution_scanner: PrototypePollutionScanner,
     pub host_header_injection_scanner: HostHeaderInjectionScanner,
     pub cognito_enum_scanner: CognitoEnumScanner,
     pub google_dorking_scanner: GoogleDorkingScanner,
     pub log4j_scanner: Log4jScanner,
     pub subdomain_enumerator: SubdomainEnumerator,
+    pub compliance_scanner: ComplianceScanner,
+    pub dora_scanner: DoraScanner,
+    pub nis2_scanner: Nis2Scanner,
+    /// ML integration for automatic learning from scan results
+    pub ml_integration: Option<crate::ml::MlIntegration>,
+    /// Shared intelligence bus for cross-scanner communication
+    pub intelligence_bus: Arc<IntelligenceBus>,
+    /// Shared response analyzer for intelligent response analysis
+    pub response_analyzer: Arc<ResponseAnalyzer>,
 }
 
 impl ScanEngine {
@@ -402,11 +488,28 @@ impl ScanEngine {
             None
         };
 
+        // Initialize shared browser for Chromium-based XSS detection
+        let shared_browser = match SharedBrowser::new() {
+            Ok(browser) => {
+                info!("[SUCCESS] Shared browser initialized for XSS detection");
+                Some(browser)
+            }
+            Err(e) => {
+                warn!("[WARNING] Failed to initialize shared browser: {}. XSS detection will create browser per-scan.", e);
+                None
+            }
+        };
+
+        // Initialize intelligence bus and response analyzer for cross-scanner communication
+        let intelligence_bus = Arc::new(IntelligenceBus::new());
+        let response_analyzer = Arc::new(ResponseAnalyzer::new());
+
         Ok(Self {
             request_batcher,
             adaptive_concurrency,
             dns_cache,
-            xss_scanner: XssScanner::new(Arc::clone(&http_client)),
+            shared_browser,
+            chromium_xss_scanner: ChromiumXssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
             path_scanner: PathTraversalScanner::new(Arc::clone(&http_client)),
@@ -421,6 +524,7 @@ impl ScanEngine {
             xxe_scanner: XxeScanner::new(Arc::clone(&http_client)),
             graphql_scanner: GraphQlScanner::new(Arc::clone(&http_client)),
             oauth_scanner: OAuthScanner::new(Arc::clone(&http_client)),
+            oidc_scanner: OidcScanner::new(Arc::clone(&http_client)),
             saml_scanner: SamlScanner::new(Arc::clone(&http_client)),
             websocket_scanner: WebSocketScanner::new(Arc::clone(&http_client)),
             grpc_scanner: GrpcScanner::new(Arc::clone(&http_client)),
@@ -492,15 +596,38 @@ impl ScanEngine {
             react_security_scanner: ReactSecurityScanner::new(Arc::clone(&http_client)),
             django_security_scanner: DjangoSecurityScanner::new(Arc::clone(&http_client)),
             liferay_security_scanner: LiferaySecurityScanner::new(Arc::clone(&http_client)),
+            joomla_scanner: JoomlaScanner::new(Arc::clone(&http_client)),
+            rails_scanner: RailsScanner::new(Arc::clone(&http_client)),
+            spring_scanner: SpringScanner::new(Arc::clone(&http_client)),
+            fastapi_scanner: FastApiScanner::new(Arc::clone(&http_client)),
+            aspnet_scanner: AspNetScanner::new(Arc::clone(&http_client)),
+            go_frameworks_scanner: GoFrameworksScanner::new(Arc::clone(&http_client)),
             prototype_pollution_scanner: PrototypePollutionScanner::new(Arc::clone(&http_client)),
             host_header_injection_scanner: HostHeaderInjectionScanner::new(Arc::clone(&http_client)),
             cognito_enum_scanner: CognitoEnumScanner::new(Arc::clone(&http_client)),
             google_dorking_scanner: GoogleDorkingScanner::new(),
             log4j_scanner: Log4jScanner::new(Arc::clone(&http_client)),
             subdomain_enumerator: SubdomainEnumerator::new(Arc::clone(&http_client)),
+            compliance_scanner: ComplianceScanner::new(Arc::clone(&http_client)),
+            dora_scanner: DoraScanner::new(Arc::clone(&http_client)),
+            nis2_scanner: Nis2Scanner::new(Arc::clone(&http_client)),
+            // Initialize ML integration (fails gracefully if ~/.lonkero not writable)
+            ml_integration: crate::ml::MlIntegration::new().ok(),
+            intelligence_bus,
+            response_analyzer,
             http_client,
             config,
         })
+    }
+
+    /// Get the shared intelligence bus for cross-scanner communication
+    pub fn intelligence_bus(&self) -> Arc<IntelligenceBus> {
+        Arc::clone(&self.intelligence_bus)
+    }
+
+    /// Get the shared response analyzer for intelligent response analysis
+    pub fn response_analyzer(&self) -> Arc<ResponseAnalyzer> {
+        Arc::clone(&self.response_analyzer)
     }
 
     /// Execute a complete scan job
@@ -611,6 +738,41 @@ impl ScanEngine {
                 tech.name, tech.category, tech.confidence);
         }
 
+        // ============================================================
+        // v3.0 INTELLIGENT SCAN ORCHESTRATION
+        // ============================================================
+        // Convert detected technologies to TechCategory for intelligent routing
+        let tech_categories: Vec<TechCategory> = detected_tech
+            .iter()
+            .map(|t| TechCategory::from_detected_technology(&t.name, &format!("{:?}", t.category)))
+            .collect();
+
+        // Generate intelligent scan plan (replaces legacy mode-based approach)
+        let orchestrator = IntelligentScanOrchestrator::new();
+        let scan_plan = orchestrator.generate_scan_plan(&crawl_results, &tech_categories, &target);
+
+        // Log orchestration statistics
+        info!("[Orchestrator] v3.0 Intelligent Scan Plan:");
+        info!("   - Targets: {}/{} ({:.1}% reduction via deduplication)",
+            scan_plan.stats.total_deduplicated,
+            scan_plan.stats.total_original,
+            scan_plan.stats.reduction_percent);
+        info!("   - Scanners selected: {} (based on {} technologies)",
+            scan_plan.stats.scanners_selected,
+            scan_plan.stats.technologies_detected.len());
+        info!("   - Parameter risk: {} high, {} medium, {} low",
+            scan_plan.stats.high_risk_params,
+            scan_plan.stats.medium_risk_params,
+            scan_plan.stats.low_risk_params);
+
+        if !scan_plan.stats.technologies_detected.is_empty() {
+            info!("[Orchestrator] Tech-specific routing: {:?}", scan_plan.stats.technologies_detected);
+            info!("[Orchestrator] Active scanners for this target: {:?}",
+                scan_plan.scanners.iter().map(|s| s.display_name()).collect::<Vec<_>>());
+        } else {
+            info!("[Orchestrator] No specific tech detected - using fallback scanner set");
+        }
+
         // Subdomain enumeration (if enabled via config or scan config)
         let mut discovered_subdomains = Vec::new();
         if self.config.subdomain_enum_enabled || config.enum_subdomains {
@@ -665,37 +827,52 @@ impl ScanEngine {
         // Parse target URL to extract parameters
         let url_data = self.parse_target_url(&target)?;
 
-        // Determine which parameters to test - PRIORITIZE DISCOVERED PARAMETERS
+        // ============================================================
+        // v3.0 INTELLIGENT PARAMETER TESTING
+        // ============================================================
+        // Use prioritized parameters from the intelligent scan plan.
+        // Each parameter has a risk score and payload intensity.
+        // High-risk parameters get more payloads, low-risk get fewer.
+
+        // Build test_parameters from scan plan (prioritized by risk score)
         let mut test_parameters: Vec<(String, String)> = Vec::new();
 
-        // 1. Use parameters from crawled forms (HIGHEST PRIORITY)
-        let discovered_params = crawl_results.get_all_parameters();
-        if !discovered_params.is_empty() {
-            info!("[TARGET] Using {} parameters discovered from forms", discovered_params.len());
-            for param in discovered_params {
-                test_parameters.push((param.clone(), "test".to_string()));
+        if !scan_plan.prioritized_params.is_empty() {
+            info!("[Intelligent] Using {} prioritized parameters from scan plan",
+                scan_plan.prioritized_params.len());
+
+            // Log top high-risk parameters
+            for param in scan_plan.prioritized_params.iter().take(5) {
+                if param.risk_score > 50 {
+                    info!("   - {} (risk: {}, intensity: {:?})",
+                        param.name, param.risk_score, param.intensity);
+                }
             }
-        }
 
-        // 2. Use parameters from URL query strings
-        if !url_data.parameters.is_empty() {
-            info!("[TARGET] Adding {} parameters from URL", url_data.parameters.len());
-            test_parameters.extend(url_data.parameters.clone());
-        }
+            for param in &scan_plan.prioritized_params {
+                test_parameters.push((param.name.clone(), "test".to_string()));
+            }
+        } else {
+            // Fallback: use URL parameters if scan plan has none
+            if !url_data.parameters.is_empty() {
+                info!("[TARGET] Using {} parameters from URL", url_data.parameters.len());
+                test_parameters.extend(url_data.parameters.clone());
+            }
 
-        // 3. Fallback to common parameter names if nothing discovered
-        if test_parameters.is_empty() {
-            info!("[WARNING]  No parameters discovered - testing common parameter names");
-            test_parameters = vec![
-                ("id".to_string(), "1".to_string()),
-                ("q".to_string(), "test".to_string()),
-                ("search".to_string(), "test".to_string()),
-                ("query".to_string(), "test".to_string()),
-                ("page".to_string(), "1".to_string()),
-                ("user".to_string(), "test".to_string()),
-                ("name".to_string(), "test".to_string()),
-                ("url".to_string(), "http://example.com".to_string()),
-            ];
+            // Ultimate fallback to common parameter names
+            if test_parameters.is_empty() {
+                info!("[WARNING]  No parameters discovered - testing common parameter names");
+                test_parameters = vec![
+                    ("id".to_string(), "1".to_string()),
+                    ("q".to_string(), "test".to_string()),
+                    ("search".to_string(), "test".to_string()),
+                    ("query".to_string(), "test".to_string()),
+                    ("page".to_string(), "1".to_string()),
+                    ("user".to_string(), "test".to_string()),
+                    ("name".to_string(), "test".to_string()),
+                    ("url".to_string(), "http://example.com".to_string()),
+                ];
+            }
         }
 
         // Phase 1: Test URL parameters (or common parameter names if none exist)
@@ -716,19 +893,6 @@ impl ScanEngine {
                     break;
                 }
 
-                // XSS Testing (Professional+)
-                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
-                    let (xss_vulns, xss_tests) = self.xss_scanner
-                        .scan_parameter(&target, param_name, &config, None)
-                        .await?;
-                    all_vulnerabilities.extend(xss_vulns);
-                    total_tests += xss_tests as u64;
-                    modules_used.push(crate::modules::ids::advanced_scanning::XSS_SCANNER.to_string());
-
-                    // Update progress
-                    queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
-                }
-
                 // SQLi Testing (Professional+, skip if CDN protected)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SQLI_SCANNER)
                     && !self.should_skip_scanner("sqli", &cdn_info)
@@ -741,12 +905,15 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), sqli_tests as u64).await?;
                 }
 
-                // Command Injection Testing (Professional+, skip if CDN protected)
+                // Command Injection Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::COMMAND_INJECTION)
                     && !self.should_skip_scanner("command_injection", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::CommandInjection, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (cmdi_vulns, cmdi_tests) = self.cmdi_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(cmdi_vulns);
                     total_tests += cmdi_tests as u64;
@@ -754,12 +921,15 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), cmdi_tests as u64).await?;
                 }
 
-                // Path Traversal Testing (Professional+, skip if CDN protected)
+                // Path Traversal Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::PATH_TRAVERSAL)
                     && !self.should_skip_scanner("path_traversal", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::PathTraversal, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (path_vulns, path_tests) = self.path_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(path_vulns);
                     total_tests += path_tests as u64;
@@ -788,12 +958,15 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), ssrf_blind_tests as u64).await?;
                 }
 
-                // NoSQL Injection Testing (Professional+, skip if CDN protected)
+                // NoSQL Injection Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::NOSQL_SCANNER)
                     && !self.should_skip_scanner("nosql", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::NoSqlI, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (nosql_vulns, nosql_tests) = self.nosql_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(nosql_vulns);
                     total_tests += nosql_tests as u64;
@@ -801,12 +974,15 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), nosql_tests as u64).await?;
                 }
 
-                // XXE Testing (Professional+, skip if CDN protected)
+                // XXE Testing (Professional+, skip if CDN protected, intelligent routing)
                 if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XXE_SCANNER)
                     && !self.should_skip_scanner("xxe", &cdn_info)
+                    && Self::should_run_scanner_for_param(TechScannerType::Xxe, param_name, &scan_plan)
                 {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (xxe_vulns, xxe_tests) = self.xxe_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(xxe_vulns);
                     total_tests += xxe_tests as u64;
@@ -814,10 +990,14 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), xxe_tests as u64).await?;
                 }
 
-                // ReDoS Testing (Professional+)
-                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::REDOS_SCANNER) {
+                // ReDoS Testing (Professional+, intelligent routing)
+                if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::REDOS_SCANNER)
+                    && Self::should_run_scanner_for_param(TechScannerType::ReDoS, param_name, &scan_plan)
+                {
+                    // INTELLIGENT MODE: Get payload intensity for this specific parameter
+                    let intensity = Self::get_param_intensity(param_name, &scan_plan);
                     let (redos_vulns, redos_tests) = self.redos_scanner
-                        .scan_parameter(&target, param_name, &config)
+                        .scan_parameter_with_intensity(&target, param_name, &config, intensity)
                         .await?;
                     all_vulnerabilities.extend(redos_vulns);
                     total_tests += redos_tests as u64;
@@ -825,6 +1005,38 @@ impl ScanEngine {
                     queue.increment_tests(scan_id.clone(), redos_tests as u64).await?;
                 }
             }
+        }
+
+        // Chromium-based XSS Detection (runs on target + all crawled URLs)
+        // Uses real browser execution to detect reflected, DOM, and stored XSS
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER)
+            && !self.should_terminate_early(&all_vulnerabilities)
+        {
+            // Collect all URLs to test: target + crawled URLs (deduplicated)
+            let mut xss_urls_to_test: Vec<String> = vec![target.clone()];
+            for crawled_url in &crawl_results.crawled_urls {
+                if crawled_url != &target && !xss_urls_to_test.contains(crawled_url) {
+                    xss_urls_to_test.push(crawled_url.clone());
+                }
+            }
+
+            info!("[Chromium-XSS] Running real browser XSS detection on {} URLs", xss_urls_to_test.len());
+
+            for (idx, xss_url) in xss_urls_to_test.iter().enumerate() {
+                if self.should_terminate_early(&all_vulnerabilities) {
+                    break;
+                }
+
+                info!("[Chromium-XSS] Testing URL {}/{}: {}", idx + 1, xss_urls_to_test.len(), xss_url);
+                let (chromium_xss_vulns, chromium_xss_tests) = self.chromium_xss_scanner
+                    .scan(xss_url, &config, self.shared_browser.as_ref())
+                    .await?;
+                all_vulnerabilities.extend(chromium_xss_vulns);
+                total_tests += chromium_xss_tests as u64;
+                queue.increment_tests(scan_id.clone(), chromium_xss_tests as u64).await?;
+            }
+
+            modules_used.push(crate::modules::ids::advanced_scanning::XSS_SCANNER.to_string());
         }
 
         // Phase 1b: Test discovered API endpoints from JavaScript
@@ -867,16 +1079,6 @@ impl ScanEngine {
                         break;
                     }
 
-                    // XSS on API endpoint (Professional+)
-                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
-                        let (xss_vulns, xss_tests) = self.xss_scanner
-                            .scan_parameter(&full_url, param, &config, None)
-                            .await?;
-                        all_vulnerabilities.extend(xss_vulns);
-                        total_tests += xss_tests as u64;
-                        queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
-                    }
-
                     // SQLi on API endpoint (Professional+)
                     if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SQLI_SCANNER)
                         && !self.should_skip_scanner("sqli", &cdn_info)
@@ -890,22 +1092,6 @@ impl ScanEngine {
                     }
                 }
 
-                // Also test with common API parameters
-                for param in &["id", "user_id", "email", "query", "search", "filter", "sort"] {
-                    if self.should_terminate_early(&all_vulnerabilities) {
-                        break;
-                    }
-
-                    // XSS on API endpoint (Professional+)
-                    if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER) {
-                        let (xss_vulns, xss_tests) = self.xss_scanner
-                            .scan_parameter(&full_url, param, &config, None)
-                            .await?;
-                        all_vulnerabilities.extend(xss_vulns);
-                        total_tests += xss_tests as u64;
-                        queue.increment_tests(scan_id.clone(), xss_tests as u64).await?;
-                    }
-                }
             }
         }
 
@@ -1005,8 +1191,10 @@ impl ScanEngine {
             queue.increment_tests(scan_id.clone(), csrf_tests as u64).await?;
         }
 
-        // GraphQL API Security Check (Professional+)
-        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER) {
+        // GraphQL API Security Check (Professional+, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::GraphQL, &scan_plan)
+        {
             info!("Checking GraphQL API security");
             modules_used.push(crate::modules::ids::advanced_scanning::GRAPHQL_SCANNER.to_string());
             let (graphql_vulns, graphql_tests) = self.graphql_scanner
@@ -1704,8 +1892,10 @@ impl ScanEngine {
             queue.increment_tests(scan_id.clone(), rate_limit_tests as u64).await?;
         }
 
-        // WordPress Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::WORDPRESS_SCANNER) {
+        // WordPress Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::WORDPRESS_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::WordPress, &scan_plan)
+        {
             info!("[WordPress] Advanced WordPress security scanning");
             modules_used.push(crate::modules::ids::cms_security::WORDPRESS_SCANNER.to_string());
             let (wordpress_vulns, wordpress_tests) = self.wordpress_security_scanner
@@ -1715,11 +1905,13 @@ impl ScanEngine {
             total_tests += wordpress_tests as u64;
             queue.increment_tests(scan_id.clone(), wordpress_tests as u64).await?;
         } else {
-            debug!("[WordPress] Module not authorized - skipping");
+            debug!("[WordPress] Skipping - not detected or not authorized");
         }
 
-        // Drupal Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DRUPAL_SCANNER) {
+        // Drupal Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DRUPAL_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Drupal, &scan_plan)
+        {
             info!("[Drupal] Advanced Drupal security scanning");
             modules_used.push(crate::modules::ids::cms_security::DRUPAL_SCANNER.to_string());
             let (drupal_vulns, drupal_tests) = self.drupal_security_scanner
@@ -1729,11 +1921,13 @@ impl ScanEngine {
             total_tests += drupal_tests as u64;
             queue.increment_tests(scan_id.clone(), drupal_tests as u64).await?;
         } else {
-            debug!("[Drupal] Module not authorized - skipping");
+            debug!("[Drupal] Skipping - not detected or not authorized");
         }
 
-        // Laravel Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LARAVEL_SCANNER) {
+        // Laravel Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LARAVEL_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Laravel, &scan_plan)
+        {
             info!("[Laravel] Advanced Laravel security scanning");
             modules_used.push(crate::modules::ids::cms_security::LARAVEL_SCANNER.to_string());
             let (laravel_vulns, laravel_tests) = self.laravel_security_scanner
@@ -1743,11 +1937,13 @@ impl ScanEngine {
             total_tests += laravel_tests as u64;
             queue.increment_tests(scan_id.clone(), laravel_tests as u64).await?;
         } else {
-            debug!("[Laravel] Module not authorized - skipping");
+            debug!("[Laravel] Skipping - not detected or not authorized");
         }
 
-        // Express.js Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::EXPRESS_SCANNER) {
+        // Express.js Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::EXPRESS_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Express, &scan_plan)
+        {
             info!("[Express] Advanced Express.js/Node.js security scanning");
             modules_used.push(crate::modules::ids::cms_security::EXPRESS_SCANNER.to_string());
             let (express_vulns, express_tests) = self.express_security_scanner
@@ -1757,11 +1953,13 @@ impl ScanEngine {
             total_tests += express_tests as u64;
             queue.increment_tests(scan_id.clone(), express_tests as u64).await?;
         } else {
-            debug!("[Express] Module not authorized - skipping");
+            debug!("[Express] Skipping - not detected or not authorized");
         }
 
-        // Next.js Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::NEXTJS_SCANNER) {
+        // Next.js Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::NEXTJS_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::NextJs, &scan_plan)
+        {
             info!("[Next.js] Advanced Next.js security scanning");
             modules_used.push(crate::modules::ids::cms_security::NEXTJS_SCANNER.to_string());
             let (nextjs_vulns, nextjs_tests) = self.nextjs_security_scanner
@@ -1771,11 +1969,13 @@ impl ScanEngine {
             total_tests += nextjs_tests as u64;
             queue.increment_tests(scan_id.clone(), nextjs_tests as u64).await?;
         } else {
-            debug!("[Next.js] Module not authorized - skipping");
+            debug!("[Next.js] Skipping - not detected or not authorized");
         }
 
-        // SvelteKit Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::SVELTEKIT_SCANNER) {
+        // SvelteKit Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::SVELTEKIT_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::SvelteKit, &scan_plan)
+        {
             info!("[SvelteKit] Advanced SvelteKit security scanning");
             modules_used.push(crate::modules::ids::cms_security::SVELTEKIT_SCANNER.to_string());
             let (sveltekit_vulns, sveltekit_tests) = self.sveltekit_security_scanner
@@ -1785,11 +1985,13 @@ impl ScanEngine {
             total_tests += sveltekit_tests as u64;
             queue.increment_tests(scan_id.clone(), sveltekit_tests as u64).await?;
         } else {
-            debug!("[SvelteKit] Module not authorized - skipping");
+            debug!("[SvelteKit] Skipping - not detected or not authorized");
         }
 
-        // React Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::REACT_SCANNER) {
+        // React Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::REACT_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::React, &scan_plan)
+        {
             info!("[React] Advanced React security scanning");
             modules_used.push(crate::modules::ids::cms_security::REACT_SCANNER.to_string());
             let (react_vulns, react_tests) = self.react_security_scanner
@@ -1802,8 +2004,10 @@ impl ScanEngine {
             debug!("[React] Module not authorized - skipping");
         }
 
-        // Django Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DJANGO_SCANNER) {
+        // Django Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::DJANGO_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Django, &scan_plan)
+        {
             info!("[Django] Advanced Django security scanning");
             modules_used.push(crate::modules::ids::cms_security::DJANGO_SCANNER.to_string());
             let (django_vulns, django_tests) = self.django_security_scanner
@@ -1813,11 +2017,13 @@ impl ScanEngine {
             total_tests += django_tests as u64;
             queue.increment_tests(scan_id.clone(), django_tests as u64).await?;
         } else {
-            debug!("[Django] Module not authorized - skipping");
+            debug!("[Django] Skipping - not detected or not authorized");
         }
 
-        // Liferay Security Scanner (Personal+ license)
-        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LIFERAY_SCANNER) {
+        // Liferay Security Scanner (Personal+ license, intelligent routing)
+        if scan_token.is_module_authorized(crate::modules::ids::cms_security::LIFERAY_SCANNER)
+            && Self::should_run_endpoint_scanner(TechScannerType::Liferay, &scan_plan)
+        {
             info!("[Liferay] Advanced Liferay security scanning");
             modules_used.push(crate::modules::ids::cms_security::LIFERAY_SCANNER.to_string());
             let (liferay_vulns, liferay_tests) = self.liferay_security_scanner
@@ -1827,7 +2033,49 @@ impl ScanEngine {
             total_tests += liferay_tests as u64;
             queue.increment_tests(scan_id.clone(), liferay_tests as u64).await?;
         } else {
-            debug!("[Liferay] Module not authorized - skipping");
+            debug!("[Liferay] Skipping - not detected or not authorized");
+        }
+
+        // SOC2/PCI-DSS/HIPAA Compliance Scanner (Enterprise license)
+        if scan_token.is_module_authorized(crate::modules::ids::enterprise::COMPLIANCE_SCANNER) {
+            info!("[Compliance] SOC2, PCI-DSS, and HIPAA compliance scanning");
+            modules_used.push(crate::modules::ids::enterprise::COMPLIANCE_SCANNER.to_string());
+            let (compliance_vulns, compliance_tests) = self.compliance_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(compliance_vulns);
+            total_tests += compliance_tests as u64;
+            queue.increment_tests(scan_id.clone(), compliance_tests as u64).await?;
+        } else {
+            debug!("[Compliance] Module not authorized - skipping");
+        }
+
+        // DORA Compliance Scanner (Enterprise license)
+        if scan_token.is_module_authorized(crate::modules::ids::enterprise::DORA_SCANNER) {
+            info!("[DORA] EU Digital Operational Resilience Act compliance scanning");
+            modules_used.push(crate::modules::ids::enterprise::DORA_SCANNER.to_string());
+            let (dora_vulns, dora_tests) = self.dora_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(dora_vulns);
+            total_tests += dora_tests as u64;
+            queue.increment_tests(scan_id.clone(), dora_tests as u64).await?;
+        } else {
+            debug!("[DORA] Module not authorized - skipping");
+        }
+
+        // NIS2 Compliance Scanner (Enterprise license)
+        if scan_token.is_module_authorized(crate::modules::ids::enterprise::NIS2_SCANNER) {
+            info!("[NIS2] EU Network and Information Security Directive 2 compliance scanning");
+            modules_used.push(crate::modules::ids::enterprise::NIS2_SCANNER.to_string());
+            let (nis2_vulns, nis2_tests) = self.nis2_scanner
+                .scan(&target, &config)
+                .await?;
+            all_vulnerabilities.extend(nis2_vulns);
+            total_tests += nis2_tests as u64;
+            queue.increment_tests(scan_id.clone(), nis2_tests as u64).await?;
+        } else {
+            debug!("[NIS2] Module not authorized - skipping");
         }
 
         // Phase 2: Crawler (if enabled)
@@ -1836,24 +2084,7 @@ impl ScanEngine {
             match self.crawl_target(&target, config.max_depth).await {
                 Ok(discovered_urls) => {
                     info!("Crawler discovered {} additional URLs", discovered_urls.len());
-                    for discovered_url in discovered_urls {
-                        let url_data = match self.parse_target_url(&discovered_url) {
-                            Ok(data) => data,
-                            Err(e) => {
-                                warn!("Failed to parse discovered URL {}: {}", discovered_url, e);
-                                continue;
-                            }
-                        };
-
-                        for (param_name, _) in &url_data.parameters {
-                            let (vulns, tests) = self.xss_scanner
-                                .scan_parameter(&discovered_url, param_name, &config, None)
-                                .await?;
-                            all_vulnerabilities.extend(vulns);
-                            total_tests += tests as u64;
-                            queue.increment_tests(scan_id.clone(), tests as u64).await?;
-                        }
-                    }
+                    // XSS testing on crawled URLs is now handled in Phase 1
                 }
                 Err(e) => {
                     warn!("Crawler failed: {}", e);
@@ -1943,6 +2174,32 @@ impl ScanEngine {
                 // STRICT MODE: No unsigned results allowed
                 error!("Failed to sign results: {}", e);
                 return Err(anyhow::anyhow!("Failed to sign results: {}", e));
+            }
+        }
+
+        // ============================================================
+        // ML INTEGRATION - AUTOMATIC LEARNING FROM SCAN RESULTS
+        // ============================================================
+        // Process vulnerabilities for federated learning (runs in background)
+        if let Some(ref ml) = self.ml_integration {
+            // Learn from each vulnerability found
+            for vuln in &results.vulnerabilities {
+                // Create a basic response for learning (we don't have the original response here)
+                let learning_response = crate::http_client::HttpResponse {
+                    status_code: 200,
+                    headers: std::collections::HashMap::new(),
+                    body: vuln.evidence.clone().unwrap_or_default(),
+                    duration_ms: 0,
+                };
+
+                if let Err(e) = ml.learn(vuln, &learning_response).await {
+                    debug!("ML learning failed for {}: {}", vuln.vuln_type, e);
+                }
+            }
+
+            // Notify ML system that scan is complete (triggers federated sync if enabled)
+            if let Err(e) = ml.scan_complete().await {
+                debug!("ML scan_complete failed: {}", e);
             }
         }
 
@@ -2050,6 +2307,123 @@ impl ScanEngine {
             }
         }
         false
+    }
+
+    /// Check if a scanner should run for a specific parameter based on intelligent scan plan.
+    ///
+    /// This is the CORE of context-aware scanning:
+    /// 1. Check if the scanner is in the global scan_plan.scanners list (tech-based routing)
+    /// 2. Check if the parameter has this scanner in its suggested_scanners (parameter-specific routing)
+    /// 3. Universal/core scanners always run (XSS, SQLi, SSRF, CORS, SecurityHeaders)
+    fn should_run_scanner_for_param(
+        scanner_type: TechScannerType,
+        param_name: &str,
+        scan_plan: &IntelligentScanPlan,
+    ) -> bool {
+        // Universal scanners ALWAYS run regardless of context
+        let universal_scanners = [
+            TechScannerType::SecurityHeaders,
+            TechScannerType::Cors,
+        ];
+        if universal_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Core vulnerability scanners always run (deduplicated, not spray-and-pray)
+        let core_scanners = [
+            TechScannerType::Xss,
+            TechScannerType::SqlI,
+            TechScannerType::Ssrf,
+            TechScannerType::SsrfBlind,
+        ];
+        if core_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Check 1: Is this scanner in the global scan plan based on detected tech?
+        let in_global_plan = scan_plan.scanners.contains(&scanner_type);
+
+        // Check 2: Does this specific parameter suggest this scanner?
+        let param_suggests_scanner = scan_plan.prioritized_params
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(param_name))
+            .map(|p| p.suggested_scanners.contains(&scanner_type))
+            .unwrap_or(false);
+
+        // If parameter has specific suggestions, honor them
+        // If no specific suggestions, fall back to global plan
+        if let Some(param) = scan_plan.prioritized_params.iter().find(|p| p.name.eq_ignore_ascii_case(param_name)) {
+            if !param.suggested_scanners.is_empty() {
+                // Parameter has explicit suggestions - only run those
+                let should_run = param_suggests_scanner;
+                if !should_run {
+                    debug!(
+                        "[IntelligentRouting] Skipping {} for param '{}' (not in suggested_scanners: {:?})",
+                        scanner_type.display_name(), param_name, param.suggested_scanners
+                    );
+                }
+                return should_run;
+            }
+        }
+
+        // No parameter-specific suggestions - use global tech-based plan
+        if !in_global_plan {
+            debug!(
+                "[IntelligentRouting] Skipping {} for param '{}' (not in tech-based scan plan)",
+                scanner_type.display_name(), param_name
+            );
+        }
+        in_global_plan
+    }
+
+    /// Get the payload intensity for a specific parameter from the scan plan.
+    /// Returns the parameter's intensity if found, or Standard as default.
+    fn get_param_intensity(param_name: &str, scan_plan: &IntelligentScanPlan) -> registry::PayloadIntensity {
+        scan_plan.prioritized_params
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(param_name))
+            .map(|p| p.intensity.clone())
+            .unwrap_or(registry::PayloadIntensity::Standard)
+    }
+
+    /// Check if an endpoint-level scanner should run based on the intelligent scan plan.
+    /// This is for scanners that don't operate on specific parameters but on the endpoint itself.
+    fn should_run_endpoint_scanner(
+        scanner_type: TechScannerType,
+        scan_plan: &IntelligentScanPlan,
+    ) -> bool {
+        // Universal scanners ALWAYS run
+        let universal_scanners = [
+            TechScannerType::SecurityHeaders,
+            TechScannerType::Cors,
+            TechScannerType::Clickjacking,
+        ];
+        if universal_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Core vulnerability scanners always run
+        let core_scanners = [
+            TechScannerType::Xss,
+            TechScannerType::SqlI,
+            TechScannerType::Ssrf,
+            TechScannerType::SsrfBlind,
+            TechScannerType::Csrf,
+        ];
+        if core_scanners.contains(&scanner_type) {
+            return true;
+        }
+
+        // Check if scanner is in global scan plan
+        let in_plan = scan_plan.scanners.contains(&scanner_type);
+        if !in_plan {
+            debug!(
+                "[IntelligentRouting] Skipping endpoint scanner {} (not in tech-based scan plan, detected tech: {:?})",
+                scanner_type.display_name(),
+                scan_plan.technologies
+            );
+        }
+        in_plan
     }
 
     /// Check if we should terminate early due to critical vulnerabilities
@@ -2216,6 +2590,7 @@ impl ScanEngine {
                                 false_positive: false,
                                 remediation: "1. Validate and sanitize all URLs\n2. Use allowlists for permitted domains\n3. Disable unnecessary URL schemes (file://, gopher://)\n4. Implement network segmentation".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             };
 
                             vulnerabilities.push(vuln);

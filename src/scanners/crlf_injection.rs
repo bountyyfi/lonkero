@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -13,15 +13,15 @@
  * - Arbitrary header injection
  * - XSS via injected headers
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use tracing::{debug, info};
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::{debug, info};
 
 pub struct CrlfInjectionScanner {
     http_client: Arc<HttpClient>,
@@ -327,6 +327,7 @@ impl CrlfInjectionScanner {
                          6. Use allowlists for redirect URLs\n\
                          7. Set proper Content-Type and X-Content-Type-Options headers".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -355,7 +356,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CrlfInjectionScanner {

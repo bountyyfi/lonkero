@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 //! Module IDs for server-side authorization
@@ -52,6 +52,10 @@ pub mod cms_security {
     pub const LIFERAY_SCANNER: &str = "liferay_scanner";
     /// Spring security scanner
     pub const SPRING_SCANNER: &str = "spring_scanner";
+    /// FastAPI security scanner
+    pub const FASTAPI_SCANNER: &str = "fastapi_scanner";
+    /// Go frameworks security scanner (Gin, Echo, Fiber, Chi)
+    pub const GO_FRAMEWORKS_SCANNER: &str = "go_frameworks_scanner";
 }
 
 /// Professional+ tier modules - requires advanced_scanning feature
@@ -192,30 +196,55 @@ pub mod advanced_scanning {
     pub const GOOGLE_DORKING: &str = "google_dorking";
     /// Endpoint discovery (multilingual path brute-force)
     pub const ENDPOINT_DISCOVERY: &str = "endpoint_discovery";
+
+    // === Phase 1: Bug Bounty Critical Scanners ===
+    /// Subdomain takeover scanner (25+ cloud services)
+    pub const SUBDOMAIN_TAKEOVER: &str = "subdomain_takeover";
+    /// DOM XSS scanner (source-to-sink flow analysis)
+    pub const DOM_XSS_SCANNER: &str = "dom_xss_scanner";
+    /// Account takeover scanner (OAuth chains, session fixation)
+    pub const ACCOUNT_TAKEOVER: &str = "account_takeover";
+    /// Password reset poisoning scanner
+    pub const PASSWORD_RESET_POISONING: &str = "password_reset_poisoning";
+    /// 2FA bypass scanner (rate limiting, backup codes)
+    pub const TWOFA_BYPASS: &str = "twofa_bypass";
+    /// OIDC security scanner (Okta, Auth0, Azure AD, Keycloak, Cognito)
+    pub const OIDC_SCANNER: &str = "oidc_scanner";
+
+    // === Phase 2: API Security Scanners ===
+    /// Broken Function Level Authorization scanner (BFLA)
+    pub const BROKEN_FUNCTION_AUTH: &str = "broken_function_auth";
+    /// API versioning attacks scanner
+    pub const API_VERSIONING: &str = "api_versioning";
+    /// GraphQL batching attack scanner (DoS, alias abuse)
+    pub const GRAPHQL_BATCHING: &str = "graphql_batching";
+    /// OpenAPI/Swagger specification analyzer
+    pub const OPENAPI_ANALYZER: &str = "openapi_analyzer";
+    /// Advanced mass assignment scanner (nested objects, dot notation)
+    pub const MASS_ASSIGNMENT_ADVANCED: &str = "mass_assignment_advanced";
+
+    // === Phase 3: Advanced Web Scanners ===
+    /// CSP bypass scanner (script gadgets, nonce reuse)
+    pub const CSP_BYPASS: &str = "csp_bypass";
+    /// PostMessage vulnerabilities scanner
+    pub const POSTMESSAGE_VULNS: &str = "postmessage_vulns";
+    /// Web cache deception scanner
+    pub const WEB_CACHE_DECEPTION: &str = "web_cache_deception";
+    /// DOM clobbering scanner
+    pub const DOM_CLOBBERING: &str = "dom_clobbering";
+    /// Timing attacks scanner (auth timing, user enumeration)
+    pub const TIMING_ATTACKS: &str = "timing_attacks";
+
+    /// IDOR analyzer (advanced object reference testing with baseline)
+    pub const IDOR_ANALYZER: &str = "idor_analyzer";
+    /// JWT analyzer (token analysis and vulnerability detection)
+    pub const JWT_ANALYZER: &str = "jwt_analyzer";
+    /// Session analyzer (session token analysis)
+    pub const SESSION_ANALYZER: &str = "session_analyzer";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
 pub mod cloud_scanning {
-    /// AWS S3 scanner
-    pub const AWS_S3_SCANNER: &str = "aws_s3_scanner";
-    /// AWS EC2 scanner
-    pub const AWS_EC2_SCANNER: &str = "aws_ec2_scanner";
-    /// AWS RDS scanner
-    pub const AWS_RDS_SCANNER: &str = "aws_rds_scanner";
-    /// AWS general scanner
-    pub const AWS_SCANNER: &str = "aws_scanner";
-    /// Azure Blob scanner
-    pub const AZURE_BLOB_SCANNER: &str = "azure_blob_scanner";
-    /// Azure general scanner
-    pub const AZURE_SCANNER: &str = "azure_scanner";
-    /// GCP Storage scanner
-    pub const GCP_STORAGE_SCANNER: &str = "gcp_storage_scanner";
-    /// GCP general scanner
-    pub const GCP_SCANNER: &str = "gcp_scanner";
-    /// Kubernetes scanner
-    pub const K8S_SCANNER: &str = "k8s_scanner";
-    /// Docker/Container scanner
-    pub const DOCKER_SCANNER: &str = "docker_scanner";
     /// Container scanner
     pub const CONTAINER_SCANNER: &str = "container_scanner";
     /// Cloud storage scanner
@@ -261,7 +290,8 @@ pub fn get_required_feature(module_id: &str) -> Option<&'static str> {
         "wordpress_scanner" | "drupal_scanner" | "joomla_scanner"
         | "laravel_scanner" | "django_scanner" | "rails_scanner"
         | "nextjs_scanner" | "sveltekit_scanner" | "react_scanner"
-        | "express_scanner" | "liferay_scanner" | "spring_scanner" => {
+        | "express_scanner" | "liferay_scanner" | "spring_scanner"
+        | "fastapi_scanner" | "go_frameworks_scanner" => {
             return Some("cms_security");
         }
         _ => {}
@@ -269,10 +299,7 @@ pub fn get_required_feature(module_id: &str) -> Option<&'static str> {
 
     // Cloud scanning modules (Team+)
     match module_id {
-        "aws_s3_scanner" | "aws_ec2_scanner" | "aws_rds_scanner" | "aws_scanner"
-        | "azure_blob_scanner" | "azure_scanner" | "gcp_storage_scanner" | "gcp_scanner"
-        | "k8s_scanner" | "docker_scanner" | "container_scanner"
-        | "cloud_storage" | "cloud_security" => {
+        "container_scanner" | "cloud_storage" | "cloud_security" => {
             return Some("cloud_scanning");
         }
         _ => {}
@@ -315,6 +342,8 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         cms_security::EXPRESS_SCANNER,
         cms_security::LIFERAY_SCANNER,
         cms_security::SPRING_SCANNER,
+        cms_security::FASTAPI_SCANNER,
+        cms_security::GO_FRAMEWORKS_SCANNER,
         // Advanced Scanning (Professional+)
         advanced_scanning::SQLI_SCANNER,
         advanced_scanning::XSS_SCANNER,
@@ -382,17 +411,30 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::AZURE_APIM,
         advanced_scanning::GOOGLE_DORKING,
         advanced_scanning::ENDPOINT_DISCOVERY,
+        // Phase 1: Bug Bounty Critical
+        advanced_scanning::SUBDOMAIN_TAKEOVER,
+        advanced_scanning::DOM_XSS_SCANNER,
+        advanced_scanning::ACCOUNT_TAKEOVER,
+        advanced_scanning::PASSWORD_RESET_POISONING,
+        advanced_scanning::TWOFA_BYPASS,
+        advanced_scanning::OIDC_SCANNER,
+        // Phase 2: API Security
+        advanced_scanning::BROKEN_FUNCTION_AUTH,
+        advanced_scanning::API_VERSIONING,
+        advanced_scanning::GRAPHQL_BATCHING,
+        advanced_scanning::OPENAPI_ANALYZER,
+        advanced_scanning::MASS_ASSIGNMENT_ADVANCED,
+        // Phase 3: Advanced Web
+        advanced_scanning::CSP_BYPASS,
+        advanced_scanning::POSTMESSAGE_VULNS,
+        advanced_scanning::WEB_CACHE_DECEPTION,
+        advanced_scanning::DOM_CLOBBERING,
+        advanced_scanning::TIMING_ATTACKS,
+        // Advanced Analyzers
+        advanced_scanning::IDOR_ANALYZER,
+        advanced_scanning::JWT_ANALYZER,
+        advanced_scanning::SESSION_ANALYZER,
         // Cloud Scanning (Team+)
-        cloud_scanning::AWS_S3_SCANNER,
-        cloud_scanning::AWS_EC2_SCANNER,
-        cloud_scanning::AWS_RDS_SCANNER,
-        cloud_scanning::AWS_SCANNER,
-        cloud_scanning::AZURE_BLOB_SCANNER,
-        cloud_scanning::AZURE_SCANNER,
-        cloud_scanning::GCP_STORAGE_SCANNER,
-        cloud_scanning::GCP_SCANNER,
-        cloud_scanning::K8S_SCANNER,
-        cloud_scanning::DOCKER_SCANNER,
         cloud_scanning::CONTAINER_SCANNER,
         cloud_scanning::CLOUD_STORAGE,
         cloud_scanning::CLOUD_SECURITY,

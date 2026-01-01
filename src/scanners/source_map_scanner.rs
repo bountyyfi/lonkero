@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 //! JavaScript Source Map Scanner
@@ -325,6 +325,7 @@ impl SourceMapScanner {
                 3. Never include secrets in source code\n\
                 4. Use environment variables for sensitive configuration".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         };
 
         Some(vec![vuln])
@@ -431,6 +432,7 @@ impl SourceMapScanner {
                 4. If maps are needed, restrict access via authentication\n\
                 5. Never include sensitive data in source code".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

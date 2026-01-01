@@ -1,32 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Template Injection Scanner (SSTI)
- * Tests for Server-Side Template Injection vulnerabilities
- *
- * Features:
- * - Framework-aware payload selection
- * - Context-based engine targeting
- * - GraphQL and static content filtering
- *
- * Detects:
- * - Jinja2 template injection (Python/Django/Flask)
- * - FreeMarker template injection (Java)
- * - Twig template injection (PHP/Symfony)
- * - Smarty template injection (PHP)
- * - Blade template injection (PHP/Laravel)
- * - ERB template injection (Ruby/Rails)
- * - Pug template injection (Node.js)
- * - EJS template injection (Node.js)
- * - Handlebars template injection (Node.js)
- * - Mathematical expression evaluation
- * - Template engine fingerprinting
- * - RCE via template injection
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -80,11 +53,11 @@ impl TemplateInjectionScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[SSTI] Testing parameter: {} (priority: {})",
+        debug!("[SSTI] Testing parameter: {} (priority: {})",
               param_name,
               ParameterFilter::get_parameter_priority(param_name));
 
-        info!("Testing SSTI on parameter: {}", param_name);
+        debug!("Testing SSTI on parameter: {}", param_name);
 
         // Get framework-specific engines based on context
         let engines = self.get_targeted_engines(context);
@@ -665,6 +638,7 @@ impl TemplateInjectionScanner {
                 engine
             ),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -693,7 +667,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> TemplateInjectionScanner {

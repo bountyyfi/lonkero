@@ -1,13 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Authentication Manager Scanner
- * Tests for authentication and user management vulnerabilities
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -205,6 +197,7 @@ impl AuthManagerScanner {
                     false_positive: false,
                     remediation: "1. Enforce minimum 12 character passwords\n2. Require mix of uppercase, lowercase, numbers, and special characters\n3. Check against common password lists (HaveIBeenPwned API)\n4. Implement password complexity scoring (e.g., zxcvbn)\n5. Prevent use of personal information in passwords\n6. Enforce password rotation for privileged accounts\n7. Support passphrases as an alternative".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -229,6 +222,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Never pre-fill password fields\n2. Never include passwords in HTML\n3. Use autocomplete=\"off\" for password fields\n4. Implement proper password management\n5. Use password managers for credential storage".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -291,6 +285,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Use generic error message: 'Invalid username or password'\n2. Return same response time for valid and invalid users\n3. Implement rate limiting on login attempts\n4. Use CAPTCHA after multiple failures\n5. Log enumeration attempts for security monitoring\n6. Consider using email-based passwordless authentication".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -315,6 +310,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Implement constant-time authentication responses\n2. Hash passwords for both valid and invalid users\n3. Add random delays to normalize response times\n4. Use rate limiting to make timing attacks impractical\n5. Monitor for rapid sequential login attempts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -360,6 +356,7 @@ impl AuthManagerScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Never expose reset tokens in HTTP responses\n2. Send tokens only via email to registered address\n3. Use single-use tokens with short expiration (15-30 min)\n4. Require email verification before password reset\n5. Invalidate all sessions after password reset\n6. Log all password reset attempts\n7. Implement rate limiting on reset requests".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
                 break;
             }
@@ -386,6 +383,7 @@ impl AuthManagerScanner {
                     false_positive: false,
                     remediation: "1. Use cryptographically secure random tokens (256-bit minimum)\n2. Make tokens long and unpredictable (e.g., 32+ characters)\n3. Implement rate limiting on token validation\n4. Use single-use tokens\n5. Implement CAPTCHA for token submission\n6. Track and limit token generation per account".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -417,6 +415,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Show same message for both valid and invalid emails\n2. Always show 'If that email exists, we sent a reset link'\n3. Implement rate limiting on reset requests\n4. Log enumeration attempts\n5. Consider CAPTCHA for reset requests".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -459,6 +458,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Require email verification before account activation\n2. Send verification links to registered email\n3. Limit functionality for unverified accounts\n4. Implement CAPTCHA on registration\n5. Use double opt-in for sensitive applications\n6. Monitor for mass registration attempts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -485,6 +485,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Implement CAPTCHA (reCAPTCHA v3 recommended)\n2. Use rate limiting on registration endpoint\n3. Implement honeypot fields\n4. Track and block suspicious registration patterns\n5. Require email/SMS verification\n6. Monitor for automated registration attempts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -538,6 +539,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Implement progressive delays after failed attempts\n2. Lock accounts after 5-10 failed attempts\n3. Implement CAPTCHA after 3 failures\n4. Use rate limiting (per IP and per account)\n5. Implement account unlock via email\n6. Monitor and alert on brute force attempts\n7. Consider using Web Application Firewall (WAF)\n8. Implement IP-based blocking for distributed attacks".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -579,6 +581,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Implement time-based lockouts (e.g., 15-30 minutes)\n2. Allow self-service unlock via email verification\n3. Use progressive delays instead of hard lockouts\n4. Implement CAPTCHA as alternative to lockouts\n5. Monitor for DoS via account lockout attacks\n6. Consider using risk-based authentication".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -630,6 +633,7 @@ impl AuthManagerScanner {
                 false_positive: false,
                 remediation: "1. Implement device fingerprinting\n2. Use risk-based authentication (location, device, behavior)\n3. Check credentials against breach databases (HaveIBeenPwned)\n4. Implement MFA for high-risk logins\n5. Monitor for impossible travel (login from different countries)\n6. Use CAPTCHA for suspicious login patterns\n7. Implement velocity checks (logins per IP/time)\n8. Notify users of new device logins".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }

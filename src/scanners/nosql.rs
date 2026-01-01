@@ -1,16 +1,17 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - NoSQL Injection Scanner
  * Tests for MongoDB and other NoSQL database injection vulnerabilities
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::scanners::registry::PayloadIntensity;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -31,12 +32,23 @@ impl NoSqlScanner {
         }
     }
 
-    /// Scan a parameter for NoSQL injection vulnerabilities
+    /// Scan a parameter for NoSQL injection vulnerabilities (default intensity)
     pub async fn scan_parameter(
         &self,
         base_url: &str,
         parameter: &str,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+    }
+
+    /// Scan a parameter for NoSQL injection with specified intensity (intelligent mode)
+    pub async fn scan_parameter_with_intensity(
+        &self,
+        base_url: &str,
+        parameter: &str,
         _config: &ScanConfig,
+        intensity: PayloadIntensity,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::NoSQL) {
@@ -44,14 +56,24 @@ impl NoSqlScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[NoSQL] Scanning parameter: {} (priority: {})",
+        info!("[NoSQL] Intelligent scanner - parameter: {} (priority: {}, intensity: {:?})",
               parameter,
-              ParameterFilter::get_parameter_priority(parameter));
+              ParameterFilter::get_parameter_priority(parameter),
+              intensity);
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        let payloads = self.generate_nosql_payloads();
+        let mut payloads = self.generate_nosql_payloads();
+
+        // INTELLIGENT MODE: Limit payloads based on intensity
+        let payload_limit = intensity.payload_limit();
+        if payloads.len() > payload_limit {
+            let original_count = payloads.len();
+            payloads.truncate(payload_limit);
+            info!("[NoSQL] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
+                  original_count, payloads.len(), intensity);
+        }
 
         // Test each payload
         for payload in &payloads {
@@ -266,6 +288,7 @@ impl NoSqlScanner {
 9. Log and monitor for NoSQL injection attempts
 10. Consider using MongoDB's role-based access control (RBAC)"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

@@ -1,27 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Race Condition Scanner
- * Detects race condition vulnerabilities (TOCTOU)
- *
- * Detects:
- * - Concurrent transaction race conditions
- * - Coupon/discount code race conditions
- * - Account balance manipulation via race
- * - File upload race conditions
- * - Session/authentication race conditions
- * - Rate limit bypass via race conditions
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tokio::task::JoinSet;
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct RaceConditionScanner {
     http_client: Arc<HttpClient>,
@@ -176,7 +160,7 @@ impl RaceConditionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 20;
 
-        info!("Testing transaction race conditions");
+        debug!("Testing transaction race conditions");
 
         // Simulate concurrent requests to test for race conditions
         let concurrent_requests = 20;
@@ -244,7 +228,7 @@ impl RaceConditionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing coupon/discount race conditions");
+        debug!("Testing coupon/discount race conditions");
 
         let concurrent_requests = 10;
         let mut join_set = JoinSet::new();
@@ -313,7 +297,7 @@ impl RaceConditionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 30;
 
-        info!("Testing rate limit bypass via race conditions");
+        debug!("Testing rate limit bypass via race conditions");
 
         let concurrent_requests = 30;
         let mut join_set = JoinSet::new();
@@ -415,6 +399,7 @@ impl RaceConditionScanner {
                          11. Implement rate limiting at application AND infrastructure level\n\
                          12. Test with high concurrency scenarios".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -447,7 +432,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> RaceConditionScanner {

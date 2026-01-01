@@ -1,20 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - SSI (Server-Side Includes) Injection Scanner
- * Detects Server-Side Includes injection vulnerabilities
- *
- * Detects:
- * - SSI command execution
- * - File inclusion via SSI
- * - Environment variable disclosure via SSI
- * - SSI config modification
- * - Time-based SSI injection
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -136,7 +121,7 @@ impl SSIInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing SSI file inclusion");
+        debug!("Testing SSI file inclusion");
 
         let payloads = vec![
             r#"<!--#include virtual="/etc/passwd" -->"#.to_string(),
@@ -180,7 +165,7 @@ impl SSIInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing SSI environment variable disclosure");
+        debug!("Testing SSI environment variable disclosure");
 
         let payloads = vec![
             r#"<!--#echo var="DOCUMENT_ROOT" -->"#.to_string(),
@@ -225,7 +210,7 @@ impl SSIInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing time-based SSI injection");
+        debug!("Testing time-based SSI injection");
 
         let payload = r#"<!--#exec cmd="sleep 5" -->"#;
         let test_url = if url.contains('?') {
@@ -369,6 +354,7 @@ impl SSIInjectionScanner {
                          9. Monitor for suspicious SSI directive usage\n\
                          10. Consider Content Security Policy to prevent injection".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -401,7 +387,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> SSIInjectionScanner {

@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -8,10 +8,11 @@
  * Tests various injection points: Headers, parameters, body
  * Uses ${jndi:ldap://}, ${jndi:rmi://}, ${jndi:dns://} patterns
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::collections::HashMap;
@@ -38,6 +39,16 @@ impl Log4jScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Intelligent detection - Log4j is Java-specific but we test anyway for backend detection
+        // Only skip for clearly static sites
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.is_static {
+                info!("[Log4j] Skipping - static site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
+
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -285,6 +296,7 @@ impl Log4jScanner {
                          4. Use WAF rules to block JNDI patterns\n\
                          5. Monitor outbound connections for LDAP/RMI traffic".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

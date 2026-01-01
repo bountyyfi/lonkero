@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - GraphQL Security Scanner
  * Tests for GraphQL API vulnerabilities and misconfigurations
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -42,6 +43,11 @@ impl GraphQlScanner {
         if !is_graphql {
             info!("[NOTE] [GraphQL] Not a GraphQL endpoint, skipping");
             return Ok((vulnerabilities, tests_run));
+        }
+
+        // Store characteristics for intelligent testing
+        if let Ok(response) = self.http_client.get(url).await {
+            let _characteristics = AppCharacteristics::from_response(&response, url);
         }
 
         info!("[SUCCESS] [GraphQL] GraphQL endpoint detected");
@@ -541,6 +547,7 @@ References:
 - Escape GraphQL Security Guide: https://escape.tech/blog/9-graphql-security-best-practices/
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

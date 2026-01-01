@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Authentication Bypass Scanner
  * Tests for authentication bypass vulnerabilities
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -31,6 +32,15 @@ impl AuthBypassScanner {
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("[AuthBypass] Scanning: {}", url);
+
+        // Get baseline response for intelligent detection
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_auth_tests() {
+                info!("[AuthBypass] Skipping - no authentication detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -378,36 +388,35 @@ impl AuthBypassScanner {
     }
 
     /// Test HTTP verb tampering
+    /// NOTE: This test is DISABLED because it produces false positives.
+    /// Simply checking if a page contains words like "admin" or "protected"
+    /// is not a valid detection method for verb tampering vulnerabilities.
+    ///
+    /// A proper verb tampering test would:
+    /// 1. Identify endpoints that require authentication and return 401/403 for GET
+    /// 2. Test if using HEAD, OPTIONS, or other verbs bypasses that auth check
+    /// 3. Compare the actual behavior differences between verbs
     async fn test_verb_tampering(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
         // Note: Using GET for now - real implementation would test HEAD, OPTIONS, etc.
         self.http_client.get(url).await
     }
 
     /// Check verb tampering
+    /// DISABLED: This check produces too many false positives by looking for
+    /// generic words like "admin" or "protected" in page content.
     fn check_verb_tampering(
         &self,
-        response: &crate::http_client::HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &crate::http_client::HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        // Check if response suggests auth bypass via different HTTP verb
-        if response.status_code == 200 {
-            let body_lower = response.body.to_lowercase();
-
-            if body_lower.contains("method not allowed") == false
-                && (body_lower.contains("admin") || body_lower.contains("protected"))
-            {
-                vulnerabilities.push(self.create_vulnerability(
-                    "HTTP Verb Tampering Bypass",
-                    url,
-                    Severity::Medium,
-                    Confidence::Low,
-                    "Different HTTP verbs may bypass authentication",
-                    "HTTP verb tampering may bypass authentication".to_string(),
-                    6.5,
-                ));
-            }
-        }
+        // TODO: Implement proper verb tampering detection:
+        // 1. First establish that the endpoint requires auth (returns 401/403 for GET)
+        // 2. Then test if other HTTP methods (HEAD, OPTIONS, PUT) bypass auth
+        // 3. Report only when there's an actual behavioral difference
+        //
+        // Current implementation disabled due to false positives on SPAs
+        // that contain words like "admin" in their JavaScript bundles.
     }
 
     /// Test encoding bypass
@@ -771,6 +780,7 @@ References:
 - CVE-2024-34351: https://nvd.nist.gov/vuln/detail/CVE-2024-34351
 "#.to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
     }
@@ -977,6 +987,7 @@ References:
 - CWE-287: https://cwe.mitre.org/data/definitions/287.html
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -1057,6 +1068,7 @@ References:
                                           3. Configure middleware to block signup routes\n\
                                           4. Implement account provisioning only via SSO/SCIM".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -1089,6 +1101,7 @@ References:
                             false_positive: false,
                             remediation: "Block all HTTP methods on signup endpoints when SSO is enforced".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -1209,6 +1222,7 @@ References:
                                           6. Review and restrict script console access\n\
                                           7. Secure credentials plugin".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1299,6 +1313,7 @@ References:
                                               return $methods;\n\
                                           });".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     } else {
                         // xmlrpc enabled but multicall might be disabled
@@ -1320,6 +1335,7 @@ References:
                             false_positive: false,
                             remediation: "Disable XML-RPC if not needed for Jetpack or mobile apps".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1413,6 +1429,7 @@ References:
                                           3. Don't rely only on client-side route protection\n\
                                           4. Review and test all endpoints for proper access control".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1532,6 +1549,7 @@ References:
         //                     method
         //                 ),
         //                 discovered_at: chrono::Utc::now().to_rfc3339(),
+        //                 ml_data: None,
         //             });
         //
         //             break; // Found disclosure, no need to test more methods
@@ -1772,6 +1790,7 @@ References:
                                     path
                                 ),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break; // One bypass found for this path is enough
                         }
@@ -1829,6 +1848,7 @@ References:
                                     header_name, header_name, header_name
                                 ),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break;
                         }

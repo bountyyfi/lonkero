@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 //! Headless browser crawler for JavaScript-rendered pages
@@ -10,16 +10,213 @@ use crate::crawler::{DiscoveredForm, FormInput};
 use anyhow::{Context, Result};
 use headless_chrome::browser::tab::RequestPausedDecision;
 use headless_chrome::protocol::cdp::Fetch::{events::RequestPausedEvent, RequestPattern, RequestStage};
-use headless_chrome::{Browser, LaunchOptions};
+use headless_chrome::{Browser, LaunchOptions, Tab};
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+
+// ============================================================================
+// Network Activity Tracker - for idle detection instead of fixed delays
+// ============================================================================
+
+/// Tracks network activity to determine when page has finished loading
+struct NetworkTracker {
+    pending_requests: AtomicUsize,
+    last_activity: Mutex<Instant>,
+}
+
+impl NetworkTracker {
+    fn new() -> Self {
+        Self {
+            pending_requests: AtomicUsize::new(0),
+            last_activity: Mutex::new(Instant::now()),
+        }
+    }
+
+    fn request_started(&self) {
+        self.pending_requests.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn request_finished(&self) {
+        let prev = self.pending_requests.fetch_sub(1, Ordering::SeqCst);
+        if prev > 0 {
+            if let Ok(mut last) = self.last_activity.lock() {
+                *last = Instant::now();
+            }
+        }
+    }
+
+    fn pending_count(&self) -> usize {
+        self.pending_requests.load(Ordering::SeqCst)
+    }
+
+    fn time_since_last_activity(&self) -> Duration {
+        self.last_activity
+            .lock()
+            .map(|last| last.elapsed())
+            .unwrap_or(Duration::from_secs(0))
+    }
+}
+
+// ============================================================================
+// Page State Tracker - for deduplication across crawl
+// ============================================================================
+
+/// Represents page state for deduplication (URL + content hash)
+#[derive(Clone, Debug)]
+struct PageState {
+    url_without_hash: String,
+    content_hash: u64,
+}
+
+impl PartialEq for PageState {
+    fn eq(&self, other: &Self) -> bool {
+        self.url_without_hash == other.url_without_hash && self.content_hash == other.content_hash
+    }
+}
+
+impl Eq for PageState {}
+
+impl Hash for PageState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.url_without_hash.hash(state);
+        self.content_hash.hash(state);
+    }
+}
+
+/// Configuration for enhanced headless crawling
+#[derive(Debug, Clone)]
+pub struct HeadlessCrawlerConfig {
+    /// Maximum time to wait for network idle (ms)
+    pub network_idle_timeout_ms: u64,
+    /// Time with no network activity to consider "idle" (ms)
+    pub network_idle_threshold_ms: u64,
+    /// Maximum click depth when exploring interactive elements
+    pub max_click_depth: usize,
+    /// Maximum clicks per page
+    pub max_clicks_per_page: usize,
+    /// Maximum pages to crawl
+    pub max_pages: usize,
+    /// Enable automatic session refresh on 401/403
+    pub auto_session_refresh: bool,
+    /// Maximum number of session refresh attempts
+    pub max_session_refresh_attempts: usize,
+}
+
+/// Session state for tracking authentication during crawl
+#[derive(Debug, Clone)]
+pub struct SessionState {
+    /// Current auth token (if any)
+    pub token: Option<String>,
+    /// OAuth refresh token (if available)
+    pub refresh_token: Option<String>,
+    /// Token expiry time (if known)
+    pub expires_at: Option<Instant>,
+    /// Number of consecutive 401/403 responses
+    pub auth_failure_count: usize,
+    /// Session cookies to maintain
+    pub cookies: HashMap<String, String>,
+}
+
+impl Default for HeadlessCrawlerConfig {
+    fn default() -> Self {
+        Self {
+            network_idle_timeout_ms: 30000,
+            network_idle_threshold_ms: 500,
+            max_click_depth: 2,
+            max_clicks_per_page: 10,
+            max_pages: 50,
+            auto_session_refresh: true,
+            max_session_refresh_attempts: 3,
+        }
+    }
+}
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            token: None,
+            refresh_token: None,
+            expires_at: None,
+            auth_failure_count: 0,
+            cookies: HashMap::new(),
+        }
+    }
+}
+
+impl SessionState {
+    /// Create new session state with an auth token
+    pub fn with_token(token: String) -> Self {
+        Self {
+            token: Some(token),
+            ..Default::default()
+        }
+    }
+
+    /// Create new session with both access and refresh tokens
+    pub fn with_tokens(access_token: String, refresh_token: Option<String>) -> Self {
+        Self {
+            token: Some(access_token),
+            refresh_token,
+            ..Default::default()
+        }
+    }
+
+    /// Check if session appears expired (based on failures or expiry time)
+    pub fn is_expired(&self) -> bool {
+        // If we've seen auth failures, assume expired
+        if self.auth_failure_count >= 2 {
+            return true;
+        }
+
+        // Check explicit expiry time
+        if let Some(expires_at) = self.expires_at {
+            if Instant::now() >= expires_at {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Record an authentication failure (401/403)
+    pub fn record_auth_failure(&mut self) {
+        self.auth_failure_count += 1;
+        debug!("[Session] Auth failure #{}", self.auth_failure_count);
+    }
+
+    /// Reset auth failure count after successful request
+    pub fn reset_auth_failures(&mut self) {
+        if self.auth_failure_count > 0 {
+            debug!("[Session] Reset auth failures (was {})", self.auth_failure_count);
+            self.auth_failure_count = 0;
+        }
+    }
+
+    /// Update token after refresh
+    pub fn update_token(&mut self, new_token: String, expires_in_secs: Option<u64>) {
+        self.token = Some(new_token);
+        self.auth_failure_count = 0;
+        if let Some(secs) = expires_in_secs {
+            // Set expiry with a buffer (refresh 30 seconds early)
+            self.expires_at = Some(Instant::now() + Duration::from_secs(secs.saturating_sub(30)));
+        }
+        info!("[Session] Token refreshed successfully");
+    }
+}
 
 /// Headless browser crawler for SPA form detection
 pub struct HeadlessCrawler {
     timeout: Duration,
     /// Optional JWT/Bearer token for authenticated scanning
     auth_token: Option<String>,
+    /// Session state for tracking auth during long crawls
+    session_state: Arc<Mutex<SessionState>>,
+    /// Crawler configuration
+    config: HeadlessCrawlerConfig,
 }
 
 impl HeadlessCrawler {
@@ -27,14 +224,206 @@ impl HeadlessCrawler {
         Self {
             timeout: Duration::from_secs(timeout_secs),
             auth_token: None,
+            session_state: Arc::new(Mutex::new(SessionState::default())),
+            config: HeadlessCrawlerConfig::default(),
         }
     }
 
     /// Create a new headless crawler with authentication token
     pub fn with_auth(timeout_secs: u64, token: Option<String>) -> Self {
+        let session_state = if let Some(ref t) = token {
+            SessionState::with_token(t.clone())
+        } else {
+            SessionState::default()
+        };
+
         Self {
             timeout: Duration::from_secs(timeout_secs),
             auth_token: token,
+            session_state: Arc::new(Mutex::new(session_state)),
+            config: HeadlessCrawlerConfig::default(),
+        }
+    }
+
+    /// Create crawler with full configuration
+    pub fn with_config(timeout_secs: u64, token: Option<String>, config: HeadlessCrawlerConfig) -> Self {
+        let session_state = if let Some(ref t) = token {
+            SessionState::with_token(t.clone())
+        } else {
+            SessionState::default()
+        };
+
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+            auth_token: token,
+            session_state: Arc::new(Mutex::new(session_state)),
+            config,
+        }
+    }
+
+    /// Create crawler with session state for token refresh support
+    pub fn with_session(timeout_secs: u64, session: SessionState, config: HeadlessCrawlerConfig) -> Self {
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+            auth_token: session.token.clone(),
+            session_state: Arc::new(Mutex::new(session)),
+            config,
+        }
+    }
+
+    /// Check if session needs refresh (proactive check before expiry)
+    pub fn needs_token_refresh(&self) -> bool {
+        if let Ok(session) = self.session_state.lock() {
+            session.is_expired()
+        } else {
+            false
+        }
+    }
+
+    /// Refresh the auth token using refresh_token (for OAuth flows)
+    /// Returns the new access token if successful
+    pub async fn refresh_token(&self, refresh_endpoint: &str) -> Result<String> {
+        let refresh_token = {
+            let session = self.session_state.lock()
+                .map_err(|_| anyhow::anyhow!("Failed to lock session state"))?;
+            session.refresh_token.clone()
+                .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?
+        };
+
+        info!("[Session] Attempting token refresh at {}", refresh_endpoint);
+
+        let endpoint = refresh_endpoint.to_string();
+        let timeout = self.timeout;
+
+        // Perform token refresh
+        let result = tokio::task::spawn_blocking(move || {
+            Self::refresh_token_sync(&endpoint, &refresh_token, timeout)
+        })
+        .await
+        .context("Token refresh task panicked")??;
+
+        // Update session state with new token
+        if let Ok(mut session) = self.session_state.lock() {
+            session.update_token(result.access_token.clone(), result.expires_in);
+        }
+
+        Ok(result.access_token)
+    }
+
+    /// Synchronous token refresh
+    fn refresh_token_sync(endpoint: &str, refresh_token: &str, timeout: Duration) -> Result<TokenRefreshResult> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch browser for token refresh")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+
+        // Parse base URL from endpoint
+        let base_url = url::Url::parse(endpoint).context("Invalid refresh endpoint")?;
+        let origin = format!("{}://{}", base_url.scheme(), base_url.host_str().unwrap_or(""));
+
+        // Navigate to origin first to set up context
+        tab.navigate_to(&origin).context("Failed to navigate")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
+
+        // Perform token refresh via fetch
+        let js_refresh = format!(r#"
+            (async function() {{
+                try {{
+                    const response = await fetch('{}', {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/json',
+                        }},
+                        body: JSON.stringify({{
+                            refresh_token: '{}',
+                            grant_type: 'refresh_token'
+                        }})
+                    }});
+
+                    if (!response.ok) {{
+                        return JSON.stringify({{ error: 'HTTP ' + response.status }});
+                    }}
+
+                    const data = await response.json();
+                    return JSON.stringify({{
+                        access_token: data.access_token || data.accessToken || data.token,
+                        expires_in: data.expires_in || data.expiresIn || 3600
+                    }});
+                }} catch (e) {{
+                    return JSON.stringify({{ error: e.message }});
+                }}
+            }})()
+        "#, endpoint, refresh_token);
+
+        std::thread::sleep(Duration::from_millis(500));
+
+        let result = tab.evaluate(&js_refresh, true)
+            .context("Failed to execute refresh request")?;
+
+        let json_str = result.value
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .ok_or_else(|| anyhow::anyhow!("No response from refresh request"))?;
+
+        let parsed: serde_json::Value = serde_json::from_str(&json_str)
+            .context("Failed to parse refresh response")?;
+
+        if let Some(error) = parsed.get("error").and_then(|v| v.as_str()) {
+            return Err(anyhow::anyhow!("Token refresh failed: {}", error));
+        }
+
+        let access_token = parsed.get("access_token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("No access_token in refresh response"))?
+            .to_string();
+
+        let expires_in = parsed.get("expires_in")
+            .and_then(|v| v.as_u64());
+
+        Ok(TokenRefreshResult { access_token, expires_in })
+    }
+
+    /// Record an auth failure (call when getting 401/403)
+    pub fn record_auth_failure(&self) {
+        if let Ok(mut session) = self.session_state.lock() {
+            session.record_auth_failure();
+        }
+    }
+
+    /// Reset auth failures (call after successful authenticated request)
+    pub fn record_auth_success(&self) {
+        if let Ok(mut session) = self.session_state.lock() {
+            session.reset_auth_failures();
+        }
+    }
+
+    /// Get current token (may return refreshed token if refresh was done)
+    pub fn get_current_token(&self) -> Option<String> {
+        if let Ok(session) = self.session_state.lock() {
+            session.token.clone()
+        } else {
+            self.auth_token.clone()
+        }
+    }
+
+    /// Check if we should attempt session refresh based on failure count
+    pub fn should_attempt_refresh(&self) -> bool {
+        if !self.config.auto_session_refresh {
+            return false;
+        }
+
+        if let Ok(session) = self.session_state.lock() {
+            // Only attempt refresh if we have a refresh token and haven't exceeded attempts
+            session.refresh_token.is_some() &&
+            session.auth_failure_count > 0 &&
+            session.auth_failure_count <= self.config.max_session_refresh_attempts
+        } else {
+            false
         }
     }
 
@@ -350,6 +739,333 @@ impl HeadlessCrawler {
 
         info!("[Headless] Multi-stage detection found {} follow-up forms", forms.len());
         Ok(forms)
+    }
+
+    // ========================================================================
+    // CSRF Token Extraction and Refresh for Multi-Step Forms
+    // ========================================================================
+
+    /// Extract CSRF token from a page - fresh token for each form submission
+    /// This is critical for multi-step forms where tokens change between steps
+    pub async fn extract_csrf_token(&self, url: &str) -> Result<Option<CsrfTokenInfo>> {
+        let url_owned = url.to_string();
+        let timeout = self.timeout;
+        let auth_token = self.auth_token.clone();
+
+        let token_info = tokio::task::spawn_blocking(move || {
+            Self::extract_csrf_token_sync(&url_owned, timeout, auth_token.as_deref())
+        })
+        .await
+        .context("CSRF token extraction task panicked")??;
+
+        if let Some(ref info) = token_info {
+            info!("[CSRF] Extracted token '{}' from field '{}'",
+                &info.value[..info.value.len().min(20)], info.field_name);
+        }
+
+        Ok(token_info)
+    }
+
+    /// Synchronous CSRF token extraction
+    fn extract_csrf_token_sync(url: &str, timeout: Duration, auth_token: Option<&str>) -> Result<Option<CsrfTokenInfo>> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch Chrome/Chromium")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+
+        // Inject auth token if provided
+        if let Some(token) = auth_token {
+            tab.navigate_to(url).context("Failed to navigate")?;
+            tab.wait_until_navigated().context("Navigation timeout")?;
+
+            let js_inject = format!(r#"
+                localStorage.setItem('token', '{}');
+                localStorage.setItem('accessToken', '{}');
+                sessionStorage.setItem('token', '{}');
+            "#, token, token, token);
+            let _ = tab.evaluate(&js_inject, false);
+
+            tab.reload(true, None)?;
+            tab.wait_until_navigated()?;
+        } else {
+            tab.navigate_to(url).context("Failed to navigate")?;
+            tab.wait_until_navigated().context("Navigation timeout")?;
+        }
+
+        std::thread::sleep(Duration::from_secs(2));
+
+        // Extract CSRF token using comprehensive patterns
+        let js_extract = r#"
+            (function() {
+                // Common CSRF token field names
+                const csrfPatterns = [
+                    'csrf', '_csrf', 'csrfToken', 'csrf_token', 'CSRFToken',
+                    '_token', 'token', 'authenticity_token',
+                    '__RequestVerificationToken', 'RequestVerificationToken',
+                    'csrfmiddlewaretoken', 'anti-forgery', 'antiforgery',
+                    'XSRF-TOKEN', 'xsrf-token', '_xsrf',
+                    'formToken', 'form_token', 'nonce', '_nonce',
+                    'verification_token', 'security_token'
+                ];
+
+                // Check hidden inputs
+                for (const pattern of csrfPatterns) {
+                    // By name attribute
+                    let el = document.querySelector(`input[name="${pattern}"]`) ||
+                             document.querySelector(`input[name*="${pattern}" i]`);
+                    if (el && el.value) {
+                        return JSON.stringify({
+                            field_name: el.name,
+                            value: el.value,
+                            source: 'hidden_input'
+                        });
+                    }
+
+                    // By id attribute
+                    el = document.getElementById(pattern);
+                    if (el && el.value) {
+                        return JSON.stringify({
+                            field_name: el.name || el.id,
+                            value: el.value,
+                            source: 'hidden_input'
+                        });
+                    }
+                }
+
+                // Check meta tags (common in Rails, Next.js)
+                const metaTags = [
+                    'meta[name="csrf-token"]',
+                    'meta[name="csrf_token"]',
+                    'meta[name="_token"]',
+                    'meta[name="csrf-param"]'
+                ];
+                for (const selector of metaTags) {
+                    const meta = document.querySelector(selector);
+                    if (meta && meta.content) {
+                        const paramMeta = document.querySelector('meta[name="csrf-param"]');
+                        return JSON.stringify({
+                            field_name: paramMeta?.content || 'csrf_token',
+                            value: meta.content,
+                            source: 'meta_tag'
+                        });
+                    }
+                }
+
+                // Check cookies
+                const cookies = document.cookie.split(';');
+                for (const cookie of cookies) {
+                    const [name, value] = cookie.trim().split('=');
+                    const nameLower = name.toLowerCase();
+                    if (nameLower.includes('csrf') || nameLower.includes('xsrf') || name === '_token') {
+                        return JSON.stringify({
+                            field_name: name,
+                            value: decodeURIComponent(value),
+                            source: 'cookie'
+                        });
+                    }
+                }
+
+                // Check window/global variables (common in SPAs)
+                const globalPatterns = ['csrfToken', 'csrf_token', 'CSRF_TOKEN', '__csrf'];
+                for (const pattern of globalPatterns) {
+                    if (window[pattern]) {
+                        return JSON.stringify({
+                            field_name: pattern,
+                            value: window[pattern],
+                            source: 'window_variable'
+                        });
+                    }
+                }
+
+                return null;
+            })()
+        "#;
+
+        let result = tab.evaluate(js_extract, true)
+            .context("Failed to extract CSRF token")?;
+
+        if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+            if json_str != "null" {
+                let info: CsrfTokenInfo = serde_json::from_str(&json_str)
+                    .context("Failed to parse CSRF token info")?;
+                return Ok(Some(info));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Refresh CSRF token by re-fetching the page
+    /// Use this before each form submission in multi-step flows
+    pub async fn refresh_csrf_token(&self, url: &str, current_token: Option<&str>) -> Result<Option<CsrfTokenInfo>> {
+        info!("[CSRF] Refreshing token for {}", url);
+
+        let new_token = self.extract_csrf_token(url).await?;
+
+        // Warn if token didn't change (might indicate static token or error)
+        if let (Some(old), Some(ref new)) = (current_token, &new_token) {
+            if old == new.value {
+                debug!("[CSRF] Warning: Token unchanged after refresh - may be static or session-bound");
+            } else {
+                info!("[CSRF] Token refreshed successfully");
+            }
+        }
+
+        Ok(new_token)
+    }
+
+    /// Submit form with fresh CSRF token - handles multi-step flows
+    pub async fn submit_form_with_csrf(
+        &self,
+        url: &str,
+        form_action: &str,
+        form_values: &[(String, String)],
+    ) -> Result<FormSubmissionResult> {
+        // Extract fresh CSRF token
+        let csrf_token = self.extract_csrf_token(url).await?;
+
+        // Build form data with CSRF token
+        let mut values = form_values.to_vec();
+        if let Some(ref token) = csrf_token {
+            // Remove any existing CSRF field and add the fresh one
+            values.retain(|(k, _)| !k.to_lowercase().contains("csrf") && !k.to_lowercase().contains("token"));
+            values.push((token.field_name.clone(), token.value.clone()));
+        }
+
+        let url_owned = url.to_string();
+        let action_owned = form_action.to_string();
+        let timeout = self.timeout;
+        let auth_token = self.auth_token.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::submit_form_sync(&url_owned, &action_owned, &values, timeout, auth_token.as_deref())
+        })
+        .await
+        .context("Form submission task panicked")??;
+
+        Ok(result)
+    }
+
+    /// Synchronous form submission
+    fn submit_form_sync(
+        url: &str,
+        form_action: &str,
+        form_values: &[(String, String)],
+        timeout: Duration,
+        auth_token: Option<&str>,
+    ) -> Result<FormSubmissionResult> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch Chrome/Chromium")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+
+        // Navigate and inject auth if needed
+        tab.navigate_to(url).context("Failed to navigate")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
+
+        if let Some(token) = auth_token {
+            let js_inject = format!(r#"
+                localStorage.setItem('token', '{}');
+                localStorage.setItem('accessToken', '{}');
+            "#, token, token);
+            let _ = tab.evaluate(&js_inject, false);
+            tab.reload(true, None)?;
+            tab.wait_until_navigated()?;
+        }
+
+        std::thread::sleep(Duration::from_secs(2));
+
+        // Fill all form fields
+        for (name, value) in form_values {
+            let js_fill = format!(r#"
+                (function() {{
+                    const el = document.querySelector('[name="{}"]') ||
+                               document.getElementById('{}') ||
+                               document.querySelector('input[type="hidden"][name*="{}"]');
+                    if (el) {{
+                        el.value = '{}';
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        return true;
+                    }}
+                    return false;
+                }})()
+            "#,
+                name.replace('\'', "\\'"),
+                name.replace('\'', "\\'"),
+                name.replace('\'', "\\'"),
+                value.replace('\'', "\\'")
+            );
+            let _ = tab.evaluate(&js_fill, true);
+        }
+
+        // Submit the form
+        let js_submit = format!(r#"
+            (function() {{
+                // Try to find form by action
+                let form = document.querySelector('form[action*="{}"]');
+                if (!form) form = document.querySelector('form');
+
+                if (form) {{
+                    const submit = form.querySelector('[type="submit"], button:not([type="button"])');
+                    if (submit) {{
+                        submit.click();
+                        return 'clicked';
+                    }}
+                    form.submit();
+                    return 'submitted';
+                }}
+                return 'no_form';
+            }})()
+        "#, form_action.replace('\'', "\\'"));
+
+        let submit_result = tab.evaluate(&js_submit, true)?;
+        let submit_status = submit_result.value
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        std::thread::sleep(Duration::from_secs(3));
+
+        // Get final URL after submission
+        let final_url = tab.evaluate("window.location.href", false)
+            .ok()
+            .and_then(|r| r.value)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| url.to_string());
+
+        // Check for error indicators
+        let has_error = tab.evaluate(r#"
+            (function() {
+                const errorPatterns = ['.error', '.alert-danger', '.form-error', '[class*="error"]'];
+                for (const pattern of errorPatterns) {
+                    if (document.querySelector(pattern)) return true;
+                }
+                return false;
+            })()
+        "#, false)
+            .ok()
+            .and_then(|r| r.value)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        Ok(FormSubmissionResult {
+            success: submit_status != "no_form" && !has_error,
+            final_url,
+            submit_status,
+            has_error,
+        })
     }
 
     /// Synchronous multi-stage form detection
@@ -940,6 +1656,519 @@ impl HeadlessCrawler {
 
         Ok(endpoints)
     }
+
+    // ========================================================================
+    // V2 Enhanced Features: Network Idle, State Dedup, Click Depth
+    // ========================================================================
+
+    /// Wait for network to become idle instead of using fixed sleep
+    /// More accurate than fixed delays - handles both fast and slow sites correctly
+    fn wait_for_network_idle_sync(
+        tab: &Tab,
+        tracker: &NetworkTracker,
+        config: &HeadlessCrawlerConfig,
+    ) -> Result<()> {
+        let idle_threshold = Duration::from_millis(config.network_idle_threshold_ms);
+        let timeout = Duration::from_millis(config.network_idle_timeout_ms);
+        let start = Instant::now();
+
+        // Wait for initial navigation
+        let _ = tab.wait_until_navigated();
+
+        // Poll for idle state
+        loop {
+            if start.elapsed() > timeout {
+                debug!("[HeadlessCrawler] Network idle timeout reached after {:?}", start.elapsed());
+                break;
+            }
+
+            let pending = tracker.pending_count();
+            let idle_time = tracker.time_since_last_activity();
+
+            if pending == 0 && idle_time >= idle_threshold {
+                debug!("[HeadlessCrawler] Network idle after {:?} (no activity for {:?})", start.elapsed(), idle_time);
+                break;
+            }
+
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        Ok(())
+    }
+
+    /// Compute page state hash for deduplication
+    /// Prevents re-crawling the same content at different URLs (common in SPAs)
+    fn compute_page_state_sync(tab: &Tab, url: &str) -> Result<PageState> {
+        // Hash visible DOM content - more stable than full HTML
+        let js = r#"
+            (() => {
+                const content = document.body ? document.body.innerText : '';
+                let hash = 0;
+                for (let i = 0; i < content.length; i++) {
+                    const char = content.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32bit integer
+                }
+                return Math.abs(hash);
+            })()
+        "#;
+
+        let content_hash = tab
+            .evaluate(js, false)
+            .ok()
+            .and_then(|r| r.value)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        // Normalize URL (remove hash/fragment for comparison)
+        let url_without_hash = url::Url::parse(url)
+            .map(|mut u| {
+                u.set_fragment(None);
+                u.to_string()
+            })
+            .unwrap_or_else(|_| url.to_string());
+
+        Ok(PageState {
+            url_without_hash,
+            content_hash,
+        })
+    }
+
+    /// Click interactive elements with depth tracking
+    /// Prevents infinite click loops on stateful SPAs
+    fn click_interactive_with_depth(
+        tab: &Tab,
+        config: &HeadlessCrawlerConfig,
+        current_depth: usize,
+    ) -> Result<usize> {
+        if current_depth >= config.max_click_depth {
+            debug!("[HeadlessCrawler] Max click depth {} reached, stopping", config.max_click_depth);
+            return Ok(0);
+        }
+
+        let clickable_selectors = [
+            "[data-toggle]",
+            "[role='button']:not([disabled])",
+            ".hamburger",
+            ".menu-toggle",
+            "[aria-expanded='false']",
+            ".dropdown-toggle",
+            ".nav-link",
+            "[data-bs-toggle]",
+            ".accordion-button",
+            "button:not([type='submit']):not([disabled])",
+        ];
+
+        let mut total_clicks = 0;
+
+        for selector in clickable_selectors {
+            if total_clicks >= config.max_clicks_per_page {
+                break;
+            }
+
+            let remaining = config.max_clicks_per_page - total_clicks;
+            let js = format!(
+                r#"
+                (() => {{
+                    const elements = document.querySelectorAll('{}');
+                    let clicked = 0;
+                    const maxClicks = {};
+
+                    elements.forEach(el => {{
+                        if (clicked >= maxClicks) return;
+
+                        // Skip if not visible
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) return;
+
+                        // Skip if already expanded
+                        if (el.getAttribute('aria-expanded') === 'true') return;
+
+                        try {{
+                            el.click();
+                            clicked++;
+                        }} catch(e) {{}}
+                    }});
+                    return clicked;
+                }})()
+            "#,
+                selector, remaining
+            );
+
+            if let Ok(result) = tab.evaluate(&js, false) {
+                if let Some(count) = result.value.and_then(|v| v.as_i64()) {
+                    if count > 0 {
+                        debug!("[HeadlessCrawler] Clicked {} elements matching {} (depth {})", count, selector, current_depth);
+                        total_clicks += count as usize;
+
+                        // Brief pause for content to appear
+                        std::thread::sleep(Duration::from_millis(300));
+                    }
+                }
+            }
+        }
+
+        Ok(total_clicks)
+    }
+
+    /// Parse POST data into parameter names, recursing into nested JSON objects
+    /// Extracts paths like "user.email", "user.profile.name" from nested JSON
+    fn parse_post_params_recursive(post_data: &str) -> HashSet<String> {
+        let mut params = HashSet::new();
+
+        // Try parsing as JSON first
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(post_data) {
+            Self::extract_json_keys_recursive(&json, "", &mut params);
+        }
+        // Fallback to form-urlencoded
+        else {
+            for pair in post_data.split('&') {
+                if let Some((key, _)) = pair.split_once('=') {
+                    let decoded = urlencoding::decode(key).unwrap_or_else(|_| key.into());
+                    params.insert(decoded.to_string());
+                }
+            }
+        }
+
+        params
+    }
+
+    /// Recursively extract keys from JSON, building dot-notation paths
+    fn extract_json_keys_recursive(
+        value: &serde_json::Value,
+        prefix: &str,
+        params: &mut HashSet<String>,
+    ) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, val) in map {
+                    let full_key = if prefix.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{}.{}", prefix, key)
+                    };
+                    params.insert(full_key.clone());
+                    // Recurse into nested objects
+                    Self::extract_json_keys_recursive(val, &full_key, params);
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for (i, val) in arr.iter().enumerate() {
+                    let full_key = format!("{}[{}]", prefix, i);
+                    // Recurse into array elements (especially objects)
+                    Self::extract_json_keys_recursive(val, &full_key, params);
+                }
+            }
+            _ => {
+                // Scalar values - don't add as params (parent key already added)
+            }
+        }
+    }
+}
+
+/// Result from a token refresh attempt
+#[derive(Debug, Clone)]
+struct TokenRefreshResult {
+    access_token: String,
+    expires_in: Option<u64>,
+}
+
+/// CSRF token information extracted from page
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct CsrfTokenInfo {
+    /// Name of the CSRF field (e.g., "_token", "csrf_token")
+    pub field_name: String,
+    /// The actual token value
+    pub value: String,
+    /// Where the token was found (hidden_input, meta_tag, cookie, window_variable)
+    pub source: String,
+}
+
+// ============================================================================
+// Smart Form Auto-Fill Rules
+// ============================================================================
+
+/// Smart form auto-fill utility for context-aware field value generation
+pub struct FormAutoFill;
+
+impl FormAutoFill {
+    /// Generate a smart test value based on field name and type
+    /// This mimics Burp Suite's smart form filling capability
+    pub fn generate_value(field_name: &str, field_type: &str, options: Option<&[String]>) -> String {
+        let name_lower = field_name.to_lowercase();
+        let type_lower = field_type.to_lowercase();
+
+        // Handle select elements with options
+        if type_lower == "select" {
+            if let Some(opts) = options {
+                if !opts.is_empty() {
+                    // Return first non-empty option
+                    return opts.iter()
+                        .find(|o| !o.is_empty())
+                        .cloned()
+                        .unwrap_or_else(|| opts[0].clone());
+                }
+            }
+            return "1".to_string();
+        }
+
+        // Email fields
+        if type_lower == "email" || name_lower.contains("email") || name_lower.contains("e-mail")
+            || name_lower.contains("sähköposti") || name_lower.contains("correo") {
+            return "test@example.com".to_string();
+        }
+
+        // Phone fields
+        if type_lower == "tel" || name_lower.contains("phone") || name_lower.contains("mobile")
+            || name_lower.contains("puhelin") || name_lower.contains("telephone")
+            || name_lower.contains("telefono") || name_lower.contains("cel") {
+            return "+1234567890".to_string();
+        }
+
+        // Name fields
+        if name_lower.contains("first") && name_lower.contains("name") || name_lower == "firstname"
+            || name_lower.contains("etunimi") || name_lower.contains("nombre") {
+            return "John".to_string();
+        }
+        if name_lower.contains("last") && name_lower.contains("name") || name_lower == "lastname"
+            || name_lower.contains("sukunimi") || name_lower.contains("apellido") {
+            return "Doe".to_string();
+        }
+        if name_lower == "name" || name_lower.contains("fullname") || name_lower.contains("full_name")
+            || name_lower == "nimi" || name_lower.contains("nombre_completo") {
+            return "John Doe".to_string();
+        }
+
+        // Username fields
+        if name_lower.contains("username") || name_lower.contains("user_name")
+            || name_lower.contains("käyttäjänimi") || name_lower.contains("usuario") {
+            return "testuser123".to_string();
+        }
+
+        // Password fields
+        if type_lower == "password" || name_lower.contains("password") || name_lower.contains("passwd")
+            || name_lower.contains("salasana") || name_lower.contains("contraseña") {
+            return "TestP@ss123!".to_string();
+        }
+
+        // URL fields
+        if type_lower == "url" || name_lower.contains("url") || name_lower.contains("website")
+            || name_lower.contains("homepage") || name_lower.contains("link") {
+            return "https://example.com".to_string();
+        }
+
+        // Date fields
+        if type_lower == "date" || name_lower.contains("date") || name_lower.contains("birth")
+            || name_lower.contains("syntymä") || name_lower.contains("fecha") {
+            return "1990-01-15".to_string();
+        }
+
+        // Datetime fields
+        if type_lower == "datetime" || type_lower == "datetime-local" {
+            return "2024-01-15T10:00".to_string();
+        }
+
+        // Time fields
+        if type_lower == "time" {
+            return "10:00".to_string();
+        }
+
+        // Number/quantity fields
+        if type_lower == "number" || name_lower.contains("quantity") || name_lower.contains("amount")
+            || name_lower.contains("count") || name_lower.contains("määrä") {
+            return "1".to_string();
+        }
+
+        // Age fields
+        if name_lower.contains("age") || name_lower == "ikä" || name_lower.contains("edad") {
+            return "30".to_string();
+        }
+
+        // Zipcode/postal code fields
+        if name_lower.contains("zip") || name_lower.contains("postal") || name_lower.contains("postinumero")
+            || name_lower.contains("código_postal") || name_lower.contains("plz") {
+            return "12345".to_string();
+        }
+
+        // City fields
+        if name_lower.contains("city") || name_lower.contains("kaupunki") || name_lower.contains("ciudad")
+            || name_lower.contains("stadt") || name_lower.contains("ville") {
+            return "Helsinki".to_string();
+        }
+
+        // Country fields
+        if name_lower.contains("country") || name_lower.contains("maa") || name_lower.contains("país")
+            || name_lower.contains("land") || name_lower.contains("pays") {
+            return "Finland".to_string();
+        }
+
+        // Address fields
+        if name_lower.contains("address") || name_lower.contains("osoite") || name_lower.contains("dirección")
+            || name_lower.contains("street") || name_lower.contains("katu") {
+            return "123 Test Street".to_string();
+        }
+
+        // Company fields
+        if name_lower.contains("company") || name_lower.contains("organization") || name_lower.contains("yritys")
+            || name_lower.contains("empresa") || name_lower.contains("firma") {
+            return "Test Company Oy".to_string();
+        }
+
+        // Title fields
+        if name_lower.contains("title") || name_lower.contains("otsikko") || name_lower.contains("título") {
+            return "Test Title".to_string();
+        }
+
+        // Subject fields
+        if name_lower.contains("subject") || name_lower.contains("aihe") || name_lower.contains("asunto") {
+            return "Test Subject".to_string();
+        }
+
+        // Message/comment/description fields
+        if type_lower == "textarea" || name_lower.contains("message") || name_lower.contains("comment")
+            || name_lower.contains("description") || name_lower.contains("viesti")
+            || name_lower.contains("kuvaus") || name_lower.contains("mensaje")
+            || name_lower.contains("feedback") || name_lower.contains("palaute") {
+            return "This is a test message for form validation.".to_string();
+        }
+
+        // Checkbox/radio fields
+        if type_lower == "checkbox" || type_lower == "radio" {
+            return "on".to_string();
+        }
+
+        // Credit card number (use obvious test value)
+        if name_lower.contains("card") && name_lower.contains("number")
+            || name_lower.contains("credit") || name_lower.contains("cc_num") {
+            return "4111111111111111".to_string(); // Standard test card
+        }
+
+        // CVV/CVC
+        if name_lower.contains("cvv") || name_lower.contains("cvc") || name_lower.contains("security_code") {
+            return "123".to_string();
+        }
+
+        // Card expiry
+        if name_lower.contains("expir") || name_lower.contains("exp_") {
+            if name_lower.contains("month") || name_lower.contains("mm") {
+                return "12".to_string();
+            }
+            if name_lower.contains("year") || name_lower.contains("yy") {
+                return "25".to_string();
+            }
+            return "12/25".to_string();
+        }
+
+        // SSN/personal ID (use obvious fake)
+        if name_lower.contains("ssn") || name_lower.contains("social_security")
+            || name_lower.contains("henkilötunnus") {
+            return "123-45-6789".to_string();
+        }
+
+        // Search fields
+        if type_lower == "search" || name_lower.contains("search") || name_lower.contains("query")
+            || name_lower.contains("q") || name_lower.contains("haku") {
+            return "test search".to_string();
+        }
+
+        // Hidden fields (usually should preserve original value)
+        if type_lower == "hidden" {
+            return String::new(); // Don't override hidden fields
+        }
+
+        // ID/reference fields
+        if name_lower.contains("id") && (name_lower.contains("user") || name_lower.contains("ref")
+            || name_lower.contains("customer") || name_lower.contains("order")) {
+            return "123".to_string();
+        }
+
+        // Color fields
+        if type_lower == "color" {
+            return "#ff0000".to_string();
+        }
+
+        // Range fields
+        if type_lower == "range" {
+            return "50".to_string();
+        }
+
+        // File fields (can't really auto-fill)
+        if type_lower == "file" {
+            return String::new();
+        }
+
+        // Default fallback
+        "test".to_string()
+    }
+
+    /// Generate test values for all form inputs
+    pub fn fill_form(inputs: &[crate::crawler::FormInput]) -> Vec<(String, String)> {
+        inputs.iter()
+            .filter(|input| !input.name.is_empty())
+            .filter(|input| input.input_type.to_lowercase() != "hidden") // Don't override hidden fields
+            .filter(|input| input.input_type.to_lowercase() != "submit") // Skip submit buttons
+            .map(|input| {
+                let options: Option<Vec<String>> = input.options.clone();
+                let value = Self::generate_value(
+                    &input.name,
+                    &input.input_type,
+                    options.as_ref().map(|v| v.as_slice())
+                );
+                (input.name.clone(), value)
+            })
+            .collect()
+    }
+
+    /// Generate test values with custom overrides
+    pub fn fill_form_with_overrides(
+        inputs: &[crate::crawler::FormInput],
+        overrides: &HashMap<String, String>,
+    ) -> Vec<(String, String)> {
+        inputs.iter()
+            .filter(|input| !input.name.is_empty())
+            .filter(|input| input.input_type.to_lowercase() != "hidden")
+            .filter(|input| input.input_type.to_lowercase() != "submit")
+            .map(|input| {
+                // Check if we have an override for this field
+                let value = if let Some(override_val) = overrides.get(&input.name) {
+                    override_val.clone()
+                } else {
+                    let options: Option<Vec<String>> = input.options.clone();
+                    Self::generate_value(
+                        &input.name,
+                        &input.input_type,
+                        options.as_ref().map(|v| v.as_slice())
+                    )
+                };
+                (input.name.clone(), value)
+            })
+            .collect()
+    }
+
+    /// Check if a field value looks like a "test" or "dummy" value
+    /// Useful for detecting if form was auto-filled
+    pub fn is_test_value(value: &str) -> bool {
+        let v = value.to_lowercase();
+        v.contains("test") || v.contains("example") || v.contains("dummy")
+            || v == "john" || v == "doe" || v == "john doe"
+            || v == "testuser" || v == "testuser123"
+            || v.contains("@example.com") || v.contains("@test.com")
+            || v == "123 test street" || v == "test company"
+            || v == "4111111111111111" // Test card
+    }
+}
+
+/// Result of form submission
+#[derive(Debug, Clone)]
+pub struct FormSubmissionResult {
+    /// Whether submission appeared successful
+    pub success: bool,
+    /// Final URL after submission (may have redirected)
+    pub final_url: String,
+    /// How the form was submitted (clicked, submitted, no_form)
+    pub submit_status: String,
+    /// Whether error indicators were found on the page
+    pub has_error: bool,
 }
 
 /// Captured network request during form submission interception
@@ -976,6 +2205,14 @@ pub struct SiteCrawlResults {
     pub graphql_operations: Vec<GraphQLOperation>,
     /// GraphQL endpoints discovered
     pub graphql_endpoints: Vec<String>,
+    /// WebSocket endpoints discovered (ws:// or wss://)
+    pub websocket_endpoints: Vec<String>,
+    /// Login forms detected during crawl
+    pub login_forms: Vec<DetectedLoginForm>,
+    /// State tracking results (state changes, dependencies, patterns)
+    pub state_tracking: Option<crate::state_tracker::StateTrackingResults>,
+    /// Form replay data (recorded sequences for security testing)
+    pub form_replay_data: Option<crate::form_replay::FormRecorderResults>,
 }
 
 /// Discovered GraphQL operation (query, mutation, subscription)
@@ -989,6 +2226,51 @@ pub struct GraphQLOperation {
     pub raw: String,
     /// Source file where discovered
     pub source: String,
+}
+
+/// Detected login form with auto-fill capability
+#[derive(Debug, Clone, Default)]
+pub struct DetectedLoginForm {
+    /// URL where the login form was found
+    pub url: String,
+    /// Form action URL (may be same-page for SPA)
+    pub action: String,
+    /// Form method (POST/GET)
+    pub method: String,
+    /// Username/email field selector
+    pub username_selector: String,
+    /// Password field selector
+    pub password_selector: String,
+    /// Submit button selector (if found)
+    pub submit_selector: Option<String>,
+    /// Whether this is an OAuth/SSO login (detected external redirect)
+    pub is_oauth: bool,
+    /// OAuth provider detected (Google, GitHub, Okta, etc.)
+    pub oauth_provider: Option<String>,
+    /// Confidence score (0.0 - 1.0)
+    pub confidence: f32,
+}
+
+/// Credentials for auto-login
+#[derive(Debug, Clone)]
+pub struct LoginCredentials {
+    pub username: String,
+    pub password: String,
+}
+
+/// Result of login attempt
+#[derive(Debug, Clone)]
+pub struct LoginResult {
+    /// Whether login was successful
+    pub success: bool,
+    /// Auth token extracted after login (if any)
+    pub token: Option<String>,
+    /// Cookies set after login
+    pub cookies: HashMap<String, String>,
+    /// URL we landed on after login
+    pub redirect_url: Option<String>,
+    /// Error message if login failed
+    pub error: Option<String>,
 }
 
 impl HeadlessCrawler {
@@ -1038,6 +2320,45 @@ impl HeadlessCrawler {
         let base_url = url::Url::parse(start_url).context("Invalid start URL")?;
         let base_host = base_url.host_str().unwrap_or("").to_string();
 
+        // Inject WebSocket interceptor script before any page JS runs
+        // This wraps the native WebSocket constructor to capture all WS connections
+        let ws_interceptor_script = r#"
+            (function() {
+                // Store captured WebSocket URLs in a global array
+                window.__lonkero_ws_endpoints = window.__lonkero_ws_endpoints || [];
+
+                // Save original WebSocket constructor
+                const OriginalWebSocket = window.WebSocket;
+
+                // Create proxy constructor
+                window.WebSocket = function(url, protocols) {
+                    // Capture the URL
+                    if (url && !window.__lonkero_ws_endpoints.includes(url)) {
+                        window.__lonkero_ws_endpoints.push(url);
+                        console.log('[Lonkero] Captured WebSocket:', url);
+                    }
+
+                    // Call original constructor
+                    if (protocols !== undefined) {
+                        return new OriginalWebSocket(url, protocols);
+                    }
+                    return new OriginalWebSocket(url);
+                };
+
+                // Copy static properties and prototype
+                window.WebSocket.prototype = OriginalWebSocket.prototype;
+                window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+                window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+                window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+                window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+            })();
+        "#;
+
+        // Use evaluate with addScriptToEvaluateOnNewDocument behavior
+        // First navigate, then inject and reload to ensure script runs before page JS
+        let _ = tab.evaluate(ws_interceptor_script, false);
+        debug!("[Headless] Injected WebSocket interceptor script");
+
         // Track visited pages and pages to visit
         let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut to_visit: std::collections::VecDeque<String> = std::collections::VecDeque::new();
@@ -1067,16 +2388,40 @@ impl HeadlessCrawler {
                     &request.method
                 };
 
-                // Capture POST/PUT/PATCH/DELETE requests and XHR/fetch GETs to API endpoints
+                // Capture ALL HTTP methods for API endpoints (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+                // This ensures full coverage like Burp Suite's crawler
                 let url_lower = request.url.to_lowercase();
-                let is_api_request = url_lower.contains("/api/")
+
+                // Identify API-like endpoints
+                let is_api_path = url_lower.contains("/api/")
                     || url_lower.contains("/graphql")
+                    || url_lower.contains("/gql")
                     || url_lower.contains("/v1/")
                     || url_lower.contains("/v2/")
-                    || method != "GET";
+                    || url_lower.contains("/v3/")
+                    || url_lower.contains("/rest/")
+                    || url_lower.contains("/ajax/")
+                    || url_lower.contains("/rpc/")
+                    || url_lower.contains("/webhook")
+                    || url_lower.contains("/callback");
+
+                // All non-GET methods are interesting (POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+                let is_data_method = method != "GET";
+
+                // For GET requests, check if they look like API calls by extension/path
+                let is_api_get = method == "GET" && (
+                    is_api_path
+                    || url_lower.ends_with(".json")
+                    || url_lower.ends_with(".xml")
+                    || url_lower.contains("?format=json")
+                    || url_lower.contains("&format=json")
+                );
+
+                // Capture if it's an API path, data-modifying method, or API-like GET
+                let is_api_request = is_api_path || is_data_method || is_api_get;
 
                 if is_api_request {
-                    // Filter out tracking/analytics
+                    // Filter out tracking/analytics and static assets
                     let should_capture = !url_lower.contains("analytics")
                         && !url_lower.contains("tracking")
                         && !url_lower.contains("pixel")
@@ -1172,8 +2517,23 @@ impl HeadlessCrawler {
             visited.insert(current_url.clone());
             results.pages_visited.push(current_url.clone());
 
-            // Wait for JS to render
+            // Wait for JS to render first - SPAs often redirect via JavaScript after initial load
             std::thread::sleep(Duration::from_millis(1500));
+
+            // Check if we were redirected to a different URL (e.g., auth page)
+            // This is important for detecting Cognito/OAuth login redirects
+            // We check AFTER the JS render wait because SPAs redirect via JavaScript
+            if let Ok(actual_url) = tab.evaluate("window.location.href", false) {
+                if let Some(actual_url_str) = actual_url.value.as_ref().and_then(|v| v.as_str()) {
+                    if actual_url_str != current_url && !visited.contains(actual_url_str) {
+                        info!("[Headless] Detected redirect: {} -> {}", current_url, actual_url_str);
+                        // Add the redirect URL to pages_visited for Cognito/OAuth detection
+                        results.pages_visited.push(actual_url_str.to_string());
+                        // Mark it as visited to avoid re-crawling
+                        visited.insert(actual_url_str.to_string());
+                    }
+                }
+            }
 
             // Extract forms from current page
             match Self::extract_forms_from_tab(&tab, &current_url) {
@@ -1282,6 +2642,26 @@ impl HeadlessCrawler {
                 if req.url.to_lowercase().contains("graphql") {
                     if !results.graphql_endpoints.contains(&req.url) {
                         results.graphql_endpoints.push(req.url.clone());
+                    }
+                }
+            }
+        }
+
+        // Collect WebSocket endpoints captured by the interceptor
+        let ws_extract = r#"
+            (function() {
+                return JSON.stringify(window.__lonkero_ws_endpoints || []);
+            })()
+        "#;
+
+        if let Ok(ws_result) = tab.evaluate(ws_extract, true) {
+            if let Some(json_str) = ws_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Ok(ws_urls) = serde_json::from_str::<Vec<String>>(&json_str) {
+                    for ws_url in ws_urls {
+                        if !results.websocket_endpoints.contains(&ws_url) {
+                            info!("[Headless] Discovered WebSocket endpoint: {}", ws_url);
+                            results.websocket_endpoints.push(ws_url);
+                        }
                     }
                 }
             }
@@ -1435,5 +2815,787 @@ impl HeadlessCrawler {
         results.links_found = to_visit.into_iter().collect();
 
         Ok(results)
+    }
+
+    /// Detect login forms on a page
+    /// Returns detected login forms with selectors for auto-fill
+    pub async fn detect_login_forms(&self, url: &str) -> Result<Vec<DetectedLoginForm>> {
+        info!("[Headless] Detecting login forms on: {}", url);
+
+        let url_owned = url.to_string();
+        let timeout = self.timeout;
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::detect_login_forms_sync(&url_owned, timeout)
+        })
+        .await
+        .context("Login form detection task panicked")??;
+
+        if !result.is_empty() {
+            info!("[Headless] Detected {} login form(s)", result.len());
+        }
+
+        Ok(result)
+    }
+
+    /// Synchronous login form detection
+    fn detect_login_forms_sync(url: &str, timeout: Duration) -> Result<Vec<DetectedLoginForm>> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch browser")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+        tab.navigate_to(url).context("Failed to navigate")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
+
+        // Wait for JS to render
+        std::thread::sleep(Duration::from_millis(1500));
+
+        // JavaScript to detect login forms
+        let detect_script = r#"
+            (function() {
+                const forms = [];
+
+                // Common login form patterns
+                const usernameSelectors = [
+                    'input[type="email"]',
+                    'input[name*="email" i]',
+                    'input[name*="username" i]',
+                    'input[name*="login" i]',
+                    'input[name*="user" i]',
+                    'input[id*="email" i]',
+                    'input[id*="username" i]',
+                    'input[id*="login" i]',
+                    'input[placeholder*="email" i]',
+                    'input[placeholder*="username" i]',
+                    'input[autocomplete="email"]',
+                    'input[autocomplete="username"]',
+                ];
+
+                const passwordSelectors = [
+                    'input[type="password"]',
+                    'input[name*="password" i]',
+                    'input[name*="passwd" i]',
+                    'input[id*="password" i]',
+                    'input[autocomplete="current-password"]',
+                    'input[autocomplete="new-password"]',
+                ];
+
+                const submitSelectors = [
+                    'button[type="submit"]',
+                    'input[type="submit"]',
+                    'button:contains("Login")',
+                    'button:contains("Sign in")',
+                    'button:contains("Log in")',
+                    '[class*="login" i][class*="btn" i]',
+                    '[class*="signin" i][class*="btn" i]',
+                    'button[class*="submit" i]',
+                ];
+
+                // OAuth provider patterns
+                const oauthPatterns = {
+                    'Google': [/accounts\.google\.com/, /oauth.*google/i, /google.*oauth/i, /Sign in with Google/i],
+                    'GitHub': [/github\.com.*oauth/, /oauth.*github/i, /Sign in with GitHub/i],
+                    'Microsoft': [/login\.microsoftonline\.com/, /oauth.*microsoft/i, /Sign in with Microsoft/i],
+                    'Okta': [/okta\.com/, /\/oauth2\//, /Sign in with Okta/i],
+                    'Auth0': [/auth0\.com/, /\/authorize\?/],
+                    'Facebook': [/facebook\.com.*oauth/, /Sign in with Facebook/i],
+                    'Apple': [/appleid\.apple\.com/, /Sign in with Apple/i],
+                    'AWS Cognito': [/cognito.*amazonaws\.com/, /amazoncognito/i],
+                };
+
+                // Find password fields first (most reliable indicator of login form)
+                document.querySelectorAll(passwordSelectors.join(', ')).forEach(passwordField => {
+                    // Find the form or container
+                    let container = passwordField.closest('form') || passwordField.closest('[class*="login" i]') ||
+                                   passwordField.closest('[class*="signin" i]') || passwordField.closest('[class*="auth" i]');
+
+                    if (!container) {
+                        // No form, look for nearby username field
+                        container = passwordField.parentElement?.parentElement?.parentElement;
+                    }
+
+                    if (!container) return;
+
+                    // Find username field in same container
+                    let usernameField = null;
+                    for (const sel of usernameSelectors) {
+                        usernameField = container.querySelector(sel);
+                        if (usernameField && usernameField !== passwordField) break;
+                    }
+
+                    // Fall back to any visible text input before password
+                    if (!usernameField) {
+                        const allInputs = container.querySelectorAll('input[type="text"], input[type="email"], input:not([type])');
+                        for (const inp of allInputs) {
+                            if (inp.offsetParent !== null && inp !== passwordField) {
+                                usernameField = inp;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!usernameField) return;
+
+                    // Find submit button
+                    let submitButton = null;
+                    for (const sel of submitSelectors) {
+                        try {
+                            submitButton = container.querySelector(sel);
+                            if (submitButton) break;
+                        } catch (e) {}
+                    }
+
+                    // Check for OAuth buttons/links
+                    let isOAuth = false;
+                    let oauthProvider = null;
+                    const containerHtml = container.innerHTML.toLowerCase();
+                    const links = container.querySelectorAll('a[href]');
+
+                    for (const [provider, patterns] of Object.entries(oauthPatterns)) {
+                        for (const pattern of patterns) {
+                            if (pattern.test(containerHtml)) {
+                                isOAuth = true;
+                                oauthProvider = provider;
+                                break;
+                            }
+                            for (const link of links) {
+                                if (pattern.test(link.href)) {
+                                    isOAuth = true;
+                                    oauthProvider = provider;
+                                    break;
+                                }
+                            }
+                            if (isOAuth) break;
+                        }
+                        if (isOAuth) break;
+                    }
+
+                    // Generate unique selector for username field
+                    const usernameSelector = usernameField.id ? '#' + CSS.escape(usernameField.id) :
+                                            usernameField.name ? `input[name="${CSS.escape(usernameField.name)}"]` :
+                                            generateSelector(usernameField);
+
+                    // Generate unique selector for password field
+                    const passwordSelector = passwordField.id ? '#' + CSS.escape(passwordField.id) :
+                                            passwordField.name ? `input[name="${CSS.escape(passwordField.name)}"]` :
+                                            'input[type="password"]';
+
+                    // Generate submit selector
+                    let submitSelector = null;
+                    if (submitButton) {
+                        submitSelector = submitButton.id ? '#' + CSS.escape(submitButton.id) :
+                                        submitButton.type === 'submit' ? '[type="submit"]' :
+                                        generateSelector(submitButton);
+                    }
+
+                    // Calculate confidence
+                    let confidence = 0.5;
+                    if (container.tagName === 'FORM') confidence += 0.2;
+                    if (usernameField.type === 'email' || usernameField.name?.includes('email')) confidence += 0.1;
+                    if (submitButton) confidence += 0.1;
+                    if (containerHtml.includes('login') || containerHtml.includes('sign in')) confidence += 0.1;
+
+                    forms.push({
+                        url: window.location.href,
+                        action: container.tagName === 'FORM' ? (container.action || window.location.href) : window.location.href,
+                        method: container.tagName === 'FORM' ? (container.method || 'POST').toUpperCase() : 'POST',
+                        usernameSelector: usernameSelector,
+                        passwordSelector: passwordSelector,
+                        submitSelector: submitSelector,
+                        isOAuth: isOAuth,
+                        oauthProvider: oauthProvider,
+                        confidence: Math.min(confidence, 1.0)
+                    });
+                });
+
+                // Helper to generate CSS selector
+                function generateSelector(el) {
+                    if (el.id) return '#' + CSS.escape(el.id);
+                    const path = [];
+                    while (el && el.nodeType === 1) {
+                        let selector = el.tagName.toLowerCase();
+                        if (el.className) {
+                            selector += '.' + el.className.split(/\s+/).filter(c => c).map(c => CSS.escape(c)).join('.');
+                        }
+                        path.unshift(selector);
+                        el = el.parentElement;
+                        if (path.length > 3) break;
+                    }
+                    return path.join(' > ');
+                }
+
+                return JSON.stringify(forms);
+            })()
+        "#;
+
+        let mut detected_forms = Vec::new();
+
+        if let Ok(result) = tab.evaluate(detect_script, true) {
+            if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Ok(forms) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                    for form in forms {
+                        let login_form = DetectedLoginForm {
+                            url: form.get("url").and_then(|v| v.as_str()).unwrap_or(url).to_string(),
+                            action: form.get("action").and_then(|v| v.as_str()).unwrap_or(url).to_string(),
+                            method: form.get("method").and_then(|v| v.as_str()).unwrap_or("POST").to_string(),
+                            username_selector: form.get("usernameSelector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            password_selector: form.get("passwordSelector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            submit_selector: form.get("submitSelector").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            is_oauth: form.get("isOAuth").and_then(|v| v.as_bool()).unwrap_or(false),
+                            oauth_provider: form.get("oauthProvider").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                            confidence: form.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.5) as f32,
+                        };
+
+                        if !login_form.username_selector.is_empty() && !login_form.password_selector.is_empty() {
+                            debug!("[Headless] Found login form: username={}, password={}, confidence={}",
+                                login_form.username_selector, login_form.password_selector, login_form.confidence);
+                            detected_forms.push(login_form);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(detected_forms)
+    }
+
+    /// Attempt to login using detected form and provided credentials
+    /// Returns the auth token if login is successful
+    pub async fn attempt_login(
+        &self,
+        login_form: &DetectedLoginForm,
+        credentials: &LoginCredentials,
+    ) -> Result<LoginResult> {
+        info!("[Headless] Attempting login at: {}", login_form.url);
+
+        let form = login_form.clone();
+        let creds = credentials.clone();
+        let timeout = self.timeout;
+
+        let result = tokio::task::spawn_blocking(move || {
+            Self::attempt_login_sync(&form, &creds, timeout)
+        })
+        .await
+        .context("Login attempt task panicked")??;
+
+        if result.success {
+            info!("[Headless] Login successful! Token extracted: {}", result.token.is_some());
+        } else {
+            warn!("[Headless] Login failed: {:?}", result.error);
+        }
+
+        Ok(result)
+    }
+
+    /// Synchronous login attempt
+    fn attempt_login_sync(
+        form: &DetectedLoginForm,
+        credentials: &LoginCredentials,
+        timeout: Duration,
+    ) -> Result<LoginResult> {
+        let browser = Browser::new(
+            LaunchOptions::default_builder()
+                .headless(true)
+                .idle_browser_timeout(timeout)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+        )
+        .context("Failed to launch browser")?;
+
+        let tab = browser.new_tab().context("Failed to create tab")?;
+        tab.navigate_to(&form.url).context("Failed to navigate")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
+
+        // Wait for form to render
+        std::thread::sleep(Duration::from_millis(1500));
+
+        // Fill in username
+        let fill_username = format!(
+            r#"
+            (function() {{
+                const field = document.querySelector('{}');
+                if (!field) return 'Username field not found';
+                field.value = '{}';
+                field.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                field.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return 'ok';
+            }})()
+            "#,
+            form.username_selector.replace('\'', "\\'"),
+            credentials.username.replace('\'', "\\'")
+        );
+
+        if let Ok(result) = tab.evaluate(&fill_username, true) {
+            if let Some(s) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if s != "ok" {
+                    return Ok(LoginResult {
+                        success: false,
+                        token: None,
+                        cookies: HashMap::new(),
+                        redirect_url: None,
+                        error: Some(s),
+                    });
+                }
+            }
+        }
+
+        // Fill in password
+        let fill_password = format!(
+            r#"
+            (function() {{
+                const field = document.querySelector('{}');
+                if (!field) return 'Password field not found';
+                field.value = '{}';
+                field.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                field.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return 'ok';
+            }})()
+            "#,
+            form.password_selector.replace('\'', "\\'"),
+            credentials.password.replace('\'', "\\'")
+        );
+
+        if let Ok(result) = tab.evaluate(&fill_password, true) {
+            if let Some(s) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if s != "ok" {
+                    return Ok(LoginResult {
+                        success: false,
+                        token: None,
+                        cookies: HashMap::new(),
+                        redirect_url: None,
+                        error: Some(s),
+                    });
+                }
+            }
+        }
+
+        // Small delay to let any JS validation run
+        std::thread::sleep(Duration::from_millis(300));
+
+        // Submit the form
+        let submit_script = if let Some(ref submit_sel) = form.submit_selector {
+            format!(
+                r#"
+                (function() {{
+                    const btn = document.querySelector('{}');
+                    if (btn) {{
+                        btn.click();
+                        return 'clicked';
+                    }}
+                    // Fallback: submit form directly
+                    const form = document.querySelector('form');
+                    if (form) {{
+                        form.submit();
+                        return 'submitted';
+                    }}
+                    return 'no_submit';
+                }})()
+                "#,
+                submit_sel.replace('\'', "\\'")
+            )
+        } else {
+            r#"
+            (function() {
+                // Try Enter key on password field
+                const pwd = document.querySelector('input[type="password"]');
+                if (pwd) {
+                    pwd.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                    return 'enter';
+                }
+                // Fallback: submit form
+                const form = document.querySelector('form');
+                if (form) {
+                    form.submit();
+                    return 'submitted';
+                }
+                return 'no_submit';
+            })()
+            "#.to_string()
+        };
+
+        let _ = tab.evaluate(&submit_script, true);
+
+        // Wait for login to complete (navigation or AJAX)
+        std::thread::sleep(Duration::from_millis(3000));
+
+        // Check if we navigated somewhere new (success indicator)
+        let current_url = tab.get_url();
+        let redirected = current_url != form.url;
+
+        // Try to extract auth token from localStorage/sessionStorage
+        let extract_token = r#"
+            (function() {
+                const tokens = {};
+
+                // Check localStorage
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    const value = localStorage.getItem(key);
+                    if (key.toLowerCase().includes('token') ||
+                        key.toLowerCase().includes('jwt') ||
+                        key.toLowerCase().includes('auth') ||
+                        key.toLowerCase().includes('access')) {
+                        tokens[key] = value;
+                    }
+                }
+
+                // Check sessionStorage
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    const value = sessionStorage.getItem(key);
+                    if (key.toLowerCase().includes('token') ||
+                        key.toLowerCase().includes('jwt') ||
+                        key.toLowerCase().includes('auth') ||
+                        key.toLowerCase().includes('access')) {
+                        tokens['session_' + key] = value;
+                    }
+                }
+
+                return JSON.stringify(tokens);
+            })()
+        "#;
+
+        let mut extracted_token: Option<String> = None;
+        if let Ok(result) = tab.evaluate(extract_token, true) {
+            if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Ok(tokens) = serde_json::from_str::<HashMap<String, String>>(&json_str) {
+                    // Get the first token found
+                    for (key, value) in tokens {
+                        if !value.is_empty() && value.len() > 10 {
+                            debug!("[Headless] Found token in {}: {}...", key, &value[..value.len().min(20)]);
+                            extracted_token = Some(value);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Get cookies
+        let mut cookies = HashMap::new();
+        if let Ok(cookie_list) = tab.get_cookies() {
+            for cookie in cookie_list {
+                cookies.insert(cookie.name, cookie.value);
+            }
+        }
+
+        // Determine success
+        let success = extracted_token.is_some() || redirected || !cookies.is_empty();
+
+        Ok(LoginResult {
+            success,
+            token: extracted_token,
+            cookies,
+            redirect_url: if redirected { Some(current_url) } else { None },
+            error: if !success { Some("Login may have failed - no token or redirect detected".to_string()) } else { None },
+        })
+    }
+
+    /// Discover login pages by crawling common paths
+    pub async fn discover_login_pages(&self, base_url: &str) -> Result<Vec<String>> {
+        let common_login_paths = vec![
+            "/login",
+            "/signin",
+            "/sign-in",
+            "/auth/login",
+            "/auth/signin",
+            "/user/login",
+            "/account/login",
+            "/admin/login",
+            "/admin",
+            "/portal",
+            "/sso",
+            "/oauth",
+        ];
+
+        let base = base_url.trim_end_matches('/');
+        let mut login_pages = Vec::new();
+
+        for path in common_login_paths {
+            let url = format!("{}{}", base, path);
+            if let Ok(forms) = self.detect_login_forms(&url).await {
+                if !forms.is_empty() {
+                    login_pages.push(url);
+                }
+            }
+        }
+
+        Ok(login_pages)
+    }
+}
+
+// ============================================================================
+// Headless Crawler Trigger Logic - decides when to use headless vs static crawl
+// ============================================================================
+
+use crate::crawler::CrawlResults;
+
+/// Enhanced trigger logic to decide when to use headless browser crawling
+/// Returns true if the static crawl results suggest the site needs JavaScript rendering
+pub fn should_use_headless(
+    static_results: &CrawlResults,
+    detected_frameworks: &std::collections::HashSet<String>,
+    html_content: Option<&str>,
+) -> bool {
+    let mut score = 0;
+
+    // SPA with no forms = definitely needs JS
+    if static_results.is_spa && static_results.forms.is_empty() {
+        info!("[HeadlessCrawler] Trigger: SPA detected with no forms (+50)");
+        score += 50;
+    }
+
+    // Heavy JS but couldn't crawl anything
+    if static_results.crawled_urls.len() <= 1 && static_results.scripts.len() > 3 {
+        info!("[HeadlessCrawler] Trigger: Heavy JS, minimal crawl results (+40)");
+        score += 40;
+    }
+
+    // Known SPA frameworks
+    let spa_frameworks = [
+        "react",
+        "vue",
+        "angular",
+        "svelte",
+        "next.js",
+        "nuxt",
+        "sveltekit",
+        "gatsby",
+        "remix",
+    ];
+    let has_spa_framework = spa_frameworks.iter().any(|f| {
+        detected_frameworks
+            .iter()
+            .any(|d| d.to_lowercase().contains(f))
+    });
+
+    if has_spa_framework {
+        info!("[HeadlessCrawler] Trigger: SPA framework detected (+30)");
+        score += 30;
+    }
+
+    // Ratio-based: more scripts than content
+    let content_count = static_results.forms.len() + static_results.links.len() + 1;
+    let script_ratio = static_results.scripts.len() as f32 / content_count as f32;
+
+    if script_ratio > 2.0 {
+        info!(
+            "[HeadlessCrawler] Trigger: High script-to-content ratio {:.1} (+25)",
+            script_ratio
+        );
+        score += 25;
+    }
+
+    // All forms submit to same page = SPA form handling
+    if !static_results.forms.is_empty() {
+        let first_action = &static_results.forms[0].action;
+        let all_same_action = static_results.forms.iter().all(|f| {
+            f.action.is_empty() || f.action == *first_action || f.action.starts_with('#')
+        });
+
+        if all_same_action {
+            info!("[HeadlessCrawler] Trigger: All forms have same/empty action (+20)");
+            score += 20;
+        }
+    }
+
+    // Additional signals from HTML content
+    if let Some(html) = html_content {
+        let html_lower = html.to_lowercase();
+
+        // WebSocket usage (real-time apps are always SPAs)
+        if html_lower.contains("websocket") || html_lower.contains("socket.io") {
+            info!("[HeadlessCrawler] Trigger: WebSocket detected (+30)");
+            score += 30;
+        }
+
+        // Service worker registration
+        if html_lower.contains("serviceworker.register") {
+            info!("[HeadlessCrawler] Trigger: Service worker detected (+25)");
+            score += 25;
+        }
+
+        // GraphQL endpoint hints
+        if html_lower.contains("/graphql") || html_lower.contains("__schema") {
+            info!("[HeadlessCrawler] Trigger: GraphQL detected (+20)");
+            score += 20;
+        }
+
+        // Lazy loading patterns
+        if html_lower.contains("data-src=") || html_lower.contains("loading=\"lazy\"") {
+            info!("[HeadlessCrawler] Trigger: Lazy loading detected (+10)");
+            score += 10;
+        }
+
+        // Next.js/Nuxt hydration data
+        if html_lower.contains("__next_data__") || html_lower.contains("__nuxt__") {
+            info!("[HeadlessCrawler] Trigger: SSR hydration data detected (+35)");
+            score += 35;
+        }
+
+        // Hash-based routing (common in SPAs)
+        if html_lower.contains("hashchange") || html_lower.contains("/#/") {
+            info!("[HeadlessCrawler] Trigger: Hash routing detected (+25)");
+            score += 25;
+        }
+
+        // Angular-specific patterns
+        if html_lower.contains("ng-app") || html_lower.contains("ng-controller") || html_lower.contains("[ngif]") {
+            info!("[HeadlessCrawler] Trigger: Angular patterns detected (+30)");
+            score += 30;
+        }
+
+        // Vue-specific patterns
+        if html_lower.contains("v-if") || html_lower.contains("v-for") || html_lower.contains("v-model") {
+            info!("[HeadlessCrawler] Trigger: Vue patterns detected (+30)");
+            score += 30;
+        }
+
+        // React-specific patterns (often minified but sometimes visible)
+        if html_lower.contains("data-reactroot") || html_lower.contains("__react") {
+            info!("[HeadlessCrawler] Trigger: React patterns detected (+30)");
+            score += 30;
+        }
+
+        // Bundler patterns (webpack, vite, parcel)
+        if html_lower.contains("chunk-") || html_lower.contains(".chunk.js") || html_lower.contains("bundle.js") {
+            info!("[HeadlessCrawler] Trigger: JS bundler detected (+15)");
+            score += 15;
+        }
+    }
+
+    let trigger = score >= 40;
+    if trigger {
+        info!(
+            "[HeadlessCrawler] Headless crawl TRIGGERED with score {} (threshold: 40)",
+            score
+        );
+    } else {
+        debug!(
+            "[HeadlessCrawler] Headless crawl NOT needed (score {} < 40)",
+            score
+        );
+    }
+
+    trigger
+}
+
+/// Convert SiteCrawlResults to CrawlResults for integration with main scanner
+impl SiteCrawlResults {
+    /// Merge headless crawl results into existing CrawlResults
+    pub fn merge_into(&self, target: &mut CrawlResults) {
+        // Add discovered forms
+        target.forms.extend(self.forms.clone());
+
+        // Add visited pages as crawled URLs
+        for page in &self.pages_visited {
+            target.crawled_urls.insert(page.clone());
+        }
+
+        // Add discovered links
+        for link in &self.links_found {
+            target.links.insert(link.clone());
+        }
+
+        // Add API endpoints
+        for endpoint in &self.api_endpoints {
+            target.api_endpoints.insert(endpoint.url.clone());
+        }
+
+        // Add GraphQL endpoints to API endpoints
+        for gql_endpoint in &self.graphql_endpoints {
+            target.api_endpoints.insert(gql_endpoint.clone());
+        }
+
+        // Add WebSocket endpoints
+        for ws_endpoint in &self.websocket_endpoints {
+            target.websocket_endpoints.insert(ws_endpoint.clone());
+        }
+
+        // Deduplicate forms after merge
+        target.deduplicate_forms();
+
+        info!(
+            "[HeadlessCrawler] Merged {} pages, {} forms, {} API endpoints, {} WebSocket endpoints into CrawlResults",
+            self.pages_visited.len(),
+            self.forms.len(),
+            self.api_endpoints.len() + self.graphql_endpoints.len(),
+            self.websocket_endpoints.len()
+        );
+    }
+
+    /// Convert to CrawlResults (for standalone use)
+    pub fn to_crawl_results(&self) -> CrawlResults {
+        let mut results = CrawlResults::new();
+        self.merge_into(&mut results);
+        results.is_spa = true; // If we used headless, it's likely an SPA
+        results
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn test_should_use_headless_spa_no_forms() {
+        let mut results = CrawlResults::new();
+        results.is_spa = true;
+
+        assert!(should_use_headless(&results, &std::collections::HashSet::new(), None));
+    }
+
+    #[test]
+    fn test_should_use_headless_heavy_js() {
+        use crate::crawler::DiscoveredScript;
+
+        let mut results = CrawlResults::new();
+        results.crawled_urls.insert("https://example.com".to_string());
+        results.scripts = vec![
+            DiscoveredScript { url: "1.js".to_string(), content: String::new() },
+            DiscoveredScript { url: "2.js".to_string(), content: String::new() },
+            DiscoveredScript { url: "3.js".to_string(), content: String::new() },
+            DiscoveredScript { url: "4.js".to_string(), content: String::new() },
+        ];
+
+        assert!(should_use_headless(&results, &std::collections::HashSet::new(), None));
+    }
+
+    #[test]
+    fn test_should_not_use_headless_static_site() {
+        let mut results = CrawlResults::new();
+        results.crawled_urls.insert("https://example.com".to_string());
+        results.crawled_urls.insert("https://example.com/about".to_string());
+        results.links = (0..20).map(|i| format!("https://example.com/page{}", i)).collect();
+        results.forms.push(DiscoveredForm {
+            action: "/contact".to_string(),
+            method: "POST".to_string(),
+            inputs: vec![],
+            discovered_at: "/".to_string(),
+        });
+
+        assert!(!should_use_headless(&results, &std::collections::HashSet::new(), None));
+    }
+
+    #[test]
+    fn test_websocket_trigger() {
+        let results = CrawlResults::new();
+        let html = r#"<script>const socket = new WebSocket('wss://example.com')</script>"#;
+
+        assert!(should_use_headless(&results, &std::collections::HashSet::new(), Some(html)));
+    }
+
+    #[test]
+    fn test_next_data_trigger() {
+        let results = CrawlResults::new();
+        let html = r#"<script id="__NEXT_DATA__">{"props":{}}</script>"#;
+
+        assert!(should_use_headless(&results, &std::collections::HashSet::new(), Some(html)));
     }
 }

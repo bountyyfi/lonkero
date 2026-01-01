@@ -2154,7 +2154,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lonkero"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2169,6 +2169,7 @@ dependencies = [
  "deadpool-postgres",
  "deadpool-redis",
  "dirs",
+ "flate2",
  "futures",
  "futures-util",
  "governor",
@@ -2211,6 +2212,7 @@ dependencies = [
  "tokio-tungstenite",
  "toml",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "tungstenite",
  "url",

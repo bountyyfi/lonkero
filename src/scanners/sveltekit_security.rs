@@ -1,26 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Advanced SvelteKit Security Scanner
- * Comprehensive Svelte/SvelteKit vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Server load function data exposure
- * - Form actions CSRF issues
- * - Hooks bypass vulnerabilities
- * - +server.js endpoint misconfigurations
- * - Environment variable exposure
- * - Server-only module leakage
- * - Source map and config exposure
- * - Prerender data leakage
- * - Known SvelteKit CVEs
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -345,6 +324,7 @@ impl SvelteKitSecurityScanner {
                                           4. Implement proper authorization in load functions\n\
                                           5. Use +server.js for sensitive API endpoints".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -432,6 +412,7 @@ impl SvelteKitSecurityScanner {
                                           4. Use SameSite=Strict for session cookies\n\
                                           5. Consider implementing double-submit cookie pattern".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -472,6 +453,7 @@ impl SvelteKitSecurityScanner {
                         false_positive: false,
                         remediation: "Upgrade SvelteKit to 1.15.1 or later and validate Content-Type strictly.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -567,6 +549,7 @@ impl SvelteKitSecurityScanner {
                                           3. Implement authorization at both hooks and load function level\n\
                                           4. Validate paths against whitelist".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -652,6 +635,7 @@ impl SvelteKitSecurityScanner {
                                           3. Remove debug/internal endpoints in production\n\
                                           4. Implement proper authorization".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -700,6 +684,7 @@ impl SvelteKitSecurityScanner {
                                                   - Don't use wildcard with credentials\n\
                                                   - Validate Origin header".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                 });
                             }
                         }
@@ -781,6 +766,7 @@ impl SvelteKitSecurityScanner {
                                   4. Audit all env imports in the codebase\n\
                                   5. Rotate any exposed credentials".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -834,6 +820,7 @@ impl SvelteKitSecurityScanner {
                         false_positive: false,
                         remediation: "Set kit.vite.build.sourcemap to false in svelte.config.js for production.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -902,6 +889,7 @@ impl SvelteKitSecurityScanner {
                             false_positive: false,
                             remediation: "Configure server/adapter to block access to config files.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -965,6 +953,7 @@ impl SvelteKitSecurityScanner {
                                           2. Use +page.server.js for dynamic user data\n\
                                           3. Add prerender = false for authenticated pages".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -1033,6 +1022,7 @@ impl SvelteKitSecurityScanner {
                         false_positive: false,
                         remediation: "Upgrade SvelteKit to version 2.4.3 or later.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1098,6 +1088,7 @@ impl SvelteKitSecurityScanner {
                                               2. Use relative URLs for redirects\n\
                                               3. Upgrade SvelteKit to 2.5.4+ (CVE-2024-29893)".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                             });
                             break;
                         }
@@ -1179,6 +1170,7 @@ impl SvelteKitSecurityScanner {
                     false_positive: false,
                     remediation: format!("Upgrade SvelteKit. See: https://nvd.nist.gov/vuln/detail/{}", cve.cve_id),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }

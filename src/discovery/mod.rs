@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Discovery Module
  * Asset discovery functionality (subdomains, ports, endpoints, etc.)
  *
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 pub mod subdomain_discovery;

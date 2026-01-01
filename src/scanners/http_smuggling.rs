@@ -1,20 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - HTTP Request Smuggling Scanner
- * Detects HTTP request smuggling vulnerabilities using raw TCP sockets
- *
- * Detects:
- * - CL.TE (Content-Length vs Transfer-Encoding) desync
- * - TE.CL (Transfer-Encoding vs Content-Length) desync
- * - TE.TE (Dual Transfer-Encoding) obfuscation
- * - Request queue poisoning
- * - Timing-based desync detection
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -369,7 +354,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing CL.TE smuggling with raw TCP");
+        debug!("Testing CL.TE smuggling with raw TCP");
 
         let (host, port, path) = self.parse_url(url)?;
 
@@ -484,7 +469,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing TE.CL smuggling with raw TCP");
+        debug!("Testing TE.CL smuggling with raw TCP");
 
         let (host, port, path) = self.parse_url(url)?;
 
@@ -602,7 +587,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing TE.TE smuggling with raw TCP");
+        debug!("Testing TE.TE smuggling with raw TCP");
 
         let (host, port, path) = self.parse_url(url)?;
 
@@ -656,7 +641,7 @@ impl HTTPSmugglingScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing timing-based desync detection");
+        debug!("Testing timing-based desync detection");
 
         let (host, port, path) = self.parse_url(url)?;
 
@@ -1026,6 +1011,7 @@ impl HTTPSmugglingScanner {
                          9. Implement request timeout controls\n\
                          10. Use a Web Application Firewall (WAF) with smuggling detection".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -7,7 +7,7 @@
  *
  * Ported from JavaScript payload generators with full feature parity
  *
- * @copyright 2025 Bountyy Oy - www.bountyy.fi
+ * @copyright 2026 Bountyy Oy - www.bountyy.fi
  * @license Proprietary - Enterprise Edition
  */
 

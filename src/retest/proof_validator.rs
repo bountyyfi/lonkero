@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Proof-of-Fix Validator
  * Deep validation to ensure vulnerability is truly fixed, not just blocked by WAF
  *
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use anyhow::Result;

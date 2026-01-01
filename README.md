@@ -8,13 +8,13 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.0-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**98+ Advanced Scanners** | **16 Premium Features** | **Context-Aware** | **5% False Positives**
+**120+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **Scanner Intelligence** | **5% False Positives**
 
-**[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [Architecture](#architecture)
+**[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [ML Features](#machine-learning-features) · [Scanner Intelligence](#scanner-intelligence-system) · [Architecture](#architecture)
 
 ---
 
@@ -24,11 +24,15 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 Lonkero is a production-grade web security scanner designed for professional security testing:
 
+- **v3.0 Intelligent Mode** - Context-aware scanning with tech detection, endpoint deduplication, and per-parameter risk scoring
+- **ML Auto-Learning** - Learns from every scan to reduce false positives over time (federated learning available)
+- **Scanner Intelligence System** - Real-time scanner communication, Bayesian hypothesis testing, multi-step attack planning, and semantic response understanding
 - Near-zero false positives (5% vs industry 20-30%)
 - Intelligent testing - Skips framework internals, focuses on real vulnerabilities
 - Modern stack coverage - Next.js, React, GraphQL, gRPC, WebSocket, HTTP/3
 - 80% faster scans - Smart parameter filtering eliminates noise
 - Advanced blind vulnerability detection techniques
+- **When tech detection fails, we run MORE tests, not fewer** - fallback layer with 35+ scanners
 
 Unlike generic scanners that spam thousands of useless payloads, Lonkero uses context-aware filtering to test only what matters.
 
@@ -36,24 +40,52 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ## Core Capabilities
 
-### 98 Security Scanners
+### v3.0 Intelligent Scanning Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  LAYER 1: Universal Scanners (always run)                       │
+│  CORS, Headers, SSL, OpenRedirect, HttpSmuggling, HostHeader    │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 2: Core Scanners (always run)                            │
+│  XSS, SQLi, SSRF, CommandInjection, PathTraversal, IDOR, JWT    │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 3: Tech-Specific (when detected)                         │
+│  NextJs, React, Django, Laravel, Express, WordPress...          │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 4: Fallback (when tech=Unknown → MORE tests)             │
+│  35+ scanners: NoSQLi, XXE, Deserial, Log4j, Merlin, Cognito... │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key insight**: When technology detection fails, the fallback layer runs MORE comprehensive tests to ensure nothing is missed.
+
+### 120+ Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
-| **Injection** | 27 scanners | SQLi, XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header |
-| **Authentication** | 19 scanners | JWT, OAuth, SAML, MFA, Session, Auth Bypass, IDOR, Privilege Escalation, Cognito Enum |
-| **API Security** | 14 scanners | GraphQL, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3 |
-| **Frameworks** | 11 scanners | Next.js, React, Django, Laravel, WordPress, Drupal, Express |
-| **Configuration** | 13 scanners | Headers, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF |
-| **Business Logic** | 6 scanners | Race Conditions, Payment Bypass, Workflow Manipulation |
-| **Info Disclosure** | 10 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets, Source Maps, Favicon Fingerprinting |
-| **Specialized** | 7 scanners | CVE Detection, Version Mapping, ReDoS, Google Dorking |
+| **Injection** | 30 scanners | SQLi, XSS, DOM XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header, Log4j/JNDI, DOM Clobbering |
+| **Authentication** | 26 scanners | JWT, OAuth, OIDC, SAML, MFA, 2FA Bypass, Session, Auth Bypass, IDOR, BOLA, Account Takeover, Password Reset Poisoning, Timing Attacks, Cognito Enum, Client Route Bypass |
+| **API Security** | 20 scanners | GraphQL (advanced), GraphQL Batching, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3, Azure APIM, BFLA, API Versioning, OpenAPI Analyzer |
+| **Frameworks** | 15 scanners | Next.js (route discovery), React, Django, Laravel, WordPress, Drupal, Joomla, Express, SvelteKit, Ruby on Rails, Spring Boot |
+| **Configuration** | 17 scanners | Headers, CSP Bypass, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF, DNS Security, Web Cache Deception, PostMessage Vulns |
+| **Business Logic** | 8 scanners | Race Conditions, Payment Bypass, Workflow Manipulation, Mass Assignment (advanced), Timing Attacks |
+| **Info Disclosure** | 11 scanners | Sensitive Data, Debug Leaks, Source Code, JS Secrets, Source Maps, Favicon Hash, HTML Injection |
+| **Specialized** | 9 scanners | CVE Detection, Version Mapping, ReDoS, Google Dorking, Attack Surface Enum, Subdomain Takeover |
 
 ### Smart Scanning Features
 
 - **Parameter Filtering** - Skips framework internals, prioritizes user input (80% faster scans)
 - **Blind Detection** - Time-based, error-based, boolean-based techniques
 - **Context-Aware** - Adapts testing based on detected technology stack
+- **SPA Detection** - Identifies React/Vue/Angular apps, handles soft-404 pages, discovers real API endpoints
+- **Route Discovery** - Automatically extracts routes from JavaScript bundles (Next.js App Router)
+- **Headless Browser** - Network interception, WebSocket capture, multi-stage form detection, authenticated crawling
+- **Smart Crawler** - Priority queue (high-value targets first), semantic URL deduplication, adaptive rate limiting
+- **State-Aware Crawling** - Tracks cookies, localStorage, sessionStorage across requests; detects state dependencies and CSRF tokens
+- **Multi-Role Testing** - Parallel crawling with different user roles to detect BOLA, BFLA, and privilege escalation vulnerabilities
+- **Form Replay System** - Records and replays multi-step wizard forms with dynamic token handling for security testing
+- **Session Recording** - Full session capture (HAR format) with network, DOM interactions, and screenshots for vulnerability reproduction
 
 ### Enterprise Integration
 
@@ -137,6 +169,272 @@ Lonkero uses advanced techniques to detect blind vulnerabilities without relying
 
 ---
 
+## SPA Detection & Soft-404 Handling
+
+Lonkero v3.0 includes advanced Single Page Application (SPA) detection to eliminate false positives on modern JavaScript frameworks:
+
+### Problem
+SPAs (React, Vue, Angular, Next.js) return HTTP 200 for all routes, even non-existent ones. Traditional scanners report false positives because they see "successful" responses.
+
+### Solution
+Lonkero detects SPA signatures and handles soft-404s intelligently:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SPA Detection Signatures                                        │
+├─────────────────────────────────────────────────────────────────┤
+│  • <app-root> (Angular)                                          │
+│  • <div id="root"> (React)                                       │
+│  • __NEXT_DATA__ (Next.js)                                       │
+│  • __NUXT__ (Nuxt.js)                                            │
+│  • ng-version= (Angular)                                         │
+│  • polyfills.js pattern                                          │
+│  • /_next/static/ pattern                                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Headless Browser Features
+- **Shared Browser Instance** - Single Chromium instance reused across all XSS tests for maximum performance
+- **Real XSS Execution** - Detects XSS by monitoring actual JavaScript execution (alert/confirm/prompt interception, DOM sink hooks)
+- **Network Interception** - Captures actual API endpoints from JavaScript
+- **WebSocket Capture** - Intercepts WebSocket connections (ws://, wss://) for security testing
+- **Multi-Stage Forms** - Detects forms that appear after initial form submission
+- **Authenticated Crawling** - Injects tokens into localStorage for auth-required SPAs
+- **Route Discovery** - Extracts routes from JavaScript bundles
+- **All Crawled URLs Tested** - XSS scanner runs on target URL plus all discovered/crawled URLs
+
+### Smart Crawler Features
+- **Priority Queue Crawling** - Crawls high-value targets first (login, admin, API endpoints)
+- **Semantic URL Deduplication** - Normalizes IDs, UUIDs, and query params to avoid duplicate testing
+- **Adaptive Rate Limiting** - Respects robots.txt Crawl-delay, backs off on 429/503
+- **Sitemap Discovery** - Automatically discovers URLs from sitemap.xml
+
+---
+
+## Next.js Route Discovery
+
+Lonkero automatically discovers Next.js App Router routes from JavaScript bundles:
+
+### How It Works
+1. **Script Analysis** - Fetches all `_next/static/chunks/*.js` files
+2. **Pattern Extraction** - Finds route patterns like `/app/[path]/(page|layout)`
+3. **Dynamic Segments** - Expands `[param]` with test values (`[lng]` → `en`, `de`, `fr`)
+4. **Security Testing** - Tests discovered routes for middleware bypass vulnerabilities
+
+### Discovered Route Testing
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Route Discovery → Middleware Bypass Testing                     │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Extract routes from JS bundles                               │
+│  2. Filter protected routes (admin, dashboard, settings, etc.)   │
+│  3. Expand dynamic segments [lng], [id], [slug]                  │
+│  4. Test with x-middleware-subrequest header                     │
+│  5. Report CVE-2025-29927 if bypass successful                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Patterns Detected
+- App Router: `/app/dashboard/[id]/page` → `/dashboard/1`
+- Route Groups: `/app/(auth)/login/page` → `/login`
+- Catch-all: `/app/[...slug]/page` → `/test/page`
+- Optional: `/app/[[...slug]]/page` → `/` or `/test`
+
+---
+
+## AWS Cognito Enumeration
+
+Lonkero detects AWS Cognito user pools and tests for user enumeration vulnerabilities:
+
+### Detection Methods
+1. **JavaScript Analysis** - Extracts `userPoolId`, `clientId` from app bundles
+2. **CSP Header Analysis** - Detects `cognito-idp.{region}.amazonaws.com` in Content-Security-Policy
+3. **OAuth Redirect URLs** - Captures Cognito URLs from authentication redirects
+
+### Enumeration Techniques
+| API | Technique | Detection |
+|-----|-----------|-----------|
+| `ForgotPassword` | Response timing + CodeDeliveryDetails | User exists if delivery details returned |
+| `SignUp` | Error message analysis | "User already exists" vs "Invalid parameter" |
+| `InitiateAuth` | Error differentiation | "User not found" vs "Incorrect password" |
+
+### Example Finding
+```json
+{
+  "type": "AWS Cognito User Enumeration",
+  "severity": "Medium",
+  "evidence": "ForgotPassword returns CodeDeliveryDetails for existing users",
+  "remediation": "Enable advanced security features in Cognito"
+}
+```
+
+---
+
+## GraphQL Advanced Security Testing
+
+Lonkero includes comprehensive GraphQL security testing beyond basic introspection:
+
+### Attack Techniques
+
+| Attack | Description | Impact |
+|--------|-------------|--------|
+| **Introspection Abuse** | Extract full schema including hidden types | Information disclosure |
+| **Alias Abuse** | Multiply queries using aliases for DoS | Resource exhaustion |
+| **Batching DoS** | Send multiple operations in single request | API rate limit bypass |
+| **Cost Analysis** | Exploit expensive resolvers | DoS via computation |
+| **Persisted Queries** | Manipulate query hashes | Cache poisoning |
+| **Directive Abuse** | Exploit custom directives | Authorization bypass |
+| **Fragment Spreading** | Deep nesting via fragments | Stack overflow |
+| **Subscription Vulns** | Abuse real-time subscriptions | Data leakage |
+| **Authorization Bypass** | Query manipulation for access | Privilege escalation |
+
+### Example Alias Abuse Attack
+```graphql
+query {
+  a1: expensiveQuery { data }
+  a2: expensiveQuery { data }
+  a3: expensiveQuery { data }
+  # ... 100 aliases = 100x server load
+}
+```
+
+---
+
+## State-Aware Crawling
+
+Lonkero v3.0 includes intelligent state tracking that understands stateful web applications:
+
+### State Capture
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  State Tracking Across Requests                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  • Cookies (auth tokens, session IDs, preferences)              │
+│  • localStorage/sessionStorage values                           │
+│  • URL parameters and hash fragments                            │
+│  • Hidden form fields (CSRF tokens, state tokens)               │
+│  • Authentication state detection                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+- **Dependency Detection**: Identifies which requests depend on state from previous requests
+- **CSRF Token Tracking**: Detects tokens that need refreshing between requests
+- **Pattern Recognition**: Identifies common state flows (login, cart, wizard forms)
+- **Dependency Graph**: Builds a graph of state dependencies between endpoints
+
+### Detected Patterns
+| Pattern | Detection |
+|---------|-----------|
+| Auth Flow | Session cookies, JWT tokens, auth headers |
+| Shopping Cart | Cart ID cookies, checkout state |
+| Wizard Forms | Step tokens, form sequence tracking |
+| CSRF Protection | Token fields matching common patterns |
+
+---
+
+## Multi-Role Authorization Testing
+
+Parallel testing with multiple user roles to detect authorization vulnerabilities:
+
+### How It Works
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Multi-Role Orchestrator                                        │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Initialize sessions for each role (guest, user, admin)      │
+│  2. Synchronized crawl - test same URLs with all roles          │
+│  3. Compare access patterns between roles                       │
+│  4. Detect privilege escalation (vertical & horizontal)         │
+│  5. Generate access matrix for review                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Detected Vulnerabilities
+| Vulnerability | Description |
+|---------------|-------------|
+| **Vertical Privilege Escalation** | User accessing admin functions |
+| **Horizontal Privilege Escalation (IDOR)** | User A accessing User B's data |
+| **BOLA** | Broken Object Level Authorization |
+| **BFLA** | Broken Function Level Authorization |
+
+### Permission Levels
+- `Guest` - Unauthenticated user
+- `User` - Basic authenticated user
+- `Moderator` - Power user
+- `Admin` - Administrator
+- `SuperAdmin` - System level access
+
+### Usage
+```bash
+# Enable multi-role testing with credentials
+lonkero scan https://example.com \
+  --auth-username user@example.com --auth-password userpass \
+  --admin-username admin@example.com --admin-password adminpass
+```
+
+---
+
+## Form Replay System
+
+Comprehensive recording and replay of multi-step form sequences for security testing:
+
+### Capabilities
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Form Replay Architecture                                       │
+├─────────────────────────────────────────────────────────────────┤
+│  FormRecorder → Records submissions during headless crawl       │
+│  FormSequence → Ordered list of submissions (wizard flows)      │
+│  FormReplayer → Replays sequences with payload injection        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+- **Multi-Step Wizards**: Handles checkout flows, registration wizards, multi-page forms
+- **Dynamic Token Handling**: Automatically refreshes CSRF tokens, nonces, timestamps
+- **State Preservation**: Maintains session state between steps
+- **Payload Injection**: Injects security payloads into specific fields while preserving flow
+
+### Token Types Handled
+| Token Type | Example |
+|------------|---------|
+| CSRF | `_token`, `csrf_token`, `authenticity_token` |
+| Nonce | Single-use values that change per request |
+| Timestamp | Time-based tokens for request validation |
+| Session | Session-bound tokens |
+| Captcha | Captcha challenge tokens (detected, not bypassed) |
+
+---
+
+## Session Recording
+
+Full session capture for vulnerability reproduction and debugging:
+
+### Recording Capabilities
+- **Network**: All HTTP requests/responses with headers and bodies
+- **DOM Interactions**: Clicks, form inputs, scrolls, submissions
+- **Console**: JavaScript console messages and errors
+- **Screenshots**: Captured at key events (navigation, errors)
+- **WebSocket**: Message capture for real-time communications
+- **Storage**: localStorage/sessionStorage/cookie changes
+
+### Export Formats
+| Format | Description |
+|--------|-------------|
+| **HAR** | HTTP Archive format - compatible with browser dev tools |
+| **JSON** | Full timeline with all events |
+| **JSON (Compressed)** | Gzip-compressed for storage efficiency |
+| **HTML** | Interactive report with timeline and embedded screenshots |
+
+### Use Cases
+1. **Vulnerability Reproduction**: Replay exact steps that triggered a vulnerability
+2. **Debug Complex Flows**: Understand multi-step attack chains
+3. **Evidence Collection**: Export HAR/HTML for penetration test reports
+4. **Session Analysis**: Review all network traffic for security issues
+
+---
+
 ## Installation
 
 ### From Source (Recommended)
@@ -163,33 +461,122 @@ sudo cp target/release/lonkero /usr/local/bin/
 
 ## Quick Start
 
-### Basic Scan
+### Basic Scan (v3.0 Intelligent Mode)
 
 ```bash
-# Scan single URL
+# Scan single URL - Intelligent mode is default, no --mode needed
 lonkero scan https://example.com
 
-# Scan with all modules
-lonkero scan https://example.com --all-modules
+# With crawling enabled for better endpoint discovery
+lonkero scan https://example.com --crawl
 
 # Output to JSON
 lonkero scan https://example.com --format json -o report.json
+
+# Output to PDF report
+lonkero scan https://example.com --format pdf -o report.pdf
 ```
 
 ### Advanced Usage
 
 ```bash
-# Scan with specific modules
-lonkero scan https://example.com --modules sqli,xss,xxe
-
-# Scan with authentication
+# Scan with authentication (cookie)
 lonkero scan https://example.com --cookie "session=abc123"
 
 # Scan with custom headers
 lonkero scan https://example.com --header "Authorization: Bearer token"
 
+# Auto-login with credentials
+lonkero scan https://example.com --auth-username admin --auth-password secret123
+lonkero scan https://example.com --auth-username admin --auth-password secret123 --auth-login-url https://example.com/login
+
+# Enable subdomain enumeration
+lonkero scan https://example.com --subdomains
+
 # CI/CD integration (SARIF output)
 lonkero scan https://example.com --format sarif -o results.sarif
+
+# Google dorking reconnaissance
+lonkero scan https://example.com --dorks
+
+# Run specific modules only
+lonkero scan https://example.com --only sqli_enhanced,xss_enhanced,ssrf
+
+# Skip specific modules
+lonkero scan https://example.com --skip wordpress,drupal
+
+# Control crawl depth (default: 3)
+lonkero scan https://example.com --crawl --max-depth 5
+
+# Disable rate limiting (use with caution)
+lonkero scan https://example.com --no-rate-limit
+
+# Multi-role authorization testing (BOLA/BFLA detection)
+lonkero scan https://example.com \
+  --auth-username user@example.com --auth-password userpass \
+  --admin-username admin@example.com --admin-password adminpass \
+  --multi-role
+
+# Session recording (HAR format)
+lonkero scan https://example.com --record-session --session-format har
+
+# Session recording with custom output
+lonkero scan https://example.com --record-session --session-output scan_session.html --session-format html
+```
+
+### Crawler Priority System
+
+The crawler uses a priority queue to maximize attack surface discovery:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  URL Priority Scoring (higher = crawled first)                  │
+├─────────────────────────────────────────────────────────────────┤
+│  HIGH PRIORITY (+35 to +50):                                    │
+│  • /login, /signin                     (+50)                    │
+│  • /register, /signup                  (+45)                    │
+│  • /admin, /dashboard                  (+40)                    │
+│  • /graphql                            (+35)                    │
+│  • /profile, /account, /settings       (+35)                    │
+│  • /checkout, /payment, /cart          (+35)                    │
+├─────────────────────────────────────────────────────────────────┤
+│  MEDIUM PRIORITY (+10 to +30):                                  │
+│  • Query parameters                    (+10 each, max +40)      │
+│  • Dynamic path segments (/users/123)  (+10 each, max +30)      │
+│  • /api, /v1/, /v2/                    (+25)                    │
+│  • /search, /filter                    (+30)                    │
+├─────────────────────────────────────────────────────────────────┤
+│  LOW PRIORITY (deprioritized):                                  │
+│  • Static files (.css, .js, .png)      (-80)                    │
+│  • /static/, /assets/, /cdn/           (-40)                    │
+│  • /blog/, /news/, /about              (-20)                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Semantic URL Deduplication
+
+Vulnerabilities are deduplicated using semantic URL normalization to avoid duplicate reports:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  URL Normalization Examples                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Numeric IDs:                                                   │
+│  /users/123/posts/456  →  /users/{id}/posts/{id}                │
+│  /users/789/posts/101  →  /users/{id}/posts/{id}  ✓ Same        │
+├─────────────────────────────────────────────────────────────────┤
+│  UUIDs:                                                         │
+│  /item/550e8400-e29b-41d4-...  →  /item/{uuid}                  │
+│  /item/f47ac10b-58cc-4372-...  →  /item/{uuid}    ✓ Same        │
+├─────────────────────────────────────────────────────────────────┤
+│  MongoDB ObjectIds:                                             │
+│  /doc/507f1f77bcf86cd799439011  →  /doc/{oid}                   │
+│  /doc/5eb63bbbe01eeed093cb22bb  →  /doc/{oid}     ✓ Same        │
+├─────────────────────────────────────────────────────────────────┤
+│  Query Parameters (sorted alphabetically):                      │
+│  /search?b=2&a=1&c=3  →  /search?a=1&b=2&c=3                    │
+│  /search?a=1&b=2&c=3  →  /search?a=1&b=2&c=3      ✓ Same        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Configuration File
@@ -221,27 +608,33 @@ lonkero scan --config lonkero.yml
 
 ## Scanner Categories
 
-### Authentication & Authorization (19 scanners)
+### Authentication & Authorization (26 scanners)
 
 - **JWT** - Algorithm confusion, weak secrets, None algorithm, key injection
 - **OAuth 2.0** - Token theft, redirect manipulation, PKCE bypass, scope abuse
+- **OIDC** - Provider detection (Okta, Auth0, Azure AD, Keycloak, Cognito), configuration vulnerabilities, token validation bypass
 - **SAML** - Assertion bypass, signature wrapping, XML injection
 - **MFA** - Bypass techniques, replay attacks, race conditions
+- **2FA Bypass** - Rate limiting bypass, backup code enumeration, session manipulation, OTP brute-force
 - **Session Management** - Fixation, hijacking, prediction
 - **Auth Bypass** - Parameter tampering, header injection, credential stuffing
 - **IDOR** - Object reference manipulation, baseline detection
 - **Privilege Escalation** - Horizontal and vertical privilege abuse
-- **Client Route Auth Bypass** - SPA authentication bypass
+- **Client Route Auth Bypass** - SPA authentication bypass via client-side routing manipulation
 - **Advanced Auth** - Complex authentication flow exploitation
-- **Password Reset** - Token prediction, account takeover
+- **Account Takeover** - OAuth chain analysis, session fixation, token leakage, credential stuffing chains
+- **Password Reset Poisoning** - Host header injection, token predictability, link manipulation, email parameter pollution
+- **Timing Attacks** - Authentication timing analysis, user enumeration via response timing, race condition detection
 - **WebAuthn** - Biometric authentication bypass
-- **BOLA** - Broken object level authorization (API-specific IDOR)
-- **Cognito Enumeration** - AWS Cognito user pool enumeration (SignUp, InitiateAuth, ForgotPassword)
+- **BOLA** - Broken object level authorization (API-specific IDOR with advanced baseline)
+- **BFLA** - Broken Function Level Authorization, admin function discovery, privilege escalation
+- **Cognito Enumeration** - AWS Cognito user pool enumeration via ForgotPassword, SignUp, InitiateAuth APIs with CSP header detection
 
-### Injection Vulnerabilities (27 scanners)
+### Injection Vulnerabilities (30 scanners)
 
 - **SQL Injection** - Enhanced detection, blind (boolean/time/binary search), second-order
-- **XSS** - Enhanced detection, DOM-based, mutation XSS, SVG-based, stored/reflected
+- **XSS (Chromium-Based)** - Real browser execution detection with single shared browser instance. Detects reflected, stored, and DOM XSS via JavaScript execution verification. No false positives from string matching.
+- **DOM XSS** - Source-to-sink flow analysis with taint tracking, Shadow DOM support, MutationObserver hooks for innerHTML/outerHTML/insertAdjacentHTML/setAttribute sinks
 - **XXE** - XML external entity, billion laughs, parameter entity
 - **NoSQL Injection** - MongoDB, CouchDB, operator injection
 - **Command Injection** - OS command execution, blind detection
@@ -256,27 +649,32 @@ lonkero scan --config lonkero.yml
 - **XML Injection** - XML structure manipulation
 - **SSI Injection** - Server-side includes
 - **Prototype Pollution** - JavaScript object pollution
+- **DOM Clobbering** - Named element collision, prototype pollution chains, HTML-based gadget discovery
 - **HTML Injection** - Non-XSS markup injection
 - **HTTP Parameter Pollution** - HPP attacks
 - **Deserialization** - Unsafe object deserialization
 
-### API Security (14 scanners)
+### API Security (20 scanners)
 
-- **GraphQL** - Security scanner, batching DoS, cost analysis, introspection
+- **GraphQL Advanced** - Introspection, batching DoS, cost analysis, alias abuse, persisted queries, directive abuse, subscription vulnerabilities, fragment spreading, authorization bypass
+- **GraphQL Batching** - Batch DoS attacks, alias abuse for rate limit bypass, complexity abuse, authentication bypass via batching
 - **gRPC** - Reflection, enumeration, metadata abuse
 - **REST** - Mass assignment, API fuzzing, parameter pollution
 - **WebSocket** - Message injection, protocol abuse
-- **API Gateway** - Azure APIM, generic gateway vulnerabilities
+- **API Gateway** - Azure APIM cross-tenant bypass, generic gateway vulnerabilities
 - **API Security** - Comprehensive API testing
+- **API Versioning** - Version enumeration, security regression detection, bypass techniques, deprecated endpoint discovery
+- **OpenAPI Analyzer** - Swagger 2.0/OpenAPI 3.x specification parsing, security definition analysis, endpoint enumeration
+- **BFLA** - Broken Function Level Authorization, admin function discovery, horizontal/vertical privilege escalation
 - **Rate Limiting** - Bypass techniques
 - **CORS** - Misconfiguration detection
 - **Cache Poisoning** - Web cache deception
 - **HTTP/3** - QUIC-specific vulnerabilities
 - **HTTP Smuggling** - Request smuggling attacks
 
-### Modern Framework Scanners (11 scanners)
+### Modern Framework Scanners (15 scanners)
 
-- **Next.js** - Middleware bypass, server actions, routing vulnerabilities
+- **Next.js** - Route discovery from JS bundles, middleware bypass (CVE-2024-34351, CVE-2025-29927), `_next/data` exposure, server actions, image SSRF, ISR token exposure
 - **React** - DevTools exposure, hydration issues, client-side vulnerabilities
 - **SvelteKit** - CSRF bypass, SSR vulnerabilities
 - **Django** - DEBUG mode, ORM injection, middleware bypass
@@ -284,13 +682,18 @@ lonkero scan --config lonkero.yml
 - **Express.js** - Middleware vulnerabilities, prototype pollution
 - **WordPress** - Plugin vulnerabilities, XML-RPC, REST API abuse
 - **Drupal** - Core vulnerabilities, module security
+- **Joomla** - CVE-2023-23752 (authentication bypass), CVE-2017-8917 (SQLi), admin exposure, API exploitation, extension vulnerabilities, installation leftovers
+- **Ruby on Rails** - Debug mode exposure, environment/config file leaks, log exposure, session security, asset/source map exposure, git repository detection
+- **Spring Boot** - Actuator endpoint exposure (env, heapdump, jolokia, shutdown), H2 console RCE, Swagger/OpenAPI exposure, configuration file leaks
 - **Liferay** - Portal-specific vulnerabilities
 - **Tomcat** - Misconfiguration, default credentials
 - **Varnish** - Cache misconfiguration
+- **Angular** - Client-side template injection, router bypass
 
-### Configuration & Security (13 scanners)
+### Configuration & Security (17 scanners)
 
 - **Security Headers** - HSTS, CSP, X-Frame-Options, referrer policy
+- **CSP Bypass** - Script gadgets, nonce reuse, base-uri attacks, JSONP endpoints, unsafe-inline detection
 - **CORS Misconfiguration** - Wildcard origins, credential exposure
 - **SSL/TLS** - Weak ciphers, certificate validation
 - **Cloud Security** - AWS, Azure, GCP misconfiguration
@@ -300,39 +703,47 @@ lonkero scan --config lonkero.yml
 - **WAF Bypass** - Web application firewall evasion
 - **Clickjacking** - Frame injection, UI redressing
 - **CSRF** - Cross-site request forgery
+- **PostMessage Vulns** - Origin validation bypass, XSS via postMessage, data exfiltration, cross-origin communication abuse
+- **Web Cache Deception** - Path confusion attacks, cache infrastructure detection, sensitive data exposure via caching
+- **Subdomain Takeover** - 25+ cloud service fingerprints (AWS, Azure, GitHub, Heroku, etc.), DNS/CNAME analysis
 
-### Business Logic (6 scanners)
+### Business Logic (8 scanners)
 
 - **Business Logic** - Advanced workflow exploitation
-- **Race Conditions** - TOCTOU, parallel request abuse
+- **Race Conditions** - TOCTOU, parallel request abuse, timing analysis
+- **Timing Attacks** - Authentication timing, user enumeration via response timing, race condition detection
 - **Payment Manipulation** - Price tampering, discount abuse
 - **Workflow Bypass** - Multi-step form manipulation
-- **File Upload** - Enhanced validation bypass, polyglot files
-- **IDOR Analyzer** - Advanced object reference testing
+- **File Upload Advanced** - Polyglot files (PNG+PHP, JPEG+JSP), SVG XSS/XXE/SSRF, ZIP bomb, zip slip, null byte bypass, double extension
+- **Mass Assignment Advanced** - Nested object injection, dot notation, JSON deep merge, prototype pollution vectors, array parameter pollution
+- **IDOR Analyzer** - Advanced object reference testing with baseline detection
 
-### Information Disclosure (10 scanners)
+### Information Disclosure (11 scanners)
 
 - **Information Disclosure** - Sensitive data exposure
 - **Sensitive Data** - PII, credentials, API keys
 - **Debug Information** - Stack traces, verbose errors
-- **Source Code** - Git exposure, backup files
-- **JS Miner** - JavaScript secret extraction
+- **Source Code** - Git exposure, backup files, `.env` files
+- **JS Miner** - JavaScript secret extraction (AWS keys, API tokens, private keys)
 - **JS Sensitive Info** - Client-side data leakage
 - **Session Analyzer** - Session token analysis
 - **Baseline Detector** - Deviation detection
 - **Source Map Detection** - Exposed JavaScript source maps revealing original source code
 - **Favicon Hash Detection** - Technology fingerprinting via favicon hash (Shodan-compatible)
+- **HTML Injection** - Non-XSS markup injection for phishing and SEO poisoning
 
-### Specialized Scanners (8 scanners)
+### Specialized Scanners (10 scanners)
 
-- **CVE-2025-55182** - Specific vulnerability scanner
-- **CVE-2025-55183** - Specific vulnerability scanner
-- **CVE-2025-55184** - Specific vulnerability scanner
-- **Framework Vulnerabilities** - Generic framework CVEs
-- **Merlin** - Version detection and vulnerability mapping
+- **CVE Detection** - Known vulnerability scanners (CVE-2025-55182, CVE-2025-55183, CVE-2025-55184)
+- **Framework Vulnerabilities** - Generic framework CVEs with version detection
+- **Subdomain Takeover** - 25+ cloud service fingerprints (AWS S3, CloudFront, Azure, GitHub Pages, Heroku, Shopify, etc.)
+- **Merlin** - JavaScript library version detection and vulnerability mapping
+- **Log4j/JNDI** - Log4Shell and JNDI injection detection
 - **ReDoS** - Regular expression denial of service
-- **Google Dorking** - Search engine reconnaissance (use `--dork` flag)
+- **Google Dorking** - Search engine reconnaissance (use `--dorks` flag)
 - **Endpoint Discovery** - Multilingual path brute-force (Finnish, Swedish, German, French, Spanish, etc.)
+- **Attack Surface Enum** - Comprehensive attack surface enumeration
+- **DNS Security** - DNS configuration and zone transfer testing
 
 ---
 
@@ -363,6 +774,262 @@ High-value features for critical infrastructure:
 14. **oob_detection** - Out-of-band vulnerability detection infrastructure (Coming Soon)
 15. **oob_dns_exfiltration** - DNS-based blind vulnerability verification (Coming Soon)
 16. **oob_http_callbacks** - HTTP callback verification for blind attacks (Coming Soon)
+
+---
+
+## Machine Learning Features
+
+Lonkero v3.0 includes an integrated ML system that automatically learns from scan results to improve detection accuracy over time.
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Local Auto-Learning                                             │
+│  • Learns from every scan automatically                          │
+│  • No user verification required                                 │
+│  • Reduces false positives based on response patterns            │
+├─────────────────────────────────────────────────────────────────┤
+│  Federated Learning (Opt-in)                                     │
+│  • Share model weights (not data) with the community             │
+│  • Benefit from collective knowledge                             │
+│  • Differential privacy ensures no data leakage                  │
+├─────────────────────────────────────────────────────────────────┤
+│  GDPR Compliant                                                  │
+│  • Explicit consent required                                     │
+│  • Right to erasure (delete all data)                            │
+│  • Right to access (export your data)                            │
+│  • All data stored locally by default                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### How It Works
+
+1. **Auto-Learning**: After each scan, Lonkero analyzes vulnerabilities and their HTTP responses
+2. **Feature Extraction**: Extracts 23 features (status codes, error patterns, reflection analysis, timing)
+3. **Pattern Recognition**: Builds endpoint-specific patterns to reduce false positives
+4. **Confidence Scoring**: Auto-confirms high-confidence true positives, rejects obvious false positives
+
+### ML Commands
+
+```bash
+# Enable ML with local-only learning
+lonkero ml enable
+
+# Enable ML with federated learning (contribute to community model)
+lonkero ml enable --federated
+
+# View ML statistics
+lonkero ml stats
+
+# Disable ML (keep data)
+lonkero ml disable
+
+# Disable ML and delete all data
+lonkero ml disable --delete-data
+
+# Export your ML data (GDPR right to access)
+lonkero ml export -o my_ml_data.json
+
+# Delete all ML data (GDPR right to erasure)
+lonkero ml delete-data
+
+# Manually sync with federated network
+lonkero ml sync
+```
+
+### Statistics Output
+
+```bash
+$ lonkero ml stats
+
+ML Pipeline Statistics
+======================
+Status: Enabled
+Federated: Enabled (1,247 contributors)
+
+Session Stats:
+  Processed: 45 findings
+  Auto-confirmed: 12 true positives
+  Auto-rejected: 28 false positives
+
+Lifetime Stats:
+  Total confirmed: 1,892
+  Total rejected: 4,521
+  Endpoint patterns: 347
+  Can contribute: Yes
+```
+
+### Privacy & Consent
+
+ML features require explicit user consent:
+
+- **Local-only mode**: All data stays on your machine. Model weights are trained locally.
+- **Federated mode**: Only aggregated model weights are shared (not raw data). Differential privacy with noise injection ensures individual findings cannot be reconstructed.
+
+**Data stored locally** (in `~/.lonkero/ml/`):
+- Training examples with extracted features
+- Local model weights
+- Endpoint patterns learned
+- Verification history
+
+**Data shared in federated mode**:
+- Aggregated model weight gradients only
+- Noise-injected to prevent reconstruction
+- No URLs, payloads, or raw responses
+
+### GDPR Compliance
+
+| Right | Command | Description |
+|-------|---------|-------------|
+| Right to be informed | `lonkero ml stats` | View what data is collected |
+| Right of access | `lonkero ml export` | Export all your ML data |
+| Right to erasure | `lonkero ml delete-data` | Permanently delete all ML data |
+| Right to withdraw consent | `lonkero ml disable` | Stop ML processing |
+
+---
+
+## Scanner Intelligence System
+
+Lonkero v3.0 introduces a sophisticated intelligence system that makes scanners work together like a coordinated security team rather than isolated tools.
+
+### Overview
+
+```
++---------------------------------------------------------------------+
+|  Intelligence Bus - Real-time Scanner Communication                  |
+|  Scanners broadcast discoveries, others adapt immediately            |
++---------------------------------------------------------------------+
+                                  |
+          +-----------------------+-----------------------+
+          |                       |                       |
+          v                       v                       v
++-------------------+   +-------------------+   +-------------------+
+| Hypothesis Engine |   | Attack Planner    |   | Response Analyzer |
+| Bayesian-guided   |   | Multi-step attack |   | Semantic response |
+| vulnerability     |   | chain planning    |   | understanding     |
+| testing           |   | with goal search  |   | (NLP-lite)        |
++-------------------+   +-------------------+   +-------------------+
+```
+
+### Intelligence Bus
+
+Real-time communication between scanners during a scan:
+
+| Event Type | Description | Example |
+|------------|-------------|---------|
+| `AuthTypeDetected` | JWT, OAuth2, Session, SAML, OIDC detected | JWT scanner informs others to test algorithm confusion |
+| `FrameworkDetected` | Framework with version identified | Django 4.2 detected, enable Django-specific tests |
+| `WafDetected` | WAF type with bypass hints | Cloudflare detected, switch to bypass payloads |
+| `VulnerabilityPattern` | SQL errors, stack traces found | MySQL error seen, prioritize MySQL-specific injection |
+| `SensitiveParameter` | High-value parameter found | `admin_id` parameter found, IDOR scanner prioritizes it |
+| `EndpointPattern` | API patterns discovered | REST CRUD pattern detected, test all HTTP methods |
+| `ScannerInsight` | Bypass or weakness found | Rate limit bypass found, inform brute-force scanners |
+
+**Example flow:**
+1. Tech detector finds Django 4.2
+2. Broadcasts `FrameworkDetected { name: "Django", version: "4.2" }`
+3. Django scanner activates DEBUG mode tests
+4. SQLi scanner switches to PostgreSQL payloads
+5. Path traversal scanner tests Django-specific paths
+
+### Hypothesis Engine
+
+Bayesian-guided vulnerability testing that forms and tests hypotheses:
+
+```
+Traditional scanning:                Hypothesis-driven scanning:
+
+Try payload 1 -> No result          Observe: param=id, numeric value
+Try payload 2 -> No result          Hypothesis: SQL Injection (prior: 0.3)
+Try payload 3 -> No result          Test: ' OR '1'='1 -> SQL error
+Try payload 4 -> No result          Update: posterior = 0.85
+Try payload 5 -> SQL error!         Refine: MySQL-specific
+...500 payloads later...            Test: SLEEP(5) -> 5s delay
+                                    Confirm: MySQL Blind SQLi (0.99)
+```
+
+**Key concepts:**
+- **Prior probability**: Initial belief based on parameter name, context
+- **Evidence collection**: Each test updates probability using Bayes' theorem
+- **Information gain**: Select tests that maximize uncertainty reduction
+- **Hypothesis refinement**: SQLi -> MySQL SQLi -> Blind MySQL SQLi
+
+**Supported hypothesis types:**
+- SQL Injection (MySQL, PostgreSQL, MSSQL, Oracle, SQLite)
+- XSS (HTML context, Attribute, JavaScript, URL)
+- Command Injection (Linux, Windows)
+- Path Traversal, SSRF, Auth Bypass, IDOR
+- Template Injection, XXE, NoSQL Injection
+
+### Attack Planner
+
+Multi-step attack chain planning with goal-directed search:
+
+```
+Goal: Account Takeover
+
+Current State:                    Attack Plan Generated:
+- Known endpoint: /api/users      1. Enumerate users via /api/users IDOR
+- No user list                    2. Extract email from user profile
+- No session                      3. Trigger password reset
+                                  4. Exploit token predictability
+                  |               5. Gain victim session
+                  v
+         [BFS Path Finding]
+                  |
+                  v
+         Execute step by step,
+         update state after each
+```
+
+**Attack goals supported:**
+- Account Takeover
+- Privilege Escalation
+- Data Exfiltration
+- Remote Code Execution
+- Internal Network Access
+- Authentication Bypass
+
+**Common attack chains:**
+1. **Account Takeover**: User enum -> Password reset flaw -> Token prediction -> Session hijack
+2. **Privilege Escalation**: IDOR on users -> Find admin ID -> Mass assignment -> Admin access
+3. **RCE Chain**: File upload bypass -> Path traversal -> Execute uploaded shell
+
+### Response Analyzer
+
+Semantic understanding of HTTP responses (NLP-lite, no external dependencies):
+
+| Analysis | Detection |
+|----------|-----------|
+| **SQL Errors** | MySQL, PostgreSQL, MSSQL, Oracle, SQLite |
+| **Stack Traces** | Python, Java, PHP, Node.js, .NET, Ruby, Go, Rust |
+| **Auth States** | Authenticated, Expired, Invalid credentials, MFA required |
+| **WAF Signatures** | Cloudflare, Akamai, AWS WAF, ModSecurity, Imperva |
+| **Data Exposure** | Internal IPs, file paths, API keys, tokens, credentials |
+| **Business Context** | User management, payment, admin panel, file management |
+
+**Example analysis:**
+```
+Response: 500 Internal Server Error
+Body: "PG::SyntaxError: ERROR: syntax error at or near..."
+
+Analysis:
+- ResponseType: ServerError
+- ErrorInfo: { type: Database, db: PostgreSQL }
+- DataExposure: [StackTrace, DatabaseSchema]
+- VulnerabilityHint: { type: "SQL Injection", confidence: 0.92 }
+```
+
+### Benefits
+
+| Metric | Without Intelligence | With Intelligence |
+|--------|---------------------|-------------------|
+| Payloads tested | 5,000 | 800 |
+| Time to first finding | 45s | 8s |
+| False positive rate | 8% | 2% |
+| Attack chains found | 0 | 3 |
+| Context awareness | None | Full |
 
 ---
 
@@ -402,6 +1069,17 @@ High-value features for critical infrastructure:
 
 ## CI/CD Integration
 
+### v3.0 - No Mode Selection Required
+
+Lonkero v3.0 uses **Intelligent Mode by default** - no need to specify `--mode`. The scanner automatically:
+- Detects technology stack
+- Deduplicates endpoints and parameters
+- Scores parameters by risk
+- Selects appropriate scanners per-target
+- Runs fallback scanners when tech is unknown
+
+Legacy modes (`--mode fast/normal/thorough/insane`) are still available for backwards compatibility.
+
 ### GitHub Actions
 
 ```yaml
@@ -426,11 +1104,13 @@ jobs:
           sudo cp target/release/lonkero /usr/local/bin/
 
       - name: Run Lonkero Scan
+        env:
+          LONKERO_LICENSE: ${{ secrets.LONKERO_LICENSE }}
         run: |
+          # v3.0: Intelligent mode is default - no --mode needed
           lonkero scan https://staging.example.com \
             --format sarif \
-            -o results.sarif \
-            --license-key ${{ secrets.LONKERO_LICENSE }}
+            -o results.sarif
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v2
@@ -444,13 +1124,28 @@ jobs:
 lonkero-scan:
   stage: security
   image: rust:1.75
+  variables:
+    LONKERO_LICENSE: $LONKERO_LICENSE_KEY
   script:
     - git clone https://github.com/bountyyfi/lonkero.git /tmp/lonkero
     - cd /tmp/lonkero && cargo build --release
+    # v3.0: Intelligent mode is default
     - /tmp/lonkero/target/release/lonkero scan $CI_ENVIRONMENT_URL --format json -o gl-sast-report.json
   artifacts:
     reports:
       sast: gl-sast-report.json
+```
+
+### Legacy Mode (Optional)
+
+If you need the old behavior for specific use cases:
+
+```bash
+# Use legacy modes when needed
+lonkero scan https://example.com --mode fast      # 50 payloads globally
+lonkero scan https://example.com --mode normal    # 500 payloads globally
+lonkero scan https://example.com --mode thorough  # 5000 payloads globally
+lonkero scan https://example.com --mode insane    # All payloads
 ```
 
 ---
@@ -513,6 +1208,7 @@ Plain text reports for documentation and version control.
 |---------|---------|----------------|-----------|----------|
 | **Price** | [See website](https://lonkero.bountyy.fi/en) | $449/year | Free | $4,500/year |
 | **False Positive Rate** | 5% | 10-15% | 20-30% | 10-15% |
+| **ML Auto-Learning** | Yes (federated) | No | No | No |
 | **Modern Framework Support** | Next.js, React, GraphQL | Limited | Limited | Limited |
 | **Smart Parameter Filtering** | Yes | No | No | No |
 | **OOB Detection** | Coming Soon | Yes | No | Yes |
@@ -536,7 +1232,7 @@ Plain text reports for documentation and version control.
 
 ## License
 
-**Copyright © 2025 Bountyy Oy. All rights reserved.**
+**Copyright © 2026 Bountyy Oy. All rights reserved.**
 
 This software is proprietary. Commercial use requires a valid license.
 

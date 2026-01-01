@@ -1,24 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - HTTP/3 Alt-Svc Header Scanner
- * Tests for HTTP/3 Alt-Svc header misconfigurations via standard HTTP/HTTPS
- *
- * NOTE: This scanner does NOT use actual HTTP/3 protocol.
- * It only checks Alt-Svc headers via standard HTTP/HTTPS requests.
- *
- * Detects:
- * - Alt-Svc header misconfigurations
- * - Alt-Svc header injection vulnerabilities
- * - Excessive Alt-Svc max-age values
- * - Insecure Alt-Svc configurations
- * - Early-Data header acceptance issues
- * - Header injection via malformed values
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -139,7 +120,7 @@ impl Http3Scanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing Alt-Svc header manipulation");
+        debug!("Testing Alt-Svc header manipulation");
 
         let malicious_alt_svc_values = vec![
             r#"h3=":443"; ma=2592000; persist=1"#,
@@ -184,55 +165,25 @@ impl Http3Scanner {
     }
 
     /// Test for Early-Data header acceptance on state-changing operations
-    /// Note: Tests via standard HTTP, checking if server accepts Early-Data header
-    async fn test_early_data_replay(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        let mut vulnerabilities = Vec::new();
-        let tests_run = 6;
+    /// Note: This test is DISABLED because it produces too many false positives.
+    /// The test assumes arbitrary endpoints exist and considers any 200 response
+    /// as "accepting" Early-Data, which is incorrect for SPAs that return 200 for all routes.
+    ///
+    /// To properly test Early-Data replay vulnerabilities:
+    /// 1. Only test discovered API endpoints, not arbitrary paths
+    /// 2. Compare responses with and without Early-Data header
+    /// 3. Look for actual behavioral differences, not just status codes
+    /// 4. Require actual HTTP/3 support to be meaningful
+    async fn test_early_data_replay(&self, _url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let vulnerabilities = Vec::new();
+        let tests_run = 0;
 
-        info!("Testing Early-Data header acceptance via standard HTTP");
+        debug!("Skipping Early-Data replay test - requires discovered API endpoints and HTTP/3 support");
 
-        let state_changing_endpoints = vec![
-            ("/api/transfer", "POST"),
-            ("/api/delete", "POST"),
-            ("/api/update", "PUT"),
-            ("/api/create", "POST"),
-        ];
-
-        for (endpoint, method) in state_changing_endpoints {
-            let test_url = self.build_url(url, endpoint);
-
-            let headers = vec![
-                ("Early-Data".to_string(), "1".to_string()),
-            ];
-
-            let response_result = if method == "POST" {
-                self.http_client.post_with_headers(&test_url, "{}", headers).await
-            } else {
-                self.http_client.get_with_headers(&test_url, headers).await
-            };
-
-            match response_result {
-                Ok(response) => {
-                    if response.status_code == 200 && !response.body.to_lowercase().contains("replay") {
-                        info!("State-changing endpoint accepts Early-Data header: {}", endpoint);
-                        vulnerabilities.push(self.create_vulnerability(
-                            url,
-                            "Early-Data Header Accepted on State-Changing Endpoint",
-                            "Early-Data: 1",
-                            &format!("State-changing endpoint {} accepts Early-Data header", endpoint),
-                            "Accepting Early-Data header on non-idempotent operations may enable replay attacks if HTTP/3 is used",
-                            Severity::High,
-                            "CWE-294",
-                            7.5,
-                        ));
-                        break;
-                    }
-                }
-                Err(e) => {
-                    debug!("Early data test failed: {}", e);
-                }
-            }
-        }
+        // TODO: This test should only run on:
+        // 1. Actually discovered state-changing API endpoints
+        // 2. Sites that support HTTP/3 (have Alt-Svc header)
+        // 3. With proper baseline comparison to detect actual differences
 
         Ok((vulnerabilities, tests_run))
     }
@@ -242,7 +193,7 @@ impl Http3Scanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing header injection via standard HTTP");
+        debug!("Testing header injection via standard HTTP");
 
         let smuggling_payloads = vec![
             ("X-Test\r\nX-Injected", "CRLF in header name"),
@@ -292,7 +243,7 @@ impl Http3Scanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing request splitting via standard HTTP");
+        debug!("Testing request splitting via standard HTTP");
 
         let splitting_payloads = vec![
             "/%20HTTP/1.1%0d%0aHost:%20evil.com%0d%0a%0d%0aGET%20/",
@@ -400,6 +351,7 @@ impl Http3Scanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -487,7 +439,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> Http3Scanner {

@@ -1,10 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -32,6 +33,15 @@ impl NosqlInjectionScanner {
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         info!("Starting NoSQL injection scan on {}", url);
+
+        // Intelligent detection - skip for static sites/SPAs
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_injection_tests() {
+                info!("[NoSQLi] Skipping - static/SPA site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
@@ -70,7 +80,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing MongoDB operators in GET requests");
+        debug!("Testing MongoDB operators in GET requests");
 
         // NoSQL injection payloads for GET
         let payloads = vec![
@@ -111,7 +121,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing MongoDB operators in POST requests");
+        debug!("Testing MongoDB operators in POST requests");
 
         // NoSQL injection payloads for POST (JSON)
         let payloads = vec![
@@ -151,7 +161,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing JavaScript injection in NoSQL");
+        debug!("Testing JavaScript injection in NoSQL");
 
         // JavaScript injection payloads
         let payloads = vec![
@@ -190,7 +200,7 @@ impl NosqlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing NoSQL authentication bypass");
+        debug!("Testing NoSQL authentication bypass");
 
         // Try common login endpoints
         let login_endpoints = vec![
@@ -361,6 +371,7 @@ impl NosqlInjectionScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

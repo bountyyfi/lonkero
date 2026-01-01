@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Technology Detection Module
  * Wappalyzer-style technology fingerprinting for web applications
  * Fast, accurate detection of frameworks, CMS, servers, and more
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use regex::Regex;
@@ -163,6 +163,8 @@ impl TechDetector {
             patterns: vec![
                 Pattern::HTML { regex: r"__NEXT_DATA__".to_string() },
                 Pattern::HTML { regex: r"/_next/static/".to_string() },
+                Pattern::HTML { regex: r"data-next-head".to_string() },
+                Pattern::HTML { regex: r"data-n-g".to_string() },
                 Pattern::Header { name: "x-powered-by".to_string(), regex: r"Next\.js".to_string() },
             ],
             implies: vec!["React".to_string(), "Node.js".to_string()],

@@ -1,6 +1,6 @@
 [package]
 name = "lonkero"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
 authors = ["Bountyy Oy <info@bountyy.fi>"]
 description = "Web scanner built for actual pentests. Fast, modular, Rust."
@@ -56,6 +56,7 @@ regex = "1.10"
 # Logging & Tracing & Metrics
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-log = "0.2"
 metrics = "0.24"
 
 # Error handling
@@ -138,6 +139,9 @@ rust_xlsxwriter = "0.92.1"
 
 # Additional security dependencies
 hex = "0.4"
+
+# Compression for session recordings
+flate2 = "1.0"
 
 # License and configuration directories
 dirs = "6.0"

@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -12,7 +12,7 @@
  * - Error handling and reporting
  * - Performance monitoring
  *
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use serde::{Deserialize, Serialize};

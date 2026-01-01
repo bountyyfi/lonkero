@@ -1,28 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Advanced Laravel Security Scanner
- * Comprehensive Laravel vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Debug mode enabled (APP_DEBUG=true) with stack trace exposure
- * - Laravel Ignition RCE (CVE-2021-3129)
- * - Telescope/Horizon/Nova admin panel exposure
- * - Environment file exposure (.env, .env.backup)
- * - Storage directory access
- * - Log file exposure (laravel.log)
- * - PHPUnit/vendor exposure
- * - Known Laravel CVEs by version
- * - API route enumeration
- * - Session/CSRF misconfigurations
- * - Livewire component vulnerabilities
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -431,6 +408,7 @@ impl LaravelSecurityScanner {
                                       4. Use proper error logging instead of displaying errors\n\
                                       5. Consider using Laravel's logging to external services".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
 
                     // Found debug mode, no need to test more paths
@@ -510,6 +488,7 @@ impl LaravelSecurityScanner {
                                           - Remove facade/ignition from composer.json\n\
                                           3. Block /_ignition paths at web server level".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
 
                         break;
@@ -605,6 +584,7 @@ impl LaravelSecurityScanner {
                             name, name.to_lowercase().replace(" ", ""), name
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -700,6 +680,7 @@ impl LaravelSecurityScanner {
                                           4. Review web server configuration\n\
                                           5. Audit for any unauthorized access using these credentials".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
 
                         // Found env file, critical finding
@@ -774,6 +755,7 @@ impl LaravelSecurityScanner {
                                       2. Block storage directory from web access\n\
                                       3. Use storage:link for public files only".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 } else if is_log_file {
                     vulnerabilities.push(Vulnerability {
@@ -802,6 +784,7 @@ impl LaravelSecurityScanner {
                                       3. Use external logging service (Papertrail, LogDNA)\n\
                                       4. Configure log rotation".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 } else if is_session_dir {
                     vulnerabilities.push(Vulnerability {
@@ -824,6 +807,7 @@ impl LaravelSecurityScanner {
                                       2. Block storage/framework/sessions from web access\n\
                                       3. Configure SESSION_DRIVER=redis or database".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -877,6 +861,7 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "Remove log files from web-accessible locations.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -947,6 +932,7 @@ impl LaravelSecurityScanner {
                                           - Nginx: location /vendor { deny all; }\n\
                                           3. Remove PHPUnit from production: composer install --no-dev".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1020,6 +1006,7 @@ impl LaravelSecurityScanner {
                                           2. Move configuration outside web root\n\
                                           3. Block .git directories".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1099,6 +1086,7 @@ impl LaravelSecurityScanner {
                                           3. Implement rate limiting\n\
                                           4. Disable GraphQL playground in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1149,6 +1137,7 @@ impl LaravelSecurityScanner {
                             false_positive: false,
                             remediation: "Ensure CSRF middleware is active for Livewire routes.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1204,6 +1193,7 @@ impl LaravelSecurityScanner {
                             CVE: {}", cve.cve_id
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -1273,6 +1263,7 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "Set SESSION_SECURE_COOKIE=true in .env for HTTPS sites.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
 
@@ -1294,6 +1285,7 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "Set SESSION_SAME_SITE=lax or strict in .env".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -1324,6 +1316,7 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "Remove route listing endpoint from production.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }

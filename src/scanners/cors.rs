@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - CORS Misconfiguration Scanner
  * Tests for insecure Cross-Origin Resource Sharing configurations
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -39,6 +40,8 @@ impl CorsScanner {
         tests_run += 1;
         match self.http_client.get(url).await {
             Ok(response) => {
+                // Store characteristics for intelligent detection
+                let _characteristics = AppCharacteristics::from_response(&response, url);
                 self.check_baseline_cors(&response, url, &mut vulnerabilities);
             }
             Err(e) => {
@@ -353,6 +356,7 @@ References:
 - PortSwigger CORS: https://portswigger.net/web-security/cors
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

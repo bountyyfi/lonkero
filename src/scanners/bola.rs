@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -8,10 +8,11 @@
  * Tests for horizontal privilege escalation where authenticated users can access
  * other users' resources by manipulating object IDs in API requests.
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -51,6 +52,15 @@ impl BolaScanner {
         }
 
         info!("Starting BOLA (Broken Object Level Authorization) scan on {}", url);
+
+        // Intelligent detection - skip if no auth context
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_auth_tests() {
+                info!("[BOLA] Skipping - no authentication detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -397,6 +407,7 @@ impl BolaScanner {
                         false_positive: false,
                         remediation: "1. CRITICAL: Implement authorization checks for each object in batch requests\n2. Verify user has permission to access each requested ID\n3. Implement rate limiting for batch endpoints\n4. Limit maximum number of IDs per batch request\n5. Return only authorized objects, not errors for unauthorized ones\n6. Log batch access attempts for security monitoring\n7. Consider implementing pagination instead of batch access".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -445,6 +456,7 @@ impl BolaScanner {
                 false_positive: false,
                 remediation: "1. Return consistent responses for both existing and non-existing objects\n2. Use 404 for all unauthorized/non-existing resources\n3. Implement rate limiting to prevent enumeration\n4. Use non-sequential UUIDs instead of numeric IDs\n5. Add delays or CAPTCHA after repeated failed access attempts\n6. Monitor for enumeration patterns in logs\n7. Consider using HMACs to sign object references".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -672,6 +684,7 @@ impl BolaScanner {
                 resource_type, resource_type, resource_type
             ),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

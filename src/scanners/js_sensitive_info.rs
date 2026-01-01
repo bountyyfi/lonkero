@@ -1,26 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - JavaScript Sensitive Information Leakage Scanner
- * Analyzes JavaScript files for leaked sensitive information
- *
- * Detects:
- * - Jira links and ticket references
- * - Internal URLs and endpoints
- * - PDF and document file paths
- * - Admin logic and debug functions
- * - Sensitive comments (TODO, FIXME, HACK, passwords, etc.)
- * - isDev/isDebug/isTest flags
- * - PowerBI and analytics links
- * - Hardcoded credentials and API keys
- * - Employee names and emails
- * - Internal tool references (Confluence, Slack, etc.)
- * - Development/staging environment URLs
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -768,13 +747,16 @@ impl JsSensitiveInfoScanner {
                     description: "Contentful delivery/preview token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
-                // Airtable
+                // Airtable - API keys must be in assignment context to avoid false positives
+                // like "keyboard", "keydown", "keypress", etc.
                 CompiledPattern {
                     name: "Airtable API Key".to_string(),
-                    regex: Regex::new(r#"key[a-zA-Z0-9]{14}"#).unwrap(),
-                    severity: Severity::High,
-                    description: "Airtable API key found".to_string(),
-                    cwe: "CWE-798".to_string(),
+                    // Real Airtable keys look like: keyXXXXXXXXXXXXXX (key + 14 alphanumeric chars)
+                    // Require assignment context (=, :, or quote) to filter out variable names
+                    regex: Regex::new(r#"[=:'"]\s*key[a-zA-Z0-9]{14}\s*['"}\],;]"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "Potential Airtable API key".to_string(),
+                    cwe: "CWE-312".to_string(),
                 },
                 CompiledPattern {
                     name: "Airtable Personal Access Token".to_string(),
@@ -1523,6 +1505,7 @@ impl JsSensitiveInfoScanner {
                 false_positive: false,
                 remediation: self.get_remediation_for_category(&category),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 

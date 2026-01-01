@@ -1,46 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - HTML Injection Scanner
- * Detects HTML injection vulnerabilities (non-XSS markup injection)
- *
- * WHAT IS HTML INJECTION?
- * ======================
- * HTML injection is the ability to inject HTML markup into a web page WITHOUT executing
- * JavaScript. While less severe than XSS, it enables:
- * - Phishing attacks (fake login forms)
- * - Content defacement
- * - SEO poisoning
- * - Open redirects via meta tags and base href
- * - Data exfiltration via CSS and external resources
- * - Clickjacking via CSS manipulation
- *
- * KEY DIFFERENCE FROM XSS:
- * =======================
- * - HTML Injection: Markup rendered but no JavaScript execution
- * - XSS: JavaScript execution possible
- * This scanner focuses on HTML injection that does NOT execute JavaScript
- *
- * ATTACK VECTORS:
- * ==============
- * 1. Content Injection: <h1>, <marquee>, <iframe> tags
- * 2. Meta Tag Injection: <meta> for redirects and SEO poisoning
- * 3. Link Manipulation: <a href> for phishing
- * 4. Form Injection: Fake login forms
- * 5. Media Injection: <img>, <video> for tracking
- * 6. Style Injection: <style> for data exfiltration and UI manipulation
- *
- * DETECTION STRATEGY:
- * ==================
- * - Use unique markers (html_<uuid>) to verify injection
- * - Check if HTML tags are rendered (not encoded)
- * - Verify tags appear in response without HTML entity encoding
- * - Test multiple contexts: URL params, POST body, headers, cookies
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -121,7 +80,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing content injection");
+        debug!("Testing content injection");
 
         let payloads = vec![
             format!("<h1>Injected_{}</h1>", self.test_marker),
@@ -173,7 +132,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing meta tag injection");
+        debug!("Testing meta tag injection");
 
         let payloads = vec![
             // Meta refresh redirect (critical - open redirect)
@@ -233,7 +192,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing link manipulation");
+        debug!("Testing link manipulation");
 
         let payloads = vec![
             // Phishing link
@@ -291,7 +250,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing form injection");
+        debug!("Testing form injection");
 
         let payloads = vec![
             // Fake login form (credential phishing)
@@ -349,7 +308,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing media injection");
+        debug!("Testing media injection");
 
         let payloads = vec![
             // Image with tracking
@@ -396,7 +355,7 @@ impl HtmlInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing style injection");
+        debug!("Testing style injection");
 
         let payloads = vec![
             // CSS with background image (data exfiltration)
@@ -562,6 +521,7 @@ impl HtmlInjectionScanner {
                          9. For rich text, use a trusted HTML sanitizer library\n\
                          10. Apply defense in depth: encode, validate, and use CSP".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -594,7 +554,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> HtmlInjectionScanner {

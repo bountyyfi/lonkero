@@ -1,30 +1,9 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Enterprise Command Injection Scanner
- * Advanced OS command injection detection with 1000+ programmatically generated payloads
- *
- * Features:
- * - 1000+ bypass payloads generated algorithmically
- * - Shell metacharacter matrix (all separators × all commands)
- * - Command substitution variations ($(), ``, $[])
- * - Encoding bypass matrix (URL, double, hex, octal, unicode)
- * - Environment variable exploitation ($IFS, $PATH, etc.)
- * - Time-based blind detection with multiple delay methods
- * - Newline/CR injection variations
- * - Filter evasion techniques (wildcards, quotes, concatenation)
- * - Windows and Unix specific payloads
- * - Context breaking (quote escape, argument injection)
- * - Obfuscation techniques (base64, hex, variable expansion)
- * - Polyglot payloads for multiple contexts
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::scanners::registry::PayloadIntensity;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::sync::Arc;
@@ -32,7 +11,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info};
 
 /// Command injection bypass category
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CmdInjectionCategory {
     /// Basic shell metacharacters (;, |, &, etc.)
     ShellMetacharacters,
@@ -1034,6 +1013,75 @@ impl CommandInjectionScanner {
         payloads
     }
 
+    // ========================================================================
+    // INTELLIGENT PAYLOAD SELECTION
+    // ========================================================================
+
+    /// Select diverse payloads across categories up to the limit
+    /// This ensures we test different bypass techniques rather than just the first N
+    fn select_diverse_payloads(payloads: Vec<CmdPayload>, limit: usize) -> Vec<CmdPayload> {
+        use std::collections::HashMap;
+
+        if payloads.len() <= limit {
+            return payloads;
+        }
+
+        // Group payloads by category
+        let mut by_category: HashMap<CmdInjectionCategory, Vec<CmdPayload>> = HashMap::new();
+        for payload in payloads {
+            by_category
+                .entry(payload.category.clone())
+                .or_insert_with(Vec::new)
+                .push(payload);
+        }
+
+        // Calculate how many from each category
+        let num_categories = by_category.len();
+        let per_category = limit / num_categories.max(1);
+        let remainder = limit % num_categories.max(1);
+
+        let mut selected = Vec::with_capacity(limit);
+        let mut extra_slots = remainder;
+
+        // Priority order for categories (most likely to succeed first)
+        let priority_order = [
+            CmdInjectionCategory::ShellMetacharacters,
+            CmdInjectionCategory::CommandSubstitution,
+            CmdInjectionCategory::NewlineInjection,
+            CmdInjectionCategory::EnvironmentVars,
+            CmdInjectionCategory::Obfuscation,
+            CmdInjectionCategory::TimeBased,
+            CmdInjectionCategory::EncodingBypass,
+            CmdInjectionCategory::FilterEvasion,
+            CmdInjectionCategory::ContextBreaking,
+            CmdInjectionCategory::WindowsSpecific,
+            CmdInjectionCategory::WildcardBypass,
+            CmdInjectionCategory::ArgumentInjection,
+        ];
+
+        for category in &priority_order {
+            if let Some(category_payloads) = by_category.get_mut(category) {
+                let mut take = per_category;
+                if extra_slots > 0 {
+                    take += 1;
+                    extra_slots -= 1;
+                }
+                selected.extend(category_payloads.drain(..take.min(category_payloads.len())));
+            }
+        }
+
+        // If we still haven't filled up, take from any remaining
+        for (_cat, mut payloads_in_cat) in by_category {
+            if selected.len() >= limit {
+                break;
+            }
+            let remaining = limit - selected.len();
+            selected.extend(payloads_in_cat.drain(..remaining.min(payloads_in_cat.len())));
+        }
+
+        selected
+    }
+
     /// Generate all enterprise payloads - 1000+ payloads
     fn generate_enterprise_payloads(&self) -> Vec<CmdPayload> {
         let mut payloads = Vec::new();
@@ -1144,12 +1192,24 @@ impl CommandInjectionScanner {
         ]
     }
 
-    /// Scan a parameter for command injection vulnerabilities
+    /// Scan a parameter for command injection vulnerabilities (default intensity)
     pub async fn scan_parameter(
         &self,
         base_url: &str,
         parameter: &str,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        // Default to Standard intensity for backwards compatibility
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+    }
+
+    /// Scan a parameter for command injection with specified intensity (intelligent mode)
+    pub async fn scan_parameter_with_intensity(
+        &self,
+        base_url: &str,
+        parameter: &str,
         _config: &ScanConfig,
+        intensity: PayloadIntensity,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // ============================================================
         // MANDATORY AUTHORIZATION CHECK - CANNOT BE BYPASSED
@@ -1168,12 +1228,13 @@ impl CommandInjectionScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[CmdInjection] Enterprise scanner - testing parameter: {} (priority: {})",
+        info!("[CmdInjection] Intelligent scanner - testing parameter: {} (priority: {}, intensity: {:?})",
               parameter,
-              ParameterFilter::get_parameter_priority(parameter));
+              ParameterFilter::get_parameter_priority(parameter),
+              intensity);
 
         // Get payloads based on license tier
-        let payloads = if crate::license::is_feature_available("enterprise_cmd_injection") {
+        let mut payloads = if crate::license::is_feature_available("enterprise_cmd_injection") {
             self.generate_enterprise_payloads()
         } else if crate::license::is_feature_available("cmd_injection_scanning") {
             self.generate_professional_payloads()
@@ -1181,8 +1242,18 @@ impl CommandInjectionScanner {
             self.generate_basic_payloads()
         };
 
+        // INTELLIGENT MODE: Limit payloads based on intensity
+        let payload_limit = intensity.payload_limit();
+        let original_count = payloads.len();
+
+        if payloads.len() > payload_limit {
+            payloads = Self::select_diverse_payloads(payloads, payload_limit);
+            info!("[CmdInjection] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
+                  original_count, payloads.len(), intensity);
+        }
+
         let total_payloads = payloads.len();
-        info!("[CmdInjection] Testing {} bypass payloads", total_payloads);
+        info!("[CmdInjection] Testing {} payloads", total_payloads);
 
         let mut vulnerabilities = Vec::new();
 
@@ -1450,6 +1521,7 @@ impl CommandInjectionScanner {
             false_positive: false,
             remediation: self.get_remediation(category),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

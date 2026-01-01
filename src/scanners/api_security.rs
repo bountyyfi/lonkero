@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -14,10 +14,11 @@
  * - Missing rate limiting
  * - Unauthenticated API endpoints
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use base64::{Engine as _, engine::general_purpose};
@@ -48,6 +49,11 @@ impl APISecurityScanner {
         if !is_api {
             debug!("No API detected at {}, skipping API-specific tests", url);
             return Ok((vulnerabilities, tests_run));
+        }
+
+        // Intelligent detection
+        if let Ok(response) = self.http_client.get(url).await {
+            let _characteristics = AppCharacteristics::from_response(&response, url);
         }
 
         info!("Testing API security vulnerabilities");
@@ -113,7 +119,7 @@ impl APISecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing GraphQL security");
+        debug!("Testing GraphQL security");
 
         let graphql_paths = vec!["/graphql".to_string(), "/graphiql".to_string(), "/playground".to_string(), "/api/graphql".to_string()];
 
@@ -195,7 +201,7 @@ impl APISecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing REST API security");
+        debug!("Testing REST API security");
 
         let test_paths = vec![
             "/api/users",
@@ -295,7 +301,7 @@ impl APISecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing JWT security");
+        debug!("Testing JWT security");
 
         let endpoints = vec!["/api/login".to_string(), "/api/auth".to_string(), "/api/token".to_string()];
 
@@ -365,7 +371,7 @@ impl APISecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 20;
 
-        info!("Testing rate limiting");
+        debug!("Testing rate limiting");
 
         let test_url = self.build_url(url, "/api");
         let max_requests = 20;
@@ -446,6 +452,7 @@ impl APISecurityScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - JWT Attack Scanner
  * Tests for JWT (JSON Web Token) vulnerabilities and misconfigurations
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
@@ -548,6 +548,7 @@ impl JwtScanner {
 9. Implement token revocation/blacklisting
 10. Use a well-tested JWT library (jose, jsonwebtoken, etc.)"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

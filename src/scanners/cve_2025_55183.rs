@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -11,7 +11,7 @@
  * Reference: https://nextjs.org/blog/security-update-2025-12-11
  * Reference: https://blog.cloudflare.com/react2shell-rsc-vulnerabilities-exploitation-threat-brief/
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -127,6 +127,7 @@ impl Cve202555183Scanner {
                             waf
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 } else {
                     info!("[ALERT] CVE-2025-55183: Potentially vulnerable Next.js/React detected!");
@@ -175,6 +176,7 @@ impl Cve202555183Scanner {
                             Reference: https://nextjs.org/blog/security-update-2025-12-11"
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             } else if has_rsc || has_server_actions {

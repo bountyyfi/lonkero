@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
@@ -1965,13 +1965,17 @@ impl JsMinerScanner {
             || endpoint_trimmed.starts_with("https://")
             || endpoint_trimmed.starts_with("//");
 
-        // If it doesn't look like a path and has special chars, reject it
+        // If it doesn't look like a path, it's almost certainly not an API endpoint
+        // This prevents false positives like "familyName", "emailAddress" being detected as endpoints
         if !looks_like_path {
-            // Allow simple words like "api", "graphql" but reject obvious junk
-            let has_special = endpoint_trimmed.chars().any(|c|
-                c == '+' || c == '=' || c == '[' || c == ']' || c == '{' || c == '}'
-            );
-            if has_special {
+            // Only allow bare words if they're specifically API-related patterns
+            let api_keywords = ["api", "graphql", "query", "mutation", "rest", "rpc"];
+            let lower = endpoint_trimmed.to_lowercase();
+            let is_api_keyword = api_keywords.iter().any(|k| lower.contains(k));
+
+            // Must be an API keyword AND contain a slash to be valid
+            // e.g. "api/users" is ok, but "familyName" is not
+            if !is_api_keyword || !endpoint_trimmed.contains('/') {
                 return false;
             }
         }
@@ -3481,6 +3485,7 @@ impl JsMinerScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

@@ -1,20 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Email Header Injection Scanner
- * Tests for email header injection vulnerabilities (CRLF injection in email contexts)
- *
- * Detects:
- * - BCC/CC/To header injection
- * - Email subject injection
- * - Email body injection via Content-Type
- * - CRLF injection in email-related parameters
- * - Header injection leading to spam/phishing attacks
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -470,6 +455,7 @@ impl EmailHeaderInjectionScanner {
                          7. Consider using a dedicated email service (SendGrid, AWS SES) with built-in protections\n\
                          8. Log and monitor for email header injection attempts".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -498,7 +484,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> EmailHeaderInjectionScanner {

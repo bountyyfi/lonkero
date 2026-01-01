@@ -1,23 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - WebAuthn/FIDO2 Security Scanner
- * Tests for WebAuthn and FIDO2 implementation flaws
- *
- * Detects:
- * - Passkey implementation flaws
- * - Biometric bypass attempts
- * - Registration flow issues
- * - Weak challenge generation
- * - Missing origin validation
- * - Replay attack vulnerabilities
- * - User verification bypass
- * - Attestation statement issues
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -75,7 +57,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing WebAuthn endpoint configuration");
+        debug!("Testing WebAuthn endpoint configuration");
 
         let webauthn_endpoints = vec![
             ("/api/webauthn/register", "Registration"),
@@ -148,7 +130,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing challenge generation strength");
+        debug!("Testing challenge generation strength");
 
         let challenge_endpoints = vec![
             "/api/webauthn/register/begin",
@@ -218,7 +200,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing WebAuthn registration flow");
+        debug!("Testing WebAuthn registration flow");
 
         let registration_payloads = vec![
             (r#"{"user":{"id":"admin","name":"admin"}}"#, "User Enumeration"),
@@ -294,7 +276,7 @@ impl WebAuthnScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing WebAuthn origin validation");
+        debug!("Testing WebAuthn origin validation");
 
         let malicious_origins = vec![
             "https://evil.com",
@@ -417,8 +399,10 @@ impl WebAuthnScanner {
             return true;
         }
 
-        if challenge.chars().all(|c| c == challenge.chars().next().unwrap()) {
-            return true;
+        if let Some(first_char) = challenge.chars().next() {
+            if challenge.chars().all(|c| c == first_char) {
+                return true;
+            }
         }
 
         if challenge == "AAAAAAAAAAAAAAAA" ||
@@ -478,6 +462,7 @@ impl WebAuthnScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -565,7 +550,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> WebAuthnScanner {

@@ -1,10 +1,10 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -115,7 +115,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing GraphQL introspection");
+        debug!("Testing GraphQL introspection");
 
         // Try common GraphQL endpoints
         let graphql_endpoints = vec![
@@ -157,7 +157,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL injection");
+        debug!("Testing GraphQL injection");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -203,7 +203,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
-        info!("Testing GraphQL field suggestions");
+        debug!("Testing GraphQL field suggestions");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -243,7 +243,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL batch query attacks");
+        debug!("Testing GraphQL batch query attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -361,7 +361,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing GraphQL query complexity / deep nesting / circular query DoS");
+        debug!("Testing GraphQL query complexity / deep nesting / circular query DoS");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -387,6 +387,11 @@ impl GraphqlSecurityScanner {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
+                    // First, verify this is actually a GraphQL response (not SPA fallback)
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
+
                     // Check if query was accepted (no depth limit error)
                     let no_depth_limit = !response.body.to_lowercase().contains("depth")
                         && !response.body.to_lowercase().contains("too deep")
@@ -396,7 +401,8 @@ impl GraphqlSecurityScanner {
                     // Check if server took long time or accepted query
                     let slow_response = elapsed.as_secs() > 3;
 
-                    if (no_depth_limit && response.body.contains("data")) || slow_response {
+                    // Only report if it's a real GraphQL response with data
+                    if (no_depth_limit && response.body.contains("\"data\"")) || slow_response {
                         vulnerabilities.push(self.create_vulnerability(
                             "GraphQL Circular/Recursive Query DoS",
                             endpoint,
@@ -420,11 +426,16 @@ impl GraphqlSecurityScanner {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
+                    // Verify this is actually a GraphQL response
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
+
                     let no_circular_check = !response.body.to_lowercase().contains("circular")
                         && !response.body.to_lowercase().contains("infinite")
                         && !response.body.to_lowercase().contains("recursive");
 
-                    let slow_or_accepted = elapsed.as_secs() > 2 || response.body.contains("data");
+                    let slow_or_accepted = elapsed.as_secs() > 2 || response.body.contains("\"data\"");
 
                     if no_circular_check && slow_or_accepted {
                         vulnerabilities.push(self.create_vulnerability(
@@ -457,6 +468,11 @@ impl GraphqlSecurityScanner {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
+                    // Verify this is actually a GraphQL response
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
+
                     let no_deduplication = !response.body.to_lowercase().contains("duplicate")
                         && !response.body.to_lowercase().contains("repeated");
 
@@ -485,11 +501,16 @@ impl GraphqlSecurityScanner {
 
             match self.http_client.post_with_headers(endpoint, nested_circular, headers.clone()).await {
                 Ok(response) => {
+                    // Verify this is actually a GraphQL response
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
+
                     let no_checks = !response.body.to_lowercase().contains("circular")
                         && !response.body.to_lowercase().contains("depth")
                         && !response.body.to_lowercase().contains("too complex");
 
-                    if no_checks && response.body.contains("data") {
+                    if no_checks && response.body.contains("\"data\"") {
                         vulnerabilities.push(self.create_vulnerability(
                             "GraphQL Nested Circular Fragment Attack",
                             endpoint,
@@ -511,6 +532,11 @@ impl GraphqlSecurityScanner {
             match self.http_client.post_with_headers(endpoint, multi_entry_recursive, headers.clone()).await {
                 Ok(response) => {
                     let elapsed = start.elapsed();
+
+                    // Verify this is actually a GraphQL response
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
 
                     if elapsed.as_secs() > 2 || response.body.len() > 50000 {
                         vulnerabilities.push(self.create_vulnerability(
@@ -537,7 +563,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL alias abuse and overloading attacks");
+        debug!("Testing GraphQL alias abuse and overloading attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -560,6 +586,11 @@ impl GraphqlSecurityScanner {
             match self.http_client.post_with_headers(endpoint, &alias_overload, headers.clone()).await {
                 Ok(response) => {
                     let elapsed = start.elapsed();
+
+                    // Verify this is actually a GraphQL response
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
 
                     // Server may count as 1 query but executes thousands
                     let executed = response.body.contains("alias1")
@@ -598,6 +629,11 @@ impl GraphqlSecurityScanner {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
+                    // Verify this is actually a GraphQL response
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
+
                     let no_limits = !response.body.to_lowercase().contains("alias")
                         && !response.body.to_lowercase().contains("limit")
                         && !response.body.to_lowercase().contains("complexity");
@@ -632,6 +668,11 @@ impl GraphqlSecurityScanner {
 
             match self.http_client.post_with_headers(endpoint, nested_alias, headers.clone()).await {
                 Ok(response) => {
+                    // Verify this is actually a GraphQL response
+                    if !self.is_graphql_response(&response.body) {
+                        continue;
+                    }
+
                     let no_limits = !response.body.to_lowercase().contains("limit")
                         && !response.body.to_lowercase().contains("complexity");
 
@@ -659,7 +700,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL persisted query attacks");
+        debug!("Testing GraphQL persisted query attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -735,7 +776,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing GraphQL subscription vulnerabilities");
+        debug!("Testing GraphQL subscription vulnerabilities");
 
         // Check for WebSocket endpoint
         let _ws_endpoints = vec![
@@ -827,7 +868,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing GraphQL fragment attacks");
+        debug!("Testing GraphQL fragment attacks");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -902,7 +943,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL directive abuse");
+        debug!("Testing GraphQL directive abuse");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -929,6 +970,11 @@ impl GraphqlSecurityScanner {
 
                 match self.http_client.post_with_headers(endpoint, payload, headers).await {
                     Ok(response) => {
+                        // Verify this is actually a GraphQL response
+                        if !self.is_graphql_response(&response.body) {
+                            continue;
+                        }
+
                         // Check for debug/admin directive acceptance
                         let debug_accepted = response.body.contains("debug")
                             || response.body.contains("trace")
@@ -942,7 +988,7 @@ impl GraphqlSecurityScanner {
                         // Check for unrestricted directives
                         let no_directive_limit = !response.body.to_lowercase().contains("directive")
                             && !response.body.to_lowercase().contains("unknown")
-                            && response.body.contains("data");
+                            && response.body.contains("\"data\"");
 
                         if debug_accepted || info_leak {
                             vulnerabilities.push(self.create_vulnerability(
@@ -981,7 +1027,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing GraphQL authorization bypass");
+        debug!("Testing GraphQL authorization bypass");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -1052,7 +1098,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing GraphQL cost analysis and pagination abuse");
+        debug!("Testing GraphQL cost analysis and pagination abuse");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -1111,7 +1157,7 @@ impl GraphqlSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing GraphQL introspection abuse");
+        debug!("Testing GraphQL introspection abuse");
 
         let graphql_endpoints = vec![
             format!("{}/graphql", url.trim_end_matches('/')),
@@ -1164,8 +1210,55 @@ impl GraphqlSecurityScanner {
         Ok((vulnerabilities, tests_run))
     }
 
+    /// Check if response is actually from a GraphQL endpoint (not SPA fallback)
+    /// This prevents false positives when the /graphql path returns an HTML SPA page
+    fn is_graphql_response(&self, body: &str) -> bool {
+        let trimmed = body.trim();
+
+        // GraphQL responses are always JSON objects or arrays
+        if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
+            return false;
+        }
+
+        // Check for HTML indicators (SPA fallback)
+        let html_indicators = [
+            "<!DOCTYPE",
+            "<!doctype",
+            "<html",
+            "<head",
+            "<body",
+            "<script",
+            "<app-root>",
+            "<div id=\"root\">",
+            "<div id=\"app\">",
+            "__NEXT_DATA__",
+            "__NUXT__",
+            "polyfills.js",
+            "ng-version=",
+        ];
+
+        for indicator in &html_indicators {
+            if body.contains(indicator) {
+                return false;
+            }
+        }
+
+        // Verify it's a valid JSON structure with GraphQL-like content
+        let body_lower = body.to_lowercase();
+
+        // GraphQL responses typically have "data" or "errors" at the top level
+        (body_lower.contains("\"data\"") || body_lower.contains("\"errors\"")) ||
+        // Or introspection response
+        (body_lower.contains("__schema") || body_lower.contains("__type"))
+    }
+
     /// Detect if introspection is enabled
     fn detect_introspection_enabled(&self, body: &str) -> bool {
+        // First verify this is actually a GraphQL response
+        if !self.is_graphql_response(body) {
+            return false;
+        }
+
         let body_lower = body.to_lowercase();
 
         // Check for schema information in response
@@ -1260,6 +1353,7 @@ impl GraphqlSecurityScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

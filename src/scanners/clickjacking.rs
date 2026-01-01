@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -13,10 +13,11 @@
  * - Conflicting frame protection headers
  * - Deprecated JavaScript framebuster usage
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
@@ -44,6 +45,8 @@ impl ClickjackingScanner {
 
         match self.http_client.get(url).await {
             Ok(response) => {
+                // Store characteristics for intelligent detection
+                let _characteristics = AppCharacteristics::from_response(&response, url);
                 let headers_vec: Vec<(String, String)> = response.headers.iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
@@ -134,7 +137,7 @@ impl ClickjackingScanner {
 
         // X-Frame-Options present but misconfigured
         if has_x_frame_options && !has_valid_x_frame_options {
-            let xfo_value = x_frame_options.unwrap();
+            let xfo_value = x_frame_options.map(|s| s.as_str()).unwrap_or("unknown");
             return Some(self.create_vulnerability(
                 url,
                 "CLICKJACKING_MISCONFIGURED_XFO",
@@ -276,6 +279,7 @@ impl ClickjackingScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

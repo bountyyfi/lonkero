@@ -1,20 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Cache Poisoning Scanner
- * Detects web cache poisoning vulnerabilities
- *
- * Detects:
- * - Cache key manipulation
- * - Unkeyed header exploitation
- * - Cache deception attacks
- * - HTTP response splitting via cache
- * - XSS via cache poisoning
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -177,7 +162,7 @@ impl CachePoisoningScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing cache headers");
+        debug!("Testing cache headers");
 
         match self.http_client.get(url).await {
             Ok(response) => {
@@ -216,7 +201,7 @@ impl CachePoisoningScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing unkeyed headers");
+        debug!("Testing unkeyed headers");
 
         let original_url = format!("/{}", self.test_marker);
         let rewrite_url = format!("/{}", self.test_marker);
@@ -265,7 +250,7 @@ impl CachePoisoningScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing cache deception");
+        debug!("Testing cache deception");
 
         // Test if adding static file extension causes caching
         let base_url = if url.ends_with('/') {
@@ -391,6 +376,7 @@ impl CachePoisoningScanner {
                          9. Monitor cache hit ratios for anomalies\n\
                          10. Use SameSite cookies to prevent cache deception".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -423,7 +409,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CachePoisoningScanner {

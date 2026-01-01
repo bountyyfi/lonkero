@@ -1,22 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Information Disclosure Scanner
- * Detects information disclosure vulnerabilities
- *
- * Detects:
- * - Stack traces in error messages
- * - Database error messages
- * - Server version disclosure
- * - Directory listing exposure
- * - Sensitive file exposure (.env, config files)
- * - Debug mode enabled
- * - Source code disclosure
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::scanners::baseline_detector::BaselineDetector;
@@ -99,7 +82,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing sensitive file exposure");
+        debug!("Testing sensitive file exposure");
 
         let sensitive_files = vec![
             "/.env",
@@ -151,7 +134,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing for stack traces");
+        debug!("Testing for stack traces");
 
         let error_triggers = vec![
             "?error=1",
@@ -194,7 +177,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing for directory listing");
+        debug!("Testing for directory listing");
 
         let base_url = self.extract_base_url(url);
         let directories = vec![
@@ -238,7 +221,7 @@ impl InformationDisclosureScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 1;
 
-        info!("Testing for server information disclosure");
+        debug!("Testing for server information disclosure");
 
         // Test 1: Check main URL headers
         match self.http_client.get(url).await {
@@ -640,6 +623,7 @@ impl InformationDisclosureScanner {
                          9. Remove development files from production\n\
                          10. Use Content Security Policy headers".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -672,7 +656,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> InformationDisclosureScanner {

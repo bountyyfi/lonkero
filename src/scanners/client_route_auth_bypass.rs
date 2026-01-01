@@ -1,29 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Client Route Authorization Bypass Scanner
- *
- * SMART DISCOVERY: Instead of guessing paths, we extract ACTUAL routes from JavaScript
- * and test them for authorization bypass based on their declared requirements.
- *
- * What makes this scanner intelligent:
- * 1. Extracts real client-side routes from Vue Router, React Router, Angular Router
- * 2. Discovers authentication requirements from route metadata
- * 3. Discovers role requirements (RBAC) from route guards
- * 4. Tests only routes that SHOULD be protected
- * 5. Identifies IDOR vulnerabilities in parameterized routes
- *
- * Detects:
- * - Authentication bypass (accessing requireAuth routes without token)
- * - Role-based access control (RBAC) bypass
- * - IDOR in parameterized routes (/user/:id)
- * - Horizontal privilege escalation
- * - Direct object reference vulnerabilities
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -371,8 +347,11 @@ impl ClientRouteAuthBypassScanner {
 
         // Pattern: getServerSideProps with session check
         if js_code.contains("getServerSideProps") && js_code.contains("session") {
-            // Next.js routes are file-based, harder to extract from bundle
-            // This is a placeholder for potential future enhancement
+            // Next.js App Router routes are file-system based and not directly extractable
+            // from bundled JavaScript. The route structure is determined by the file system
+            // layout (app/ or pages/ directories), not by JavaScript code analysis.
+            // Route detection for Next.js is handled by probing common paths instead.
+            debug!("Next.js getServerSideProps detected - routes are file-system based");
         }
 
         routes
@@ -457,6 +436,7 @@ impl ClientRouteAuthBypassScanner {
                              7. Validate JWT/session tokens server-side\n\
                              8. Log unauthorized access attempts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             })
         } else {
             None
@@ -522,6 +502,7 @@ impl ClientRouteAuthBypassScanner {
                              7. Log role bypass attempts for security monitoring\n\
                              8. Implement principle of least privilege".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             })
         } else {
             None
@@ -581,6 +562,7 @@ impl ClientRouteAuthBypassScanner {
                                      7. Implement row-level security in database\n\
                                      8. Use GraphQL field-level authorization".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }

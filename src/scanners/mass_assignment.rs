@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -48,10 +48,11 @@
  * - Verifies privilege escalation or property modification
  * - Distinguishes between reflection and actual injection
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use serde_json::json;
@@ -79,6 +80,15 @@ impl MassAssignmentScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Intelligent detection - skip for static sites
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_injection_tests() {
+                info!("[MassAssignment] Skipping - static/SPA site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
+
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -197,7 +207,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing price manipulation via mass assignment");
+        debug!("Testing price manipulation via mass assignment");
 
         let price_params = vec![
             ("price", "0"),
@@ -244,7 +254,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing hidden field injection");
+        debug!("Testing hidden field injection");
 
         let hidden_params = vec![
             ("user_id", "1"),
@@ -293,7 +303,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing nested object injection");
+        debug!("Testing nested object injection");
 
         // Test payloads with different nesting levels and notation styles
         let nested_payloads = vec![
@@ -397,7 +407,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing JSON deep merge attacks");
+        debug!("Testing JSON deep merge attacks");
 
         // Test payloads with nested JSON structures
         let merge_payloads = vec![
@@ -532,7 +542,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 18;
 
-        info!("Testing prototype pollution via mass assignment");
+        debug!("Testing prototype pollution via mass assignment");
 
         // URL-encoded prototype pollution payloads
         let marker_proto_1 = format!("__proto__[{}]=polluted", self.test_marker);
@@ -676,7 +686,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing array parameter pollution");
+        debug!("Testing array parameter pollution");
 
         // Array pollution payloads
         let marker_array_1 = format!("users[0][{}]=injected", self.test_marker);
@@ -746,7 +756,7 @@ impl MassAssignmentScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing constructor property injection");
+        debug!("Testing constructor property injection");
 
         // Constructor injection payloads
         let marker_constructor_1 = format!("constructor[{}]=injected", self.test_marker);
@@ -1081,24 +1091,73 @@ impl MassAssignmentScanner {
     fn detect_privilege_escalation(&self, body: &str, param: &str, value: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check if parameter was accepted
+        // First, check if this looks like a SPA/soft-404 response (HTML page returned for all routes)
+        // SPA responses contain typical frontend markers and should not be considered as API responses
+        if self.is_spa_response(body) {
+            return false;
+        }
+
+        // Check if parameter was accepted - this is the strongest evidence
+        // Must be in a JSON-like structure to be considered valid
         if body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) ||
            body_lower.contains(&format!("{}\":{}", param, value)) ||
            body_lower.contains(&format!("'{}':'{}'", param, value)) {
             return true;
         }
 
-        // Check for privilege indicators
-        let privilege_indicators = vec![
-            "admin",
-            "administrator",
-            "privilege",
-            "elevated",
-            "superuser",
+        // Only check for privilege indicators in structured API responses (JSON)
+        // Do NOT check for these words in HTML responses as they cause false positives
+        if !body.trim().starts_with("{") && !body.trim().starts_with("[") {
+            // Not a JSON response, skip privilege indicator check
+            return false;
+        }
+
+        // For JSON responses, check for privilege indicators in the context of the injected param
+        let privilege_patterns = vec![
+            format!("\"{}\":\"admin\"", param),
+            format!("\"{}\":true", param),
+            format!("\"{}\":1", param),
+            format!("\"{}\":\"administrator\"", param),
+            format!("\"{}\":\"superuser\"", param),
         ];
 
-        for indicator in privilege_indicators {
-            if body_lower.contains(indicator) {
+        for pattern in privilege_patterns {
+            if body_lower.contains(&pattern.to_lowercase()) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if response is a SPA/single-page-application fallback (soft-404)
+    fn is_spa_response(&self, body: &str) -> bool {
+        let spa_indicators = [
+            "<app-root>",
+            "<div id=\"root\">",
+            "<div id=\"app\">",
+            "__NEXT_DATA__",
+            "__NUXT__",
+            "ng-version=",
+            "data-reactroot",
+            "<script src=\"/main.",
+            "<script src=\"main.",
+            "polyfills.js",
+            "/static/js/main.",
+            "/_next/static/",
+            "window.__REDUX",
+            "window.__PRELOADED_STATE__",
+        ];
+
+        for indicator in &spa_indicators {
+            if body.contains(indicator) {
+                return true;
+            }
+        }
+
+        // Check for common SPA HTML structure with no actual API content
+        if body.contains("<!DOCTYPE html>") || body.contains("<!doctype html>") {
+            if body.contains("<script") && (body.contains("angular") || body.contains("react") || body.contains("vue")) {
                 return true;
             }
         }
@@ -1186,6 +1245,7 @@ impl MassAssignmentScanner {
                          14. Use Object.create(null) for objects without prototype\n\
                          15. Implement strict JSON schema validation for deep merges".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

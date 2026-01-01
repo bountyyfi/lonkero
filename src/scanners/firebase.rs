@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -11,7 +11,7 @@
  * - Missing email enumeration protection
  * - Firebase configuration exposure
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -171,7 +171,7 @@ impl FirebaseScanner {
 
         // Step 2: Test Realtime Database (doesn't need API key)
         if let Some(ref project_id_val) = project_id {
-            info!("Testing Firebase Realtime Database for project: {}", project_id_val);
+            debug!("Testing Firebase Realtime Database for project: {}", project_id_val);
 
             let (rtdb_vulns, rtdb_tests) = self.test_realtime_database(project_id_val, url).await;
             vulnerabilities.extend(rtdb_vulns);
@@ -180,7 +180,7 @@ impl FirebaseScanner {
 
         // Step 3: Test Firestore (doesn't need API key initially)
         if let Some(ref project_id_val) = project_id {
-            info!("Testing Firestore for project: {}", project_id_val);
+            debug!("Testing Firestore for project: {}", project_id_val);
 
             let (firestore_vulns, firestore_tests) = self.test_firestore(project_id_val, url).await;
             vulnerabilities.extend(firestore_vulns);
@@ -189,7 +189,7 @@ impl FirebaseScanner {
 
         // Step 4: Test Firebase Storage (doesn't need API key initially)
         if let Some(ref project_id_val) = project_id {
-            info!("Testing Firebase Storage for project: {}", project_id_val);
+            debug!("Testing Firebase Storage for project: {}", project_id_val);
 
             let (storage_vulns, storage_tests) = self.test_storage(project_id_val, url).await;
             vulnerabilities.extend(storage_vulns);
@@ -198,7 +198,7 @@ impl FirebaseScanner {
 
         // Step 5: Test Firebase config discovery
         if let Some(ref project_id_val) = project_id {
-            info!("Testing Firebase config discovery");
+            debug!("Testing Firebase config discovery");
 
             let (config_vulns, config_tests) = self.test_config_discovery(project_id_val, url).await;
             vulnerabilities.extend(config_vulns);
@@ -214,7 +214,7 @@ impl FirebaseScanner {
 
         // Step 7: Test Cloud Functions
         if let Some(ref project_id_val) = project_id {
-            info!("Testing Cloud Functions for project: {}", project_id_val);
+            debug!("Testing Cloud Functions for project: {}", project_id_val);
 
             let (functions_vulns, functions_tests) = self.test_cloud_functions(project_id_val, url).await;
             vulnerabilities.extend(functions_vulns);
@@ -485,6 +485,7 @@ impl FirebaseScanner {
                                           3. Implement authentication for config endpoints\n\
                                           4. Review Firebase security rules".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -535,6 +536,7 @@ impl FirebaseScanner {
                                   3. Review Remote Config permissions\n\
                                   4. Use IAM policies to limit access".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -591,6 +593,7 @@ impl FirebaseScanner {
                                       3. Use same response for existing and non-existing accounts\n\
                                       4. Implement rate limiting on password reset requests".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -661,6 +664,7 @@ impl FirebaseScanner {
                               5. Monitor API usage for abuse\n\
                               6. Set usage quotas to prevent billing surprises".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -673,7 +677,7 @@ impl FirebaseScanner {
         config: &FirebaseConfig,
         url: &str,
     ) -> Option<Vulnerability> {
-        info!("Testing Firebase email enumeration with API key: {}...", &config.api_key[..20]);
+        debug!("Testing Firebase email enumeration with API key: {}...", &config.api_key[..20]);
 
         // Firebase Identity Toolkit endpoint
         let endpoint = format!(
@@ -774,6 +778,7 @@ impl FirebaseScanner {
                                       \n\
                                       Reference: https://cloud.google.com/identity-platform/docs/admin/email-enumeration-protection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -894,6 +899,7 @@ impl FirebaseScanner {
                                   5. Implement granular path-based rules\n\
                                   6. Audit existing data for exposed sensitive information".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -937,6 +943,7 @@ impl FirebaseScanner {
                                   3. Follow principle of least privilege in rules\n\
                                   4. Use Firebase Console to manage rules securely".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -973,6 +980,7 @@ impl FirebaseScanner {
                         false_positive: false,
                         remediation: "Fix Firebase Realtime Database security rules. See Firebase documentation.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
 
                     // Only report first sensitive path to avoid spam
@@ -1029,6 +1037,7 @@ impl FirebaseScanner {
                                       3. Implement authentication-based rules\n\
                                       4. Never use 'allow read, write: if true;'".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
 
                     // Only report first accessible collection
@@ -1083,6 +1092,7 @@ impl FirebaseScanner {
                                   3. Restrict read access to authenticated users\n\
                                   4. Never use 'allow read: if true;'".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -1250,6 +1260,7 @@ impl FirebaseScanner {
                                       \n\
                                       Reference: https://firebase.google.com/docs/auth/admin/manage-users".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
 
@@ -1286,6 +1297,7 @@ impl FirebaseScanner {
                         false_positive: false,
                         remediation: "Disable email/password signup in Firebase Console or use Admin SDK for controlled registration.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
 
@@ -1343,6 +1355,7 @@ impl FirebaseScanner {
                                       3. If needed, implement rate limiting and abuse prevention\n\
                                       4. Monitor for anomalous signup patterns".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }

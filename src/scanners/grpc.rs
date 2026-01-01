@@ -1,13 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - gRPC Security Scanner
- * Tests for gRPC API vulnerabilities and misconfigurations
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary - Enterprise Edition
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -587,6 +579,7 @@ References:
 - Protocol Buffers Validation: https://github.com/envoyproxy/protoc-gen-validate
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

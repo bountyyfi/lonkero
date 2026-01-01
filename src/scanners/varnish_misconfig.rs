@@ -1,21 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Varnish Cache Misconfiguration Scanner
- * Tests for Varnish cache server misconfigurations
- *
- * Detects:
- * - Unauthenticated cache purge (PURGE method without auth)
- * - Cache bypass vulnerabilities
- * - X-Varnish header disclosure
- * - Via header information disclosure
- * - Cache poisoning vectors
- * - BAN method without authentication
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -177,15 +161,18 @@ impl VarnishMisconfigScanner {
         }
 
         // Test 3: Varnish Information Disclosure via Headers
+        // IMPORTANT: Only report if we detect VARNISH specifically, not other CDNs like CloudFront
         tests_run += 1;
         match self.http_client.get(url).await {
             Ok(response) => {
                 let mut disclosed_info = Vec::new();
+                let mut is_varnish = false;
 
-                // Check for X-Varnish header (reveals request ID and cache status)
+                // Check for X-Varnish header (this is Varnish-specific)
                 if let Some(x_varnish) = response.headers.get("x-varnish")
                     .or_else(|| response.headers.get("X-Varnish")) {
                     disclosed_info.push(format!("X-Varnish: {}", x_varnish));
+                    is_varnish = true;
                 }
 
                 // Check for Via header (reveals Varnish version)
@@ -193,38 +180,39 @@ impl VarnishMisconfigScanner {
                     .or_else(|| response.headers.get("Via")) {
                     if via.to_lowercase().contains("varnish") {
                         disclosed_info.push(format!("Via: {}", via));
+                        is_varnish = true;
                     }
                 }
 
-                // Check for X-Cache header
+                // Check for X-Cache header - but ONLY if it mentions Varnish
+                // CloudFront, Akamai, etc. also use this header
                 if let Some(x_cache) = response.headers.get("x-cache")
                     .or_else(|| response.headers.get("X-Cache")) {
-                    if x_cache.to_lowercase().contains("varnish")
-                        || x_cache.to_lowercase().contains("hit")
-                        || x_cache.to_lowercase().contains("miss") {
+                    let x_cache_lower = x_cache.to_lowercase();
+                    if x_cache_lower.contains("varnish") {
                         disclosed_info.push(format!("X-Cache: {}", x_cache));
+                        is_varnish = true;
                     }
+                    // Skip CloudFront, Akamai, Fastly, etc. - they're not Varnish
+                    // These CDNs are expected to have cache headers
                 }
 
-                // Check for X-Cache-Hits header
+                // Check for X-Cache-Hits header (Varnish-specific)
                 if let Some(hits) = response.headers.get("x-cache-hits")
                     .or_else(|| response.headers.get("X-Cache-Hits")) {
+                    // X-Cache-Hits is often Varnish-specific
                     disclosed_info.push(format!("X-Cache-Hits: {}", hits));
+                    is_varnish = true;
                 }
 
-                // Check for Age header (time in cache)
-                if let Some(age) = response.headers.get("age")
-                    .or_else(|| response.headers.get("Age")) {
-                    disclosed_info.push(format!("Age: {}", age));
-                }
-
-                if !disclosed_info.is_empty() {
+                // Only report if we're confident this is Varnish
+                if is_varnish && !disclosed_info.is_empty() {
                     vulnerabilities.push(self.create_vulnerability(
                         url,
                         "VARNISH_INFO_DISCLOSURE",
                         "Varnish Cache Information Disclosure via Headers",
                         &format!(
-                            "Cache-related headers reveal infrastructure information:\n{}",
+                            "Varnish-specific headers reveal infrastructure information:\n{}",
                             disclosed_info.join("\n")
                         ),
                         Severity::Info,
@@ -379,6 +367,7 @@ impl VarnishMisconfigScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -407,7 +396,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> VarnishMisconfigScanner {

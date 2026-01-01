@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -7,7 +7,7 @@
  * This module provides smart detection logic to prevent false positives when
  * scanning diverse tech stacks (SPAs, static sites, APIs, etc.)
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
@@ -641,6 +641,53 @@ pub fn discover_api_endpoints(base_url: &str, html_body: &str) -> Vec<String> {
     }
 
     endpoints
+}
+
+/// Check if a payload had a measurable effect compared to baseline response
+/// Used to reduce false positives by ensuring payloads actually change behavior
+pub fn did_payload_have_effect(baseline: &HttpResponse, response: &HttpResponse, payload: &str) -> bool {
+    // Different status code is a strong indicator
+    if baseline.status_code != response.status_code {
+        return true;
+    }
+
+    // Significant change in body length (more than 10% difference)
+    let baseline_len = baseline.body.len();
+    let response_len = response.body.len();
+    let len_diff = if baseline_len > response_len {
+        baseline_len - response_len
+    } else {
+        response_len - baseline_len
+    };
+
+    if baseline_len > 0 && (len_diff as f64 / baseline_len as f64) > 0.1 {
+        return true;
+    }
+
+    // Check if payload or its effects appear in response but not baseline
+    let payload_lower = payload.to_lowercase();
+    let response_lower = response.body.to_lowercase();
+    let baseline_lower = baseline.body.to_lowercase();
+
+    // Payload reflection that wasn't in baseline
+    if response_lower.contains(&payload_lower) && !baseline_lower.contains(&payload_lower) {
+        return true;
+    }
+
+    // Error messages that weren't in baseline
+    let error_indicators = ["error", "exception", "invalid", "syntax", "unexpected"];
+    for indicator in &error_indicators {
+        if response_lower.contains(indicator) && !baseline_lower.contains(indicator) {
+            return true;
+        }
+    }
+
+    // Timing difference (significant delay suggests processing)
+    if response.duration_ms > baseline.duration_ms + 500 {
+        return true;
+    }
+
+    false
 }
 
 /// Check if technology is present before running scanner

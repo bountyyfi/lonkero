@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use chrono::Datelike;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 mod uuid {
     pub use uuid::Uuid;
@@ -151,7 +151,7 @@ impl CloudStorageScanner {
         }
 
         // Otherwise, test common bucket naming patterns
-        info!("Testing S3 buckets for domain: {}", domain);
+        debug!("Testing S3 buckets for domain: {}", domain);
 
         let bucket_patterns = vec![
             format!("{}-backups", domain),
@@ -409,7 +409,7 @@ impl CloudStorageScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing Azure Blob storage for domain: {}", domain);
+        debug!("Testing Azure Blob storage for domain: {}", domain);
 
         let storage_patterns = vec![
             format!("{}", domain),
@@ -448,7 +448,7 @@ impl CloudStorageScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing Google Cloud Storage for domain: {}", domain);
+        debug!("Testing Google Cloud Storage for domain: {}", domain);
 
         let bucket_patterns = vec![
             format!("{}", domain),
@@ -549,6 +549,7 @@ impl CloudStorageScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -587,6 +588,7 @@ impl CloudStorageScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 

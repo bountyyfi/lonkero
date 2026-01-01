@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Enhanced Subdomain Discovery Module
  * Production-grade subdomain enumeration with passive and active techniques
  *
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use crate::http_client::HttpClient;

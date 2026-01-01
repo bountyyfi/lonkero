@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Blind SSRF with OOB Callback Detection Scanner
  * Detects blind SSRF vulnerabilities using Out-of-Band callbacks and timing analysis
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -38,6 +39,15 @@ impl SsrfBlindScanner {
         }
 
         info!("[SSRF-Blind] Scanning parameter: {}", parameter);
+
+        // Intelligent detection - skip for static sites
+        if let Ok(response) = self.http_client.get(base_url).await {
+            let characteristics = AppCharacteristics::from_response(&response, base_url);
+            if characteristics.should_skip_injection_tests() {
+                info!("[SSRF-Blind] Skipping - static/SPA site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -532,6 +542,7 @@ Additional Security Measures:
 - Consider using SSRF-safe libraries (e.g., SafeCurl for PHP)
 - Regularly scan for SSRF vulnerabilities as part of SDLC"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

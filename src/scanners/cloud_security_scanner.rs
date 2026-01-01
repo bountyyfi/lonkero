@@ -1,23 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Cloud Security Scanner
- * Tests for cloud metadata service abuse and misconfigurations
- *
- * Detects:
- * - AWS metadata service abuse (169.254.169.254)
- * - GCP metadata API exposure
- * - Azure Instance Metadata Service (IMDS) attacks
- * - Cloud credential exposure
- * - IAM role enumeration
- * - Security token leakage
- * - Cloud storage bucket misconfigurations
- * - Container registry exposure
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -160,7 +142,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing AWS metadata service SSRF");
+        debug!("Testing AWS metadata service SSRF");
 
         let aws_metadata_payloads = vec![
             "http://169.254.169.254/latest/meta-data/",
@@ -217,7 +199,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing GCP metadata service SSRF");
+        debug!("Testing GCP metadata service SSRF");
 
         let gcp_metadata_payloads = vec![
             "http://metadata.google.internal/computeMetadata/v1/",
@@ -275,7 +257,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing Azure IMDS SSRF");
+        debug!("Testing Azure IMDS SSRF");
 
         let azure_metadata_payloads = vec![
             "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
@@ -331,7 +313,7 @@ impl CloudSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing for cloud credential exposure");
+        debug!("Testing for cloud credential exposure");
 
         let credential_endpoints = vec![
             "/.aws/credentials",
@@ -528,6 +510,7 @@ impl CloudSecurityScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -615,7 +598,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CloudSecurityScanner {

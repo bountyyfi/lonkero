@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 use anyhow::{Context, Result};
@@ -6,7 +6,11 @@ use moka::future::Cache;
 use reqwest::Client;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::debug;
 
+use crate::analysis::{
+    IntelligenceBus, PatternType, ResponseAnalyzer, SecurityIndicator, ErrorType,
+};
 use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::rate_limiter::AdaptiveRateLimiter;
 
@@ -49,6 +53,10 @@ pub struct HttpClient {
     cache: Option<Arc<Cache<String, HttpResponse>>>,
     circuit_breaker: Option<Arc<CircuitBreaker>>,
     max_body_size: usize,
+    /// Optional response analyzer for semantic understanding
+    response_analyzer: Option<Arc<ResponseAnalyzer>>,
+    /// Optional intelligence bus for broadcasting findings
+    intelligence_bus: Option<Arc<IntelligenceBus>>,
 }
 
 impl HttpClient {
@@ -130,6 +138,8 @@ impl HttpClient {
             cache: None,
             circuit_breaker: None,
             max_body_size: MAX_BODY_SIZE,
+            response_analyzer: None,
+            intelligence_bus: None,
         })
     }
 
@@ -153,6 +163,198 @@ impl HttpClient {
     pub fn with_circuit_breaker(mut self, config: CircuitBreakerConfig) -> Self {
         self.circuit_breaker = Some(Arc::new(CircuitBreaker::new(config)));
         self
+    }
+
+    /// Enable response intelligence analysis
+    ///
+    /// When enabled, every HTTP response will be analyzed for semantic meaning
+    /// (SQL errors, stack traces, WAF detection, auth states, etc.) and findings
+    /// will be broadcast to the IntelligenceBus for other scanners to consume.
+    ///
+    /// # Arguments
+    /// * `response_analyzer` - The analyzer for extracting semantic meaning from responses
+    /// * `intelligence_bus` - The bus for broadcasting findings to other scanners
+    ///
+    /// # Example
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use lonkero::analysis::{ResponseAnalyzer, IntelligenceBus};
+    /// use lonkero::http_client::HttpClient;
+    ///
+    /// let analyzer = Arc::new(ResponseAnalyzer::new());
+    /// let bus = Arc::new(IntelligenceBus::new());
+    /// let client = HttpClient::new(30, 3)?
+    ///     .with_intelligence(analyzer, bus);
+    /// ```
+    pub fn with_intelligence(
+        mut self,
+        response_analyzer: Arc<ResponseAnalyzer>,
+        intelligence_bus: Arc<IntelligenceBus>,
+    ) -> Self {
+        self.response_analyzer = Some(response_analyzer);
+        self.intelligence_bus = Some(intelligence_bus);
+        self
+    }
+
+    /// Set response analyzer without intelligence bus
+    ///
+    /// Useful when you want to analyze responses without broadcasting findings.
+    pub fn with_response_analyzer(mut self, response_analyzer: Arc<ResponseAnalyzer>) -> Self {
+        self.response_analyzer = Some(response_analyzer);
+        self
+    }
+
+    /// Set intelligence bus
+    ///
+    /// Useful when adding a bus to a client that already has an analyzer.
+    pub fn with_intelligence_bus(mut self, intelligence_bus: Arc<IntelligenceBus>) -> Self {
+        self.intelligence_bus = Some(intelligence_bus);
+        self
+    }
+
+    /// Analyze response for semantic meaning and broadcast findings
+    ///
+    /// This method performs non-blocking pattern matching on the response to detect:
+    /// - SQL errors (with database type identification)
+    /// - Stack traces (with framework detection)
+    /// - WAF presence (with WAF type identification)
+    /// - Authentication states
+    /// - Sensitive data exposure
+    ///
+    /// Significant findings are broadcast to the IntelligenceBus for other scanners.
+    async fn analyze_response_intelligence(&self, response: &HttpResponse) {
+        let analyzer = match &self.response_analyzer {
+            Some(a) => a,
+            None => return,
+        };
+
+        // Perform semantic analysis
+        let semantics = analyzer.analyze(response.status_code, &response.headers, &response.body);
+
+        debug!(
+            "Response analysis: type={:?}, auth={:?}, confidence={:.2}",
+            semantics.response_type,
+            semantics.auth_state,
+            semantics.confidence
+        );
+
+        // Get the bus for broadcasting (if available)
+        let bus = match &self.intelligence_bus {
+            Some(b) => b,
+            None => return,
+        };
+
+        // Broadcast WAF detection
+        for indicator in &semantics.security_indicators {
+            if let SecurityIndicator::WafPresent { waf_type } = indicator {
+                debug!("WAF detected: {}", waf_type);
+                bus.report_waf(waf_type, vec![]).await;
+            }
+        }
+
+        // Broadcast SQL errors as vulnerability patterns
+        if let Some(ref error_info) = semantics.error_info {
+            if let ErrorType::Database { ref db_type } = error_info.error_type {
+                let db_name = db_type.as_deref().unwrap_or("Unknown");
+                debug!("SQL error detected: database type = {}", db_name);
+                bus.report_vulnerability_pattern(
+                    PatternType::SqlError,
+                    &format!("Database type: {}", db_name),
+                    None,
+                )
+                .await;
+            }
+        }
+
+        // Broadcast stack trace detection
+        if let Some(framework) = analyzer.has_stack_trace(&response.body) {
+            debug!("Stack trace detected: framework = {}", framework);
+            bus.report_vulnerability_pattern(
+                PatternType::StackTrace,
+                &format!("Framework: {}", framework),
+                None,
+            )
+            .await;
+        }
+
+        // Broadcast debug mode detection
+        if semantics
+            .security_indicators
+            .iter()
+            .any(|i| matches!(i, SecurityIndicator::DebugMode))
+        {
+            debug!("Debug mode detected in response");
+            bus.report_vulnerability_pattern(
+                PatternType::DebugMode,
+                "Debug mode appears to be enabled",
+                None,
+            )
+            .await;
+        }
+
+        // Broadcast internal IP disclosure
+        for exposure in &semantics.data_exposure {
+            if matches!(
+                exposure.exposure_type,
+                crate::analysis::ExposureType::InternalIp
+            ) {
+                debug!("Internal IP disclosure detected");
+                bus.report_vulnerability_pattern(
+                    PatternType::InternalIp,
+                    &format!("Internal IP exposed: {}", exposure.sample),
+                    None,
+                )
+                .await;
+            }
+        }
+
+        // Broadcast path disclosure
+        for exposure in &semantics.data_exposure {
+            if matches!(
+                exposure.exposure_type,
+                crate::analysis::ExposureType::FilePath
+            ) {
+                debug!("Path disclosure detected");
+                bus.report_vulnerability_pattern(
+                    PatternType::PathDisclosure,
+                    &format!("File path exposed: {}", exposure.sample),
+                    None,
+                )
+                .await;
+            }
+        }
+    }
+
+    /// Get the response analyzer if configured
+    ///
+    /// Returns a reference to the analyzer for external use when callers
+    /// need to perform custom analysis or access analyzer methods directly.
+    pub fn get_response_analyzer(&self) -> Option<&Arc<ResponseAnalyzer>> {
+        self.response_analyzer.as_ref()
+    }
+
+    /// Get the intelligence bus if configured
+    ///
+    /// Returns a reference to the intelligence bus for external use when callers
+    /// need to broadcast findings or subscribe to events directly.
+    pub fn get_intelligence_bus(&self) -> Option<&Arc<IntelligenceBus>> {
+        self.intelligence_bus.as_ref()
+    }
+
+    /// Analyze a response and return semantic information
+    ///
+    /// This is a public method that allows callers to get the full semantic
+    /// analysis of a response without broadcasting to the intelligence bus.
+    /// Useful for detailed analysis or when custom handling of findings is needed.
+    ///
+    /// Returns None if no response analyzer is configured.
+    pub fn analyze_response(
+        &self,
+        response: &HttpResponse,
+    ) -> Option<crate::analysis::ResponseSemantics> {
+        self.response_analyzer.as_ref().map(|analyzer| {
+            analyzer.analyze(response.status_code, &response.headers, &response.body)
+        })
     }
 
     /// Send GET request with payload
@@ -248,6 +450,9 @@ impl HttpClient {
                         duration_ms: 0,
                     };
 
+                    // Analyze response for intelligence (non-blocking pattern matching)
+                    self.analyze_response_intelligence(&http_response).await;
+
                     // Store in cache if enabled
                     if let Some(cache) = &self.cache {
                         cache.as_ref().insert(url.to_string(), http_response.clone()).await;
@@ -310,7 +515,7 @@ impl HttpClient {
                         }
                     }
 
-                    return Ok(HttpResponse {
+                    let http_response = HttpResponse {
                         status_code,
                         body,
                         headers: headers
@@ -323,7 +528,12 @@ impl HttpClient {
                             })
                             .collect(),
                         duration_ms: 0,
-                    });
+                    };
+
+                    // Analyze response for intelligence (non-blocking pattern matching)
+                    self.analyze_response_intelligence(&http_response).await;
+
+                    return Ok(http_response);
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -375,7 +585,7 @@ impl HttpClient {
                         }
                     }
 
-                    return Ok(HttpResponse {
+                    let http_response = HttpResponse {
                         status_code,
                         body: response_body,
                         headers: response_headers
@@ -388,7 +598,12 @@ impl HttpClient {
                             })
                             .collect(),
                         duration_ms: 0,
-                    });
+                    };
+
+                    // Analyze response for intelligence (non-blocking pattern matching)
+                    self.analyze_response_intelligence(&http_response).await;
+
+                    return Ok(http_response);
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -441,7 +656,7 @@ impl HttpClient {
                         }
                     }
 
-                    return Ok(HttpResponse {
+                    let http_response = HttpResponse {
                         status_code,
                         body,
                         headers: headers
@@ -454,7 +669,12 @@ impl HttpClient {
                             })
                             .collect(),
                         duration_ms: 0,
-                    });
+                    };
+
+                    // Analyze response for intelligence (non-blocking pattern matching)
+                    self.analyze_response_intelligence(&http_response).await;
+
+                    return Ok(http_response);
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -506,7 +726,7 @@ impl HttpClient {
                         }
                     }
 
-                    return Ok(HttpResponse {
+                    let http_response = HttpResponse {
                         status_code,
                         body,
                         headers: headers
@@ -519,7 +739,12 @@ impl HttpClient {
                             })
                             .collect(),
                         duration_ms: 0,
-                    });
+                    };
+
+                    // Analyze response for intelligence (non-blocking pattern matching)
+                    self.analyze_response_intelligence(&http_response).await;
+
+                    return Ok(http_response);
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -571,7 +796,7 @@ impl HttpClient {
                         }
                     }
 
-                    return Ok(HttpResponse {
+                    let http_response = HttpResponse {
                         status_code,
                         body: response_body,
                         headers: response_headers
@@ -584,7 +809,12 @@ impl HttpClient {
                             })
                             .collect(),
                         duration_ms: 0,
-                    });
+                    };
+
+                    // Analyze response for intelligence (non-blocking pattern matching)
+                    self.analyze_response_intelligence(&http_response).await;
+
+                    return Ok(http_response);
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -631,7 +861,7 @@ impl HttpClient {
                         }
                     }
 
-                    return Ok(HttpResponse {
+                    let http_response = HttpResponse {
                         status_code,
                         body: response_body,
                         headers: response_headers
@@ -644,7 +874,12 @@ impl HttpClient {
                             })
                             .collect(),
                         duration_ms: 0,
-                    });
+                    };
+
+                    // Analyze response for intelligence (non-blocking pattern matching)
+                    self.analyze_response_intelligence(&http_response).await;
+
+                    return Ok(http_response);
                 }
                 Err(e) => {
                     last_error = Some(e);

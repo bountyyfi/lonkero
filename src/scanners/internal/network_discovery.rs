@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -13,7 +13,7 @@
  * - OS fingerprinting
  * - Network topology mapping
  *
- * © 2025 Bountyy Oy
+ * © 2026 Bountyy Oy
  */
 
 use anyhow::{Context, Result};
@@ -218,7 +218,13 @@ impl NetworkDiscoveryScanner {
         let mut tasks = Vec::new();
 
         for target in targets {
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(e) => {
+                    debug!("Failed to acquire semaphore: {}", e);
+                    continue;
+                }
+            };
             let target_clone = target.clone();
             let options_clone = options.clone();
             let scanner = Self::new();

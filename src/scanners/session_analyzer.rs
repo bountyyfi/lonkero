@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 //! Advanced Session Security Analyzer
@@ -16,7 +16,7 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Session Analyzer for deep session security testing
 pub struct SessionAnalyzer {
@@ -34,7 +34,7 @@ impl SessionAnalyzer {
         url: &str,
         credentials: Option<&LoginCredentials>,
         existing_session: Option<&AuthSession>,
-        config: &ScanConfig,
+        _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -124,8 +124,14 @@ impl SessionAnalyzer {
         // Check for low entropy
         if analysis.estimated_entropy < 64.0 {
             vulnerabilities.push(Vulnerability {
-                id: format!("SESSION-ENTROPY-{}", uuid::Uuid::new_v4()),
-                name: "Low Session ID Entropy".to_string(),
+                id: format!("session-entropy-{}", uuid::Uuid::new_v4()),
+                vuln_type: "Low Session ID Entropy".to_string(),
+                severity: if analysis.estimated_entropy < 32.0 { Severity::Critical } else { Severity::High },
+                confidence: Confidence::High,
+                category: "Session Management".to_string(),
+                url: url.to_string(),
+                parameter: Some("Session ID".to_string()),
+                payload: "N/A".to_string(),
                 description: format!(
                     "Session IDs have low entropy (~{:.1} bits). Recommended: 128+ bits. \
                     Sample length: {} chars, character set size: {}",
@@ -133,44 +139,42 @@ impl SessionAnalyzer {
                     analysis.avg_length,
                     analysis.charset_size
                 ),
-                severity: if analysis.estimated_entropy < 32.0 { Severity::Critical } else { Severity::High },
-                confidence: Confidence::High,
-                url: url.to_string(),
-                parameter: Some("Session ID".to_string()),
-                evidence: format!(
+                evidence: Some(format!(
                     "Collected {} unique sessions. Avg length: {}, Estimated entropy: {:.1} bits",
                     analysis.unique_count,
                     analysis.avg_length,
                     analysis.estimated_entropy
-                ),
-                remediation: "Use cryptographically secure random number generator with at least 128 bits of entropy".to_string(),
-                cwe_id: Some("CWE-330".to_string()),
-                cvss_score: Some(7.5),
-                references: vec!["https://owasp.org/www-community/vulnerabilities/Insufficient_Session-ID_Length".to_string()],
-                request: None,
-                response: None,
-                found_at: chrono::Utc::now(),
+                )),
+                cwe: "CWE-330".to_string(),
+                cvss: 7.5,
+                verified: true,
+                false_positive: false,
+                remediation: "Use cryptographically secure random number generator with at least 128 bits of entropy for session ID generation.".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
         // Check for sequential patterns
         if analysis.has_sequential_pattern {
             vulnerabilities.push(Vulnerability {
-                id: format!("SESSION-SEQUENTIAL-{}", uuid::Uuid::new_v4()),
-                name: "Predictable Session ID Pattern".to_string(),
-                description: "Session IDs appear to follow a sequential or predictable pattern".to_string(),
+                id: format!("session-sequential-{}", uuid::Uuid::new_v4()),
+                vuln_type: "Predictable Session ID Pattern".to_string(),
                 severity: Severity::Critical,
                 confidence: Confidence::Medium,
+                category: "Session Management".to_string(),
                 url: url.to_string(),
                 parameter: Some("Session ID".to_string()),
-                evidence: "Sequential numeric components detected in session IDs".to_string(),
-                remediation: "Use truly random session IDs without sequential components".to_string(),
-                cwe_id: Some("CWE-330".to_string()),
-                cvss_score: Some(9.1),
-                references: vec![],
-                request: None,
-                response: None,
-                found_at: chrono::Utc::now(),
+                payload: "N/A".to_string(),
+                description: "Session IDs appear to follow a sequential or predictable pattern".to_string(),
+                evidence: Some("Sequential numeric components detected in session IDs".to_string()),
+                cwe: "CWE-330".to_string(),
+                cvss: 9.1,
+                verified: true,
+                false_positive: false,
+                remediation: "Use truly random session IDs without sequential components. Never use timestamps, counters, or predictable values.".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             });
         }
 
@@ -208,21 +212,23 @@ impl SessionAnalyzer {
 
         if !unchanged.is_empty() {
             return Ok(Some(vec![Vulnerability {
-                id: format!("SESSION-FIXATION-{}", uuid::Uuid::new_v4()),
-                name: "Session Fixation Vulnerability".to_string(),
-                description: "Session ID is not regenerated after successful authentication, allowing session fixation attacks".to_string(),
+                id: format!("session-fixation-{}", uuid::Uuid::new_v4()),
+                vuln_type: "Session Fixation Vulnerability".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::High,
+                category: "Session Management".to_string(),
                 url: url.to_string(),
                 parameter: Some("Session ID".to_string()),
-                evidence: format!("{} session values remained unchanged after login", unchanged.len()),
-                remediation: "Regenerate session ID after successful authentication and privilege level changes".to_string(),
-                cwe_id: Some("CWE-384".to_string()),
-                cvss_score: Some(8.1),
-                references: vec!["https://owasp.org/www-community/attacks/Session_fixation".to_string()],
-                request: None,
-                response: None,
-                found_at: chrono::Utc::now(),
+                payload: "N/A".to_string(),
+                description: "Session ID is not regenerated after successful authentication, allowing session fixation attacks".to_string(),
+                evidence: Some(format!("{} session values remained unchanged after login", unchanged.len())),
+                cwe: "CWE-384".to_string(),
+                cvss: 8.1,
+                verified: true,
+                false_positive: false,
+                remediation: "Regenerate session ID after successful authentication and privilege level changes. Invalidate the old session completely.".to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
             }]));
         }
 
@@ -252,11 +258,11 @@ impl SessionAnalyzer {
         let mut logged_out = false;
         for logout_url in &logout_urls {
             // Try GET and POST
-            if let Ok(_) = self.http_client.get_authenticated(logout_url, session).await {
+            if self.http_client.get_authenticated(logout_url, session).await.is_ok() {
                 logged_out = true;
                 break;
             }
-            if let Ok(_) = self.http_client.post_authenticated(logout_url, "", session).await {
+            if self.http_client.post_authenticated(logout_url, "", session).await.is_ok() {
                 logged_out = true;
                 break;
             }
@@ -281,21 +287,23 @@ impl SessionAnalyzer {
                body_lower.contains("welcome") ||
                body_lower.contains("\"authenticated\":true") {
                 return Ok(Some(vec![Vulnerability {
-                    id: format!("SESSION-LOGOUT-{}", uuid::Uuid::new_v4()),
-                    name: "Session Not Invalidated After Logout".to_string(),
-                    description: "Session token remains valid after logout, allowing continued access".to_string(),
+                    id: format!("session-logout-{}", uuid::Uuid::new_v4()),
+                    vuln_type: "Session Not Invalidated After Logout".to_string(),
                     severity: Severity::High,
                     confidence: Confidence::High,
+                    category: "Session Management".to_string(),
                     url: url.to_string(),
                     parameter: Some("Session ID".to_string()),
-                    evidence: format!("Session still accessible after logout (status: {})", post_logout.status_code),
-                    remediation: "Invalidate session server-side on logout. Don't rely only on cookie deletion.".to_string(),
-                    cwe_id: Some("CWE-613".to_string()),
-                    cvss_score: Some(6.5),
-                    references: vec!["https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/06-Testing_for_Logout_Functionality".to_string()],
-                    request: None,
-                    response: None,
-                    found_at: chrono::Utc::now(),
+                    payload: "N/A".to_string(),
+                    description: "Session token remains valid after logout, allowing continued access".to_string(),
+                    evidence: Some(format!("Session still accessible after logout (status: {})", post_logout.status_code)),
+                    cwe: "CWE-613".to_string(),
+                    cvss: 6.5,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "Invalidate session server-side on logout. Don't rely only on cookie deletion. Implement proper session termination.".to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 }]));
             }
         }
@@ -356,21 +364,23 @@ impl SessionAnalyzer {
 
                     if hours_until_exp > 24 * 7 { // More than a week
                         vulnerabilities.push(Vulnerability {
-                            id: format!("SESSION-LONGLIVED-{}", uuid::Uuid::new_v4()),
-                            name: "Excessively Long Session Lifetime".to_string(),
-                            description: format!("Session/token expires in {} hours ({} days)", hours_until_exp, hours_until_exp / 24),
+                            id: format!("session-longlived-{}", uuid::Uuid::new_v4()),
+                            vuln_type: "Excessively Long Session Lifetime".to_string(),
                             severity: Severity::Medium,
                             confidence: Confidence::High,
+                            category: "Session Management".to_string(),
                             url: url.to_string(),
                             parameter: Some("Session timeout".to_string()),
-                            evidence: format!("Token expires in {} days", hours_until_exp / 24),
-                            remediation: "Implement shorter session timeouts (4-8 hours for sensitive apps)".to_string(),
-                            cwe_id: Some("CWE-613".to_string()),
-                            cvss_score: Some(4.3),
-                            references: vec![],
-                            request: None,
-                            response: None,
-                            found_at: chrono::Utc::now(),
+                            payload: format!("exp: {} hours ({} days)", hours_until_exp, hours_until_exp / 24),
+                            description: format!("Session/token expires in {} hours ({} days)", hours_until_exp, hours_until_exp / 24),
+                            evidence: Some(format!("Token expires in {} days", hours_until_exp / 24)),
+                            cwe: "CWE-613".to_string(),
+                            cvss: 4.3,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "Implement shorter session timeouts (4-8 hours for sensitive apps). Use sliding sessions with absolute maximums.".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -474,4 +484,25 @@ struct EntropyAnalysis {
     charset_size: usize,
     estimated_entropy: f64,
     has_sequential_pattern: bool,
+}
+
+// UUID generation helper
+mod uuid {
+    use rand::Rng;
+
+    pub struct Uuid;
+
+    impl Uuid {
+        pub fn new_v4() -> String {
+            let mut rng = rand::rng();
+            format!(
+                "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                rng.random::<u32>(),
+                rng.random::<u16>(),
+                rng.random::<u16>(),
+                rng.random::<u16>(),
+                rng.random::<u64>() & 0xffffffffffff
+            )
+        }
+    }
 }

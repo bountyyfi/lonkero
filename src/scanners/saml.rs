@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - SAML Security Scanner
  * Tests for SAML (Security Assertion Markup Language) vulnerabilities
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -45,9 +46,11 @@ impl SamlScanner {
             }
         };
 
+        // Intelligent detection
+        let characteristics = AppCharacteristics::from_response(&response, url);
         let is_saml = self.detect_saml_endpoint(&response);
-        if !is_saml {
-            info!("[NOTE] [SAML] Not a SAML endpoint, skipping");
+        if !is_saml || characteristics.should_skip_auth_tests() {
+            info!("[NOTE] [SAML] Not a SAML endpoint or no auth context, skipping");
             return Ok((vulnerabilities, tests_run));
         }
 
@@ -630,6 +633,7 @@ References:
 - CVE-2018-0489 (Comment Injection): https://duo.com/blog/duo-finds-saml-vulnerabilities-affecting-multiple-implementations
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

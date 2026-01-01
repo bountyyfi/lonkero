@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - WebSocket Security Scanner
  * Tests for WebSocket vulnerabilities and misconfigurations
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -49,11 +50,15 @@ impl WebSocketScanner {
             }
         };
 
+        // Intelligent detection
+        let characteristics = AppCharacteristics::from_response(&response, url);
         let is_websocket = self.detect_websocket_endpoint(&response, url);
         if !is_websocket {
             debug!("[NOTE] [WebSocket] Not a WebSocket endpoint");
             return Ok((vulnerabilities, tests_run));
         }
+        // Store characteristics for later use in tests
+        let _app_chars = characteristics;
 
         info!("[SUCCESS] [WebSocket] WebSocket endpoint detected");
 
@@ -1231,6 +1236,7 @@ References:
 - PortSwigger WebSocket Security: https://portswigger.net/web-security/websockets
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

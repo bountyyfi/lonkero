@@ -1,23 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Advanced SSTI Scanner
- * Tests for Server-Side Template Injection with modern engines
- *
- * Detects:
- * - Modern template engine vulnerabilities (2024-2025)
- * - Jinja2, Twig, Freemarker, Velocity, Handlebars, Pug
- * - Filter bypass techniques
- * - RCE payloads for various engines
- * - Sandbox escape vectors
- * - Expression language injection
- * - Template context manipulation
- * - Polyglot SSTI payloads
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -99,7 +81,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing Jinja2 SSTI payloads");
+        debug!("Testing Jinja2 SSTI payloads");
 
         let variable_interpolation = format!("{{{{{}}}}}", self.test_marker);
         let jinja2_payloads = vec![
@@ -135,7 +117,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing Twig SSTI payloads");
+        debug!("Testing Twig SSTI payloads");
 
         let twig_payloads = vec![
             ("{{7*7}}", "49", "Basic arithmetic"),
@@ -167,7 +149,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing Freemarker SSTI payloads");
+        debug!("Testing Freemarker SSTI payloads");
 
         let freemarker_payloads = vec![
             ("${7*7}", "49", "Basic arithmetic"),
@@ -197,7 +179,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing Velocity SSTI payloads");
+        debug!("Testing Velocity SSTI payloads");
 
         let velocity_payloads = vec![
             ("#set($x=7*7)$x", "49", "Basic arithmetic"),
@@ -225,7 +207,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing Handlebars SSTI payloads");
+        debug!("Testing Handlebars SSTI payloads");
 
         let handlebars_payloads = vec![
             ("{{#with \"s\" as |string|}}\n{{#with \"e\"}}\n{{#with split as |conslist|}}\n{{this.pop}}\n{{this.push (lookup string.sub \"constructor\")}}\n{{this.pop}}\n{{#with string.split as |codelist|}}\n{{this.pop}}\n{{this.push \"return require('child_process').exec('id');\"}}\n{{this.pop}}\n{{#each conslist}}\n{{#with (string.sub.apply 0 codelist)}}\n{{this}}\n{{/with}}\n{{/each}}\n{{/with}}\n{{/with}}\n{{/with}}\n{{/with}}", "uid=", "Complex RCE"),
@@ -255,7 +237,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing Pug (Jade) SSTI payloads");
+        debug!("Testing Pug (Jade) SSTI payloads");
 
         let pug_payloads = vec![
             ("#{7*7}", "49", "Basic arithmetic"),
@@ -283,7 +265,7 @@ impl SstiAdvancedScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing polyglot SSTI payloads");
+        debug!("Testing polyglot SSTI payloads");
 
         let polyglot_marker = format!("${{{{{}}}}}", self.test_marker);
         let polyglot_payloads = vec![
@@ -313,6 +295,13 @@ impl SstiAdvancedScanner {
         engine: &str,
         description: &str,
     ) -> anyhow::Result<Option<Vulnerability>> {
+        // CRITICAL: Get baseline response first to avoid false positives
+        // Numbers like "49" can appear naturally in dates, IDs, prices, etc.
+        let baseline = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
+
         let test_params = vec!["name".to_string(), "template".to_string(), "content".to_string(), "message".to_string(), "comment".to_string(), "search".to_string(), "q".to_string()];
 
         for param in test_params {
@@ -324,7 +313,11 @@ impl SstiAdvancedScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && response.body.contains(indicator) {
+                    // CRITICAL: Indicator must be NEW (not present in baseline)
+                    // "49" appearing in baseline means it's not from template injection
+                    let indicator_is_new = response.body.contains(indicator) && !baseline.body.contains(indicator);
+
+                    if response.status_code == 200 && indicator_is_new {
                         info!("{} SSTI detected via parameter '{}': {}", engine, param, description);
 
                         let severity = if description.contains("RCE") || description.contains("exec") || description.contains("File read") {
@@ -352,13 +345,14 @@ impl SstiAdvancedScanner {
                             parameter: Some(param.to_string()),
                             payload: payload.to_string(),
                             description: format!("{} SSTI vulnerability - {}", engine, description),
-                            evidence: Some(format!("Payload executed successfully. Indicator '{}' found in response", indicator)),
+                            evidence: Some(format!("Payload executed successfully. Indicator '{}' is NEW in response (not in baseline)", indicator)),
                             cwe: "CWE-94".to_string(),
                             cvss: cvss as f32,
                             verified: true,
                             false_positive: false,
                             remediation: self.get_remediation(engine),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                            ml_data: None,
                         }));
                     }
                 }
@@ -454,7 +448,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> SstiAdvancedScanner {

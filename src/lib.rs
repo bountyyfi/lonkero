@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Scanner Library
  * Exposes scanner modules for testing
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
@@ -16,6 +16,7 @@ pub mod config;
 pub mod crawler;
 pub mod headless_crawler;
 pub mod auth_context;
+pub mod multi_role;
 pub mod database;
 pub mod detection_helpers;
 pub mod dns_cache;
@@ -79,3 +80,18 @@ pub mod signing;
 
 // Module IDs for server-side authorization
 pub mod modules;
+
+// Machine Learning module (federated learning, GDPR-compliant)
+pub mod ml;
+
+// GraphQL introspection and schema parsing
+pub mod graphql_introspection;
+
+// State-aware crawling module
+pub mod state_tracker;
+
+// Form replay system for security testing
+pub mod form_replay;
+
+// Session recording for browser session capture and replay
+pub mod session_recording;

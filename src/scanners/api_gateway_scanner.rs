@@ -1,23 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - API Gateway Security Scanner
- * Tests API Gateway-specific security vulnerabilities
- *
- * Detects:
- * - Rate limit bypass via header manipulation
- * - API key leakage in responses/headers
- * - Mass assignment vulnerabilities in API requests
- * - API versioning issues and deprecated endpoints
- * - Gateway configuration exposures
- * - Authentication bypass via path traversal
- * - Header injection in API gateways
- * - API schema disclosure
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -87,7 +69,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 25;
 
-        info!("Testing rate limit bypass via header manipulation");
+        debug!("Testing rate limit bypass via header manipulation");
 
         // Step 1: First establish that rate limiting EXISTS by making requests without bypass headers
         // Look for 429 response or rate limit headers
@@ -186,7 +168,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing for API key leakage");
+        debug!("Testing for API key leakage");
 
         let test_paths = vec![
             "/api/config",
@@ -253,7 +235,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing API versioning issues");
+        debug!("Testing API versioning issues");
 
         let version_patterns = vec![
             ("/v1/", "/v0/"),
@@ -299,7 +281,27 @@ impl ApiGatewayScanner {
 
             match self.http_client.get(&version_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && !self.has_deprecation_warning(&response.body, &response.headers) {
+                    // Check if this is actually an API response, not an SPA fallback
+                    // SPAs return HTML for all non-existent routes
+                    let content_type = response.headers.get("content-type")
+                        .or_else(|| response.headers.get("Content-Type"))
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+
+                    let is_api_response = content_type.contains("application/json")
+                        || content_type.contains("text/json")
+                        || content_type.contains("application/xml");
+
+                    // Don't report if it's HTML (likely SPA fallback)
+                    let is_html = content_type.contains("text/html")
+                        || response.body.trim_start().starts_with("<!DOCTYPE")
+                        || response.body.trim_start().starts_with("<html");
+
+                    if response.status_code == 200
+                        && is_api_response
+                        && !is_html
+                        && !self.has_deprecation_warning(&response.body, &response.headers)
+                    {
                         info!("Undocumented API version found: {}", version);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -328,7 +330,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing gateway authentication bypass");
+        debug!("Testing gateway authentication bypass");
 
         let bypass_techniques = vec![
             ("../api/admin", "Path Traversal"),
@@ -407,7 +409,7 @@ impl ApiGatewayScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing for API schema disclosure");
+        debug!("Testing for API schema disclosure");
 
         let schema_endpoints = vec![
             "/swagger.json",
@@ -458,7 +460,7 @@ impl ApiGatewayScanner {
         let mut tests_run = 0;
         let base_url = self.extract_base_url(url);
 
-        info!("Testing for BFF/Internal gateway exposure");
+        debug!("Testing for BFF/Internal gateway exposure");
 
         // Common BFF (Backend-For-Frontend) path patterns
         let bff_paths = vec![
@@ -809,6 +811,7 @@ impl ApiGatewayScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -916,7 +919,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> ApiGatewayScanner {

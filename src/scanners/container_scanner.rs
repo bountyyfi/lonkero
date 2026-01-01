@@ -1,23 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Container Security Scanner
- * Tests for container and orchestration vulnerabilities
- *
- * Detects:
- * - Docker API exposure (ports 2375, 2376)
- * - Kubernetes API exposure (port 6443, 8080, 10250)
- * - Container escape vectors
- * - Registry vulnerabilities (Docker Hub, ECR, GCR, ACR)
- * - Privileged container detection
- * - Container secrets exposure
- * - Misconfigured kubelet
- * - Exposed etcd endpoints
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -78,7 +60,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
-        info!("Testing for Docker API exposure");
+        debug!("Testing for Docker API exposure");
 
         let docker_endpoints = vec![
             ("/v1.40/containers/json", "Docker API v1.40"),
@@ -165,7 +147,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
-        info!("Testing for Kubernetes API exposure");
+        debug!("Testing for Kubernetes API exposure");
 
         let k8s_endpoints = vec![
             ("/api/v1", "Kubernetes API"),
@@ -269,7 +251,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
-        info!("Testing for container registry exposure");
+        debug!("Testing for container registry exposure");
 
         let registry_endpoints = vec![
             ("/v2/", "Docker Registry v2"),
@@ -371,7 +353,7 @@ impl ContainerScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
-        info!("Testing for container secrets exposure");
+        debug!("Testing for container secrets exposure");
 
         let secret_paths = vec![
             "/run/secrets/",
@@ -567,6 +549,7 @@ impl ContainerScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 
@@ -652,7 +635,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> ContainerScanner {

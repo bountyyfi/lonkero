@@ -1,28 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Advanced Next.js Security Scanner
- * Comprehensive Next.js vulnerability detection
- *
- * REQUIRES: Personal license or higher
- *
- * Detects:
- * - Middleware bypass vulnerabilities (CVE-2024-34351, etc.)
- * - Server component data exposure
- * - _next/data endpoint leakage
- * - API route misconfigurations
- * - Environment variable exposure
- * - Image optimization SSRF
- * - Draft/Preview mode exposure
- * - ISR revalidation token exposure
- * - Source map disclosure
- * - Next.js config exposure
- * - Known Next.js CVEs
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary - Personal Edition and above
- */
 
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -166,6 +143,12 @@ impl NextJsSecurityScanner {
         info!("[Next.js] Detected Next.js application{}",
             version.as_ref().map(|v| format!(" (version: {})", v)).unwrap_or_default());
 
+        // Discover routes from JavaScript bundles for enhanced testing
+        let discovered_routes = self.discover_routes(url).await.unwrap_or_default();
+        if !discovered_routes.is_empty() {
+            info!("[Next.js] Discovered {} routes for security testing", discovered_routes.len());
+        }
+
         // Test middleware bypass vulnerabilities
         let (bypass_vulns, bypass_tests) = self.check_middleware_bypass(url, config).await?;
         vulnerabilities.extend(bypass_vulns);
@@ -221,6 +204,13 @@ impl NextJsSecurityScanner {
             let (cve_vulns, cve_tests) = self.check_version_cves(url, ver, config).await?;
             vulnerabilities.extend(cve_vulns);
             tests_run += cve_tests;
+        }
+
+        // Test discovered routes for middleware bypass
+        if !discovered_routes.is_empty() {
+            let (route_vulns, route_tests) = self.check_discovered_routes_bypass(url, &discovered_routes, config).await?;
+            vulnerabilities.extend(route_vulns);
+            tests_run += route_tests;
         }
 
         info!("[Next.js] Completed: {} vulnerabilities, {} tests",
@@ -371,6 +361,7 @@ impl NextJsSecurityScanner {
                                       3. Implement defense in depth - validate auth at API route level\n\
                                       4. Use next.config.js to block x-middleware-subrequest header from external requests".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                 }
             }
@@ -417,6 +408,7 @@ impl NextJsSecurityScanner {
                             false_positive: false,
                             remediation: "Upgrade Next.js and implement server-side auth validation.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -455,11 +447,13 @@ impl NextJsSecurityScanner {
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
 
-        if build_id.is_none() {
-            debug!("[Next.js] Could not extract buildId");
-            return Ok((vec![], tests_run));
-        }
-        let build_id = build_id.unwrap();
+        let build_id = match build_id {
+            Some(id) => id,
+            None => {
+                debug!("[Next.js] Could not extract buildId");
+                return Ok((vec![], tests_run));
+            }
+        };
 
         // Test _next/data endpoints for various pages
         let pages_to_test = [
@@ -536,6 +530,7 @@ impl NextJsSecurityScanner {
                                           4. Use authentication checks in getServerSideProps\n\
                                           5. Consider using API routes for sensitive data access".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -627,6 +622,7 @@ impl NextJsSecurityScanner {
                                           3. Implement role-based access control\n\
                                           4. Remove debug/internal endpoints in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -675,6 +671,7 @@ impl NextJsSecurityScanner {
                                                   - Don't use wildcard with credentials\n\
                                                   - Validate Origin header server-side".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                                 });
                             }
                         }
@@ -759,6 +756,7 @@ impl NextJsSecurityScanner {
                                   4. Rotate any exposed credentials immediately\n\
                                   5. Use server-side API routes to access sensitive data".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -834,6 +832,7 @@ impl NextJsSecurityScanner {
                                       4. Disable image optimization if not needed\n\
                                       5. Block internal IP ranges at network level".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -903,6 +902,7 @@ impl NextJsSecurityScanner {
                                           3. Use environment variable for draft secret\n\
                                           4. Add rate limiting to draft endpoints".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                         break;
                     }
@@ -965,6 +965,7 @@ impl NextJsSecurityScanner {
                                       3. Implement rate limiting\n\
                                       4. Use on-demand revalidation with proper auth".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1024,6 +1025,7 @@ impl NextJsSecurityScanner {
                                       2. Remove .map files from production build\n\
                                       3. Use hideSourceMaps: true if using next-compose-plugins".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                     });
                     break;
                 }
@@ -1101,6 +1103,7 @@ impl NextJsSecurityScanner {
                                           3. Add to .gitignore and deploy excludes\n\
                                           4. Use next.config.js headers to block access".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                         });
                     }
                 }
@@ -1160,6 +1163,7 @@ impl NextJsSecurityScanner {
                                   2. Validate Host header in middleware\n\
                                   3. Use allowlist for redirect targets".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -1262,6 +1266,7 @@ impl NextJsSecurityScanner {
                         cve.cve_id
                     ),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 });
             }
         }
@@ -1269,9 +1274,442 @@ impl NextJsSecurityScanner {
         Ok((vulnerabilities, tests_run))
     }
 
+    /// Check discovered routes for middleware bypass vulnerabilities
+    async fn check_discovered_routes_bypass(
+        &self,
+        url: &str,
+        routes: &[String],
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let base = url.trim_end_matches('/');
+
+        // Only test routes that look like they might be protected
+        let protected_keywords = ["admin", "dashboard", "settings", "account", "profile", "user", "private", "internal", "protected", "manage", "billing"];
+
+        for route in routes.iter().take(20) {
+            // Check if route contains protected keywords
+            let route_lower = route.to_lowercase();
+            let might_be_protected = protected_keywords.iter().any(|k| route_lower.contains(k));
+
+            if !might_be_protected {
+                continue;
+            }
+
+            // Expand dynamic route segments with test values
+            let test_routes = self.expand_dynamic_route(route);
+
+            for test_route in &test_routes {
+                tests_run += 1;
+                let test_url = format!("{}{}", base, test_route);
+
+                // Check normal response
+                let normal_resp = match self.http_client.get(&test_url).await {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+
+                // Skip if not protected (we want 401/403 responses)
+                if normal_resp.status_code != 401 && normal_resp.status_code != 403 {
+                    continue;
+                }
+
+                debug!("[Next.js] Found protected route: {} ({})", test_route, normal_resp.status_code);
+
+                // Try bypass with x-middleware-subrequest header
+                tests_run += 1;
+                let headers = vec![
+                    ("x-middleware-subrequest".to_string(), "middleware:middleware:middleware:middleware:middleware".to_string()),
+                ];
+
+                if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers).await {
+                    if bypass_resp.status_code == 200 ||
+                       (bypass_resp.status_code != 401 && bypass_resp.status_code != 403 && bypass_resp.status_code != 404) {
+                        info!("[Next.js] CRITICAL: Middleware bypass on discovered route: {}", test_route);
+                        vulnerabilities.push(Vulnerability {
+                            id: format!("nextjs_discovered_route_bypass_{}", Self::generate_id()),
+                            vuln_type: "Next.js Middleware Bypass - Discovered Route".to_string(),
+                            severity: Severity::Critical,
+                            confidence: Confidence::High,
+                            category: "Authentication".to_string(),
+                            url: test_url.clone(),
+                            parameter: Some("x-middleware-subrequest".to_string()),
+                            payload: "x-middleware-subrequest: middleware:middleware:middleware:middleware:middleware".to_string(),
+                            description: format!(
+                                "Next.js middleware bypass discovered on route '{}' extracted from JavaScript bundles. \
+                                The route returns {} normally but {} with bypass header. \
+                                This is a critical authentication bypass vulnerability (CVE-2025-29927).",
+                                test_route, normal_resp.status_code, bypass_resp.status_code
+                            ),
+                            evidence: Some(format!(
+                                "Discovered route: {}\n\
+                                Normal response: {}\n\
+                                Bypass response: {}\n\
+                                Response length: {} bytes",
+                                test_route, normal_resp.status_code, bypass_resp.status_code, bypass_resp.body.len()
+                            )),
+                            cwe: "CWE-287".to_string(),
+                            cvss: 9.8,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Upgrade Next.js to latest version (14.2.25+ or 15.2.3+)\n\
+                                          2. Implement server-side authentication that doesn't rely on middleware alone\n\
+                                          3. Add x-middleware-subrequest to blocked headers in production".to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        if !vulnerabilities.is_empty() {
+            info!("[Next.js] Found {} middleware bypass vulnerabilities on discovered routes", vulnerabilities.len());
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Expand dynamic route segments [param] with test values
+    fn expand_dynamic_route(&self, route: &str) -> Vec<String> {
+        let mut routes = Vec::new();
+
+        // Check if route has dynamic segments
+        if !route.contains('[') {
+            routes.push(route.to_string());
+            return routes;
+        }
+
+        // Replace common dynamic segments with test values
+        let test_values = [
+            ("[lng]", vec!["en", "de", "fr"]),
+            ("[id]", vec!["1", "test"]),
+            ("[slug]", vec!["test-page"]),
+            ("[...slug]", vec!["test/page"]),
+            ("[userId]", vec!["1"]),
+            ("[orgId]", vec!["1"]),
+        ];
+
+        let mut current_routes = vec![route.to_string()];
+
+        for (pattern, replacements) in test_values {
+            let mut new_routes = Vec::new();
+            for r in &current_routes {
+                if r.contains(pattern) {
+                    for replacement in &replacements {
+                        new_routes.push(r.replace(pattern, replacement));
+                    }
+                } else {
+                    new_routes.push(r.clone());
+                }
+            }
+            if !new_routes.is_empty() {
+                current_routes = new_routes;
+            }
+        }
+
+        // Also handle generic [param] patterns
+        let generic_param_re = Regex::new(r"\[[\w]+\]").ok();
+        if let Some(re) = generic_param_re {
+            for r in &current_routes {
+                if re.is_match(r) {
+                    // Replace any remaining [param] with "1"
+                    routes.push(re.replace_all(r, "1").to_string());
+                } else {
+                    routes.push(r.clone());
+                }
+            }
+        } else {
+            routes = current_routes;
+        }
+
+        routes.sort();
+        routes.dedup();
+        routes
+    }
+
     fn generate_id() -> String {
         use rand::Rng;
         let mut rng = rand::rng();
         format!("{:08x}", rng.random::<u32>())
+    }
+
+    /// Discover Next.js App Router routes from JavaScript bundles
+    /// Returns a list of discovered route paths
+    pub async fn discover_routes(&self, url: &str) -> Result<Vec<String>> {
+        let mut routes = std::collections::HashSet::new();
+        let base_url = url.trim_end_matches('/');
+
+        info!("[Next.js] Discovering App Router routes from JavaScript bundles");
+
+        // Fetch the main page to find _next script URLs
+        let main_response = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(e) => {
+                debug!("[Next.js] Failed to fetch main page: {}", e);
+                return Ok(vec![]);
+            }
+        };
+
+        // Extract all _next script URLs
+        let script_urls = self.extract_next_scripts(&main_response.body, base_url);
+        info!("[Next.js] Found {} _next scripts to analyze", script_urls.len());
+
+        // Analyze each script for route patterns
+        for script_url in script_urls.iter().take(30) {
+            if let Ok(script_response) = self.http_client.get(script_url).await {
+                // Ensure we got JavaScript, not HTML (SPA fallback)
+                if script_response.body.contains("<!DOCTYPE") || script_response.body.contains("<html") {
+                    debug!("[Next.js] Skipping {} - got HTML instead of JS", script_url);
+                    continue;
+                }
+
+                let script_routes = self.extract_routes_from_script(&script_response.body);
+                for route in script_routes {
+                    routes.insert(route);
+                }
+            }
+        }
+
+        // Also check for routes in __NEXT_DATA__
+        if let Some(next_data_routes) = self.extract_routes_from_next_data(&main_response.body) {
+            for route in next_data_routes {
+                routes.insert(route);
+            }
+        }
+
+        // Filter and clean routes
+        let mut final_routes: Vec<String> = routes
+            .into_iter()
+            .filter(|r| self.is_valid_route(r))
+            .collect();
+
+        final_routes.sort();
+        final_routes.dedup();
+
+        info!("[Next.js] Discovered {} unique routes", final_routes.len());
+        for route in &final_routes {
+            debug!("[Next.js] Route: {}", route);
+        }
+
+        Ok(final_routes)
+    }
+
+    /// Extract _next script URLs from HTML
+    fn extract_next_scripts(&self, html: &str, base_url: &str) -> Vec<String> {
+        let mut scripts = Vec::new();
+
+        // Pattern for script src containing _next
+        let script_re = Regex::new(r#"<script[^>]*src=["']([^"']*_next[^"']*)["']"#).ok();
+        if let Some(re) = script_re {
+            for caps in re.captures_iter(html) {
+                if let Some(src) = caps.get(1) {
+                    let script_url = self.resolve_url(base_url, src.as_str());
+                    scripts.push(script_url);
+                }
+            }
+        }
+
+        // Also check for modulepreload links which often have chunk URLs
+        let link_re = Regex::new(r#"<link[^>]*href=["']([^"']*_next/static/chunks[^"']*)["']"#).ok();
+        if let Some(re) = link_re {
+            for caps in re.captures_iter(html) {
+                if let Some(href) = caps.get(1) {
+                    let script_url = self.resolve_url(base_url, href.as_str());
+                    if !scripts.contains(&script_url) {
+                        scripts.push(script_url);
+                    }
+                }
+            }
+        }
+
+        scripts
+    }
+
+    /// Extract routes from JavaScript bundle content
+    fn extract_routes_from_script(&self, js_content: &str) -> Vec<String> {
+        let mut routes = Vec::new();
+
+        // Pattern 1: App Router file patterns (/app/[path]/(page|layout|loading|error))
+        let app_router_re = Regex::new(r#"/app/([\w\-\[\]%/]+?)/(layout|page|loading|error|template|not-found)"#).ok();
+        if let Some(re) = app_router_re {
+            for caps in re.captures_iter(js_content) {
+                if let Some(path) = caps.get(1) {
+                    let route = self.decode_and_format_route(path.as_str());
+                    routes.push(route);
+                }
+            }
+        }
+
+        // Pattern 2: pathname strings (common in Next.js routing)
+        let pathname_patterns = [
+            r#"pathname[:\s=]+["'`](/[\w\-/\[\]]+)["'`]"#,
+            r#"href[:\s=]+["'`](/[\w\-/\[\]]+)["'`]"#,
+            r#"route[:\s=]+["'`](/[\w\-/\[\]]+)["'`]"#,
+            r#"path[:\s=]+["'`](/[\w\-/\[\]]+)["'`]"#,
+            r#"redirect[:\s=]+["'`](/[\w\-/\[\]]+)["'`]"#,
+            r#"navigate[:\s=]+["'`](/[\w\-/\[\]]+)["'`]"#,
+            r#"push\(["'`](/[\w\-/\[\]]+)["'`]"#,
+            r#"replace\(["'`](/[\w\-/\[\]]+)["'`]"#,
+        ];
+
+        for pattern in &pathname_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                for caps in re.captures_iter(js_content) {
+                    if let Some(path) = caps.get(1) {
+                        let route = path.as_str().to_string();
+                        if !route.contains("_next") && !route.contains("http") && route.len() > 1 {
+                            routes.push(route);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pattern 3: Common path strings that look like routes
+        let path_string_re = Regex::new(r#"["'`](/(?:dashboard|admin|api|auth|settings|profile|users|account|billing|projects|workspace|analytics|reports|help|docs)[\w\-/\[\]]*)["'`]"#).ok();
+        if let Some(re) = path_string_re {
+            for caps in re.captures_iter(js_content) {
+                if let Some(path) = caps.get(1) {
+                    routes.push(path.as_str().to_string());
+                }
+            }
+        }
+
+        routes
+    }
+
+    /// Extract routes from __NEXT_DATA__ script tag
+    fn extract_routes_from_next_data(&self, html: &str) -> Option<Vec<String>> {
+        let mut routes = Vec::new();
+
+        // Find __NEXT_DATA__ content
+        let next_data_re = Regex::new(r#"<script id="__NEXT_DATA__"[^>]*>([^<]+)</script>"#).ok()?;
+        let caps = next_data_re.captures(html)?;
+        let json_content = caps.get(1)?.as_str();
+
+        // Extract paths from the JSON
+        let path_patterns = [
+            r#""page"\s*:\s*"(/[^"]+)""#,
+            r#""asPath"\s*:\s*"(/[^"]+)""#,
+            r#""pathname"\s*:\s*"(/[^"]+)""#,
+            r#""route"\s*:\s*"(/[^"]+)""#,
+        ];
+
+        for pattern in &path_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                for caps in re.captures_iter(json_content) {
+                    if let Some(path) = caps.get(1) {
+                        let route = path.as_str().to_string();
+                        if !route.contains("_next") && !route.contains("_error") && !route.contains("_app") {
+                            routes.push(route);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also extract any dynamicIds or sortedPages arrays
+        let sorted_pages_re = Regex::new(r#""sortedPages"\s*:\s*\[([^\]]+)\]"#).ok();
+        if let Some(re) = sorted_pages_re {
+            if let Some(caps) = re.captures(json_content) {
+                if let Some(pages_array) = caps.get(1) {
+                    let page_re = Regex::new(r#""(/[^"]+)""#).ok();
+                    if let Some(page_pattern) = page_re {
+                        for page_caps in page_pattern.captures_iter(pages_array.as_str()) {
+                            if let Some(page) = page_caps.get(1) {
+                                let route = page.as_str().to_string();
+                                if !route.contains("_next") && !route.contains("_error") && !route.contains("_app") {
+                                    routes.push(route);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if routes.is_empty() {
+            None
+        } else {
+            Some(routes)
+        }
+    }
+
+    /// Decode URL-encoded route segments and format as a clean route
+    fn decode_and_format_route(&self, path: &str) -> String {
+        let decoded = path
+            .replace("%5B", "[")
+            .replace("%5D", "]")
+            .replace("%5Blng%5D", "[lng]")
+            .replace("(", "")  // Remove route groups
+            .replace(")", "");
+
+        // Clean up the path
+        let cleaned: String = decoded
+            .split('/')
+            .filter(|segment| !segment.is_empty() && !segment.starts_with('_'))
+            .collect::<Vec<_>>()
+            .join("/");
+
+        format!("/{}", cleaned)
+    }
+
+    /// Check if a route string is valid (not a file, asset, or invalid pattern)
+    fn is_valid_route(&self, route: &str) -> bool {
+        // Must start with /
+        if !route.starts_with('/') {
+            return false;
+        }
+
+        // Skip common file extensions and assets
+        let invalid_suffixes = [".js", ".css", ".png", ".jpg", ".gif", ".svg", ".woff", ".ttf", ".ico", ".map", ".json"];
+        for suffix in &invalid_suffixes {
+            if route.ends_with(suffix) {
+                return false;
+            }
+        }
+
+        // Skip internal Next.js paths
+        let invalid_prefixes = ["/_next", "/_error", "/_app", "/_document"];
+        for prefix in &invalid_prefixes {
+            if route.starts_with(prefix) {
+                return false;
+            }
+        }
+
+        // Skip very short or likely invalid routes
+        if route == "/" || route.len() < 2 {
+            return true; // Root is valid
+        }
+
+        // Skip routes that look like hashes or random strings
+        if route.len() > 50 || route.contains("chunk-") {
+            return false;
+        }
+
+        true
+    }
+
+    /// Resolve relative URL to absolute
+    fn resolve_url(&self, base_url: &str, path: &str) -> String {
+        if path.starts_with("http://") || path.starts_with("https://") {
+            return path.to_string();
+        }
+
+        if path.starts_with("//") {
+            return format!("https:{}", path);
+        }
+
+        if path.starts_with('/') {
+            // Extract origin from base_url
+            if let Ok(parsed) = url::Url::parse(base_url) {
+                return format!("{}{}", parsed.origin().ascii_serialization(), path);
+            }
+        }
+
+        format!("{}/{}", base_url.trim_end_matches('/'), path.trim_start_matches('/'))
     }
 }

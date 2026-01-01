@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 //! Merlin - Advanced JavaScript Library Vulnerability Scanner
@@ -2972,6 +2972,7 @@ impl MerlinScanner {
                 vuln.references.join(", ")
             ),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

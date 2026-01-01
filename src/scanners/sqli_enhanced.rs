@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -6,10 +6,11 @@
  * Unified context-aware SQLi detection combining error-based, boolean-based,
  * UNION-based, and time-based techniques
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::analysis::{HypothesisEngine, Hypothesis, HypothesisType, HypothesisStatus, Evidence, EvidenceType, ResponseHints};
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -121,7 +122,7 @@ impl EnhancedSqliScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Testing parameter '{}' for SQL injection (unified scanner, priority: {}{})",
+        debug!("Testing parameter '{}' for SQL injection (unified scanner, priority: {}{})",
               parameter,
               ParameterFilter::get_parameter_priority(parameter),
               if let Some(ctx) = context {
@@ -153,7 +154,7 @@ impl EnhancedSqliScanner {
         let db_type = self.detect_database_type(&baseline).await;
         let injection_context = self.detect_injection_context(base_url, parameter, &baseline).await;
 
-        info!(
+        debug!(
             "Context analysis: DB={:?}, InjectionContext={:?}",
             db_type, injection_context
         );
@@ -161,7 +162,74 @@ impl EnhancedSqliScanner {
         // Apply context-aware prioritization
         let priority_boost = self.get_context_priority_boost(context);
         if priority_boost > 0 {
-            info!("[SQLi] Context-aware priority boost: +{}", priority_boost);
+            debug!("[SQLi] Context-aware priority boost: +{}", priority_boost);
+        }
+
+        // ============================================================
+        // BAYESIAN HYPOTHESIS-GUIDED TESTING
+        // ============================================================
+        // Initialize hypothesis engine for intelligent test prioritization
+        let mut hypothesis_engine = HypothesisEngine::new();
+
+        // Extract parameter value from URL for hypothesis generation
+        let param_value = self.extract_param_value(base_url, parameter).unwrap_or_default();
+
+        // Build response hints from baseline analysis
+        let response_hints = ResponseHints {
+            has_sql_keywords: baseline.body.to_lowercase().contains("select")
+                || baseline.body.to_lowercase().contains("mysql")
+                || baseline.body.to_lowercase().contains("postgresql")
+                || baseline.body.to_lowercase().contains("sqlite"),
+            has_error_messages: self.has_sql_error(&baseline),
+            has_stack_trace: baseline.body.contains("at ") && baseline.body.contains("Exception"),
+            has_path_disclosure: baseline.body.contains("/var/")
+                || baseline.body.contains("C:\\")
+                || baseline.body.contains("/home/"),
+            reflects_input: baseline.body.contains(&param_value),
+            timing_ms: baseline.duration_ms as u64,
+            status_code: Some(baseline.status_code),
+            content_type: baseline.headers.get("content-type").cloned(),
+            body_length: baseline.body.len(),
+            error_patterns: Vec::new(),
+        };
+
+        // Generate initial hypotheses based on parameter and response
+        let hypotheses = hypothesis_engine.generate_hypotheses(
+            parameter,
+            &param_value,
+            base_url,
+            &response_hints,
+        );
+
+        debug!(
+            "[SQLi] Generated {} hypotheses for parameter '{}' (SQLi prior: {:.2})",
+            hypotheses.len(),
+            parameter,
+            hypotheses.iter()
+                .find(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }))
+                .map(|h| h.posterior_probability)
+                .unwrap_or(0.0)
+        );
+
+        // Run hypothesis-guided testing before traditional scanning
+        let (hypothesis_vulns, hypothesis_tests) = self
+            .scan_hypothesis_guided(base_url, parameter, &baseline, &mut hypothesis_engine, config)
+            .await?;
+        total_tests += hypothesis_tests;
+        all_vulnerabilities.extend(hypothesis_vulns);
+
+        // If hypothesis testing found high-confidence vulnerabilities, we can skip some techniques
+        let skip_redundant_tests = hypothesis_engine.get_confirmed_hypotheses()
+            .iter()
+            .any(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }));
+
+        if skip_redundant_tests {
+            debug!("[SQLi] Hypothesis confirmed SQLi vulnerability - optimizing remaining tests");
+        }
+
+        // Early exit in fast mode if hypothesis testing found vulnerability
+        if config.scan_mode.as_str() == "fast" && !all_vulnerabilities.is_empty() {
+            return Ok((all_vulnerabilities, total_tests));
         }
 
         // Technique 1: Error-based detection (fast, high confidence)
@@ -249,7 +317,7 @@ impl EnhancedSqliScanner {
         existing_body: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("Testing POST parameter '{}' for SQL injection", body_param);
+        debug!("Testing POST parameter '{}' for SQL injection", body_param);
 
         let scan_mode = config.scan_mode.as_str();
         let baseline = match self.http_client.post(url, existing_body.to_string()).await {
@@ -938,7 +1006,8 @@ impl EnhancedSqliScanner {
                               5. Enable WAF rules\n\
                               6. Monitor database queries".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
-            })
+                ml_data: None,
+            }.with_ml_data(true_response, Some(baseline), Some(pair.true_payload)))
         } else {
             None
         }
@@ -1137,7 +1206,7 @@ impl EnhancedSqliScanner {
                         category: "Injection".to_string(),
                         url: url.to_string(),
                         parameter: Some(param.to_string()),
-                        payload,
+                        payload: payload.clone(),
                         description: format!(
                             "UNION-based SQL injection in parameter '{}'. {} columns detected. \
                             Allows direct data extraction from database.",
@@ -1154,7 +1223,8 @@ impl EnhancedSqliScanner {
                                       4. Disable detailed errors\n\
                                       5. Use WAF rules".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    });
+                        ml_data: None,
+                    }.with_ml_data(&response, Some(baseline), Some(&payload)));
                 }
             }
             Err(_) => {}
@@ -1245,7 +1315,8 @@ impl EnhancedSqliScanner {
                                           3. Apply least privilege\n\
                                           4. Timeout protection".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                        };
+                            ml_data: None,
+                        }.with_ml_data(&response, None, Some(payload));
 
                         if self.is_new_vulnerability(&vuln) {
                             info!("Time-based blind SQLi detected: {}ms delay", response.duration_ms);
@@ -1475,7 +1546,8 @@ impl EnhancedSqliScanner {
                                       5. Implement rate limiting\n\
                                       6. Use WAF with blind SQLi detection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    };
+                        ml_data: None,
+                    }.with_ml_data(&true_response, Some(baseline), Some(true_payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         vulnerabilities.push(vuln);
@@ -1816,6 +1888,7 @@ impl EnhancedSqliScanner {
                                   5. Use WAF with time-based SQLi detection\n\
                                   6. Implement rate limiting".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
                 };
 
                 if self.is_new_vulnerability(&vuln) {
@@ -1991,7 +2064,7 @@ impl EnhancedSqliScanner {
                         category: "Injection".to_string(),
                         url: test_url,
                         parameter: Some(param.to_string()),
-                        payload,
+                        payload: payload.clone(),
                         description: format!(
                             "PostgreSQL JSON operator SQL injection in parameter '{}'. \
                             Technique: {}. JSON operators can bypass basic SQLi filters and WAFs. \
@@ -2010,7 +2083,8 @@ impl EnhancedSqliScanner {
                                       5. Update WAF rules for JSON operator patterns\n\
                                       6. Monitor for unusual JSON queries".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    };
+                        ml_data: None,
+                    }.with_ml_data(&response, Some(&baseline), Some(&payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         info!("PostgreSQL JSON operator SQLi detected: {}", technique);
@@ -2141,7 +2215,7 @@ impl EnhancedSqliScanner {
                         category: "Injection".to_string(),
                         url: test_url,
                         parameter: Some(param.to_string()),
-                        payload,
+                        payload: payload.clone(),
                         description: format!(
                             "Enhanced error-based SQL injection in parameter '{}'. Technique: {}. \
                             {}",
@@ -2166,7 +2240,8 @@ impl EnhancedSqliScanner {
                                       6. Log errors server-side only\n\
                                       7. Use WAF with error-based SQLi detection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                    };
+                        ml_data: None,
+                    }.with_ml_data(&response, Some(&baseline), Some(&payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         info!("Enhanced error-based SQLi detected: {}", technique);
@@ -2541,11 +2616,432 @@ impl EnhancedSqliScanner {
         payloads
     }
 
+    /// Extract parameter value from URL
+    fn extract_param_value(&self, url: &str, param: &str) -> Option<String> {
+        // Parse URL to extract parameter value
+        if let Some(query_start) = url.find('?') {
+            let query = &url[query_start + 1..];
+            for pair in query.split('&') {
+                if let Some((key, value)) = pair.split_once('=') {
+                    if key == param {
+                        return Some(urlencoding::decode(value).unwrap_or_default().to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Bayesian hypothesis-guided SQL injection testing
+    /// Uses the HypothesisEngine to intelligently prioritize tests based on evidence
+    async fn scan_hypothesis_guided(
+        &self,
+        base_url: &str,
+        parameter: &str,
+        baseline: &HttpResponse,
+        hypothesis_engine: &mut HypothesisEngine,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        debug!("[SQLi] Starting Bayesian hypothesis-guided testing for parameter '{}'", parameter);
+
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+        let max_iterations = match config.scan_mode.as_str() {
+            "insane" => 50,
+            "thorough" => 30,
+            _ => 15,
+        };
+
+        // Find SQL injection hypothesis
+        let sqli_hypothesis_id = hypothesis_engine
+            .get_active_hypotheses()
+            .iter()
+            .find(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }))
+            .map(|h| h.id.clone());
+
+        let Some(hypothesis_id) = sqli_hypothesis_id else {
+            debug!("[SQLi] No SQLi hypothesis generated - skipping hypothesis-guided testing");
+            return Ok((vulnerabilities, tests_run));
+        };
+
+        // Hypothesis-guided testing loop
+        for iteration in 0..max_iterations {
+            // Get current best hypothesis state
+            let best_hypothesis = match hypothesis_engine.get_hypothesis(&hypothesis_id) {
+                Some(h) => h.clone(),
+                None => break,
+            };
+
+            // Check if hypothesis has been resolved
+            if matches!(best_hypothesis.status, HypothesisStatus::Confirmed | HypothesisStatus::Rejected) {
+                debug!(
+                    "[SQLi] Hypothesis {} resolved: {:?} (p={:.3})",
+                    hypothesis_id, best_hypothesis.status, best_hypothesis.posterior_probability
+                );
+                break;
+            }
+
+            // Check probability thresholds
+            if best_hypothesis.posterior_probability < 0.1 {
+                debug!(
+                    "[SQLi] Hypothesis probability too low ({:.3}) - rejecting",
+                    best_hypothesis.posterior_probability
+                );
+                hypothesis_engine.resolve_hypothesis(&hypothesis_id, false);
+                break;
+            }
+
+            if best_hypothesis.posterior_probability > 0.9 {
+                debug!(
+                    "[SQLi] Hypothesis probability high ({:.3}) - confirming",
+                    best_hypothesis.posterior_probability
+                );
+                hypothesis_engine.resolve_hypothesis(&hypothesis_id, true);
+
+                // Create vulnerability from confirmed hypothesis
+                let vuln = self.create_vulnerability_from_hypothesis(
+                    base_url,
+                    parameter,
+                    &best_hypothesis,
+                    baseline,
+                );
+                if self.is_new_vulnerability(&vuln) {
+                    info!(
+                        "[SQLi] Bayesian-confirmed SQL injection in '{}' (p={:.3}, {} tests)",
+                        parameter, best_hypothesis.posterior_probability, tests_run
+                    );
+                    vulnerabilities.push(vuln);
+                }
+                break;
+            }
+
+            // Get next test from hypothesis engine
+            let test = match hypothesis_engine.get_next_test(&hypothesis_id) {
+                Some(t) => t,
+                None => {
+                    debug!("[SQLi] No more tests available for hypothesis");
+                    break;
+                }
+            };
+
+            // Execute the test
+            let test_url = if base_url.contains('?') {
+                format!("{}&{}={}", base_url, parameter, urlencoding::encode(&test.payload))
+            } else {
+                format!("{}?{}={}", base_url, parameter, urlencoding::encode(&test.payload))
+            };
+
+            tests_run += 1;
+
+            let response = match self.http_client.get(&test_url).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    debug!("[SQLi] Hypothesis test request failed: {}", e);
+                    // Network errors are weak negative evidence
+                    let evidence = Evidence::new(
+                        EvidenceType::BehaviorChange,
+                        format!("Request failed: {}", e),
+                        0.5, // Neutral-ish
+                    ).with_payload(&test.payload);
+                    hypothesis_engine.update_with_evidence(&hypothesis_id, evidence);
+                    continue;
+                }
+            };
+
+            // Analyze response and create evidence
+            let evidence = self.analyze_response_for_evidence(
+                &response,
+                baseline,
+                &test.payload,
+                &test.expected_evidence,
+            );
+
+            debug!(
+                "[SQLi] Test {}: payload='{}', evidence={:?}, LR={:.2}",
+                iteration + 1,
+                &test.payload[..test.payload.len().min(30)],
+                evidence.evidence_type,
+                evidence.likelihood_ratio
+            );
+
+            // Update hypothesis with evidence
+            hypothesis_engine.update_with_evidence(&hypothesis_id, evidence);
+
+            // Check if we found a clear vulnerability during testing
+            if let Some(vuln) = self.detector.detect_sqli(
+                &test_url,
+                parameter,
+                &test.payload,
+                &response,
+                baseline,
+            ) {
+                // Strong positive evidence - update hypothesis significantly
+                let strong_evidence = Evidence::new(
+                    EvidenceType::ExploitSuccess,
+                    format!("SQLi detected by detector: {}", vuln.vuln_type),
+                    15.0, // Very strong evidence
+                ).with_payload(&test.payload);
+                hypothesis_engine.update_with_evidence(&hypothesis_id, strong_evidence);
+
+                if self.is_new_vulnerability(&vuln) {
+                    info!(
+                        "[SQLi] Vulnerability detected during hypothesis testing: {}",
+                        vuln.vuln_type
+                    );
+                    vulnerabilities.push(vuln);
+
+                    // Confirm hypothesis
+                    hypothesis_engine.resolve_hypothesis(&hypothesis_id, true);
+                    break;
+                }
+            }
+
+            // Early exit in fast mode if we have high confidence
+            if config.scan_mode.as_str() == "fast" && best_hypothesis.posterior_probability > 0.7 {
+                debug!("[SQLi] Fast mode: probability sufficient ({:.3})", best_hypothesis.posterior_probability);
+                break;
+            }
+        }
+
+        // Log final hypothesis state
+        if let Some(final_hyp) = hypothesis_engine.get_hypothesis(&hypothesis_id) {
+            let stats = hypothesis_engine.get_stats();
+            debug!(
+                "[SQLi] Hypothesis-guided testing complete: {} tests, final p={:.3}, status={:?}, {} total evidence",
+                tests_run,
+                final_hyp.posterior_probability,
+                final_hyp.status,
+                final_hyp.evidence.len()
+            );
+            debug!(
+                "[SQLi] Engine stats: {} total, {} active, {} confirmed, {} rejected",
+                stats.total, stats.active, stats.confirmed, stats.rejected
+            );
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Analyze HTTP response to create evidence for hypothesis update
+    fn analyze_response_for_evidence(
+        &self,
+        response: &HttpResponse,
+        baseline: &HttpResponse,
+        payload: &str,
+        expected_evidence: &EvidenceType,
+    ) -> Evidence {
+        let body_lower = response.body.to_lowercase();
+
+        // Check for SQL error messages (very strong evidence)
+        let sql_error_patterns = [
+            ("mysql", 12.0),
+            ("mariadb", 12.0),
+            ("postgresql", 12.0),
+            ("pg_query", 10.0),
+            ("sqlite", 10.0),
+            ("sql syntax", 15.0),
+            ("syntax error", 8.0),
+            ("ora-", 12.0),
+            ("microsoft sql", 12.0),
+            ("mssql", 10.0),
+            ("sqlstate", 10.0),
+            ("unknown column", 8.0),
+            ("mysql_fetch", 10.0),
+            ("mysqli", 8.0),
+            ("column not found", 8.0),
+            ("wrong number of columns", 8.0),
+            ("unclosed quotation mark", 10.0),
+            ("quoted string not properly terminated", 10.0),
+        ];
+
+        for (pattern, likelihood_ratio) in sql_error_patterns {
+            if body_lower.contains(pattern) && !baseline.body.to_lowercase().contains(pattern) {
+                return Evidence::new(
+                    EvidenceType::ErrorMessage,
+                    format!("SQL error pattern detected: '{}'", pattern),
+                    likelihood_ratio,
+                ).with_payload(payload);
+            }
+        }
+
+        // Check for status code changes
+        if response.status_code == 500 && baseline.status_code != 500 {
+            return Evidence::new(
+                EvidenceType::StatusCodeChange,
+                format!("Server error (500) triggered by payload"),
+                5.0, // Moderately strong evidence
+            ).with_payload(payload);
+        }
+
+        if response.status_code == 400 && baseline.status_code != 400 {
+            return Evidence::new(
+                EvidenceType::StatusCodeChange,
+                "Bad request (400) triggered by payload".to_string(),
+                3.0,
+            ).with_payload(payload);
+        }
+
+        // Check for timing anomalies (for time-based tests)
+        let timing_diff = response.duration_ms as i64 - baseline.duration_ms as i64;
+        if timing_diff > 4000 {
+            return Evidence::new(
+                EvidenceType::TimingAnomaly,
+                format!("Significant delay: {}ms (baseline: {}ms)", response.duration_ms, baseline.duration_ms),
+                10.0, // Strong evidence for time-based injection
+            ).with_payload(payload);
+        } else if timing_diff > 2000 {
+            return Evidence::new(
+                EvidenceType::TimingAnomaly,
+                format!("Moderate delay: {}ms (baseline: {}ms)", response.duration_ms, baseline.duration_ms),
+                4.0,
+            ).with_payload(payload);
+        }
+
+        // Check for significant response length changes
+        let len_diff = (response.body.len() as i64 - baseline.body.len() as i64).abs();
+        let baseline_len = baseline.body.len() as f64;
+        if baseline_len > 0.0 {
+            let change_ratio = len_diff as f64 / baseline_len;
+            if change_ratio > 0.5 {
+                return Evidence::new(
+                    EvidenceType::LengthAnomaly,
+                    format!("Significant response length change: {} bytes ({}% change)", len_diff, (change_ratio * 100.0) as i32),
+                    2.5,
+                ).with_payload(payload);
+            }
+        }
+
+        // Check for WAF/filter detection
+        let waf_patterns = ["blocked", "forbidden", "access denied", "not allowed", "waf", "firewall"];
+        for pattern in waf_patterns {
+            if body_lower.contains(pattern) && !baseline.body.to_lowercase().contains(pattern) {
+                return Evidence::new(
+                    EvidenceType::WafDetected,
+                    format!("Possible WAF/filter detected: '{}'", pattern),
+                    0.3, // WAF presence is negative evidence for exploitability
+                ).with_payload(payload);
+            }
+        }
+
+        // Check for input reflection (weak positive evidence)
+        if response.body.contains(payload) && !baseline.body.contains(payload) {
+            return Evidence::new(
+                EvidenceType::ContentReflection,
+                "Payload reflected in response".to_string(),
+                1.5, // Weak positive evidence
+            ).with_payload(payload);
+        }
+
+        // Check for behavior change based on expected evidence type
+        if *expected_evidence == EvidenceType::BehaviorChange {
+            let similarity = self.calculate_similarity(baseline, response);
+            if similarity < 0.5 {
+                return Evidence::new(
+                    EvidenceType::BehaviorChange,
+                    format!("Significant behavior change (similarity: {:.1}%)", similarity * 100.0),
+                    2.0,
+                ).with_payload(payload);
+            }
+        }
+
+        // Default: no significant change detected (weak negative evidence)
+        Evidence::new(
+            EvidenceType::BehaviorChange,
+            "No significant change detected".to_string(),
+            0.7, // Slightly below 1.0 - weak negative evidence
+        ).with_payload(payload)
+    }
+
+    /// Create a vulnerability from a confirmed hypothesis
+    fn create_vulnerability_from_hypothesis(
+        &self,
+        url: &str,
+        parameter: &str,
+        hypothesis: &Hypothesis,
+        baseline: &HttpResponse,
+    ) -> Vulnerability {
+        let db_type = match &hypothesis.hypothesis_type {
+            HypothesisType::SqlInjection { db_type: Some(db) } => format!("{:?}", db),
+            _ => "Unknown".to_string(),
+        };
+
+        // Collect evidence summary
+        let evidence_summary: Vec<String> = hypothesis.evidence.iter()
+            .map(|e| format!("- {:?}: {} (LR: {:.2})", e.evidence_type, e.observation, e.likelihood_ratio))
+            .collect();
+
+        let evidence_text = format!(
+            "Bayesian hypothesis testing confirmed SQL injection:\n\
+            - Prior probability: {:.3}\n\
+            - Final probability: {:.3}\n\
+            - Evidence count: {}\n\
+            - Database type: {}\n\n\
+            Evidence collected:\n{}",
+            hypothesis.prior_probability,
+            hypothesis.posterior_probability,
+            hypothesis.evidence.len(),
+            db_type,
+            evidence_summary.join("\n")
+        );
+
+        // Determine confidence based on posterior probability
+        let confidence = if hypothesis.posterior_probability > 0.95 {
+            Confidence::High
+        } else if hypothesis.posterior_probability > 0.85 {
+            Confidence::Medium
+        } else {
+            Confidence::Low
+        };
+
+        // Get the most impactful payload used
+        let payload = hypothesis.evidence.iter()
+            .filter(|e| e.likelihood_ratio > 5.0)
+            .filter_map(|e| e.test_payload.clone())
+            .next()
+            .unwrap_or_else(|| "Bayesian inference".to_string());
+
+        Vulnerability {
+            id: format!("sqli_hypothesis_{}", Self::generate_id()),
+            vuln_type: "Bayesian-Confirmed SQL Injection".to_string(),
+            severity: Severity::Critical,
+            confidence,
+            category: "Injection".to_string(),
+            url: url.to_string(),
+            parameter: Some(parameter.to_string()),
+            payload,
+            description: format!(
+                "SQL injection vulnerability confirmed through Bayesian hypothesis testing. \
+                Parameter '{}' is injectable with {:.1}% confidence based on {} pieces of evidence. \
+                Database type: {}.",
+                parameter,
+                hypothesis.posterior_probability * 100.0,
+                hypothesis.evidence.len(),
+                db_type
+            ),
+            evidence: Some(evidence_text),
+            cwe: "CWE-89".to_string(),
+            cvss: 9.8,
+            verified: true,
+            false_positive: false,
+            remediation: "1. Use parameterized queries (prepared statements) exclusively\n\
+                          2. Implement strict input validation and sanitization\n\
+                          3. Apply principle of least privilege to database accounts\n\
+                          4. Use ORM with built-in SQL injection protection\n\
+                          5. Enable WAF rules for SQL injection detection\n\
+                          6. Monitor and log database queries for anomalies".to_string(),
+            discovered_at: chrono::Utc::now().to_rfc3339(),
+            ml_data: None,
+        }.with_ml_data(baseline, None, None)
+    }
+
     /// Check if vulnerability is new (thread-safe deduplication)
     fn is_new_vulnerability(&self, vuln: &Vulnerability) -> bool {
         let signature = format!("{}:{}:{}", vuln.url, vuln.parameter.as_ref().unwrap_or(&String::new()), vuln.vuln_type);
 
-        let mut confirmed = self.confirmed_vulns.lock().unwrap();
+        let mut confirmed = match self.confirmed_vulns.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         confirmed.insert(signature)
     }
 
@@ -2698,5 +3194,203 @@ mod tests {
         let payloads = scanner.get_framework_specific_payloads(&graphql_context, &InjectionContext::String);
         assert!(!payloads.is_empty());
         assert!(payloads.iter().any(|p| p.contains("__typename")));
+    }
+
+    #[test]
+    fn test_extract_param_value() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        // Test basic extraction
+        let value = scanner.extract_param_value("http://example.com?id=123", "id");
+        assert_eq!(value, Some("123".to_string()));
+
+        // Test URL-encoded value
+        let value = scanner.extract_param_value("http://example.com?name=hello%20world", "name");
+        assert_eq!(value, Some("hello world".to_string()));
+
+        // Test missing parameter
+        let value = scanner.extract_param_value("http://example.com?foo=bar", "baz");
+        assert_eq!(value, None);
+
+        // Test multiple parameters
+        let value = scanner.extract_param_value("http://example.com?a=1&b=2&c=3", "b");
+        assert_eq!(value, Some("2".to_string()));
+
+        // Test no query string
+        let value = scanner.extract_param_value("http://example.com/path", "id");
+        assert_eq!(value, None);
+    }
+
+    #[test]
+    fn test_analyze_response_for_evidence() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "Normal response body".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        // Test SQL error detection
+        let error_response = HttpResponse {
+            status_code: 500,
+            body: "MySQL syntax error: You have an error in your SQL syntax".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &error_response,
+            &baseline,
+            "' OR '1'='1",
+            &EvidenceType::ErrorMessage,
+        );
+        assert!(matches!(evidence.evidence_type, EvidenceType::ErrorMessage));
+        assert!(evidence.likelihood_ratio > 10.0); // Strong evidence
+
+        // Test status code change (500)
+        let server_error = HttpResponse {
+            status_code: 500,
+            body: "Internal Server Error".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &server_error,
+            &baseline,
+            "test",
+            &EvidenceType::StatusCodeChange,
+        );
+        assert!(matches!(evidence.evidence_type, EvidenceType::StatusCodeChange));
+        assert!(evidence.likelihood_ratio > 3.0);
+
+        // Test timing anomaly
+        let slow_response = HttpResponse {
+            status_code: 200,
+            body: "Normal response".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 5200, // 5+ seconds delay
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &slow_response,
+            &baseline,
+            "' AND SLEEP(5)--",
+            &EvidenceType::TimingAnomaly,
+        );
+        assert!(matches!(evidence.evidence_type, EvidenceType::TimingAnomaly));
+        assert!(evidence.likelihood_ratio > 8.0); // Strong evidence for time-based
+
+        // Test no change (weak negative evidence)
+        let normal_response = HttpResponse {
+            status_code: 200,
+            body: "Normal response".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 105,
+        };
+        let evidence = scanner.analyze_response_for_evidence(
+            &normal_response,
+            &baseline,
+            "test",
+            &EvidenceType::BehaviorChange,
+        );
+        assert!(evidence.likelihood_ratio < 1.0); // Weak negative evidence
+    }
+
+    #[test]
+    fn test_hypothesis_engine_integration() {
+        // Test that we can create and use the hypothesis engine
+        let mut engine = HypothesisEngine::new();
+
+        let hints = ResponseHints {
+            has_sql_keywords: true,
+            has_error_messages: false,
+            has_stack_trace: false,
+            has_path_disclosure: false,
+            reflects_input: true,
+            timing_ms: 100,
+            status_code: Some(200),
+            content_type: Some("text/html".to_string()),
+            body_length: 1000,
+            error_patterns: vec![],
+        };
+
+        // Generate hypotheses for a parameter that looks SQL-related
+        let hypotheses = engine.generate_hypotheses("id", "123", "http://example.com/api", &hints);
+
+        // Should have at least SQLi hypothesis
+        assert!(!hypotheses.is_empty());
+        let sqli_hyp = hypotheses.iter()
+            .find(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }));
+        assert!(sqli_hyp.is_some());
+
+        // SQLi prior should be boosted for "id" parameter
+        let sqli = sqli_hyp.unwrap();
+        assert!(sqli.prior_probability > 0.2); // Should have context boost
+
+        // Test evidence update
+        let evidence = Evidence::new(
+            EvidenceType::ErrorMessage,
+            "SQL syntax error detected".to_string(),
+            10.0,
+        );
+        engine.update_with_evidence(&sqli.id, evidence);
+
+        // Probability should have increased
+        let updated = engine.get_hypothesis(&sqli.id).unwrap();
+        assert!(updated.posterior_probability > sqli.prior_probability);
+    }
+
+    #[test]
+    fn test_create_vulnerability_from_hypothesis() {
+        let client = Arc::new(HttpClient::new(10, 3).unwrap());
+        let scanner = EnhancedSqliScanner::new(client);
+
+        // Create a hypothesis with evidence
+        let hypothesis = Hypothesis {
+            id: "test_hyp_1".to_string(),
+            hypothesis_type: HypothesisType::SqlInjection { db_type: None },
+            target: "http://example.com/api?id=1".to_string(),
+            prior_probability: 0.4,
+            posterior_probability: 0.95,
+            evidence: vec![
+                Evidence::new(
+                    EvidenceType::ErrorMessage,
+                    "MySQL syntax error".to_string(),
+                    12.0,
+                ).with_payload("' OR '1'='1"),
+                Evidence::new(
+                    EvidenceType::StatusCodeChange,
+                    "500 error".to_string(),
+                    5.0,
+                ),
+            ],
+            suggested_tests: vec![],
+            status: HypothesisStatus::Confirmed,
+            parent_hypothesis: None,
+            child_hypotheses: vec![],
+        };
+
+        let baseline = HttpResponse {
+            status_code: 200,
+            body: "Normal response".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        let vuln = scanner.create_vulnerability_from_hypothesis(
+            "http://example.com/api?id=1",
+            "id",
+            &hypothesis,
+            &baseline,
+        );
+
+        assert_eq!(vuln.vuln_type, "Bayesian-Confirmed SQL Injection");
+        assert!(matches!(vuln.severity, Severity::Critical));
+        assert!(matches!(vuln.confidence, Confidence::High)); // 0.95 > 0.95 threshold
+        assert_eq!(vuln.parameter, Some("id".to_string()));
+        assert!(vuln.description.contains("95.0%"));
+        assert!(vuln.evidence.unwrap().contains("Evidence collected"));
     }
 }

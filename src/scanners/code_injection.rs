@@ -1,21 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - Code Injection Scanner
- * Detects code injection vulnerabilities
- *
- * Detects:
- * - PHP eval() injection
- * - Python exec()/eval() injection
- * - Ruby eval() injection
- * - JavaScript eval() injection
- * - Expression Language (EL) injection
- * - Time-based code injection
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -163,7 +147,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 20;
 
-        info!("Testing Python code injection");
+        debug!("Testing Python code injection");
 
         let payloads = vec![
             // Basic payloads
@@ -231,7 +215,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing Python code injection via JSON body (tool API context)");
+        debug!("Testing Python code injection via JSON body (tool API context)");
 
         // Payloads specifically designed for source_code fields in tool APIs
         let source_code_payloads = vec![
@@ -280,7 +264,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing Ruby code injection");
+        debug!("Testing Ruby code injection");
 
         let payloads = vec![
             format!("`echo {}`", self.test_marker),
@@ -325,7 +309,7 @@ impl CodeInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing time-based code injection");
+        debug!("Testing time-based code injection");
 
         let time_payloads = vec![
             ("sleep(5)", "PHP"),
@@ -474,6 +458,7 @@ impl CodeInjectionScanner {
                          9. Monitor for suspicious function calls in logs\n\
                          10. Consider using DSLs (Domain Specific Languages) instead of eval()".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -506,7 +491,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CodeInjectionScanner {

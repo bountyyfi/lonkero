@@ -1,14 +1,15 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
  * Bountyy Oy - Session Management Scanner
  * Tests for session management vulnerabilities
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -49,7 +50,9 @@ impl SessionManagementScanner {
         tests_run += 1;
         let has_session_mechanism = self.detect_session_mechanism(&response);
 
-        if !has_session_mechanism {
+        // Also use AppCharacteristics for intelligent detection
+        let characteristics = AppCharacteristics::from_response(&response, url);
+        if !has_session_mechanism || characteristics.should_skip_auth_tests() {
             info!("[SessionMgmt] No session mechanism detected - skipping session tests (likely static site)");
             return Ok((vulnerabilities, tests_run));
         }
@@ -693,6 +696,7 @@ References:
 - CWE-613 (Insufficient Session Expiration): https://cwe.mitre.org/data/definitions/613.html
 "#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

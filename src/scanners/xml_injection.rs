@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
 /**
@@ -13,10 +13,11 @@
  * - XML comment injection
  * - XML namespace manipulation
  *
- * @copyright 2025 Bountyy Oy
+ * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
 
+use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
@@ -43,6 +44,15 @@ impl XMLInjectionScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        // Intelligent detection - skip for static sites
+        if let Ok(response) = self.http_client.get(url).await {
+            let characteristics = AppCharacteristics::from_response(&response, url);
+            if characteristics.should_skip_injection_tests() {
+                info!("[XML] Skipping - static/SPA site detected");
+                return Ok((Vec::new(), 0));
+            }
+        }
+
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -82,7 +92,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing XML structure injection");
+        debug!("Testing XML structure injection");
 
         let payloads = vec![
             format!("</tag><injected>{}</injected><tag>", self.test_marker),
@@ -130,7 +140,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing SOAP injection");
+        debug!("Testing SOAP injection");
 
         let soap_payloads = vec![
             format!(
@@ -186,7 +196,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
-        info!("Testing XML attribute injection");
+        debug!("Testing XML attribute injection");
 
         let payloads = vec![
             format!(r#"" admin="true" marker="{}"#, self.test_marker),
@@ -233,7 +243,7 @@ impl XMLInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
-        info!("Testing CDATA injection");
+        debug!("Testing CDATA injection");
 
         let payloads = vec![
             format!(r#"]]><![CDATA[{}"#, self.test_marker),
@@ -393,6 +403,7 @@ impl XMLInjectionScanner {
                          9. Implement proper error handling without revealing XML structure\n\
                          10. Use SOAP message validation for web services".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }

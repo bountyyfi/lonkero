@@ -1,20 +1,5 @@
-// Copyright (c) 2025 Bountyy Oy. All rights reserved.
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
-
-/**
- * Bountyy Oy - XPath Injection Scanner
- * Detects XPath injection vulnerabilities
- *
- * Detects:
- * - Boolean-based blind XPath injection
- * - Error-based XPath injection
- * - XPath string manipulation
- * - XPath function abuse
- * - Authentication bypass via XPath
- *
- * @copyright 2025 Bountyy Oy
- * @license Proprietary
- */
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -110,7 +95,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing boolean-based XPath injection on parameter: {}", param_name);
+        debug!("Testing boolean-based XPath injection on parameter: {}", param_name);
 
         // Boolean payloads with true/false conditions
         let true_payloads = vec![
@@ -195,7 +180,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing error-based XPath injection on parameter: {}", param_name);
+        debug!("Testing error-based XPath injection on parameter: {}", param_name);
 
         let error_payloads = vec![
             "'",
@@ -242,7 +227,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        info!("Testing boolean-based XPath injection");
+        debug!("Testing boolean-based XPath injection");
 
         // Boolean payloads with true/false conditions
         let true_payloads = vec![
@@ -327,7 +312,7 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        info!("Testing error-based XPath injection");
+        debug!("Testing error-based XPath injection");
 
         let error_payloads = vec![
             "'",
@@ -374,7 +359,14 @@ impl XPathInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
-        info!("Testing XPath authentication bypass");
+        debug!("Testing XPath authentication bypass");
+
+        // CRITICAL: Get baseline response first to compare against
+        // Words like "welcome", "dashboard", "profile" may appear normally
+        let baseline = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
 
         let bypass_payloads = vec![
             "admin' or '1'='1",
@@ -393,14 +385,15 @@ impl XPathInjectionScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if self.detect_auth_bypass(&response.body, response.status_code) {
+                    // CRITICAL: Check for NEW auth indicators not present in baseline
+                    if self.detect_auth_bypass_with_baseline(&response.body, &baseline.body, response.status_code) {
                         info!("XPath authentication bypass detected");
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "XPath Authentication Bypass",
                             payload,
                             "Authentication can be bypassed using XPath injection",
-                            "Successful authentication without valid credentials",
+                            "NEW authentication success indicators appeared (not in baseline)",
                             Severity::Critical,
                             "username",
                         ));
@@ -442,31 +435,32 @@ impl XPathInjectionScanner {
         false
     }
 
-    /// Detect successful authentication bypass
-    fn detect_auth_bypass(&self, body: &str, status_code: u16) -> bool {
+    /// Detect successful authentication bypass - REQUIRES baseline comparison
+    fn detect_auth_bypass_with_baseline(&self, body: &str, baseline_body: &str, status_code: u16) -> bool {
         let body_lower = body.to_lowercase();
+        let baseline_lower = baseline_body.to_lowercase();
 
-        // Check for successful login indicators
+        // CRITICAL: Check for NEW success indicators (not present in baseline)
+        // Words like "welcome", "dashboard" commonly appear on normal pages
         let success_indicators = vec![
-            "welcome",
-            "dashboard",
             "logged in",
             "authentication successful",
             "login successful",
-            "profile",
             "admin panel",
+            "user authenticated",
+            "session created",
         ];
 
         for indicator in success_indicators {
-            if body_lower.contains(indicator) && status_code == 200 {
+            // Only trigger if indicator is NEW (not in baseline)
+            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && status_code == 200 {
                 return true;
             }
         }
 
-        // Check for redirect (302) which might indicate successful login
-        if status_code == 302 || status_code == 301 {
-            return true;
-        }
+        // Don't trigger on redirects without baseline check - redirects are common
+        // Only consider bypass if baseline wasn't a redirect but now it is
+        // Actually, skip redirect detection entirely - too many false positives
 
         false
     }
@@ -515,6 +509,7 @@ impl XPathInjectionScanner {
                          9. Implement proper error handling without revealing XPath structure\n\
                          10. Consider using alternative query methods (e.g., DOM navigation)".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
         }
     }
 }
@@ -547,7 +542,8 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http_client::HttpClient;
+    use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> XPathInjectionScanner {
