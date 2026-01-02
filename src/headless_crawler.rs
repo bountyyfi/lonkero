@@ -4,19 +4,147 @@
 //! Headless browser crawler for JavaScript-rendered pages
 //! Uses Chrome/Chromium to render SPAs and extract real form elements
 
-#![allow(dead_code)]
-
 use crate::crawler::{DiscoveredForm, FormInput};
 use anyhow::{Context, Result};
 use headless_chrome::browser::tab::RequestPausedDecision;
-use headless_chrome::protocol::cdp::Fetch::{events::RequestPausedEvent, RequestPattern, RequestStage};
+use headless_chrome::protocol::cdp::Fetch::{
+    events::RequestPausedEvent, ContinueRequest, HeaderEntry, RequestPattern, RequestStage,
+};
 use headless_chrome::{Browser, LaunchOptions, Tab};
+use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+
+// ============================================================================
+// Configuration constants for timing and limits
+// ============================================================================
+
+/// Wait time for JavaScript to render after page load (milliseconds)
+const JS_RENDER_WAIT_MS: u64 = 1500;
+/// Wait time after form submission (milliseconds)
+const FORM_SUBMIT_WAIT_MS: u64 = 3000;
+/// Wait time after auth reload (milliseconds)
+const POST_AUTH_RELOAD_WAIT_MS: u64 = 2000;
+/// Wait time after clicking navigation elements (milliseconds)
+const CLICK_NAVIGATION_WAIT_MS: u64 = 500;
+/// Delay after filling form fields (milliseconds)
+const POST_FILL_DELAY_MS: u64 = 300;
+
+/// Maximum SPA routes to collect
+const MAX_SPA_ROUTES: usize = 500;
+/// Maximum GraphQL operations to collect
+const MAX_GRAPHQL_OPERATIONS: usize = 200;
+/// Maximum WebSocket endpoints to collect
+const MAX_WEBSOCKET_ENDPOINTS: usize = 100;
+/// Maximum links to collect
+const MAX_LINKS_FOUND: usize = 1000;
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+/// Safely escape a string for use in JavaScript code.
+/// Uses JSON encoding which handles all special characters correctly.
+fn js_escape(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+// ============================================================================
+// Lazy-compiled regex patterns for route extraction (compiled once at startup)
+// ============================================================================
+
+// Vue Router route patterns
+static VUE_AUTH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"(?:path|name):\s*["']([^"']+)["'][^}]*meta:\s*\{[^}]*require(?:Auth|Login|Authentication):\s*(!0|true)"#
+    ).expect("Invalid VUE_AUTH_REGEX pattern")
+});
+
+static VUE_ROLE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"path:\s*["']([^"']+)["'][^}]*require(?:Any)?Role[s]?:\s*\[([^\]]+)\]"#
+    ).expect("Invalid VUE_ROLE_REGEX pattern")
+});
+
+static VUE_PATH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"path:\s*["']([/][^"']+)["']"#).expect("Invalid VUE_PATH_REGEX pattern")
+});
+
+// React Router patterns
+static REACT_ROUTE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"<(?:Route|PrivateRoute)[^>]*path=["']([^"']+)["'][^>]*(?:requireAuth|private|protected)"#
+    ).expect("Invalid REACT_ROUTE_REGEX pattern")
+});
+
+static REACT_PROTECTED_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"path:\s*["']([^"']+)["'][^}]*(?:protected|requireAuth|private):\s*(!0|true)"#
+    ).expect("Invalid REACT_PROTECTED_REGEX pattern")
+});
+
+static REACT_BROWSER_ROUTER_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"createBrowserRouter\s*\(\s*\[[^\]]*path:\s*["']([^"']+)["']"#
+    ).expect("Invalid REACT_BROWSER_ROUTER_REGEX pattern")
+});
+
+// Angular Router patterns
+static ANGULAR_GUARD_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"path:\s*["']([^"']+)["'][^}]*canActivate:\s*\[([^\]]+)\]"#
+    ).expect("Invalid ANGULAR_GUARD_REGEX pattern")
+});
+
+static ANGULAR_ROUTER_MODULE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"RouterModule\.for(?:Root|Child)\s*\(\s*\[[^\]]*path:\s*["']([^"']+)["']"#
+    ).expect("Invalid ANGULAR_ROUTER_MODULE_REGEX pattern")
+});
+
+// Next.js/Nuxt patterns
+static NEXTJS_PAGES_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(
+        r#"(?:pages|routes)\s*:\s*\[[^\]]*(?:route|path|href):\s*["']([^"']+)["']"#
+    ).expect("Invalid NEXTJS_PAGES_REGEX pattern")
+});
+
+static NUXT_PATH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"(?:path|route):\s*["']([/][^"']+)["']"#).expect("Invalid NUXT_PATH_REGEX pattern")
+});
+
+// Generic route patterns
+static GENERIC_NAVIGATE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"navigate\s*\(\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_NAVIGATE_REGEX pattern")
+});
+
+static GENERIC_PUSH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"(?:push|replace)\s*\(\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_PUSH_REGEX pattern")
+});
+
+static GENERIC_TO_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"to:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_TO_REGEX pattern")
+});
+
+static GENERIC_HREF_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"href:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_HREF_REGEX pattern")
+});
+
+static GENERIC_REDIRECT_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"redirect:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_REDIRECT_REGEX pattern")
+});
+
+// Route validation regex
+static LOCALE_PATH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r"^/[a-z]{2}$").expect("Invalid LOCALE_PATH_REGEX pattern")
+});
+
+/// Maximum number of requests to capture (prevents unbounded memory growth)
+const MAX_CAPTURED_REQUESTS: usize = 500;
 
 // ============================================================================
 // Network Activity Tracker - for idle detection instead of fixed delays
@@ -41,11 +169,12 @@ impl NetworkTracker {
     }
 
     fn request_finished(&self) {
-        let prev = self.pending_requests.fetch_sub(1, Ordering::SeqCst);
-        if prev > 0 {
-            if let Ok(mut last) = self.last_activity.lock() {
-                *last = Instant::now();
-            }
+        // Use fetch_update to atomically decrement only if > 0 (prevents underflow)
+        let _ = self.pending_requests.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+            if x > 0 { Some(x - 1) } else { Some(0) }
+        });
+        if let Ok(mut last) = self.last_activity.lock() {
+            *last = Instant::now();
         }
     }
 
@@ -213,6 +342,8 @@ pub struct HeadlessCrawler {
     timeout: Duration,
     /// Optional JWT/Bearer token for authenticated scanning
     auth_token: Option<String>,
+    /// Custom HTTP headers to inject into all requests (e.g., Authorization, Cookie)
+    custom_headers: HashMap<String, String>,
     /// Session state for tracking auth during long crawls
     session_state: Arc<Mutex<SessionState>>,
     /// Crawler configuration
@@ -224,6 +355,7 @@ impl HeadlessCrawler {
         Self {
             timeout: Duration::from_secs(timeout_secs),
             auth_token: None,
+            custom_headers: HashMap::new(),
             session_state: Arc::new(Mutex::new(SessionState::default())),
             config: HeadlessCrawlerConfig::default(),
         }
@@ -240,6 +372,7 @@ impl HeadlessCrawler {
         Self {
             timeout: Duration::from_secs(timeout_secs),
             auth_token: token,
+            custom_headers: HashMap::new(),
             session_state: Arc::new(Mutex::new(session_state)),
             config: HeadlessCrawlerConfig::default(),
         }
@@ -256,6 +389,7 @@ impl HeadlessCrawler {
         Self {
             timeout: Duration::from_secs(timeout_secs),
             auth_token: token,
+            custom_headers: HashMap::new(),
             session_state: Arc::new(Mutex::new(session_state)),
             config,
         }
@@ -266,7 +400,48 @@ impl HeadlessCrawler {
         Self {
             timeout: Duration::from_secs(timeout_secs),
             auth_token: session.token.clone(),
+            custom_headers: HashMap::new(),
             session_state: Arc::new(Mutex::new(session)),
+            config,
+        }
+    }
+
+    /// Create crawler with custom HTTP headers (e.g., Authorization, Cookie)
+    /// Headers will be injected into all browser requests via Chrome DevTools Protocol
+    pub fn with_headers(timeout_secs: u64, token: Option<String>, headers: HashMap<String, String>) -> Self {
+        let session_state = if let Some(ref t) = token {
+            SessionState::with_token(t.clone())
+        } else {
+            SessionState::default()
+        };
+
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+            auth_token: token,
+            custom_headers: headers,
+            session_state: Arc::new(Mutex::new(session_state)),
+            config: HeadlessCrawlerConfig::default(),
+        }
+    }
+
+    /// Create crawler with both custom headers and full configuration
+    pub fn with_headers_and_config(
+        timeout_secs: u64,
+        token: Option<String>,
+        headers: HashMap<String, String>,
+        config: HeadlessCrawlerConfig,
+    ) -> Self {
+        let session_state = if let Some(ref t) = token {
+            SessionState::with_token(t.clone())
+        } else {
+            SessionState::default()
+        };
+
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+            auth_token: token,
+            custom_headers: headers,
+            session_state: Arc::new(Mutex::new(session_state)),
             config,
         }
     }
@@ -472,12 +647,13 @@ impl HeadlessCrawler {
                 .context("Navigation timeout")?;
 
             // Inject token into localStorage (common pattern for SPAs)
+            let escaped_token = js_escape(token);
             let js_inject_token = format!(r#"
-                localStorage.setItem('token', '{}');
-                localStorage.setItem('accessToken', '{}');
-                localStorage.setItem('auth_token', '{}');
-                localStorage.setItem('jwt', '{}');
-            "#, token, token, token, token);
+                localStorage.setItem('token', {});
+                localStorage.setItem('accessToken', {});
+                localStorage.setItem('auth_token', {});
+                localStorage.setItem('jwt', {});
+            "#, escaped_token, escaped_token, escaped_token, escaped_token);
             let _ = tab.evaluate(&js_inject_token, false);
 
             // Reload the page to apply authentication
@@ -784,11 +960,12 @@ impl HeadlessCrawler {
             tab.navigate_to(url).context("Failed to navigate")?;
             tab.wait_until_navigated().context("Navigation timeout")?;
 
+            let escaped_token = js_escape(token);
             let js_inject = format!(r#"
-                localStorage.setItem('token', '{}');
-                localStorage.setItem('accessToken', '{}');
-                sessionStorage.setItem('token', '{}');
-            "#, token, token, token);
+                localStorage.setItem('token', {});
+                localStorage.setItem('accessToken', {});
+                sessionStorage.setItem('token', {});
+            "#, escaped_token, escaped_token, escaped_token);
             let _ = tab.evaluate(&js_inject, false);
 
             tab.reload(true, None)?;
@@ -798,7 +975,7 @@ impl HeadlessCrawler {
             tab.wait_until_navigated().context("Navigation timeout")?;
         }
 
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(Duration::from_millis(POST_AUTH_RELOAD_WAIT_MS));
 
         // Extract CSRF token using comprehensive patterns
         let js_extract = r#"
@@ -976,46 +1153,52 @@ impl HeadlessCrawler {
         tab.wait_until_navigated().context("Navigation timeout")?;
 
         if let Some(token) = auth_token {
+            let escaped_token = js_escape(token);
             let js_inject = format!(r#"
-                localStorage.setItem('token', '{}');
-                localStorage.setItem('accessToken', '{}');
-            "#, token, token);
+                localStorage.setItem('token', {});
+                localStorage.setItem('accessToken', {});
+            "#, escaped_token, escaped_token);
             let _ = tab.evaluate(&js_inject, false);
             tab.reload(true, None)?;
             tab.wait_until_navigated()?;
         }
 
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(Duration::from_millis(POST_AUTH_RELOAD_WAIT_MS));
 
         // Fill all form fields
         for (name, value) in form_values {
-            let js_fill = format!(r#"
+            let escaped_name = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
+            let escaped_value = serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string());
+            let js_fill = format!(
+                r#"
                 (function() {{
-                    const el = document.querySelector('[name="{}"]') ||
-                               document.getElementById('{}') ||
-                               document.querySelector('input[type="hidden"][name*="{}"]');
+                    const name = {};
+                    const value = {};
+                    const el = document.querySelector('[name="' + name + '"]') ||
+                               document.getElementById(name) ||
+                               document.querySelector('input[type="hidden"][name*="' + name + '"]');
                     if (el) {{
-                        el.value = '{}';
+                        el.value = value;
                         el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         el.dispatchEvent(new Event('change', {{ bubbles: true }}));
                         return true;
                     }}
                     return false;
                 }})()
-            "#,
-                name.replace('\'', "\\'"),
-                name.replace('\'', "\\'"),
-                name.replace('\'', "\\'"),
-                value.replace('\'', "\\'")
+                "#,
+                escaped_name,
+                escaped_value
             );
             let _ = tab.evaluate(&js_fill, true);
         }
 
         // Submit the form
+        let escaped_action = serde_json::to_string(form_action).unwrap_or_else(|_| "\"\"".to_string());
         let js_submit = format!(r#"
             (function() {{
                 // Try to find form by action
-                let form = document.querySelector('form[action*="{}"]');
+                const action = {};
+                let form = document.querySelector('form[action*="' + action + '"]');
                 if (!form) form = document.querySelector('form');
 
                 if (form) {{
@@ -1029,7 +1212,7 @@ impl HeadlessCrawler {
                 }}
                 return 'no_form';
             }})()
-        "#, form_action.replace('\'', "\\'"));
+        "#, escaped_action);
 
         let submit_result = tab.evaluate(&js_submit, true)?;
         let submit_status = submit_result.value
@@ -1086,12 +1269,16 @@ impl HeadlessCrawler {
 
         // Fill form fields
         for (name, value) in form_values {
+            let escaped_name = serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string());
+            let escaped_value = serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string());
             let js_fill = format!(
                 r#"
                 (function() {{
-                    const el = document.querySelector('[name="{}"]') || document.getElementById('{}');
+                    const name = {};
+                    const value = {};
+                    const el = document.querySelector('[name="' + name + '"]') || document.getElementById(name);
                     if (el) {{
-                        el.value = '{}';
+                        el.value = value;
                         el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         el.dispatchEvent(new Event('change', {{ bubbles: true }}));
                         return true;
@@ -1099,9 +1286,8 @@ impl HeadlessCrawler {
                     return false;
                 }})()
                 "#,
-                name.replace("'", "\\'"),
-                name.replace("'", "\\'"),
-                value.replace("'", "\\'")
+                escaped_name,
+                escaped_value
             );
             let _ = tab.evaluate(&js_fill, true);
         }
@@ -1412,26 +1598,56 @@ impl HeadlessCrawler {
     fn is_language_selector(input: &FormInput) -> bool {
         let name_lower = input.name.to_lowercase();
 
-        // Check name patterns
+        // Check name patterns - require word boundaries to avoid false positives
         let lang_name_patterns = [
             "lang", "language", "locale", "i18n", "l10n",
             "country", "region", "culture", "lng", "idioma",
-            "sprache", "langue", "kieli", // Finnish
+            "sprache", "langue", "kieli",
         ];
 
-        let has_lang_name = lang_name_patterns.iter().any(|p| name_lower.contains(p));
+        // Require exact match or word boundary match (with _ or -)
+        let has_lang_name = lang_name_patterns.iter().any(|p| {
+            name_lower == *p ||
+            name_lower.starts_with(&format!("{}_", p)) ||
+            name_lower.starts_with(&format!("{}-", p)) ||
+            name_lower.ends_with(&format!("_{}", p)) ||
+            name_lower.ends_with(&format!("-{}", p)) ||
+            name_lower.contains(&format!("_{}_", p)) ||
+            name_lower.contains(&format!("-{}-", p))
+        });
 
         // Check if options look like language codes or names
         let has_lang_options = if let Some(options) = &input.options {
-            let lang_patterns = [
+            // Exact language codes (2-3 chars)
+            let lang_codes = [
                 "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ru", "zh", "ja", "ko",
-                "english", "finnish", "swedish", "german", "french", "spanish", "suomi",
-                "svenska", "deutsch", "français", "español",
+                "da", "no", "pl", "cs", "hu", "ro", "bg", "el", "tr", "ar", "he", "th", "vi",
             ];
-            options.iter().any(|opt| {
+            // Full language names
+            let lang_names = [
+                "english", "finnish", "swedish", "german", "french", "spanish", "suomi",
+                "svenska", "deutsch", "français", "español", "italiano", "português",
+                "russian", "chinese", "japanese", "korean", "dutch", "polish",
+            ];
+
+            let code_matches = options.iter().filter(|opt| {
+                let opt_lower = opt.to_lowercase().trim().to_string();
+                // Exact match for codes, or code with region (en-US, en_GB)
+                lang_codes.iter().any(|c| {
+                    opt_lower == *c ||
+                    opt_lower.starts_with(&format!("{}-", c)) ||
+                    opt_lower.starts_with(&format!("{}_", c))
+                })
+            }).count();
+
+            let name_matches = options.iter().filter(|opt| {
                 let opt_lower = opt.to_lowercase();
-                lang_patterns.iter().any(|p| opt_lower == *p || opt_lower.contains(p))
-            })
+                lang_names.iter().any(|n| opt_lower == *n)
+            }).count();
+
+            // If more than half of options are language codes/names, it's a language selector
+            let total_options = options.len();
+            total_options > 0 && (code_matches * 2 >= total_options || name_matches * 2 >= total_options)
         } else {
             false
         };
@@ -1448,9 +1664,10 @@ impl HeadlessCrawler {
         let url_owned = url.to_string();
         let timeout = self.timeout;
         let auth_token = self.auth_token.clone();
+        let custom_headers = self.custom_headers.clone();
 
         let endpoints = tokio::task::spawn_blocking(move || {
-            Self::discover_endpoints_sync(&url_owned, timeout, auth_token.as_deref())
+            Self::discover_endpoints_sync(&url_owned, timeout, auth_token.as_deref(), &custom_headers)
         })
         .await
         .context("Form endpoint discovery task panicked")??;
@@ -1460,7 +1677,12 @@ impl HeadlessCrawler {
     }
 
     /// Synchronous endpoint discovery with network interception
-    fn discover_endpoints_sync(url: &str, timeout: Duration, auth_token: Option<&str>) -> Result<Vec<DiscoveredEndpoint>> {
+    fn discover_endpoints_sync(
+        url: &str,
+        timeout: Duration,
+        auth_token: Option<&str>,
+        custom_headers: &HashMap<String, String>,
+    ) -> Result<Vec<DiscoveredEndpoint>> {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
@@ -1481,18 +1703,30 @@ impl HeadlessCrawler {
             tab.wait_until_navigated().context("Auth setup navigation timeout")?;
 
             // Inject token into localStorage
+            let escaped_token = js_escape(token);
             let js_inject_token = format!(r#"
-                localStorage.setItem('token', '{}');
-                localStorage.setItem('accessToken', '{}');
-                localStorage.setItem('auth_token', '{}');
-                localStorage.setItem('jwt', '{}');
-            "#, token, token, token, token);
+                localStorage.setItem('token', {});
+                localStorage.setItem('accessToken', {});
+                localStorage.setItem('auth_token', {});
+                localStorage.setItem('jwt', {});
+            "#, escaped_token, escaped_token, escaped_token, escaped_token);
             let _ = tab.evaluate(&js_inject_token, false);
         }
 
         // Store captured requests
         let captured_requests: Arc<Mutex<Vec<CapturedRequest>>> = Arc::new(Mutex::new(Vec::new()));
         let captured_clone = Arc::clone(&captured_requests);
+
+        // Build custom headers for request interception (Authorization, Cookie, etc.)
+        let header_entries: Vec<HeaderEntry> = custom_headers
+            .iter()
+            .map(|(k, v)| HeaderEntry {
+                name: k.clone(),
+                value: v.clone(),
+            })
+            .collect();
+        let headers_for_interception = Arc::new(header_entries);
+        let headers_clone = Arc::clone(&headers_for_interception);
 
         // Enable network interception - intercept all POST/PUT requests
         let patterns = vec![
@@ -1506,7 +1740,7 @@ impl HeadlessCrawler {
         tab.enable_fetch(Some(&patterns), None)
             .context("Failed to enable fetch interception")?;
 
-        // Set up the request interceptor
+        // Set up the request interceptor with header injection
         tab.enable_request_interception(Arc::new(
             move |_transport, _session_id, intercepted: RequestPausedEvent| {
                 let request = &intercepted.params.request;
@@ -1532,8 +1766,19 @@ impl HeadlessCrawler {
                     }
                 }
 
-                // Continue the request (don't block it)
-                RequestPausedDecision::Continue(None)
+                // Continue the request with custom headers injected (Authorization, Cookie, etc.)
+                if headers_clone.is_empty() {
+                    RequestPausedDecision::Continue(None)
+                } else {
+                    RequestPausedDecision::Continue(Some(ContinueRequest {
+                        request_id: intercepted.params.request_id.clone(),
+                        url: None,
+                        method: None,
+                        post_data: None,
+                        headers: Some(headers_clone.to_vec()),
+                        intercept_response: None,
+                    }))
+                }
             },
         ))?;
 
@@ -2213,6 +2458,34 @@ pub struct SiteCrawlResults {
     pub state_tracking: Option<crate::state_tracker::StateTrackingResults>,
     /// Form replay data (recorded sequences for security testing)
     pub form_replay_data: Option<crate::form_replay::FormRecorderResults>,
+    /// SPA routes discovered from JavaScript bundles (Vue Router, React Router, Angular Router)
+    pub spa_routes: Vec<SpaRoute>,
+}
+
+/// Client-side route discovered from SPA framework
+#[derive(Debug, Clone)]
+pub struct SpaRoute {
+    /// Route path (e.g., "/admin", "/user/:id")
+    pub path: String,
+    /// Whether route requires authentication (if detectable)
+    pub requires_auth: bool,
+    /// Required roles if RBAC detected
+    pub required_roles: Vec<String>,
+    /// Framework that defined this route
+    pub framework: SpaFramework,
+    /// Source JS file where route was found
+    pub source_file: String,
+}
+
+/// SPA framework type
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpaFramework {
+    Vue,
+    React,
+    Angular,
+    NextJS,
+    Nuxt,
+    Unknown,
 }
 
 /// Discovered GraphQL operation (query, mutation, subscription)
@@ -2282,9 +2555,10 @@ impl HeadlessCrawler {
         let url_owned = start_url.to_string();
         let timeout = self.timeout;
         let auth_token = self.auth_token.clone();
+        let custom_headers = self.custom_headers.clone();
 
         let results = tokio::task::spawn_blocking(move || {
-            Self::crawl_site_sync(&url_owned, timeout, auth_token.as_deref(), max_pages)
+            Self::crawl_site_sync(&url_owned, timeout, auth_token.as_deref(), max_pages, &custom_headers)
         })
         .await
         .context("Site crawl task panicked")??;
@@ -2304,6 +2578,7 @@ impl HeadlessCrawler {
         timeout: Duration,
         auth_token: Option<&str>,
         max_pages: usize,
+        custom_headers: &HashMap<String, String>,
     ) -> Result<SiteCrawlResults> {
         let browser = Browser::new(
             LaunchOptions::default_builder()
@@ -2370,6 +2645,24 @@ impl HeadlessCrawler {
         let captured_requests: Arc<Mutex<Vec<CapturedRequest>>> = Arc::new(Mutex::new(Vec::new()));
         let captured_clone = Arc::clone(&captured_requests);
 
+        // Build custom headers for request interception (Authorization, Cookie, etc.)
+        let header_entries: Vec<HeaderEntry> = custom_headers
+            .iter()
+            .map(|(k, v)| HeaderEntry {
+                name: k.clone(),
+                value: v.clone(),
+            })
+            .collect();
+        let headers_for_interception = Arc::new(header_entries);
+        let headers_clone = Arc::clone(&headers_for_interception);
+
+        if !custom_headers.is_empty() {
+            info!("[Headless] Injecting {} custom headers into all requests", custom_headers.len());
+            for (k, _) in custom_headers {
+                debug!("[Headless] Will inject header: {}", k);
+            }
+        }
+
         let patterns = vec![RequestPattern {
             url_pattern: Some("*".to_string()),
             resource_Type: None,
@@ -2433,9 +2726,9 @@ impl HeadlessCrawler {
 
                     if should_capture {
                         if let Ok(mut captured) = captured_clone.lock() {
-                            // Avoid duplicates
+                            // Avoid duplicates and limit total captures
                             let exists = captured.iter().any(|r| r.url == request.url && r.method == method);
-                            if !exists {
+                            if !exists && captured.len() < MAX_CAPTURED_REQUESTS {
                                 debug!("[Headless] Captured API: {} {}", method, request.url);
                                 captured.push(CapturedRequest {
                                     url: request.url.clone(),
@@ -2456,7 +2749,19 @@ impl HeadlessCrawler {
                     }
                 }
 
-                RequestPausedDecision::Continue(None)
+                // Continue the request with custom headers injected (Authorization, Cookie, etc.)
+                if headers_clone.is_empty() {
+                    RequestPausedDecision::Continue(None)
+                } else {
+                    RequestPausedDecision::Continue(Some(ContinueRequest {
+                        request_id: intercepted.params.request_id.clone(),
+                        url: None,
+                        method: None,
+                        post_data: None,
+                        headers: Some(headers_clone.to_vec()),
+                        intercept_response: None,
+                    }))
+                }
             },
         ))?;
 
@@ -2468,16 +2773,17 @@ impl HeadlessCrawler {
 
         if let Some(token) = auth_token {
             info!("[Headless] Injecting authentication token");
+            let escaped_token = js_escape(token);
             let js_inject_token = format!(
                 r#"
-                localStorage.setItem('token', '{}');
-                localStorage.setItem('accessToken', '{}');
-                localStorage.setItem('auth_token', '{}');
-                localStorage.setItem('jwt', '{}');
-                sessionStorage.setItem('token', '{}');
-                sessionStorage.setItem('accessToken', '{}');
+                localStorage.setItem('token', {});
+                localStorage.setItem('accessToken', {});
+                localStorage.setItem('auth_token', {});
+                localStorage.setItem('jwt', {});
+                sessionStorage.setItem('token', {});
+                sessionStorage.setItem('accessToken', {});
             "#,
-                token, token, token, token, token, token
+                escaped_token, escaped_token, escaped_token, escaped_token, escaped_token, escaped_token
             );
             let _ = tab.evaluate(&js_inject_token, false);
 
@@ -2610,20 +2916,112 @@ impl HeadlessCrawler {
                 }
             }
 
-            // Try clicking on navigation items to discover more content
-            let _ = tab.evaluate(
+            // ================================================================
+            // Click-through Navigation - Actually click elements to discover routes
+            // ================================================================
+            let click_navigation = format!(
                 r#"
-                (function() {
-                    // Click on nav items that might reveal more content
-                    document.querySelectorAll('nav a, [role="navigation"] a, .nav-link, .menu-item').forEach((el, i) => {
-                        if (i < 5) { // Limit to avoid too many clicks
-                            el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-                        }
-                    });
-                })()
-            "#,
-                false,
+                (function() {{
+                    const discovered = [];
+                    const baseHost = '{}';
+                    const startUrl = window.location.href;
+                    let clickCount = 0;
+                    const maxClicks = 15;
+
+                    // Helper to capture current URL after click
+                    function captureUrl() {{
+                        const url = window.location.href;
+                        if (url && !discovered.includes(url)) {{
+                            discovered.push(url);
+                        }}
+                    }}
+
+                    // Selector for clickable navigation elements
+                    const navSelectors = [
+                        'nav a[href]',
+                        '[role="navigation"] a',
+                        '.nav-link',
+                        '.menu-item a',
+                        '.sidebar a',
+                        '.navigation a',
+                        '[class*="nav"] a[href]',
+                        '[class*="menu"] a[href]',
+                        'header a[href]',
+                        '.header a[href]',
+                        // Vue/React router links
+                        '[to]',
+                        'router-link',
+                        '[routerlink]',
+                        // Buttons that might navigate
+                        'button[data-href]',
+                        '[role="link"]',
+                        // Tabs and toggles
+                        '[role="tab"]',
+                        '.tab',
+                        '.v-tab',
+                        // Accordions/dropdowns
+                        '[data-toggle]',
+                        '.dropdown-toggle',
+                        '[aria-haspopup="true"]',
+                    ];
+
+                    const allElements = document.querySelectorAll(navSelectors.join(', '));
+
+                    allElements.forEach((el, i) => {{
+                        if (clickCount >= maxClicks) return;
+
+                        try {{
+                            // Check if internal link
+                            const href = el.href || el.getAttribute('to') || el.getAttribute('routerlink');
+                            if (href) {{
+                                if (href.startsWith('http') && !href.includes(baseHost)) return;
+                                if (href.startsWith('javascript:') || href.startsWith('#') || href.startsWith('mailto:')) return;
+                            }}
+
+                            // Click the element
+                            el.click();
+                            clickCount++;
+
+                            // Small delay and capture URL
+                            setTimeout(captureUrl, 100);
+
+                        }} catch(e) {{}}
+                    }});
+
+                    // Return after giving clicks time to process
+                    return JSON.stringify(discovered);
+                }})()
+                "#,
+                base_host
             );
+
+            // Execute click navigation
+            if let Ok(click_result) = tab.evaluate(&click_navigation, true) {
+                // Wait for navigations to complete
+                std::thread::sleep(Duration::from_millis(500));
+
+                if let Some(json_str) = click_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                    if let Ok(click_urls) = serde_json::from_str::<Vec<String>>(&json_str) {
+                        for url in click_urls {
+                            if !visited.contains(&url) && !to_visit.contains(&url) {
+                                debug!("[Headless] Click navigation discovered: {}", url);
+                                to_visit.push_back(url.clone());
+                                results.links_found.push(url);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Also check for URL changes via history API
+            if let Ok(history_result) = tab.evaluate("window.location.href", false) {
+                if let Some(current_url) = history_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                    if !visited.contains(&current_url) && !to_visit.contains(&current_url) {
+                        to_visit.push_back(current_url.clone());
+                        results.links_found.push(current_url);
+                    }
+                }
+            }
         }
 
         // Disable interception
@@ -2704,8 +3102,164 @@ impl HeadlessCrawler {
             if let Ok(result) = tab.evaluate(&js_extract, true) {
                 if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
                     if let Ok(files) = serde_json::from_str::<Vec<String>>(&json_str) {
-                        results.js_files = files;
+                        results.js_files = files.clone();
                         info!("[Headless] Found {} JavaScript files for analysis", results.js_files.len());
+
+                        // ================================================================
+                        // SPA Route Extraction from JS Bundles
+                        // ================================================================
+                        info!("[Headless] Extracting SPA routes from JavaScript bundles...");
+
+                        for js_url in files.iter().take(5) {
+                            // Fetch JS content using browser's fetch API
+                            let fetch_js = format!(
+                                r#"
+                                (async function() {{
+                                    try {{
+                                        const response = await fetch('{}');
+                                        if (response.ok) {{
+                                            const text = await response.text();
+                                            return text.substring(0, 500000); // Limit to 500KB
+                                        }}
+                                        return '';
+                                    }} catch(e) {{
+                                        return '';
+                                    }}
+                                }})()
+                                "#,
+                                js_url
+                            );
+
+                            if let Ok(fetch_result) = tab.evaluate(&fetch_js, true) {
+                                if let Some(js_content) = fetch_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                                    if !js_content.is_empty() {
+                                        let routes = Self::extract_spa_routes_from_js(&js_content, js_url);
+
+                                        if !routes.is_empty() {
+                                            info!("[Headless] Extracted {} SPA routes from {}", routes.len(), js_url);
+
+                                            // Add routes to results
+                                            for route in &routes {
+                                                debug!("[Headless] Found route: {} (auth: {}, roles: {:?}, framework: {:?})",
+                                                    route.path, route.requires_auth, route.required_roles, route.framework);
+                                            }
+
+                                            results.spa_routes.extend(routes);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Deduplicate spa_routes by path
+                        let mut seen_paths = std::collections::HashSet::new();
+                        results.spa_routes.retain(|r| seen_paths.insert(r.path.clone()));
+
+                        if !results.spa_routes.is_empty() {
+                            info!("[Headless] Total {} unique SPA routes discovered", results.spa_routes.len());
+                        }
+                    }
+                }
+            }
+
+            // ================================================================
+            // Vue/React Router Hook Injection - Capture routes dynamically
+            // ================================================================
+            let router_hook = r#"
+                (function() {
+                    const routes = [];
+
+                    // Vue Router hook
+                    if (window.$router || window.app?.$router || window.__VUE_APP__?.$router) {
+                        try {
+                            const router = window.$router || window.app?.$router || window.__VUE_APP__?.$router;
+                            if (router && router.options && router.options.routes) {
+                                router.options.routes.forEach(function extractRoute(route) {
+                                    if (route.path) {
+                                        routes.push({
+                                            path: route.path,
+                                            requireAuth: route.meta?.requireAuth || route.meta?.requireLogin || false,
+                                            roles: route.meta?.requireAnyRole || route.meta?.roles || [],
+                                            framework: 'vue'
+                                        });
+                                    }
+                                    if (route.children) {
+                                        route.children.forEach(extractRoute);
+                                    }
+                                });
+                            }
+                        } catch(e) {}
+                    }
+
+                    // React Router hook (react-router-dom v6)
+                    if (window.__REACT_ROUTER_ROUTES__ || window.__remixRouteModules) {
+                        try {
+                            const reactRoutes = window.__REACT_ROUTER_ROUTES__ || [];
+                            reactRoutes.forEach(function extractReactRoute(route) {
+                                if (route.path) {
+                                    routes.push({
+                                        path: route.path,
+                                        requireAuth: route.protected || route.requireAuth || false,
+                                        roles: route.roles || [],
+                                        framework: 'react'
+                                    });
+                                }
+                                if (route.children) {
+                                    route.children.forEach(extractReactRoute);
+                                }
+                            });
+                        } catch(e) {}
+                    }
+
+                    // Angular Router hook
+                    if (window.ng && window.getAllAngularRootElements) {
+                        try {
+                            const root = window.getAllAngularRootElements()[0];
+                            if (root) {
+                                const injector = root.injector || root.__ngContext__?.injector;
+                                // Angular routing info is harder to access but try common patterns
+                            }
+                        } catch(e) {}
+                    }
+
+                    return JSON.stringify(routes);
+                })()
+            "#;
+
+            if let Ok(router_result) = tab.evaluate(router_hook, true) {
+                if let Some(json_str) = router_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                    if let Ok(dynamic_routes) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                        for route_obj in dynamic_routes {
+                            let path = route_obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            if !path.is_empty() && Self::is_valid_route_path(path) {
+                                let framework_str = route_obj.get("framework").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                let framework = match framework_str {
+                                    "vue" => SpaFramework::Vue,
+                                    "react" => SpaFramework::React,
+                                    "angular" => SpaFramework::Angular,
+                                    _ => SpaFramework::Unknown,
+                                };
+
+                                let requires_auth = route_obj.get("requireAuth").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                                let roles: Vec<String> = route_obj.get("roles")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                                    .unwrap_or_default();
+
+                                // Only add if not already present
+                                if !results.spa_routes.iter().any(|r| r.path == path) {
+                                    info!("[Headless] Dynamic route discovered: {} (framework: {:?})", path, framework);
+                                    results.spa_routes.push(SpaRoute {
+                                        path: path.to_string(),
+                                        requires_auth,
+                                        required_roles: roles,
+                                        framework,
+                                        source_file: "runtime".to_string(),
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3328,6 +3882,357 @@ impl HeadlessCrawler {
 
         Ok(login_pages)
     }
+
+    // ============================================================================
+    // SPA Route Extraction - Extract routes from Vue/React/Angular JS bundles
+    // ============================================================================
+
+    /// Extract SPA routes from JavaScript content
+    /// Supports Vue Router, React Router, Angular Router, Next.js, Nuxt
+    pub fn extract_spa_routes_from_js(js_content: &str, source_file: &str) -> Vec<SpaRoute> {
+        let mut routes = Vec::new();
+
+        // Extract Vue Router routes
+        routes.extend(Self::extract_vue_routes(js_content, source_file));
+
+        // Extract React Router routes
+        routes.extend(Self::extract_react_routes(js_content, source_file));
+
+        // Extract Angular routes
+        routes.extend(Self::extract_angular_routes(js_content, source_file));
+
+        // Extract Next.js/Nuxt routes from patterns
+        routes.extend(Self::extract_nextjs_routes(js_content, source_file));
+
+        // Extract generic path patterns as fallback
+        routes.extend(Self::extract_generic_routes(js_content, source_file));
+
+        // Deduplicate by path
+        let mut seen = std::collections::HashSet::new();
+        routes.retain(|r| seen.insert(r.path.clone()));
+
+        routes
+    }
+
+    /// Extract Vue Router routes from JS bundle
+    fn extract_vue_routes(js_code: &str, source_file: &str) -> Vec<SpaRoute> {
+        let mut routes = Vec::new();
+
+        // Pattern 1: {path: "/admin", meta: {requireAuth: true}}
+        for cap in VUE_AUTH_REGEX.captures_iter(js_code) {
+            if let Some(path) = cap.get(1) {
+                let path_str = path.as_str();
+                if path_str.starts_with('/') && Self::is_valid_route_path(path_str) {
+                    routes.push(SpaRoute {
+                        path: path_str.to_string(),
+                        requires_auth: true,
+                        required_roles: Vec::new(),
+                        framework: SpaFramework::Vue,
+                        source_file: source_file.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Pattern 2: {path: "/admin", meta: {requireAnyRole: ["ADMIN", "MANAGER"]}}
+        for cap in VUE_ROLE_REGEX.captures_iter(js_code) {
+            if let (Some(path), Some(roles_str)) = (cap.get(1), cap.get(2)) {
+                let path_str = path.as_str();
+                if path_str.starts_with('/') && Self::is_valid_route_path(path_str) {
+                    let roles: Vec<String> = roles_str
+                        .as_str()
+                        .split(',')
+                        .map(|r| r.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+                        .filter(|r| !r.is_empty())
+                        .collect();
+
+                    // Check if already added
+                    if !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                        routes.push(SpaRoute {
+                            path: path_str.to_string(),
+                            requires_auth: true,
+                            required_roles: roles,
+                            framework: SpaFramework::Vue,
+                            source_file: source_file.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Pattern 3: Simple path extraction from routes array
+        for cap in VUE_PATH_REGEX.captures_iter(js_code) {
+            if let Some(path) = cap.get(1) {
+                let path_str = path.as_str();
+
+                // Skip if already found with metadata
+                if routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                    continue;
+                }
+
+                if Self::is_valid_route_path(path_str) {
+                    // Infer auth requirement from path name
+                    let requires_auth = Self::infer_auth_from_path(path_str);
+
+                    routes.push(SpaRoute {
+                        path: path_str.to_string(),
+                        requires_auth,
+                        required_roles: Vec::new(),
+                        framework: SpaFramework::Vue,
+                        source_file: source_file.to_string(),
+                    });
+                }
+            }
+        }
+
+        routes
+    }
+
+    /// Extract React Router routes from JS bundle
+    fn extract_react_routes(js_code: &str, source_file: &str) -> Vec<SpaRoute> {
+        let mut routes = Vec::new();
+
+        // Pattern 1: <Route path="/admin" requireAuth />
+        for cap in REACT_ROUTE_REGEX.captures_iter(js_code) {
+            if let Some(path) = cap.get(1) {
+                let path_str = path.as_str();
+                if path_str.starts_with('/') && Self::is_valid_route_path(path_str) {
+                    routes.push(SpaRoute {
+                        path: path_str.to_string(),
+                        requires_auth: true,
+                        required_roles: Vec::new(),
+                        framework: SpaFramework::React,
+                        source_file: source_file.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Pattern 2: {path: "/admin", element: <Admin />, protected: true}
+        for cap in REACT_PROTECTED_REGEX.captures_iter(js_code) {
+            if let Some(path) = cap.get(1) {
+                let path_str = path.as_str();
+                if path_str.starts_with('/') && Self::is_valid_route_path(path_str) {
+                    if !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                        routes.push(SpaRoute {
+                            path: path_str.to_string(),
+                            requires_auth: true,
+                            required_roles: Vec::new(),
+                            framework: SpaFramework::React,
+                            source_file: source_file.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Pattern 3: createBrowserRouter routes array
+        for cap in REACT_BROWSER_ROUTER_REGEX.captures_iter(js_code) {
+            if let Some(path) = cap.get(1) {
+                let path_str = path.as_str();
+                if path_str.starts_with('/') && Self::is_valid_route_path(path_str) {
+                    if !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                        routes.push(SpaRoute {
+                            path: path_str.to_string(),
+                            requires_auth: Self::infer_auth_from_path(path_str),
+                            required_roles: Vec::new(),
+                            framework: SpaFramework::React,
+                            source_file: source_file.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        routes
+    }
+
+    /// Extract Angular Router routes from JS bundle
+    fn extract_angular_routes(js_code: &str, source_file: &str) -> Vec<SpaRoute> {
+        let mut routes = Vec::new();
+
+        // Pattern: {path: 'admin', canActivate: [AuthGuard]}
+        for cap in ANGULAR_GUARD_REGEX.captures_iter(js_code) {
+            if let (Some(path), Some(guards)) = (cap.get(1), cap.get(2)) {
+                let has_auth_guard = guards.as_str().contains("Auth")
+                    || guards.as_str().contains("Guard")
+                    || guards.as_str().contains("Login");
+
+                if has_auth_guard {
+                    let path_str = format!("/{}", path.as_str().trim_start_matches('/'));
+                    if Self::is_valid_route_path(&path_str) {
+                        routes.push(SpaRoute {
+                            path: path_str,
+                            requires_auth: true,
+                            required_roles: Vec::new(),
+                            framework: SpaFramework::Angular,
+                            source_file: source_file.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Pattern: RouterModule.forRoot/forChild routes
+        for cap in ANGULAR_ROUTER_MODULE_REGEX.captures_iter(js_code) {
+            if let Some(path) = cap.get(1) {
+                let path_str = format!("/{}", path.as_str().trim_start_matches('/'));
+                if Self::is_valid_route_path(&path_str) && !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                    routes.push(SpaRoute {
+                        path: path_str.clone(),
+                        requires_auth: Self::infer_auth_from_path(&path_str),
+                        required_roles: Vec::new(),
+                        framework: SpaFramework::Angular,
+                        source_file: source_file.to_string(),
+                    });
+                }
+            }
+        }
+
+        routes
+    }
+
+    /// Extract Next.js/Nuxt routes from patterns
+    fn extract_nextjs_routes(js_code: &str, source_file: &str) -> Vec<SpaRoute> {
+        let mut routes = Vec::new();
+
+        // Next.js: Look for pages array or route definitions
+        for cap in NEXTJS_PAGES_REGEX.captures_iter(js_code) {
+            if let Some(path) = cap.get(1) {
+                let path_str = path.as_str();
+                if path_str.starts_with('/') && Self::is_valid_route_path(path_str) {
+                    routes.push(SpaRoute {
+                        path: path_str.to_string(),
+                        requires_auth: Self::infer_auth_from_path(path_str),
+                        required_roles: Vec::new(),
+                        framework: SpaFramework::NextJS,
+                        source_file: source_file.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Nuxt: Look for __NUXT__ or nuxtjs patterns
+        if js_code.contains("__NUXT__") || js_code.contains("nuxt") {
+            for cap in NUXT_PATH_REGEX.captures_iter(js_code) {
+                if let Some(path) = cap.get(1) {
+                    let path_str = path.as_str();
+                    if Self::is_valid_route_path(path_str) && !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                        routes.push(SpaRoute {
+                            path: path_str.to_string(),
+                            requires_auth: Self::infer_auth_from_path(path_str),
+                            required_roles: Vec::new(),
+                            framework: SpaFramework::Nuxt,
+                            source_file: source_file.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        routes
+    }
+
+    /// Extract generic route patterns as fallback
+    fn extract_generic_routes(js_code: &str, source_file: &str) -> Vec<SpaRoute> {
+        let mut routes = Vec::new();
+
+        // Use pre-compiled lazy regexes for generic patterns
+        let regexes: Vec<&regex::Regex> = vec![
+            &*GENERIC_NAVIGATE_REGEX,
+            &*GENERIC_PUSH_REGEX,
+            &*GENERIC_TO_REGEX,
+            &*GENERIC_HREF_REGEX,
+            &*GENERIC_REDIRECT_REGEX,
+        ];
+
+        for re in regexes {
+            for cap in re.captures_iter(js_code) {
+                if let Some(path) = cap.get(1) {
+                    let path_str = path.as_str();
+                    if Self::is_valid_route_path(path_str) && !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                        routes.push(SpaRoute {
+                            path: path_str.to_string(),
+                            requires_auth: Self::infer_auth_from_path(path_str),
+                            required_roles: Vec::new(),
+                            framework: SpaFramework::Unknown,
+                            source_file: source_file.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        routes
+    }
+
+    /// Check if path looks like a valid route (not a file path or URL fragment)
+    fn is_valid_route_path(path: &str) -> bool {
+        // Must start with /
+        if !path.starts_with('/') {
+            return false;
+        }
+
+        // Skip file extensions (static assets)
+        let static_extensions = [".js", ".css", ".png", ".jpg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".map"];
+        if static_extensions.iter().any(|ext| path.ends_with(ext)) {
+            return false;
+        }
+
+        // Skip language/locale only paths (e.g., /en, /fi, /de) using pre-compiled regex
+        if path.len() <= 4 {
+            if LOCALE_PATH_REGEX.is_match(path) {
+                return false;
+            }
+        }
+
+        // Skip API/GraphQL paths (those are already captured separately)
+        if path.contains("/api/") || path.contains("/graphql") {
+            return false;
+        }
+
+        // Must be reasonable length
+        path.len() >= 2 && path.len() <= 100
+    }
+
+    /// Infer auth requirement from path name
+    fn infer_auth_from_path(path: &str) -> bool {
+        let protected_patterns = [
+            "/admin", "/dashboard", "/account", "/profile", "/settings",
+            "/user", "/users", "/my-", "/private", "/internal",
+            "/manage", "/management", "/config", "/configuration",
+            "/panel", "/portal", "/console", "/workspace",
+            "/billing", "/subscription", "/payment", "/orders",
+            "/reports", "/analytics", "/metrics", "/stats",
+        ];
+
+        let path_lower = path.to_lowercase();
+        protected_patterns.iter().any(|p| path_lower.contains(p))
+    }
+
+    /// Convert route path with parameters to a testable URL
+    /// e.g., /user/:id -> /user/1
+    pub fn route_to_test_url(base_url: &str, route_path: &str) -> String {
+        let base = base_url.trim_end_matches('/');
+
+        // Replace common parameter patterns with test values
+        let test_path = route_path
+            .replace(":id", "1")
+            .replace(":userId", "1")
+            .replace(":companyId", "1")
+            .replace(":orderId", "1")
+            .replace(":workerId", "1")
+            .replace(":slug", "test")
+            .replace(":uuid", "00000000-0000-0000-0000-000000000001")
+            // Handle [param] Next.js style
+            .replace("[id]", "1")
+            .replace("[slug]", "test")
+            // Handle {param} style
+            .replace("{id}", "1")
+            .replace("{userId}", "1");
+
+        format!("{}{}", base, test_path)
+    }
 }
 
 // ============================================================================
@@ -3518,15 +4423,38 @@ impl SiteCrawlResults {
             target.websocket_endpoints.insert(ws_endpoint.clone());
         }
 
+        // Add SPA routes as crawlable URLs
+        // Extract base URL from visited pages to construct full URLs
+        let base_url = self.pages_visited.first()
+            .and_then(|url| url::Url::parse(url).ok())
+            .map(|u| format!("{}://{}", u.scheme(), u.host_str().unwrap_or("")))
+            .unwrap_or_default();
+
+        if !base_url.is_empty() {
+            for spa_route in &self.spa_routes {
+                let full_url = HeadlessCrawler::route_to_test_url(&base_url, &spa_route.path);
+                target.links.insert(full_url.clone());
+                // Also add to crawled_urls if it looks testable (no dynamic params)
+                if !spa_route.path.contains(':') && !spa_route.path.contains('[') {
+                    target.crawled_urls.insert(full_url);
+                }
+            }
+
+            if !self.spa_routes.is_empty() {
+                info!("[HeadlessCrawler] Added {} SPA routes to crawl targets", self.spa_routes.len());
+            }
+        }
+
         // Deduplicate forms after merge
         target.deduplicate_forms();
 
         info!(
-            "[HeadlessCrawler] Merged {} pages, {} forms, {} API endpoints, {} WebSocket endpoints into CrawlResults",
+            "[HeadlessCrawler] Merged {} pages, {} forms, {} API endpoints, {} WebSocket endpoints, {} SPA routes into CrawlResults",
             self.pages_visited.len(),
             self.forms.len(),
             self.api_endpoints.len() + self.graphql_endpoints.len(),
-            self.websocket_endpoints.len()
+            self.websocket_endpoints.len(),
+            self.spa_routes.len()
         );
     }
 

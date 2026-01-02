@@ -105,6 +105,9 @@ tungstenite = "0.28"
 tokio-native-tls = "0.3"
 native-tls = "0.2"
 
+# Parallelism
+rayon = "1.10"
+
 # Rate limiting - Token Bucket
 governor = "0.10"
 nonzero_ext = "0.3"

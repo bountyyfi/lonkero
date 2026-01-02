@@ -459,7 +459,7 @@ impl WebSocketScanner {
 
         for payload in &test_payloads {
             // Send privileged command
-            if let Err(e) = write.send(Message::Text(payload.clone())).await {
+            if let Err(e) = write.send(Message::Text(payload.clone().into())).await {
                 debug!("[WebSocket CSRF] Failed to send: {}", e);
                 break;
             }
@@ -527,7 +527,7 @@ impl WebSocketScanner {
         ];
 
         for payload in &xss_payloads {
-            if let Ok(_) = write.send(Message::Text(payload.clone())).await {
+            if let Ok(_) = write.send(Message::Text(payload.clone().into())).await {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
@@ -557,7 +557,7 @@ impl WebSocketScanner {
         ];
 
         for payload in &sql_payloads {
-            if let Ok(_) = write.send(Message::Text(payload.clone())).await {
+            if let Ok(_) = write.send(Message::Text(payload.clone().into())).await {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
@@ -589,7 +589,7 @@ impl WebSocketScanner {
         ];
 
         for payload in &cmd_payloads {
-            if let Ok(_) = write.send(Message::Text(payload.clone())).await {
+            if let Ok(_) = write.send(Message::Text(payload.clone().into())).await {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
@@ -723,7 +723,7 @@ impl WebSocketScanner {
 
             // Send a test message to see if we get a connection ID
             let test_msg = r#"{"type":"test","action":"getId"}"#;
-            if let Ok(_) = write.send(Message::Text(test_msg.to_string())).await {
+            if let Ok(_) = write.send(Message::Text(test_msg.to_string().into())).await {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
@@ -776,7 +776,7 @@ impl WebSocketScanner {
         let large_msg = format!(r#"{{"data":"{}"}}"#, large_payload);
 
         let start = std::time::Instant::now();
-        if let Ok(_) = write.send(Message::Text(large_msg.clone())).await {
+        if let Ok(_) = write.send(Message::Text(large_msg.clone().into())).await {
             if let Ok(Some(Ok(msg))) = timeout(Duration::from_secs(3), read.next()).await {
                 let duration = start.elapsed();
                 let response = msg.to_text().unwrap_or("");
@@ -803,7 +803,7 @@ impl WebSocketScanner {
 
         for i in 0..50 {
             let msg = format!(r#"{{"seq":{}}}"#, i);
-            if write.send(Message::Text(msg)).await.is_ok() {
+            if write.send(Message::Text(msg.into())).await.is_ok() {
                 rapid_success += 1;
             } else {
                 break;
@@ -833,7 +833,7 @@ impl WebSocketScanner {
         ];
 
         for payload in &malformed_payloads {
-            if let Ok(_) = write.send(Message::Text(payload.to_string())).await {
+            if let Ok(_) = write.send(Message::Text(payload.to_string().into())).await {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
@@ -884,7 +884,7 @@ impl WebSocketScanner {
         ];
 
         for payload in &http_payloads {
-            if let Ok(_) = write.send(Message::Text(payload.to_string())).await {
+            if let Ok(_) = write.send(Message::Text(payload.to_string().into())).await {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
@@ -914,7 +914,7 @@ impl WebSocketScanner {
         ];
 
         for payload in &non_json_payloads {
-            if let Ok(_) = write.send(Message::Text(payload.to_string())).await {
+            if let Ok(_) = write.send(Message::Text(payload.to_string().into())).await {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
@@ -938,7 +938,7 @@ impl WebSocketScanner {
         }
 
         // Test 3: Binary frames when text expected
-        if let Ok(_) = write.send(Message::Binary(vec![0x00, 0x01, 0x02, 0xFF])).await {
+        if let Ok(_) = write.send(Message::Binary(vec![0x00, 0x01, 0x02, 0xFF].into())).await {
             if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                 let response_str = format!("{:?}", msg);
 
