@@ -1863,17 +1863,25 @@ async fn execute_standalone_scan(
     };
 
     // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
-    // Use headless if: (1) tech detection found JS framework, OR (2) crawler detected SPA pattern
-    // AND static crawler found few/no forms
-    let needs_headless = (is_nodejs_stack || is_spa_detected) && discovered_forms.is_empty();
+    // Use headless if:
+    // (1) SPA detected with no forms found (standard SPA detection), OR
+    // (2) Authentication headers provided (to discover authenticated-only content)
+    let has_auth = scan_config.auth_token.is_some() || scan_config.custom_headers.is_some();
+    let needs_headless = ((is_nodejs_stack || is_spa_detected) && discovered_forms.is_empty()) || has_auth;
     let mut intercepted_endpoints: Vec<String> = Vec::new();
     if needs_headless {
-        info!("  - SPA detected with no forms found, using headless browser to discover real endpoints...");
-        // Pass auth token to headless crawler for authenticated form discovery
-        let headless = HeadlessCrawler::with_auth(30, scan_config.auth_token.clone());
+        if has_auth {
+            info!("  - Authentication provided, using headless browser for authenticated crawling...");
+        } else {
+            info!("  - SPA detected with no forms found, using headless browser to discover real endpoints...");
+        }
+        // Pass auth token AND custom headers to headless crawler for authenticated form discovery
+        // Custom headers include Authorization, Cookie, and any user-provided headers
+        let headless_headers = scan_config.custom_headers.clone().unwrap_or_default();
+        let headless = HeadlessCrawler::with_headers(30, scan_config.auth_token.clone(), headless_headers);
 
         // For authenticated scans, do full site crawl to discover all pages and forms
-        if scan_config.auth_token.is_some() {
+        if scan_config.auth_token.is_some() || scan_config.custom_headers.is_some() {
             info!("  - Using authenticated headless session - performing full site crawl");
             let max_pages = 50; // Limit pages for reasonable scan time
 

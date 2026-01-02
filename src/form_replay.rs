@@ -1022,6 +1022,9 @@ pub struct FormReplayConfig {
 
     /// Auth token for authenticated replays
     pub auth_token: Option<String>,
+
+    /// Custom HTTP headers to inject into all requests (Authorization, Cookie, etc.)
+    pub custom_headers: HashMap<String, String>,
 }
 
 impl Default for FormReplayConfig {
@@ -1033,6 +1036,7 @@ impl Default for FormReplayConfig {
             restore_state: true,
             max_retries: 2,
             auth_token: None,
+            custom_headers: HashMap::new(),
         }
     }
 }
@@ -1117,9 +1121,10 @@ impl FormReplayer {
 
     /// Create a new form replayer with custom configuration
     pub fn with_config(config: FormReplayConfig) -> Self {
-        let crawler = HeadlessCrawler::with_auth(
+        let crawler = HeadlessCrawler::with_headers(
             config.submission_timeout_secs,
             config.auth_token.clone(),
+            config.custom_headers.clone(),
         );
 
         Self { config, crawler }

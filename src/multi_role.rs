@@ -868,9 +868,14 @@ impl MultiRoleOrchestrator {
             let _permit = self.browser_semaphore.acquire().await?;
 
             let token = session.auth_session.find_jwt();
-            let crawler = HeadlessCrawler::with_config(
+            // Include role-specific extra_headers and auth headers for headless crawling
+            let mut headless_headers = session.auth_session.auth_headers().into_iter().collect::<HashMap<_, _>>();
+            headless_headers.extend(session.role.extra_headers.clone());
+
+            let crawler = HeadlessCrawler::with_headers_and_config(
                 self.config.browser_timeout_secs,
                 token,
+                headless_headers,
                 HeadlessCrawlerConfig {
                     max_pages: self.config.max_urls_per_role,
                     ..Default::default()
