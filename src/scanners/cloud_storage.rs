@@ -4,12 +4,31 @@
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use chrono::Datelike;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
 
-mod uuid {
-    pub use uuid::Uuid;
-}
+// Lazy-compiled regex patterns for S3 URL detection (compiled once at startup)
+static S3_VIRTUAL_HOSTED_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
+    Regex::new(r"^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$").ok()
+});
+
+static S3_VIRTUAL_HOSTED_US_EAST_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
+    Regex::new(r"^([^.]+)\.s3\.amazonaws\.com$").ok()
+});
+
+static S3_PATH_STYLE_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
+    Regex::new(r"s3[.-]([^.]+)\.amazonaws\.com").ok()
+});
+
+// CVSS scores as constants for consistency
+const CVSS_CRITICAL: f32 = 9.5;
+const CVSS_HIGH: f32 = 8.5;
+const CVSS_MEDIUM: f32 = 5.5;
+const CVSS_LOW: f32 = 3.5;
+const CVSS_INFO: f32 = 2.0;
 
 /// Scanner for cloud storage misconfigurations (S3, Azure Blob, GCS)
 pub struct CloudStorageScanner {
@@ -92,26 +111,25 @@ impl CloudStorageScanner {
     }
 
     /// Detect if URL is a direct S3 bucket URL
+    /// Uses pre-compiled lazy regexes for performance
     fn detect_s3_url(&self, url: &str) -> Option<(String, String)> {
         if let Ok(parsed) = url::Url::parse(url) {
             if let Some(host) = parsed.host_str() {
-                // Pattern 1: bucket-name.s3.region.amazonaws.com
-                if let Some(caps) = regex::Regex::new(r"^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$")
-                    .ok()
-                    .and_then(|re| re.captures(host))
-                {
-                    let bucket = caps.get(1)?.as_str().to_string();
-                    let region = caps.get(2)?.as_str().to_string();
-                    return Some((bucket, region));
+                // Pattern 1: bucket-name.s3.region.amazonaws.com (virtual-hosted with region)
+                if let Some(ref re) = *S3_VIRTUAL_HOSTED_REGEX {
+                    if let Some(caps) = re.captures(host) {
+                        let bucket = caps.get(1)?.as_str().to_string();
+                        let region = caps.get(2)?.as_str().to_string();
+                        return Some((bucket, region));
+                    }
                 }
 
-                // Pattern 2: bucket-name.s3.amazonaws.com (us-east-1)
-                if let Some(caps) = regex::Regex::new(r"^([^.]+)\.s3\.amazonaws\.com$")
-                    .ok()
-                    .and_then(|re| re.captures(host))
-                {
-                    let bucket = caps.get(1)?.as_str().to_string();
-                    return Some((bucket, "us-east-1".to_string()));
+                // Pattern 2: bucket-name.s3.amazonaws.com (virtual-hosted us-east-1)
+                if let Some(ref re) = *S3_VIRTUAL_HOSTED_US_EAST_REGEX {
+                    if let Some(caps) = re.captures(host) {
+                        let bucket = caps.get(1)?.as_str().to_string();
+                        return Some((bucket, "us-east-1".to_string()));
+                    }
                 }
 
                 // Pattern 3: s3.region.amazonaws.com/bucket-name (path-style)
@@ -120,13 +138,12 @@ impl CloudStorageScanner {
                     if !path.is_empty() && path != "/" {
                         let bucket = path.trim_start_matches('/').split('/').next()?.to_string();
 
-                        // Extract region from host
-                        if let Some(caps) = regex::Regex::new(r"s3[.-]([^.]+)\.amazonaws\.com")
-                            .ok()
-                            .and_then(|re| re.captures(host))
-                        {
-                            let region = caps.get(1)?.as_str().to_string();
-                            return Some((bucket, region));
+                        // Extract region from host using pre-compiled regex
+                        if let Some(ref re) = *S3_PATH_STYLE_REGEX {
+                            if let Some(caps) = re.captures(host) {
+                                let region = caps.get(1)?.as_str().to_string();
+                                return Some((bucket, region));
+                            }
                         }
                         return Some((bucket, "us-east-1".to_string()));
                     }
@@ -137,33 +154,51 @@ impl CloudStorageScanner {
     }
 
     /// Scan for exposed S3 buckets
-    async fn scan_s3_buckets(&self, domain: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    /// Note: Direct S3 URL detection is handled in scan() before this is called
+    async fn scan_s3_buckets(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // Check if the URL itself is an S3 bucket
-        if let Some((bucket_name, region)) = self.detect_s3_url(domain) {
-            info!("Detected direct S3 bucket URL: {} in region {}", bucket_name, region);
-            let (vulns, tests) = self.scan_single_s3_bucket(&bucket_name, &region).await?;
-            vulnerabilities.extend(vulns);
-            tests_run += tests;
-            return Ok((vulnerabilities, tests_run));
-        }
+        // Extract just the hostname from URL if a full URL was passed
+        // oh2fih thanks
+        let hostname = if url.starts_with("http://") || url.starts_with("https://") {
+            url::Url::parse(url)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.to_string()))
+                .unwrap_or_else(|| url.to_string())
+        } else {
+            url.to_string()
+        };
 
-        // Otherwise, test common bucket naming patterns
-        debug!("Testing S3 buckets for domain: {}", domain);
+        // Extract base domain name (without TLD for bucket naming)
+        // e.g., "example.com" -> "example", "sub.example.co.uk" -> "sub-example"
+        let base_name = hostname
+            .split('.')
+            .filter(|part| !["com", "org", "net", "io", "co", "uk", "fi", "se", "de", "fr", "es", "it", "nl", "be", "at", "ch", "www"].contains(part))
+            .collect::<Vec<_>>()
+            .join("-");
+
+        // Use base_name if we extracted something useful, otherwise use the hostname without dots
+        let bucket_base = if base_name.is_empty() {
+            hostname.replace('.', "-")
+        } else {
+            base_name
+        };
+
+        // Test common bucket naming patterns
+        debug!("Testing S3 buckets for URL: {} (bucket base: {})", url, bucket_base);
 
         let bucket_patterns = vec![
-            format!("{}-backups", domain),
-            format!("{}-backup", domain),
-            format!("{}-data", domain),
-            format!("{}-files", domain),
-            format!("{}-uploads", domain),
-            format!("{}-images", domain),
-            format!("{}-assets", domain),
-            format!("{}-static", domain),
-            format!("{}-dev", domain),
-            format!("{}-prod", domain),
+            format!("{}-backups", bucket_base),
+            format!("{}-backup", bucket_base),
+            format!("{}-data", bucket_base),
+            format!("{}-files", bucket_base),
+            format!("{}-uploads", bucket_base),
+            format!("{}-images", bucket_base),
+            format!("{}-assets", bucket_base),
+            format!("{}-static", bucket_base),
+            format!("{}-dev", bucket_base),
+            format!("{}-prod", bucket_base),
         ];
 
         let regions = vec!["us-east-1", "us-west-2", "eu-west-1", "eu-north-1"];
@@ -185,8 +220,9 @@ impl CloudStorageScanner {
                             break; // Found it, no need to test other regions
                         }
                     }
-                    Err(_) => {
-                        // Bucket doesn't exist or not accessible
+                    Err(e) => {
+                        // Bucket doesn't exist or not accessible - expected for most tests
+                        debug!("S3 bucket {} not accessible in {}: {}", bucket_name, region, e);
                     }
                 }
             }
@@ -249,7 +285,9 @@ impl CloudStorageScanner {
                     }
                 }
             }
-            Err(_) => {}
+            Err(e) => {
+                debug!("Directory listing test failed for {}: {}", bucket_name, e);
+            }
         }
 
         // Test 2: Advanced sensitive file paths - really comprehensive list
@@ -326,7 +364,9 @@ impl CloudStorageScanner {
                         }
                     }
                 }
-                Err(_) => {}
+                Err(_) => {
+                    // Expected - most files won't exist
+                }
             }
         }
 
@@ -354,7 +394,9 @@ impl CloudStorageScanner {
                             break; // Found one
                         }
                     }
-                    Err(_) => {}
+                    Err(_) => {
+                        // Expected - most dated backup patterns won't exist
+                    }
                 }
             }
         }
@@ -377,7 +419,9 @@ impl CloudStorageScanner {
                     }
                 }
             }
-            Err(_) => {}
+            Err(e) => {
+                debug!("ACL endpoint test failed for {}: {}", bucket_name, e);
+            }
         }
 
         // Test 4: Bucket policy endpoint
@@ -398,7 +442,55 @@ impl CloudStorageScanner {
                     }
                 }
             }
-            Err(_) => {}
+            Err(e) => {
+                debug!("Failed to fetch bucket policy for {}: {}", bucket_name, e);
+            }
+        }
+
+        // Test 5: Write access test - attempt to PUT a harmless test file
+        // This is a critical security check - public write = immediate compromise
+        tests_run += 1;
+        let write_test_key = format!(".lonkero-write-test-{}", Uuid::new_v4());
+        let write_test_url = format!("{}/{}", bucket_url, write_test_key);
+        let write_test_body = "lonkero-security-scan-write-test";
+
+        match self.http_client.put(&write_test_url, write_test_body).await {
+            Ok(response) => {
+                if response.status_code == 200 || response.status_code == 204 {
+                    // Write succeeded! This is critical - immediately try to delete the test file
+                    warn!(
+                        "CRITICAL: S3 bucket {} allows public write access! Test file created at {}",
+                        bucket_name, write_test_key
+                    );
+
+                    vulnerabilities.push(self.create_vulnerability_with_evidence(
+                        "Public S3 Write Access",
+                        &bucket_url,
+                        &format!(
+                            "S3 bucket '{}' allows UNAUTHENTICATED WRITE access. \
+                            Attackers can upload malicious files, overwrite existing content, \
+                            or use the bucket for malware distribution.",
+                            bucket_name
+                        ),
+                        Severity::Critical,
+                        "CWE-732",
+                        format!(
+                            "Bucket: {}\nRegion: {}\nTest: PUT request succeeded (status {})\n\
+                            Test key: {}\nIMPACT: Complete bucket compromise possible",
+                            bucket_name, region, response.status_code, write_test_key
+                        ),
+                    ));
+
+                    // Attempt cleanup - delete the test file we created
+                    if let Err(e) = self.http_client.delete(&write_test_url).await {
+                        debug!("Could not delete write test file {}: {}", write_test_key, e);
+                    }
+                }
+            }
+            Err(e) => {
+                // Expected - most buckets don't allow public write
+                debug!("Write test failed for {} (expected): {}", bucket_name, e);
+            }
         }
 
         Ok((vulnerabilities, tests_run))
@@ -434,8 +526,9 @@ impl CloudStorageScanner {
                         ));
                     }
                 }
-                Err(_) => {
-                    // Storage doesn't exist or not accessible
+                Err(e) => {
+                    // Storage doesn't exist or not accessible - expected for most tests
+                    debug!("Azure Blob {} not accessible: {}", storage_name, e);
                 }
             }
         }
@@ -473,8 +566,9 @@ impl CloudStorageScanner {
                         ));
                     }
                 }
-                Err(_) => {
-                    // Bucket doesn't exist or not accessible
+                Err(e) => {
+                    // Bucket doesn't exist or not accessible - expected for most tests
+                    debug!("GCS bucket {} not accessible: {}", bucket_name, e);
                 }
             }
         }
@@ -525,11 +619,11 @@ impl CloudStorageScanner {
         cwe: &str,
     ) -> Vulnerability {
         let cvss = match severity {
-            Severity::Critical => 9.1,
-            Severity::High => 8.1,
-            Severity::Medium => 5.3,
-            Severity::Low => 3.7,
-            Severity::Info => 2.0,
+            Severity::Critical => CVSS_CRITICAL,
+            Severity::High => CVSS_HIGH,
+            Severity::Medium => CVSS_MEDIUM,
+            Severity::Low => CVSS_LOW,
+            Severity::Info => CVSS_INFO,
         };
 
         Vulnerability {
@@ -564,11 +658,11 @@ impl CloudStorageScanner {
         evidence: String,
     ) -> Vulnerability {
         let cvss = match severity {
-            Severity::Critical => 9.5,
-            Severity::High => 8.5,
-            Severity::Medium => 5.5,
-            Severity::Low => 3.5,
-            Severity::Info => 2.0,
+            Severity::Critical => CVSS_CRITICAL,
+            Severity::High => CVSS_HIGH,
+            Severity::Medium => CVSS_MEDIUM,
+            Severity::Low => CVSS_LOW,
+            Severity::Info => CVSS_INFO,
         };
 
         Vulnerability {
@@ -707,5 +801,75 @@ mod tests {
         assert!(scanner.detect_exposed_gcs(gcs_response, 200));
 
         assert!(!scanner.detect_exposed_gcs("Forbidden", 403));
+    }
+
+    #[test]
+    fn test_detect_s3_url_virtual_hosted_with_region() {
+        let scanner = create_test_scanner();
+
+        // Pattern: bucket-name.s3.region.amazonaws.com
+        let result = scanner.detect_s3_url("https://my-bucket.s3.us-west-2.amazonaws.com/path/file.txt");
+        assert!(result.is_some());
+        let (bucket, region) = result.unwrap();
+        assert_eq!(bucket, "my-bucket");
+        assert_eq!(region, "us-west-2");
+
+        // With eu-north-1 region
+        let result = scanner.detect_s3_url("https://test-data.s3.eu-north-1.amazonaws.com/");
+        assert!(result.is_some());
+        let (bucket, region) = result.unwrap();
+        assert_eq!(bucket, "test-data");
+        assert_eq!(region, "eu-north-1");
+    }
+
+    #[test]
+    fn test_detect_s3_url_virtual_hosted_us_east_1() {
+        let scanner = create_test_scanner();
+
+        // Pattern: bucket-name.s3.amazonaws.com (us-east-1 default)
+        let result = scanner.detect_s3_url("https://legacy-bucket.s3.amazonaws.com/data");
+        assert!(result.is_some());
+        let (bucket, region) = result.unwrap();
+        assert_eq!(bucket, "legacy-bucket");
+        assert_eq!(region, "us-east-1");
+    }
+
+    #[test]
+    fn test_detect_s3_url_path_style() {
+        let scanner = create_test_scanner();
+
+        // Pattern: s3.region.amazonaws.com/bucket-name
+        let result = scanner.detect_s3_url("https://s3.eu-west-1.amazonaws.com/my-bucket/file.txt");
+        assert!(result.is_some());
+        let (bucket, region) = result.unwrap();
+        assert_eq!(bucket, "my-bucket");
+        assert_eq!(region, "eu-west-1");
+
+        // Path-style with s3- prefix
+        let result = scanner.detect_s3_url("https://s3-ap-southeast-1.amazonaws.com/another-bucket/");
+        assert!(result.is_some());
+        let (bucket, region) = result.unwrap();
+        assert_eq!(bucket, "another-bucket");
+        assert_eq!(region, "ap-southeast-1");
+    }
+
+    #[test]
+    fn test_detect_s3_url_non_s3() {
+        let scanner = create_test_scanner();
+
+        // Non-S3 URLs should return None
+        assert!(scanner.detect_s3_url("https://example.com/path").is_none());
+        assert!(scanner.detect_s3_url("https://storage.googleapis.com/bucket/").is_none());
+        assert!(scanner.detect_s3_url("https://myaccount.blob.core.windows.net/container/").is_none());
+        assert!(scanner.detect_s3_url("not-a-url").is_none());
+    }
+
+    #[test]
+    fn test_detect_s3_url_empty_path() {
+        let scanner = create_test_scanner();
+
+        // Path-style URL with empty path should return None
+        let result = scanner.detect_s3_url("https://s3.us-east-1.amazonaws.com/");
+        assert!(result.is_none());
     }
 }
