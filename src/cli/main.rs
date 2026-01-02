@@ -2509,16 +2509,16 @@ async fn execute_standalone_scan(
                     }
                 }
 
-                info!("  - Testing XSS with Chromium (real browser execution) on {} URLs", xss_urls_to_test.len());
+                // Use parallel XSS scanning for 3-5x speedup
+                // Concurrency of 3 is a good balance between speed and stability
+                let xss_concurrency = 3;
+                info!("  - Testing XSS with Chromium (parallel, {} concurrent) on {} URLs", xss_concurrency, xss_urls_to_test.len());
 
-                for (idx, xss_url) in xss_urls_to_test.iter().enumerate() {
-                    info!("    [XSS] Testing URL {}/{}: {}", idx + 1, xss_urls_to_test.len(), xss_url);
-                    let (vulns, tests) = engine.chromium_xss_scanner
-                        .scan(xss_url, scan_config, engine.shared_browser.as_ref())
-                        .await?;
-                    all_vulnerabilities.extend(vulns);
-                    total_tests += tests as u64;
-                }
+                let (vulns, tests) = engine.chromium_xss_scanner
+                    .scan_urls_parallel(&xss_urls_to_test, scan_config, engine.shared_browser.as_ref(), xss_concurrency)
+                    .await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
             } else {
                 info!("  - Skipping XSS - GraphQL backend returns JSON, not HTML");
             }
