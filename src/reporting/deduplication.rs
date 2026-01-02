@@ -268,6 +268,7 @@ mod tests {
             false_positive: false,
             remediation: "Test".to_string(),
             discovered_at: Utc::now().to_rfc3339(),
+            ml_data: None,
         }
     }
 
