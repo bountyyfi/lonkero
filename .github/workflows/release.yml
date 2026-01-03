@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -23,6 +25,8 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    # Skip build on release event (binaries uploaded separately)
+    if: github.event_name != 'release'
     strategy:
       fail-fast: false
       matrix:
@@ -96,6 +100,8 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    # Skip on release event (release already exists)
+    if: github.event_name != 'release'
     permissions:
       contents: write
     steps:
@@ -124,6 +130,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
@@ -145,8 +153,12 @@ jobs:
     name: Publish to crates.io
     needs: release
     runs-on: ubuntu-latest
-    # Only publish on tag push, not manual dispatch (to avoid accidents)
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    # Publish on tag push OR GitHub release (not manual dispatch)
+    # Use always() to run even when release job is skipped (release event)
+    if: |
+      always() &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped') &&
+      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release')
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
