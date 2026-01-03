@@ -355,7 +355,7 @@ jobs:
   scorecard:
     name: OpenSSF Scorecard
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'  # Only on push to main
+    # Run on all events (push to main, PRs, and scheduled)
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
