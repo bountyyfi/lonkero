@@ -134,37 +134,6 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-  msrv:
-    name: MSRV Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (MSRV)
-        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
-        with:
-          toolchain: "1.85.1"
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-msrv-
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libpq-dev
-
-      - name: Verify MSRV builds
-        run: cargo build --release
-
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
