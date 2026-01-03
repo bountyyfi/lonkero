@@ -193,11 +193,11 @@ jobs:
 
       - name: Generate SBOM (CycloneDX)
         run: |
-          cargo sbom --output-format cyclonedx_json > sbom-cyclonedx.json
+          cargo sbom --output-format cyclone_dx_json_1_6 > sbom-cyclonedx.json
 
       - name: Generate SBOM (SPDX)
         run: |
-          cargo sbom --output-format spdx_json > sbom-spdx.json
+          cargo sbom --output-format spdx_json_2_3 > sbom-spdx.json
 
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
