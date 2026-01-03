@@ -1,0 +1,50 @@
+# Gitleaks configuration for Lonkero Security Scanner
+#
+# IMPORTANT: This is a SECURITY SCANNER application.
+# The codebase intentionally contains test payloads for vulnerability detection:
+# - Test JWT tokens
+# - Example API keys
+# - Sample credentials
+#
+# These are NOT real secrets - they are test data for scanning targets.
+
+title = "Lonkero Security Scanner - Gitleaks Config"
+
+[extend]
+# Use the default gitleaks config as base
+useDefault = true
+
+# Allowlist paths that contain intentional test payloads
+[allowlist]
+description = "Security scanner test payloads - not real secrets"
+
+# Exclude scanner source files (contain test payloads)
+paths = [
+    '''src/scanners/.*''',
+    '''src/form_replay\.rs''',
+    '''examples/.*''',
+    '''tests/.*''',
+    '''.*_test\.rs''',
+    '''test_.*\.rs''',
+]
+
+# Exclude specific patterns that are test data
+regexes = [
+    # Test JWT tokens (example tokens for vulnerability scanning)
+    '''eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*''',
+]
+
+# Exclude commits that are known to contain test payloads
+commits = []
+
+# Stop words - strings that indicate the secret is not real
+stopwords = [
+    "example",
+    "test",
+    "sample",
+    "dummy",
+    "fake",
+    "mock",
+    "placeholder",
+    "invalid",
+]
