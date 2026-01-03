@@ -38,9 +38,7 @@ use lonkero_scanner::signing::{self, ScanToken, SigningError};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults};
 
 // Intelligence system imports
-use lonkero_scanner::analysis::{
-    AttackPlanner, IntelligenceBus, ResponseAnalyzer, StateUpdate,
-};
+use lonkero_scanner::analysis::{AttackPlanner, IntelligenceBus, ResponseAnalyzer, StateUpdate};
 
 /// Lonkero - Enterprise Web Security Scanner
 #[derive(Parser)]
@@ -1317,8 +1315,6 @@ async fn run_scan(
 
     // Export session recording if enabled
     if record_session {
-        
-
         info!("[Recording] Session recording was enabled - note: full integration pending");
 
         // For now, just log that recording is enabled
@@ -3305,27 +3301,27 @@ async fn execute_standalone_scan(
     if scan_token.is_module_authorized(module_ids::advanced_scanning::API_FUZZER)
         && (!js_miner_results.api_endpoints.is_empty()
             || !js_miner_results.graphql_endpoints.is_empty())
-        {
-            info!(
-                "  - Running Advanced API Fuzzing on {} discovered endpoints",
-                js_miner_results.api_endpoints.len() + js_miner_results.graphql_endpoints.len()
-            );
+    {
+        info!(
+            "  - Running Advanced API Fuzzing on {} discovered endpoints",
+            js_miner_results.api_endpoints.len() + js_miner_results.graphql_endpoints.len()
+        );
 
-            // Fuzz discovered API endpoints
-            for api_url in &js_miner_results.api_endpoints {
-                let (vulns, tests) = engine.api_fuzzer_scanner.scan(api_url, scan_config).await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
-            }
-
-            // Fuzz discovered GraphQL endpoints with injection testing
-            for gql_url in &js_miner_results.graphql_endpoints {
-                info!("  - Testing GraphQL injection on: {}", gql_url);
-                let (vulns, tests) = engine.api_fuzzer_scanner.scan(gql_url, scan_config).await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
-            }
+        // Fuzz discovered API endpoints
+        for api_url in &js_miner_results.api_endpoints {
+            let (vulns, tests) = engine.api_fuzzer_scanner.scan(api_url, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
         }
+
+        // Fuzz discovered GraphQL endpoints with injection testing
+        for gql_url in &js_miner_results.graphql_endpoints {
+            info!("  - Testing GraphQL injection on: {}", gql_url);
+            let (vulns, tests) = engine.api_fuzzer_scanner.scan(gql_url, scan_config).await?;
+            all_vulnerabilities.extend(vulns);
+            total_tests += tests as u64;
+        }
+    }
 
     // Phase 5: Advanced injection testing (TECHNOLOGY-AWARE)
     info!("Phase 5: Advanced injection testing");
@@ -3443,26 +3439,29 @@ async fn execute_standalone_scan(
 
     // XML Injection - Test for XML-based attacks (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::XML_INJECTION)
-        && has_real_params && !is_static_site && !is_nodejs_stack {
-            info!("  - Testing XML Injection");
+        && has_real_params
+        && !is_static_site
+        && !is_nodejs_stack
+    {
+        info!("  - Testing XML Injection");
+        let (vulns, tests) = engine
+            .xml_injection_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+
+        // XPath Injection
+        if scan_token.is_module_authorized(module_ids::advanced_scanning::XPATH_INJECTION) {
+            info!("  - Testing XPath Injection");
             let (vulns, tests) = engine
-                .xml_injection_scanner
+                .xpath_injection_scanner
                 .scan(target, scan_config)
                 .await?;
             all_vulnerabilities.extend(vulns);
             total_tests += tests as u64;
-
-            // XPath Injection
-            if scan_token.is_module_authorized(module_ids::advanced_scanning::XPATH_INJECTION) {
-                info!("  - Testing XPath Injection");
-                let (vulns, tests) = engine
-                    .xpath_injection_scanner
-                    .scan(target, scan_config)
-                    .await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
-            }
         }
+    }
 
     // Deserialization - ONLY for PHP/Java/.NET, NOT for Node.js/Next.js (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::DESERIALIZATION) {
@@ -3481,29 +3480,33 @@ async fn execute_standalone_scan(
 
     // ReDoS - Test parameters for regex denial of service (applies to all stacks) (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::REDOS_SCANNER)
-        && has_real_params && !is_static_site {
-            info!("  - Testing ReDoS (Regular Expression Denial of Service)");
-            for (param_name, _) in &test_params {
-                let (vulns, tests) = engine
-                    .redos_scanner
-                    .scan_parameter(target, param_name, scan_config)
-                    .await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
-            }
-        }
-
-    // Email Header Injection - Test for email-related parameters (Professional+)
-    if scan_token.is_module_authorized(module_ids::advanced_scanning::EMAIL_HEADER_INJECTION)
-        && has_real_params && !is_static_site {
-            info!("  - Testing Email Header Injection");
+        && has_real_params
+        && !is_static_site
+    {
+        info!("  - Testing ReDoS (Regular Expression Denial of Service)");
+        for (param_name, _) in &test_params {
             let (vulns, tests) = engine
-                .email_header_injection_scanner
-                .scan(target, scan_config)
+                .redos_scanner
+                .scan_parameter(target, param_name, scan_config)
                 .await?;
             all_vulnerabilities.extend(vulns);
             total_tests += tests as u64;
         }
+    }
+
+    // Email Header Injection - Test for email-related parameters (Professional+)
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::EMAIL_HEADER_INJECTION)
+        && has_real_params
+        && !is_static_site
+    {
+        info!("  - Testing Email Header Injection");
+        let (vulns, tests) = engine
+            .email_header_injection_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Phase 6: Protocol & Transport testing
     info!("Phase 6: Protocol testing");
@@ -3683,159 +3686,160 @@ async fn execute_standalone_scan(
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("wordpress"))
-        {
-            info!("  - Testing WordPress Security");
-            let (vulns, tests) = engine
-                .wordpress_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing WordPress Security");
+        let (vulns, tests) = engine
+            .wordpress_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Drupal Security (only if Drupal detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::DRUPAL_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("drupal"))
-        {
-            info!("  - Testing Drupal Security");
-            let (vulns, tests) = engine
-                .drupal_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Drupal Security");
+        let (vulns, tests) = engine
+            .drupal_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Laravel Security (only if Laravel detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::LARAVEL_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("laravel"))
-        {
-            info!("  - Testing Laravel Security");
-            let (vulns, tests) = engine
-                .laravel_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Laravel Security");
+        let (vulns, tests) = engine
+            .laravel_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Django Security (only if Django detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::DJANGO_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("django"))
-        {
-            info!("  - Testing Django Security");
-            let (vulns, tests) = engine
-                .django_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Django Security");
+        let (vulns, tests) = engine
+            .django_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Express Security (only if Express detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::EXPRESS_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("express"))
-        {
-            info!("  - Testing Express.js Security");
-            let (vulns, tests) = engine
-                .express_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Express.js Security");
+        let (vulns, tests) = engine
+            .express_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Next.js Security (only if Next.js detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::NEXTJS_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("next"))
-        {
-            info!("  - Testing Next.js Security");
-            let (vulns, tests) = engine
-                .nextjs_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Next.js Security");
+        let (vulns, tests) = engine
+            .nextjs_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // SvelteKit Security (only if SvelteKit detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::SVELTEKIT_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("svelte"))
-        {
-            info!("  - Testing SvelteKit Security");
-            let (vulns, tests) = engine
-                .sveltekit_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing SvelteKit Security");
+        let (vulns, tests) = engine
+            .sveltekit_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // React Security (only if React detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::REACT_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("react"))
-        {
-            info!("  - Testing React Security");
-            let (vulns, tests) = engine
-                .react_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing React Security");
+        let (vulns, tests) = engine
+            .react_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Liferay Security (only if Liferay detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::LIFERAY_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("liferay"))
-        {
-            info!("  - Testing Liferay Security");
-            let (vulns, tests) = engine
-                .liferay_security_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Liferay Security");
+        let (vulns, tests) = engine
+            .liferay_security_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Joomla Security (only if Joomla detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::JOOMLA_SCANNER)
         && detected_technologies
             .iter()
             .any(|t| t.to_lowercase().contains("joomla"))
-        {
-            info!("  - Testing Joomla Security");
-            let (vulns, tests) = engine.joomla_scanner.scan(target, scan_config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Joomla Security");
+        let (vulns, tests) = engine.joomla_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Rails Security (only if Rails detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::RAILS_SCANNER)
         && detected_technologies.iter().any(|t| {
             let t_lower = t.to_lowercase();
             t_lower.contains("rails") || t_lower.contains("ruby")
-        }) {
-            info!("  - Testing Ruby on Rails Security");
-            let (vulns, tests) = engine.rails_scanner.scan(target, scan_config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+        })
+    {
+        info!("  - Testing Ruby on Rails Security");
+        let (vulns, tests) = engine.rails_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Spring Security (only if Spring/Java detected) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::SPRING_SCANNER)
@@ -3844,12 +3848,12 @@ async fn execute_standalone_scan(
                 let t_lower = t.to_lowercase();
                 t_lower.contains("spring") || t_lower.contains("java")
             }))
-        {
-            info!("  - Testing Spring Framework Security");
-            let (vulns, tests) = engine.spring_scanner.scan(target, scan_config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Spring Framework Security");
+        let (vulns, tests) = engine.spring_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Go Frameworks Security (Gin, Echo, Fiber, Chi) (Personal+)
     if scan_token.is_module_authorized(module_ids::cms_security::GO_FRAMEWORKS_SCANNER)
@@ -3860,15 +3864,16 @@ async fn execute_standalone_scan(
                 || t_lower.contains("echo")
                 || t_lower.contains("fiber")
                 || t_lower.contains("chi")
-        }) {
-            info!("  - Testing Go Web Framework Security");
-            let (vulns, tests) = engine
-                .go_frameworks_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+        })
+    {
+        info!("  - Testing Go Web Framework Security");
+        let (vulns, tests) = engine
+            .go_frameworks_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // ============================================================
     // Server Misconfiguration Scanners (Professional+ tier)
@@ -3880,15 +3885,15 @@ async fn execute_standalone_scan(
             || detected_technologies
                 .iter()
                 .any(|t| t.to_lowercase().contains("tomcat")))
-        {
-            info!("  - Testing Tomcat Misconfigurations");
-            let (vulns, tests) = engine
-                .tomcat_misconfig_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+    {
+        info!("  - Testing Tomcat Misconfigurations");
+        let (vulns, tests) = engine
+            .tomcat_misconfig_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Varnish Misconfiguration (check for caching issues) (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::VARNISH_MISCONFIG) {
@@ -3907,12 +3912,14 @@ async fn execute_standalone_scan(
 
     // HTTP Parameter Pollution (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::HPP_SCANNER)
-        && has_real_params && !is_static_site {
-            info!("  - Testing HTTP Parameter Pollution");
-            let (vulns, tests) = engine.hpp_scanner.scan(target, scan_config).await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+        && has_real_params
+        && !is_static_site
+    {
+        info!("  - Testing HTTP Parameter Pollution");
+        let (vulns, tests) = engine.hpp_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // WAF Bypass Testing (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::WAF_BYPASS) {
@@ -3955,15 +3962,16 @@ async fn execute_standalone_scan(
 
     // JS Sensitive Info Scanner (for JavaScript sites) (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::JS_SENSITIVE_INFO)
-        && is_nodejs_stack {
-            info!("  - Scanning JavaScript for Sensitive Information");
-            let (vulns, tests) = engine
-                .js_sensitive_info_scanner
-                .scan(target, scan_config)
-                .await?;
-            all_vulnerabilities.extend(vulns);
-            total_tests += tests as u64;
-        }
+        && is_nodejs_stack
+    {
+        info!("  - Scanning JavaScript for Sensitive Information");
+        let (vulns, tests) = engine
+            .js_sensitive_info_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Source Map Detection Scanner (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::SOURCE_MAP_DETECTION) {
