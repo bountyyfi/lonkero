@@ -71,7 +71,10 @@ impl ConfigLoader {
             "yaml" | "yml" => Ok(ConfigFormat::Yaml),
             "toml" => Ok(ConfigFormat::Toml),
             "json" => Ok(ConfigFormat::Json),
-            _ => Err(anyhow::anyhow!("Unsupported config file format: {}", extension)),
+            _ => Err(anyhow::anyhow!(
+                "Unsupported config file format: {}",
+                extension
+            )),
         }
     }
 
@@ -80,12 +83,15 @@ impl ConfigLoader {
             .with_context(|| format!("Failed to read config file: {:?}", self.config_path))?;
 
         let mut config: AppConfig = match self.format {
-            ConfigFormat::Yaml => serde_yaml::from_str(&content)
-                .context("Failed to parse YAML config")?,
-            ConfigFormat::Toml => toml::from_str(&content)
-                .context("Failed to parse TOML config")?,
-            ConfigFormat::Json => serde_json::from_str(&content)
-                .context("Failed to parse JSON config")?,
+            ConfigFormat::Yaml => {
+                serde_yaml::from_str(&content).context("Failed to parse YAML config")?
+            }
+            ConfigFormat::Toml => {
+                toml::from_str(&content).context("Failed to parse TOML config")?
+            }
+            ConfigFormat::Json => {
+                serde_json::from_str(&content).context("Failed to parse JSON config")?
+            }
         };
 
         config.server.environment = self.environment;
@@ -99,8 +105,7 @@ impl ConfigLoader {
 
     fn apply_env_overrides(&self, config: &mut AppConfig) -> Result<()> {
         if let Ok(port) = std::env::var("SERVER_PORT") {
-            config.server.port = port.parse()
-                .context("Invalid SERVER_PORT")?;
+            config.server.port = port.parse().context("Invalid SERVER_PORT")?;
         }
 
         if let Ok(redis_url) = std::env::var("REDIS_URL") {
@@ -117,13 +122,12 @@ impl ConfigLoader {
         }
 
         if let Ok(workers) = std::env::var("WORKERS") {
-            config.server.workers = workers.parse()
-                .context("Invalid WORKERS")?;
+            config.server.workers = workers.parse().context("Invalid WORKERS")?;
         }
 
         if let Ok(concurrency) = std::env::var("MAX_CONCURRENCY") {
-            config.scanner.max_concurrency = concurrency.parse()
-                .context("Invalid MAX_CONCURRENCY")?;
+            config.scanner.max_concurrency =
+                concurrency.parse().context("Invalid MAX_CONCURRENCY")?;
         }
 
         Ok(())
@@ -268,11 +272,9 @@ impl<T: Clone + Send + Sync + DeserializeOwned + 'static> HotReloadManager<T> {
 
                         debounce_timer = Some(now);
 
-                        if let Err(e) = Self::reload_config_internal(
-                            &config,
-                            &config_path,
-                            &reload_tx,
-                        ).await {
+                        if let Err(e) =
+                            Self::reload_config_internal(&config, &config_path, &reload_tx).await
+                        {
                             tracing::error!("Failed to reload config: {}", e);
                         }
                     }
@@ -293,7 +295,8 @@ impl<T: Clone + Send + Sync + DeserializeOwned + 'static> HotReloadManager<T> {
         let content = tokio::fs::read_to_string(config_path).await?;
 
         let new_config: T = if config_path.extension().and_then(|e| e.to_str()) == Some("yaml")
-            || config_path.extension().and_then(|e| e.to_str()) == Some("yml") {
+            || config_path.extension().and_then(|e| e.to_str()) == Some("yml")
+        {
             serde_yaml::from_str(&content)?
         } else if config_path.extension().and_then(|e| e.to_str()) == Some("toml") {
             toml::from_str(&content)?
@@ -352,8 +355,7 @@ impl EnvironmentParse for Environment {
 pub fn load_config_with_overrides(base_path: &str, environment: Environment) -> Result<AppConfig> {
     let base_config_path = PathBuf::from(base_path);
 
-    let mut builder = config::Config::builder()
-        .add_source(config::File::from(base_config_path));
+    let mut builder = config::Config::builder().add_source(config::File::from(base_config_path));
 
     let env_config_path = match environment {
         Environment::Development => "config/development.yaml",
@@ -369,7 +371,7 @@ pub fn load_config_with_overrides(base_path: &str, environment: Environment) -> 
     builder = builder.add_source(
         config::Environment::with_prefix("APP")
             .separator("__")
-            .try_parsing(true)
+            .try_parsing(true),
     );
 
     let settings = builder.build()?;

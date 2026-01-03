@@ -15,7 +15,10 @@ pub struct XPathInjectionScanner {
 impl XPathInjectionScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
         // Generate unique test marker for verification (xpath_<uuid>)
-        let test_marker = format!("xpath_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        let test_marker = format!(
+            "xpath_{}",
+            uuid::Uuid::new_v4().to_string().replace("-", "")
+        );
         Self {
             http_client,
             test_marker,
@@ -31,16 +34,21 @@ impl XPathInjectionScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
-            debug!("[XPath] Skipping framework/internal parameter: {}", param_name);
+            debug!(
+                "[XPath] Skipping framework/internal parameter: {}",
+                param_name
+            );
             return Ok((Vec::new(), 0));
         }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("[XPath] Testing XPath injection on parameter: {} (priority: {})",
-              param_name,
-              ParameterFilter::get_parameter_priority(param_name));
+        info!(
+            "[XPath] Testing XPath injection on parameter: {} (priority: {})",
+            param_name,
+            ParameterFilter::get_parameter_priority(param_name)
+        );
 
         // Test boolean-based XPath injection
         let (vulns, tests) = self.test_boolean_xpath_param(url, param_name).await?;
@@ -91,24 +99,23 @@ impl XPathInjectionScanner {
     }
 
     /// Test boolean-based XPath injection on specific parameter
-    async fn test_boolean_xpath_param(&self, url: &str, param_name: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_boolean_xpath_param(
+        &self,
+        url: &str,
+        param_name: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
-        debug!("Testing boolean-based XPath injection on parameter: {}", param_name);
+        debug!(
+            "Testing boolean-based XPath injection on parameter: {}",
+            param_name
+        );
 
         // Boolean payloads with true/false conditions
-        let true_payloads = vec![
-            "' or '1'='1",
-            "' or 1=1 or ''='",
-            "1' or '1'='1",
-        ];
+        let true_payloads = vec!["' or '1'='1", "' or 1=1 or ''='", "1' or '1'='1"];
 
-        let false_payloads = vec![
-            "' or '1'='2",
-            "' or 1=2 or ''='",
-            "1' or '1'='2",
-        ];
+        let false_payloads = vec!["' or '1'='2", "' or 1=2 or ''='", "1' or '1'='2"];
 
         // Test true condition
         let mut true_body = String::new();
@@ -176,19 +183,20 @@ impl XPathInjectionScanner {
     }
 
     /// Test error-based XPath injection on specific parameter
-    async fn test_error_xpath_param(&self, url: &str, param_name: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_error_xpath_param(
+        &self,
+        url: &str,
+        param_name: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
-        debug!("Testing error-based XPath injection on parameter: {}", param_name);
+        debug!(
+            "Testing error-based XPath injection on parameter: {}",
+            param_name
+        );
 
-        let error_payloads = vec![
-            "'",
-            "\"",
-            "']",
-            "')",
-            "' and count(//*)>0 and '1'='1",
-        ];
+        let error_payloads = vec!["'", "\"", "']", "')", "' and count(//*)>0 and '1'='1"];
 
         for payload in error_payloads {
             let test_url = if url.contains('?') {
@@ -230,17 +238,9 @@ impl XPathInjectionScanner {
         debug!("Testing boolean-based XPath injection");
 
         // Boolean payloads with true/false conditions
-        let true_payloads = vec![
-            "' or '1'='1",
-            "' or 1=1 or ''='",
-            "1' or '1'='1",
-        ];
+        let true_payloads = vec!["' or '1'='1", "' or 1=1 or ''='", "1' or '1'='1"];
 
-        let false_payloads = vec![
-            "' or '1'='2",
-            "' or 1=2 or ''='",
-            "1' or '1'='2",
-        ];
+        let false_payloads = vec!["' or '1'='2", "' or 1=2 or ''='", "1' or '1'='2"];
 
         // Test true condition
         let mut true_body = String::new();
@@ -314,13 +314,7 @@ impl XPathInjectionScanner {
 
         debug!("Testing error-based XPath injection");
 
-        let error_payloads = vec![
-            "'",
-            "\"",
-            "']",
-            "')",
-            "' and count(//*)>0 and '1'='1",
-        ];
+        let error_payloads = vec!["'", "\"", "']", "')", "' and count(//*)>0 and '1'='1"];
 
         for payload in error_payloads {
             let test_url = if url.contains('?') {
@@ -355,7 +349,10 @@ impl XPathInjectionScanner {
     }
 
     /// Test authentication bypass via XPath
-    async fn test_auth_bypass_xpath(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_auth_bypass_xpath(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
@@ -378,15 +375,27 @@ impl XPathInjectionScanner {
         for payload in bypass_payloads {
             // Test as GET parameter
             let test_url = if url.contains('?') {
-                format!("{}&username={}&password=test", url, urlencoding::encode(payload))
+                format!(
+                    "{}&username={}&password=test",
+                    url,
+                    urlencoding::encode(payload)
+                )
             } else {
-                format!("{}?username={}&password=test", url, urlencoding::encode(payload))
+                format!(
+                    "{}?username={}&password=test",
+                    url,
+                    urlencoding::encode(payload)
+                )
             };
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     // CRITICAL: Check for NEW auth indicators not present in baseline
-                    if self.detect_auth_bypass_with_baseline(&response.body, &baseline.body, response.status_code) {
+                    if self.detect_auth_bypass_with_baseline(
+                        &response.body,
+                        &baseline.body,
+                        response.status_code,
+                    ) {
                         info!("XPath authentication bypass detected");
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -436,7 +445,12 @@ impl XPathInjectionScanner {
     }
 
     /// Detect successful authentication bypass - REQUIRES baseline comparison
-    fn detect_auth_bypass_with_baseline(&self, body: &str, baseline_body: &str, status_code: u16) -> bool {
+    fn detect_auth_bypass_with_baseline(
+        &self,
+        body: &str,
+        baseline_body: &str,
+        status_code: u16,
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let baseline_lower = baseline_body.to_lowercase();
 
@@ -453,7 +467,10 @@ impl XPathInjectionScanner {
 
         for indicator in success_indicators {
             // Only trigger if indicator is NEW (not in baseline)
-            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && status_code == 200 {
+            if body_lower.contains(indicator)
+                && !baseline_lower.contains(indicator)
+                && status_code == 200
+            {
                 return true;
             }
         }
@@ -507,9 +524,10 @@ impl XPathInjectionScanner {
                          7. Implement least privilege for XML data access\n\
                          8. Avoid XPath for authentication - use secure alternatives\n\
                          9. Implement proper error handling without revealing XPath structure\n\
-                         10. Consider using alternative query methods (e.g., DOM navigation)".to_string(),
+                         10. Consider using alternative query methods (e.g., DOM navigation)"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -543,7 +561,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> XPathInjectionScanner {
@@ -599,7 +617,10 @@ use crate::http_client::HttpClient;
             "q",
         );
 
-        assert_eq!(vuln.vuln_type, "XPath Injection (Boolean-based XPath Injection)");
+        assert_eq!(
+            vuln.vuln_type,
+            "XPath Injection (Boolean-based XPath Injection)"
+        );
         assert_eq!(vuln.severity, Severity::Critical);
         assert_eq!(vuln.cwe, "CWE-643");
         assert_eq!(vuln.cvss, 9.8);

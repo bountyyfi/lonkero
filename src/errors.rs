@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use std::time::Duration;
 /**
  * Bountyy Oy - Comprehensive Error Types
  * Production-ready error handling with thiserror
@@ -8,9 +9,7 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use thiserror::Error;
-use std::time::Duration;
 
 /// Main scanner error type with comprehensive error variants
 #[derive(Error, Debug)]
@@ -29,10 +28,7 @@ pub enum ScannerError {
 
     /// Circuit breaker errors
     #[error("Circuit breaker open for {host}: {reason}")]
-    CircuitBreakerOpen {
-        host: String,
-        reason: String,
-    },
+    CircuitBreakerOpen { host: String, reason: String },
 
     /// Rate limit errors
     #[error("Rate limit exceeded for {host}: retry after {retry_after:?}")]
@@ -67,9 +63,7 @@ pub enum ScannerError {
 
     /// Timeout errors
     #[error("Operation timed out after {duration:?}")]
-    Timeout {
-        duration: Duration,
-    },
+    Timeout { duration: Duration },
 
     /// General errors
     #[error("Scanner error: {0}")]
@@ -80,53 +74,31 @@ pub enum ScannerError {
 #[derive(Error, Debug)]
 pub enum NetworkError {
     #[error("Connection timeout after {timeout:?} to {url}")]
-    ConnectionTimeout {
-        url: String,
-        timeout: Duration,
-    },
+    ConnectionTimeout { url: String, timeout: Duration },
 
     #[error("DNS resolution failed for {host}: {reason}")]
-    DnsResolutionFailed {
-        host: String,
-        reason: String,
-    },
+    DnsResolutionFailed { host: String, reason: String },
 
     #[error("TLS handshake failed for {host}: {reason}")]
-    TlsHandshakeFailed {
-        host: String,
-        reason: String,
-    },
+    TlsHandshakeFailed { host: String, reason: String },
 
     #[error("Connection reset by peer for {url}")]
-    ConnectionReset {
-        url: String,
-    },
+    ConnectionReset { url: String },
 
     #[error("Connection refused for {url}")]
-    ConnectionRefused {
-        url: String,
-    },
+    ConnectionRefused { url: String },
 
     #[error("Proxy error: {reason}")]
-    ProxyError {
-        reason: String,
-    },
+    ProxyError { reason: String },
 
     #[error("Network unreachable for {url}")]
-    NetworkUnreachable {
-        url: String,
-    },
+    NetworkUnreachable { url: String },
 
     #[error("Too many redirects (>{max_redirects}) for {url}")]
-    TooManyRedirects {
-        url: String,
-        max_redirects: usize,
-    },
+    TooManyRedirects { url: String, max_redirects: usize },
 
     #[error("Invalid URL: {url}")]
-    InvalidUrl {
-        url: String,
-    },
+    InvalidUrl { url: String },
 
     #[error("Network error: {0}")]
     Other(String),
@@ -150,28 +122,16 @@ pub enum HttpError {
     },
 
     #[error("Malformed HTTP response from {url}: {reason}")]
-    MalformedResponse {
-        url: String,
-        reason: String,
-    },
+    MalformedResponse { url: String, reason: String },
 
     #[error("Chunked encoding error from {url}: {reason}")]
-    ChunkedEncodingError {
-        url: String,
-        reason: String,
-    },
+    ChunkedEncodingError { url: String, reason: String },
 
     #[error("Compression/decompression error from {url}: {reason}")]
-    CompressionError {
-        url: String,
-        reason: String,
-    },
+    CompressionError { url: String, reason: String },
 
     #[error("Character encoding error from {url}: {encoding}")]
-    EncodingError {
-        url: String,
-        encoding: String,
-    },
+    EncodingError { url: String, encoding: String },
 
     #[error("Response body too large ({size} bytes) from {url}, max: {max_size}")]
     BodyTooLarge {
@@ -188,40 +148,25 @@ pub enum HttpError {
 #[derive(Error, Debug)]
 pub enum DatabaseError {
     #[error("Database connection failed: {reason}")]
-    ConnectionFailed {
-        reason: String,
-    },
+    ConnectionFailed { reason: String },
 
     #[error("Connection pool exhausted: {available}/{max} connections available")]
-    PoolExhausted {
-        available: usize,
-        max: usize,
-    },
+    PoolExhausted { available: usize, max: usize },
 
     #[error("Transaction failed: {reason}")]
-    TransactionFailed {
-        reason: String,
-    },
+    TransactionFailed { reason: String },
 
     #[error("Transaction rollback: {reason}")]
-    TransactionRollback {
-        reason: String,
-    },
+    TransactionRollback { reason: String },
 
     #[error("Constraint violation: {constraint}")]
-    ConstraintViolation {
-        constraint: String,
-    },
+    ConstraintViolation { constraint: String },
 
     #[error("Deadlock detected: {reason}")]
-    Deadlock {
-        reason: String,
-    },
+    Deadlock { reason: String },
 
     #[error("Query timeout after {timeout:?}")]
-    QueryTimeout {
-        timeout: Duration,
-    },
+    QueryTimeout { timeout: Duration },
 
     #[error("Database error: {0}")]
     Other(String),
@@ -231,34 +176,19 @@ pub enum DatabaseError {
 #[derive(Error, Debug)]
 pub enum ResourceError {
     #[error("Memory limit exceeded: {current} bytes, limit: {limit}")]
-    MemoryLimitExceeded {
-        current: usize,
-        limit: usize,
-    },
+    MemoryLimitExceeded { current: usize, limit: usize },
 
     #[error("Connection pool exhausted: {active}/{max} connections")]
-    ConnectionPoolExhausted {
-        active: usize,
-        max: usize,
-    },
+    ConnectionPoolExhausted { active: usize, max: usize },
 
     #[error("File descriptor limit reached: {current}/{limit}")]
-    FileDescriptorLimit {
-        current: usize,
-        limit: usize,
-    },
+    FileDescriptorLimit { current: usize, limit: usize },
 
     #[error("CPU throttled: {current_usage}% usage, threshold: {threshold}%")]
-    CpuThrottled {
-        current_usage: f64,
-        threshold: f64,
-    },
+    CpuThrottled { current_usage: f64, threshold: f64 },
 
     #[error("Disk space exhausted: {available} bytes available, required: {required}")]
-    DiskSpaceExhausted {
-        available: u64,
-        required: u64,
-    },
+    DiskSpaceExhausted { available: u64, required: u64 },
 
     #[error("Resource error: {0}")]
     Other(String),
@@ -275,33 +205,19 @@ pub enum ScanError {
     },
 
     #[error("Detection error for {url}: {reason}")]
-    DetectionError {
-        url: String,
-        reason: String,
-    },
+    DetectionError { url: String, reason: String },
 
     #[error("Response parsing failed for {url}: {reason}")]
-    ResponseParsingFailed {
-        url: String,
-        reason: String,
-    },
+    ResponseParsingFailed { url: String, reason: String },
 
     #[error("Pattern matching error: {pattern}")]
-    PatternMatchingError {
-        pattern: String,
-        reason: String,
-    },
+    PatternMatchingError { pattern: String, reason: String },
 
     #[error("Authentication failed for {url}: {reason}")]
-    AuthenticationFailed {
-        url: String,
-        reason: String,
-    },
+    AuthenticationFailed { url: String, reason: String },
 
     #[error("Scan aborted: {reason}")]
-    ScanAborted {
-        reason: String,
-    },
+    ScanAborted { reason: String },
 
     #[error("Scanner error: {0}")]
     Other(String),
@@ -344,10 +260,14 @@ impl HttpError {
     /// Extract retry-after duration from error
     pub fn retry_after(&self) -> Option<Duration> {
         match self {
-            HttpError::ClientError { status_code: 429, .. } => {
+            HttpError::ClientError {
+                status_code: 429, ..
+            } => {
                 Some(Duration::from_secs(60)) // Default 60s for rate limits
             }
-            HttpError::ServerError { status_code: 503, .. } => {
+            HttpError::ServerError {
+                status_code: 503, ..
+            } => {
                 Some(Duration::from_secs(30)) // Default 30s for service unavailable
             }
             _ => None,

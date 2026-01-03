@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use chrono::{DateTime, Utc};
+use regex::Regex;
 /**
  * High-Performance Rule Engine
  * Rust implementation for fast rule evaluation at scale
@@ -14,13 +16,10 @@
  *
  * © 2026 Bountyy Oy
  */
-
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use chrono::{DateTime, Utc};
-use regex::Regex;
-use serde_json::Value;
 
 /// Rule operator types
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -168,7 +167,9 @@ impl RuleEngine {
 
     /// Validate a rule
     pub fn validate_rule(&self, rule: &Rule) -> Result<(), String> {
-        let mut metrics = self.metrics.write()
+        let mut metrics = self
+            .metrics
+            .write()
             .map_err(|e| format!("Failed to acquire metrics lock: {}", e))?;
         metrics.rules_validated += 1;
 
@@ -192,7 +193,12 @@ impl RuleEngine {
     /// Validate a condition
     fn validate_condition(&self, condition: &Condition) -> Result<(), String> {
         match condition {
-            Condition::Simple { field, operator, value, .. } => {
+            Condition::Simple {
+                field,
+                operator,
+                value,
+                ..
+            } => {
                 // Field must not be empty
                 if field.is_empty() {
                     return Err("Field name cannot be empty".to_string());
@@ -211,7 +217,10 @@ impl RuleEngine {
                         }
                         if let Some(arr) = value.as_array() {
                             if arr.len() != 2 {
-                                return Err("Between operator requires array with exactly 2 values".to_string());
+                                return Err(
+                                    "Between operator requires array with exactly 2 values"
+                                        .to_string(),
+                                );
                             }
                         }
                     }
@@ -250,7 +259,9 @@ impl RuleEngine {
 
         // Update metrics
         {
-            let mut metrics = self.metrics.write()
+            let mut metrics = self
+                .metrics
+                .write()
                 .map_err(|e| format!("Failed to acquire metrics lock: {}", e))?;
             metrics.total_evaluations += 1;
         }
@@ -258,7 +269,9 @@ impl RuleEngine {
         // Check cache
         let cache_key = self.make_cache_key(rule, asset)?;
         if let Some(cached) = self.get_cached(&cache_key)? {
-            let mut metrics = self.metrics.write()
+            let mut metrics = self
+                .metrics
+                .write()
                 .map_err(|e| format!("Failed to acquire metrics lock: {}", e))?;
             metrics.cache_hits += 1;
 
@@ -271,7 +284,9 @@ impl RuleEngine {
 
         // Update cache miss
         {
-            let mut metrics = self.metrics.write()
+            let mut metrics = self
+                .metrics
+                .write()
                 .map_err(|e| format!("Failed to acquire metrics lock: {}", e))?;
             metrics.cache_misses += 1;
         }
@@ -285,11 +300,14 @@ impl RuleEngine {
         // Update metrics
         let duration = start.elapsed();
         {
-            let mut metrics = self.metrics.write()
+            let mut metrics = self
+                .metrics
+                .write()
                 .map_err(|e| format!("Failed to acquire metrics lock: {}", e))?;
             let total = metrics.total_evaluations as f64;
-            metrics.avg_evaluation_time_ms =
-                (metrics.avg_evaluation_time_ms * (total - 1.0) + duration.as_millis() as f64) / total;
+            metrics.avg_evaluation_time_ms = (metrics.avg_evaluation_time_ms * (total - 1.0)
+                + duration.as_millis() as f64)
+                / total;
         }
 
         Ok(EvaluationResult {
@@ -337,10 +355,16 @@ impl RuleEngine {
     /// Evaluate single condition
     fn evaluate_condition(&self, condition: &Condition, asset: &Asset) -> Result<bool, String> {
         match condition {
-            Condition::Nested { operator, conditions } => {
-                self.evaluate_conditions(operator, conditions, asset)
-            }
-            Condition::Simple { field, operator, value, case_sensitive } => {
+            Condition::Nested {
+                operator,
+                conditions,
+            } => self.evaluate_conditions(operator, conditions, asset),
+            Condition::Simple {
+                field,
+                operator,
+                value,
+                case_sensitive,
+            } => {
                 let field_value = self.get_field_value(asset, field);
                 self.compare(&field_value, operator, value, *case_sensitive)
             }
@@ -358,16 +382,23 @@ impl RuleEngine {
                 "type" | "asset_type" => Value::String(asset.type_.clone()),
                 "value" | "asset_value" => Value::String(asset.value.clone()),
                 "status" => Value::String(asset.status.clone()),
-                "tags" => asset.tags.as_ref()
+                "tags" => asset
+                    .tags
+                    .as_ref()
                     .and_then(|t| serde_json::to_value(t).ok())
                     .unwrap_or(Value::Null),
-                "cloud_provider" => asset.cloud_provider.as_ref()
+                "cloud_provider" => asset
+                    .cloud_provider
+                    .as_ref()
                     .map(|s| Value::String(s.clone()))
                     .unwrap_or(Value::Null),
-                "cloud_region" => asset.cloud_region.as_ref()
+                "cloud_region" => asset
+                    .cloud_region
+                    .as_ref()
                     .map(|s| Value::String(s.clone()))
                     .unwrap_or(Value::Null),
-                "risk_score" => asset.risk_score
+                "risk_score" => asset
+                    .risk_score
                     .and_then(|r| serde_json::Number::from_f64(r))
                     .map(Value::Number)
                     .unwrap_or(Value::Null),
@@ -410,7 +441,9 @@ impl RuleEngine {
                 Ok(!self.values_equal(field_value, compare_value, case_sensitive))
             }
             ComparisonOperator::Contains => {
-                if let (Some(haystack), Some(needle)) = (field_value.as_str(), compare_value.as_str()) {
+                if let (Some(haystack), Some(needle)) =
+                    (field_value.as_str(), compare_value.as_str())
+                {
                     if case_sensitive {
                         Ok(haystack.contains(needle))
                     } else {
@@ -421,7 +454,9 @@ impl RuleEngine {
                 }
             }
             ComparisonOperator::NotContains => {
-                if let (Some(haystack), Some(needle)) = (field_value.as_str(), compare_value.as_str()) {
+                if let (Some(haystack), Some(needle)) =
+                    (field_value.as_str(), compare_value.as_str())
+                {
                     if case_sensitive {
                         Ok(!haystack.contains(needle))
                     } else {
@@ -432,7 +467,9 @@ impl RuleEngine {
                 }
             }
             ComparisonOperator::StartsWith => {
-                if let (Some(haystack), Some(prefix)) = (field_value.as_str(), compare_value.as_str()) {
+                if let (Some(haystack), Some(prefix)) =
+                    (field_value.as_str(), compare_value.as_str())
+                {
                     if case_sensitive {
                         Ok(haystack.starts_with(prefix))
                     } else {
@@ -443,7 +480,9 @@ impl RuleEngine {
                 }
             }
             ComparisonOperator::EndsWith => {
-                if let (Some(haystack), Some(suffix)) = (field_value.as_str(), compare_value.as_str()) {
+                if let (Some(haystack), Some(suffix)) =
+                    (field_value.as_str(), compare_value.as_str())
+                {
                     if case_sensitive {
                         Ok(haystack.ends_with(suffix))
                     } else {
@@ -454,7 +493,8 @@ impl RuleEngine {
                 }
             }
             ComparisonOperator::Regex => {
-                if let (Some(text), Some(pattern)) = (field_value.as_str(), compare_value.as_str()) {
+                if let (Some(text), Some(pattern)) = (field_value.as_str(), compare_value.as_str())
+                {
                     let regex = self.get_or_compile_regex(pattern, case_sensitive)?;
                     Ok(regex.is_match(text))
                 } else {
@@ -475,24 +515,24 @@ impl RuleEngine {
             }
             ComparisonOperator::In => {
                 if let Some(arr) = compare_value.as_array() {
-                    Ok(arr.iter().any(|v| self.values_equal(field_value, v, case_sensitive)))
+                    Ok(arr
+                        .iter()
+                        .any(|v| self.values_equal(field_value, v, case_sensitive)))
                 } else {
                     Ok(false)
                 }
             }
             ComparisonOperator::NotIn => {
                 if let Some(arr) = compare_value.as_array() {
-                    Ok(!arr.iter().any(|v| self.values_equal(field_value, v, case_sensitive)))
+                    Ok(!arr
+                        .iter()
+                        .any(|v| self.values_equal(field_value, v, case_sensitive)))
                 } else {
                     Ok(true)
                 }
             }
-            ComparisonOperator::Exists => {
-                Ok(!field_value.is_null())
-            }
-            ComparisonOperator::NotExists => {
-                Ok(field_value.is_null())
-            }
+            ComparisonOperator::Exists => Ok(!field_value.is_null()),
+            ComparisonOperator::NotExists => Ok(field_value.is_null()),
             ComparisonOperator::Between => {
                 if let Some(arr) = compare_value.as_array() {
                     if arr.len() == 2 {
@@ -504,14 +544,16 @@ impl RuleEngine {
                 Ok(false)
             }
             ComparisonOperator::HasLabel => {
-                if let (Some(tags), Some(label)) = (field_value.as_array(), compare_value.as_str()) {
+                if let (Some(tags), Some(label)) = (field_value.as_array(), compare_value.as_str())
+                {
                     Ok(tags.iter().any(|t| t.as_str() == Some(label)))
                 } else {
                     Ok(false)
                 }
             }
             ComparisonOperator::NotHasLabel => {
-                if let (Some(tags), Some(label)) = (field_value.as_array(), compare_value.as_str()) {
+                if let (Some(tags), Some(label)) = (field_value.as_array(), compare_value.as_str())
+                {
                     Ok(!tags.iter().any(|t| t.as_str() == Some(label)))
                 } else {
                     Ok(true)
@@ -551,7 +593,9 @@ impl RuleEngine {
 
         // Check cache
         {
-            let cache = self.regex_cache.read()
+            let cache = self
+                .regex_cache
+                .read()
                 .map_err(|e| format!("Failed to acquire regex cache lock: {}", e))?;
             if let Some(regex) = cache.get(&cache_key) {
                 return Ok(regex.clone());
@@ -567,7 +611,9 @@ impl RuleEngine {
 
         match regex {
             Ok(r) => {
-                let mut cache = self.regex_cache.write()
+                let mut cache = self
+                    .regex_cache
+                    .write()
                     .map_err(|e| format!("Failed to acquire regex cache lock: {}", e))?;
                 cache.insert(cache_key, r.clone());
                 Ok(r)
@@ -585,7 +631,9 @@ impl RuleEngine {
 
     /// Get cached result
     fn get_cached(&self, key: &str) -> Result<Option<bool>, String> {
-        let cache = self.cache.read()
+        let cache = self
+            .cache
+            .read()
             .map_err(|e| format!("Failed to acquire cache lock: {}", e))?;
         if let Some(cached) = cache.get(key) {
             let age = Utc::now() - cached.timestamp;
@@ -598,7 +646,9 @@ impl RuleEngine {
 
     /// Cache result
     fn cache_result(&self, key: &str, result: bool) -> Result<(), String> {
-        let mut cache = self.cache.write()
+        let mut cache = self
+            .cache
+            .write()
             .map_err(|e| format!("Failed to acquire cache lock: {}", e))?;
         cache.insert(
             key.to_string(),
@@ -612,7 +662,9 @@ impl RuleEngine {
 
     /// Clear cache
     pub fn clear_cache(&self) -> Result<(), String> {
-        let mut cache = self.cache.write()
+        let mut cache = self
+            .cache
+            .write()
             .map_err(|e| format!("Failed to acquire cache lock: {}", e))?;
         cache.clear();
         Ok(())
@@ -620,14 +672,18 @@ impl RuleEngine {
 
     /// Get metrics
     pub fn get_metrics(&self) -> Result<EngineMetrics, String> {
-        let metrics = self.metrics.read()
+        let metrics = self
+            .metrics
+            .read()
             .map_err(|e| format!("Failed to acquire metrics lock: {}", e))?;
         Ok(metrics.clone())
     }
 
     /// Reset metrics
     pub fn reset_metrics(&self) -> Result<(), String> {
-        let mut metrics = self.metrics.write()
+        let mut metrics = self
+            .metrics
+            .write()
             .map_err(|e| format!("Failed to acquire metrics lock: {}", e))?;
         *metrics = EngineMetrics::default();
         Ok(())

@@ -7,7 +7,6 @@
  * Fast, accurate detection of frameworks, CMS, servers, and more
  * © 2026 Bountyy Oy
  */
-
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -90,14 +89,34 @@ struct TechPattern {
 /// Pattern types for detection
 #[derive(Debug, Clone)]
 enum Pattern {
-    Header { name: String, regex: String },
-    HTML { regex: String },
-    Script { regex: String },
-    Cookie { name: String },
-    Meta { name: String, regex: String },
-    DOM { selector: String, attribute: Option<String>, regex: Option<String> },
-    URL { regex: String },
-    Text { regex: String },
+    Header {
+        name: String,
+        regex: String,
+    },
+    HTML {
+        regex: String,
+    },
+    Script {
+        regex: String,
+    },
+    Cookie {
+        name: String,
+    },
+    Meta {
+        name: String,
+        regex: String,
+    },
+    DOM {
+        selector: String,
+        attribute: Option<String>,
+        regex: Option<String>,
+    },
+    URL {
+        regex: String,
+    },
+    Text {
+        regex: String,
+    },
 }
 
 /// Technology detector
@@ -125,9 +144,15 @@ impl TechDetector {
             name: "React".to_string(),
             category: TechCategory::Framework,
             patterns: vec![
-                Pattern::HTML { regex: r"react(?:\.production\.min)?\.js".to_string() },
-                Pattern::HTML { regex: r"data-reactroot".to_string() },
-                Pattern::HTML { regex: r"_react".to_string() },
+                Pattern::HTML {
+                    regex: r"react(?:\.production\.min)?\.js".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"data-reactroot".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"_react".to_string(),
+                },
             ],
             implies: vec!["JavaScript".to_string()],
             excludes: vec![],
@@ -137,9 +162,15 @@ impl TechDetector {
             name: "Vue.js".to_string(),
             category: TechCategory::Framework,
             patterns: vec![
-                Pattern::HTML { regex: r"vue(?:\.runtime)?(?:\.min)?\.js".to_string() },
-                Pattern::HTML { regex: r"data-v-[0-9a-f]{8}".to_string() },
-                Pattern::HTML { regex: r"<[^>]+v-(?:bind|if|for|on|show|model)".to_string() },
+                Pattern::HTML {
+                    regex: r"vue(?:\.runtime)?(?:\.min)?\.js".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"data-v-[0-9a-f]{8}".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"<[^>]+v-(?:bind|if|for|on|show|model)".to_string(),
+                },
             ],
             implies: vec!["JavaScript".to_string()],
             excludes: vec![],
@@ -149,9 +180,15 @@ impl TechDetector {
             name: "Angular".to_string(),
             category: TechCategory::Framework,
             patterns: vec![
-                Pattern::HTML { regex: r"ng-(?:app|controller|model|view)".to_string() },
-                Pattern::Script { regex: r"angular(?:\.min)?\.js".to_string() },
-                Pattern::HTML { regex: r"<[^>]+\[ng-".to_string() },
+                Pattern::HTML {
+                    regex: r"ng-(?:app|controller|model|view)".to_string(),
+                },
+                Pattern::Script {
+                    regex: r"angular(?:\.min)?\.js".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"<[^>]+\[ng-".to_string(),
+                },
             ],
             implies: vec!["JavaScript".to_string()],
             excludes: vec![],
@@ -161,11 +198,22 @@ impl TechDetector {
             name: "Next.js".to_string(),
             category: TechCategory::Framework,
             patterns: vec![
-                Pattern::HTML { regex: r"__NEXT_DATA__".to_string() },
-                Pattern::HTML { regex: r"/_next/static/".to_string() },
-                Pattern::HTML { regex: r"data-next-head".to_string() },
-                Pattern::HTML { regex: r"data-n-g".to_string() },
-                Pattern::Header { name: "x-powered-by".to_string(), regex: r"Next\.js".to_string() },
+                Pattern::HTML {
+                    regex: r"__NEXT_DATA__".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"/_next/static/".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"data-next-head".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"data-n-g".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-powered-by".to_string(),
+                    regex: r"Next\.js".to_string(),
+                },
             ],
             implies: vec!["React".to_string(), "Node.js".to_string()],
             excludes: vec![],
@@ -176,10 +224,20 @@ impl TechDetector {
             name: "WordPress".to_string(),
             category: TechCategory::CMS,
             patterns: vec![
-                Pattern::HTML { regex: r"wp-content".to_string() },
-                Pattern::HTML { regex: r"wp-includes".to_string() },
-                Pattern::Meta { name: "generator".to_string(), regex: r"WordPress\s*([\d.]+)?".to_string() },
-                Pattern::Header { name: "x-powered-by".to_string(), regex: r"WordPress".to_string() },
+                Pattern::HTML {
+                    regex: r"wp-content".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"wp-includes".to_string(),
+                },
+                Pattern::Meta {
+                    name: "generator".to_string(),
+                    regex: r"WordPress\s*([\d.]+)?".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-powered-by".to_string(),
+                    regex: r"WordPress".to_string(),
+                },
             ],
             implies: vec!["PHP".to_string(), "MySQL".to_string()],
             excludes: vec![],
@@ -189,10 +247,19 @@ impl TechDetector {
             name: "Drupal".to_string(),
             category: TechCategory::CMS,
             patterns: vec![
-                Pattern::HTML { regex: r"drupal\.js".to_string() },
-                Pattern::Header { name: "x-generator".to_string(), regex: r"Drupal\s*([\d.]+)?".to_string() },
-                Pattern::HTML { regex: r"sites/(?:default|all)/(?:themes|modules)".to_string() },
-                Pattern::Cookie { name: "SESS".to_string() },
+                Pattern::HTML {
+                    regex: r"drupal\.js".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-generator".to_string(),
+                    regex: r"Drupal\s*([\d.]+)?".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"sites/(?:default|all)/(?:themes|modules)".to_string(),
+                },
+                Pattern::Cookie {
+                    name: "SESS".to_string(),
+                },
             ],
             implies: vec!["PHP".to_string()],
             excludes: vec![],
@@ -202,9 +269,16 @@ impl TechDetector {
             name: "Joomla".to_string(),
             category: TechCategory::CMS,
             patterns: vec![
-                Pattern::HTML { regex: r"/media/system/js/".to_string() },
-                Pattern::Meta { name: "generator".to_string(), regex: r"Joomla!\s*([\d.]+)?".to_string() },
-                Pattern::HTML { regex: r"com_content".to_string() },
+                Pattern::HTML {
+                    regex: r"/media/system/js/".to_string(),
+                },
+                Pattern::Meta {
+                    name: "generator".to_string(),
+                    regex: r"Joomla!\s*([\d.]+)?".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"com_content".to_string(),
+                },
             ],
             implies: vec!["PHP".to_string()],
             excludes: vec![],
@@ -214,9 +288,10 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Nginx".to_string(),
             category: TechCategory::WebServer,
-            patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"nginx(?:/([\d.]+))?".to_string() },
-            ],
+            patterns: vec![Pattern::Header {
+                name: "server".to_string(),
+                regex: r"nginx(?:/([\d.]+))?".to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -224,9 +299,10 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Apache".to_string(),
             category: TechCategory::WebServer,
-            patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"Apache(?:/([\d.]+))?".to_string() },
-            ],
+            patterns: vec![Pattern::Header {
+                name: "server".to_string(),
+                regex: r"Apache(?:/([\d.]+))?".to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -234,9 +310,10 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Microsoft-IIS".to_string(),
             category: TechCategory::WebServer,
-            patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"Microsoft-IIS(?:/([\d.]+))?".to_string() },
-            ],
+            patterns: vec![Pattern::Header {
+                name: "server".to_string(),
+                regex: r"Microsoft-IIS(?:/([\d.]+))?".to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -246,9 +323,17 @@ impl TechDetector {
             name: "Cloudflare".to_string(),
             category: TechCategory::CDN,
             patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"cloudflare".to_string() },
-                Pattern::Header { name: "cf-ray".to_string(), regex: r".+".to_string() },
-                Pattern::Cookie { name: "__cfduid".to_string() },
+                Pattern::Header {
+                    name: "server".to_string(),
+                    regex: r"cloudflare".to_string(),
+                },
+                Pattern::Header {
+                    name: "cf-ray".to_string(),
+                    regex: r".+".to_string(),
+                },
+                Pattern::Cookie {
+                    name: "__cfduid".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -258,8 +343,14 @@ impl TechDetector {
             name: "Akamai".to_string(),
             category: TechCategory::CDN,
             patterns: vec![
-                Pattern::Header { name: "x-akamai-transformed".to_string(), regex: r".+".to_string() },
-                Pattern::Header { name: "x-akamai-staging".to_string(), regex: r".+".to_string() },
+                Pattern::Header {
+                    name: "x-akamai-transformed".to_string(),
+                    regex: r".+".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-akamai-staging".to_string(),
+                    regex: r".+".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -269,8 +360,14 @@ impl TechDetector {
             name: "Fastly".to_string(),
             category: TechCategory::CDN,
             patterns: vec![
-                Pattern::Header { name: "x-served-by".to_string(), regex: r"cache-".to_string() },
-                Pattern::Header { name: "fastly-io-info".to_string(), regex: r".+".to_string() },
+                Pattern::Header {
+                    name: "x-served-by".to_string(),
+                    regex: r"cache-".to_string(),
+                },
+                Pattern::Header {
+                    name: "fastly-io-info".to_string(),
+                    regex: r".+".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -281,9 +378,15 @@ impl TechDetector {
             name: "Google Analytics".to_string(),
             category: TechCategory::Analytics,
             patterns: vec![
-                Pattern::Script { regex: r"google-analytics\.com/(?:ga|urchin|analytics)\.js".to_string() },
-                Pattern::Script { regex: r"googletagmanager\.com/gtag/js".to_string() },
-                Pattern::HTML { regex: r#"ga\(['"]create['"]\)"#.to_string() },
+                Pattern::Script {
+                    regex: r"google-analytics\.com/(?:ga|urchin|analytics)\.js".to_string(),
+                },
+                Pattern::Script {
+                    regex: r"googletagmanager\.com/gtag/js".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r#"ga\(['"]create['"]\)"#.to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -292,9 +395,9 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Mixpanel".to_string(),
             category: TechCategory::Analytics,
-            patterns: vec![
-                Pattern::Script { regex: r"mixpanel\.com/libs/mixpanel".to_string() },
-            ],
+            patterns: vec![Pattern::Script {
+                regex: r"mixpanel\.com/libs/mixpanel".to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -302,9 +405,9 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Hotjar".to_string(),
             category: TechCategory::Analytics,
-            patterns: vec![
-                Pattern::Script { regex: r"static\.hotjar\.com".to_string() },
-            ],
+            patterns: vec![Pattern::Script {
+                regex: r"static\.hotjar\.com".to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -314,8 +417,12 @@ impl TechDetector {
             name: "reCAPTCHA".to_string(),
             category: TechCategory::Security,
             patterns: vec![
-                Pattern::Script { regex: r"google\.com/recaptcha".to_string() },
-                Pattern::HTML { regex: r"g-recaptcha".to_string() },
+                Pattern::Script {
+                    regex: r"google\.com/recaptcha".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r"g-recaptcha".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -325,8 +432,12 @@ impl TechDetector {
             name: "Imperva".to_string(),
             category: TechCategory::Security,
             patterns: vec![
-                Pattern::Cookie { name: "incap_ses_".to_string() },
-                Pattern::Cookie { name: "visid_incap_".to_string() },
+                Pattern::Cookie {
+                    name: "incap_ses_".to_string(),
+                },
+                Pattern::Cookie {
+                    name: "visid_incap_".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -337,9 +448,16 @@ impl TechDetector {
             name: "PHP".to_string(),
             category: TechCategory::Language,
             patterns: vec![
-                Pattern::Header { name: "x-powered-by".to_string(), regex: r"PHP(?:/([\d.]+))?".to_string() },
-                Pattern::Cookie { name: "PHPSESSID".to_string() },
-                Pattern::URL { regex: r"\.php(?:\?|$)".to_string() },
+                Pattern::Header {
+                    name: "x-powered-by".to_string(),
+                    regex: r"PHP(?:/([\d.]+))?".to_string(),
+                },
+                Pattern::Cookie {
+                    name: "PHPSESSID".to_string(),
+                },
+                Pattern::URL {
+                    regex: r"\.php(?:\?|$)".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -348,9 +466,10 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Node.js".to_string(),
             category: TechCategory::Language,
-            patterns: vec![
-                Pattern::Header { name: "x-powered-by".to_string(), regex: r"(?:Node\.js|Express)".to_string() },
-            ],
+            patterns: vec![Pattern::Header {
+                name: "x-powered-by".to_string(),
+                regex: r"(?:Node\.js|Express)".to_string(),
+            }],
             implies: vec!["JavaScript".to_string()],
             excludes: vec![],
         });
@@ -359,8 +478,14 @@ impl TechDetector {
             name: "Python".to_string(),
             category: TechCategory::Language,
             patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"Python(?:/([\d.]+))?".to_string() },
-                Pattern::Header { name: "x-powered-by".to_string(), regex: r"Django|Flask".to_string() },
+                Pattern::Header {
+                    name: "server".to_string(),
+                    regex: r"Python(?:/([\d.]+))?".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-powered-by".to_string(),
+                    regex: r"Django|Flask".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -370,8 +495,13 @@ impl TechDetector {
             name: "Ruby".to_string(),
             category: TechCategory::Language,
             patterns: vec![
-                Pattern::Header { name: "x-powered-by".to_string(), regex: r"(?:Phusion Passenger|mod_rails|mod_rack)".to_string() },
-                Pattern::Cookie { name: "_rails_session".to_string() },
+                Pattern::Header {
+                    name: "x-powered-by".to_string(),
+                    regex: r"(?:Phusion Passenger|mod_rails|mod_rack)".to_string(),
+                },
+                Pattern::Cookie {
+                    name: "_rails_session".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -382,8 +512,14 @@ impl TechDetector {
             name: "AWS".to_string(),
             category: TechCategory::Cloud,
             patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"AmazonS3".to_string() },
-                Pattern::Header { name: "x-amz-".to_string(), regex: r".+".to_string() },
+                Pattern::Header {
+                    name: "server".to_string(),
+                    regex: r"AmazonS3".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-amz-".to_string(),
+                    regex: r".+".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -393,8 +529,14 @@ impl TechDetector {
             name: "Google Cloud".to_string(),
             category: TechCategory::Cloud,
             patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"Google Frontend".to_string() },
-                Pattern::Header { name: "x-goog-".to_string(), regex: r".+".to_string() },
+                Pattern::Header {
+                    name: "server".to_string(),
+                    regex: r"Google Frontend".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-goog-".to_string(),
+                    regex: r".+".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -404,8 +546,14 @@ impl TechDetector {
             name: "Microsoft Azure".to_string(),
             category: TechCategory::Cloud,
             patterns: vec![
-                Pattern::Header { name: "x-ms-".to_string(), regex: r".+".to_string() },
-                Pattern::Header { name: "x-azure-ref".to_string(), regex: r".+".to_string() },
+                Pattern::Header {
+                    name: "x-ms-".to_string(),
+                    regex: r".+".to_string(),
+                },
+                Pattern::Header {
+                    name: "x-azure-ref".to_string(),
+                    regex: r".+".to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -416,8 +564,12 @@ impl TechDetector {
             name: "jQuery".to_string(),
             category: TechCategory::JavaScript,
             patterns: vec![
-                Pattern::Script { regex: r"jquery(?:[-.]min)?\.js".to_string() },
-                Pattern::HTML { regex: r#"jQuery\.fn\.jquery\s*=\s*["']([^"']+)"#.to_string() },
+                Pattern::Script {
+                    regex: r"jquery(?:[-.]min)?\.js".to_string(),
+                },
+                Pattern::HTML {
+                    regex: r#"jQuery\.fn\.jquery\s*=\s*["']([^"']+)"#.to_string(),
+                },
             ],
             implies: vec!["JavaScript".to_string()],
             excludes: vec![],
@@ -427,8 +579,12 @@ impl TechDetector {
             name: "Bootstrap".to_string(),
             category: TechCategory::CSS,
             patterns: vec![
-                Pattern::HTML { regex: r#"bootstrap(?:\.min)?\.css"#.to_string() },
-                Pattern::HTML { regex: r#"bootstrap(?:\.min)?\.js"#.to_string() },
+                Pattern::HTML {
+                    regex: r#"bootstrap(?:\.min)?\.css"#.to_string(),
+                },
+                Pattern::HTML {
+                    regex: r#"bootstrap(?:\.min)?\.js"#.to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -438,9 +594,9 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Stripe".to_string(),
             category: TechCategory::PaymentProcessor,
-            patterns: vec![
-                Pattern::Script { regex: r#"js\.stripe\.com"#.to_string() },
-            ],
+            patterns: vec![Pattern::Script {
+                regex: r#"js\.stripe\.com"#.to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -449,8 +605,12 @@ impl TechDetector {
             name: "PayPal".to_string(),
             category: TechCategory::PaymentProcessor,
             patterns: vec![
-                Pattern::Script { regex: r#"paypal\.com"#.to_string() },
-                Pattern::HTML { regex: r#"paypal-button"#.to_string() },
+                Pattern::Script {
+                    regex: r#"paypal\.com"#.to_string(),
+                },
+                Pattern::HTML {
+                    regex: r#"paypal-button"#.to_string(),
+                },
             ],
             implies: vec![],
             excludes: vec![],
@@ -460,9 +620,10 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Docker".to_string(),
             category: TechCategory::Container,
-            patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"Docker".to_string() },
-            ],
+            patterns: vec![Pattern::Header {
+                name: "server".to_string(),
+                regex: r"Docker".to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -470,9 +631,10 @@ impl TechDetector {
         self.add_pattern(TechPattern {
             name: "Kubernetes".to_string(),
             category: TechCategory::Container,
-            patterns: vec![
-                Pattern::Header { name: "server".to_string(), regex: r"Kubernetes".to_string() },
-            ],
+            patterns: vec![Pattern::Header {
+                name: "server".to_string(),
+                regex: r"Kubernetes".to_string(),
+            }],
             implies: vec![],
             excludes: vec![],
         });
@@ -545,7 +707,10 @@ impl TechDetector {
                     }
                     Pattern::Meta { name, regex } => {
                         if let Some(html_content) = html {
-                            let meta_pattern = format!(r##"<meta[^>]+name=["']{}["'][^>]+content=["']([^"']+)["']"##, name);
+                            let meta_pattern = format!(
+                                r##"<meta[^>]+name=["']{}["'][^>]+content=["']([^"']+)["']"##,
+                                name
+                            );
                             if let Some(content) = self.extract_regex(&meta_pattern, html_content) {
                                 if self.test_regex(regex, &content) {
                                     evidence.push(format!("Meta {}: {}", name, content));
@@ -624,7 +789,9 @@ impl TechDetector {
     /// Extract first match from regex
     fn extract_regex(&self, pattern: &str, text: &str) -> Option<String> {
         let regex = self.get_or_compile_regex(pattern);
-        regex.captures(text).and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+        regex
+            .captures(text)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     /// Get or compile regex (with caching)

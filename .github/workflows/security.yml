@@ -1,0 +1,457 @@
+name: Security (Extended)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Run weekly on Monday at 7:00 UTC (after CodeQL at 6:30)
+    - cron: '0 7 * * 1'
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+# Extended security checks (complements codeql.yml which has cargo-audit and Unicode checks)
+jobs:
+  # Check for license compliance and banned dependencies
+  cargo-deny:
+    name: License & Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install cargo-deny
+        run: |
+          curl -fsSL https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz | tar xzf - -C /usr/local/bin
+          cargo-binstall cargo-deny --no-confirm
+
+      - name: Create deny.toml if not exists
+        run: |
+          if [ ! -f deny.toml ]; then
+            cat > deny.toml << 'EOF'
+          [advisories]
+          db-path = "~/.cargo/advisory-db"
+          db-urls = ["https://github.com/rustsec/advisory-db"]
+          vulnerability = "warn"
+          unmaintained = "warn"
+          yanked = "warn"
+          notice = "warn"
+
+          [licenses]
+          unlicensed = "warn"
+          allow = [
+            "MIT",
+            "Apache-2.0",
+            "Apache-2.0 WITH LLVM-exception",
+            "BSD-2-Clause",
+            "BSD-3-Clause",
+            "ISC",
+            "Zlib",
+            "MPL-2.0",
+            "Unicode-DFS-2016",
+            "CC0-1.0",
+            "BSL-1.0",
+          ]
+          confidence-threshold = 0.8
+
+          [bans]
+          multiple-versions = "warn"
+          wildcards = "warn"
+          highlight = "all"
+
+          [sources]
+          unknown-registry = "deny"
+          unknown-git = "warn"
+          allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+          EOF
+          fi
+
+      - name: Run cargo-deny
+        run: cargo deny check 2>&1 | tee deny-output.txt || true
+
+      - name: Upload deny results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cargo-deny-results
+          path: deny-output.txt
+
+  # Scan for hardcoded secrets and sensitive data
+  secrets-scan:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_SUMMARY: true
+
+  # Semgrep static analysis
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Run Semgrep
+        run: |
+          # NOTE: This is a security scanner - it contains intentional test payloads,
+          # example JWT tokens, and API key patterns used for vulnerability detection.
+          # These are NOT real secrets - they are test data for scanning targets.
+          # We exclude secret detection rules as they flag our test payloads.
+          semgrep scan \
+            --config p/rust \
+            --config p/security-audit \
+            --exclude-rule "generic.secrets.security.detected-jwt-token.detected-jwt-token" \
+            --exclude-rule "generic.secrets.security.detected-generic-api-key.detected-generic-api-key" \
+            --exclude-rule "generic.secrets.security.detected-pgp-private-key-block.detected-pgp-private-key-block" \
+            --exclude-rule "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket" \
+            --exclude "src/scanners/" \
+            --exclude "examples/" \
+            --sarif --output semgrep-results.sarif \
+            || true
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@f09c1c0a94de965c15400f5634aa42fac8fb8f88 # v3.28.1
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+      - name: Upload Semgrep results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: semgrep-results
+          path: semgrep-results.sarif
+
+  # Trivy vulnerability scanner for filesystem and container
+  trivy:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          # Skip scanner directories - they contain intentional test payloads (not real secrets)
+          skip-dirs: 'src/scanners,examples,tests,target'
+          # Skip secret scanning - this is a security scanner with test payloads
+          scanners: 'vuln,misconfig'
+
+      - name: Upload Trivy SARIF (filesystem)
+        uses: github/codeql-action/upload-sarif@f09c1c0a94de965c15400f5634aa42fac8fb8f88 # v3.28.1
+        if: always()
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-fs
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          skip-dirs: 'src/scanners,examples,tests,target'
+
+  # Generate SBOM (Software Bill of Materials)
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+
+      - name: Install cargo-sbom
+        run: cargo install cargo-sbom
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          cargo sbom --output-format cyclone_dx_json_1_6 > sbom-cyclonedx.json
+
+      - name: Generate SBOM (SPDX)
+        run: |
+          cargo sbom --output-format spdx_json_2_3 > sbom-spdx.json
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: |
+            sbom-cyclonedx.json
+            sbom-spdx.json
+
+  # Dependency freshness check
+  dependency-freshness:
+    name: Dependency Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated
+
+      - name: Check outdated dependencies
+        run: |
+          echo "=== Outdated Dependencies ===" | tee outdated-deps.txt
+          cargo outdated --root-deps-only >> outdated-deps.txt 2>&1 || true
+
+          # Count outdated deps
+          OUTDATED=$(grep -c "^[a-z]" outdated-deps.txt 2>/dev/null || echo "0")
+          if [ "$OUTDATED" -gt "10" ]; then
+            echo "::warning::$OUTDATED dependencies are outdated"
+          fi
+
+          cat outdated-deps.txt
+
+      - name: Upload outdated deps report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: outdated-deps
+          path: outdated-deps.txt
+
+  # Security patterns analysis
+  security-patterns:
+    name: Security Pattern Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Analyze security patterns
+        run: |
+          echo "# Security Pattern Analysis" > security-report.md
+          echo "" >> security-report.md
+          echo "Generated: $(date -u)" >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Unsafe Code Blocks" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "unsafe\s*{" src/ --include="*.rs" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Potential Command Injection" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "Command::new" src/ --include="*.rs" | grep "format!" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Hardcoded Secrets Patterns" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rniE "(password|secret|api_key|apikey|private_key)\s*=\s*[\"'][^\"']{8,}[\"']" src/ --include="*.rs" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Deprecated Crypto Usage" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rniE "\b(md5|sha1|des|rc4|blowfish)\b" src/ --include="*.rs" | grep -v "sha1[0-9]" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Raw Pointer Usage" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "\*const\|\*mut" src/ --include="*.rs" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Panic/Unwrap Usage (potential DoS)" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "\.unwrap()\|\.expect(" src/ --include="*.rs" | wc -l >> security-report.md
+          echo " occurrences of unwrap()/expect()" >> security-report.md
+          echo '```' >> security-report.md
+
+          cat security-report.md
+
+      - name: Upload security report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: security-report
+          path: security-report.md
+
+  # Supply chain security
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify Cargo.lock exists
+        run: |
+          if [ ! -f Cargo.lock ]; then
+            echo "::error::Cargo.lock is missing - dependencies are not pinned"
+            exit 1
+          fi
+
+      - name: Check dependency sources
+        run: |
+          echo "# Supply Chain Report" > supply-chain.md
+          echo "" >> supply-chain.md
+
+          echo "## Git Dependencies" >> supply-chain.md
+          grep -E "git\s*=" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None" >> supply-chain.md
+          echo "" >> supply-chain.md
+
+          echo "## Path Dependencies" >> supply-chain.md
+          grep -E "path\s*=" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None" >> supply-chain.md
+          echo "" >> supply-chain.md
+
+          echo "## Custom Registries" >> supply-chain.md
+          grep -E "registry\s*=" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None (all from crates.io)" >> supply-chain.md
+          echo "" >> supply-chain.md
+
+          echo "## Build Scripts" >> supply-chain.md
+          find . -name "build.rs" -type f >> supply-chain.md 2>/dev/null || echo "None" >> supply-chain.md
+          echo "" >> supply-chain.md
+
+          echo "## Proc Macros Used" >> supply-chain.md
+          grep -E "proc-macro" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None directly declared" >> supply-chain.md
+
+          cat supply-chain.md
+
+          # Warn on risky patterns
+          if grep -qE "git\s*=" Cargo.toml; then
+            echo "::warning::Git dependencies found - verify sources"
+          fi
+
+      - name: Upload supply chain report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: supply-chain-report
+          path: supply-chain.md
+
+  # OpenSSF Scorecard
+  scorecard:
+    name: OpenSSF Scorecard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2.4.0
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload Scorecard SARIF
+        uses: github/codeql-action/upload-sarif@f09c1c0a94de965c15400f5634aa42fac8fb8f88 # v3.28.1
+        with:
+          sarif_file: scorecard-results.sarif
+          category: scorecard
+
+  # Binary security analysis (on releases)
+  binary-security:
+    name: Binary Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev libpq-dev binutils
+
+      - name: Build release binary
+        run: cargo build --release --bin lonkero
+
+      - name: Analyze binary security features
+        run: |
+          echo "# Binary Security Analysis" > binary-security.md
+          echo "" >> binary-security.md
+          BINARY="target/release/lonkero"
+
+          echo "## Binary Info" >> binary-security.md
+          file $BINARY >> binary-security.md
+          echo "" >> binary-security.md
+
+          echo "## Security Features" >> binary-security.md
+          echo '```' >> binary-security.md
+
+          # Check for stack canary
+          if readelf -s $BINARY 2>/dev/null | grep -q "__stack_chk"; then
+            echo "✓ Stack Canary: ENABLED" >> binary-security.md
+          else
+            echo "✗ Stack Canary: NOT FOUND" >> binary-security.md
+          fi
+
+          # Check for RELRO
+          if readelf -l $BINARY 2>/dev/null | grep -q "GNU_RELRO"; then
+            echo "✓ RELRO: ENABLED" >> binary-security.md
+          else
+            echo "✗ RELRO: NOT FOUND" >> binary-security.md
+          fi
+
+          # Check for PIE
+          if readelf -h $BINARY 2>/dev/null | grep -q "DYN"; then
+            echo "✓ PIE: ENABLED" >> binary-security.md
+          else
+            echo "✗ PIE: NOT FOUND" >> binary-security.md
+          fi
+
+          # Check for NX (No Execute)
+          if readelf -l $BINARY 2>/dev/null | grep -q "GNU_STACK.*RW "; then
+            echo "✓ NX (No Execute): ENABLED" >> binary-security.md
+          else
+            echo "? NX: Could not determine" >> binary-security.md
+          fi
+
+          # Binary size
+          echo "" >> binary-security.md
+          echo "Binary size: $(du -h $BINARY | cut -f1)" >> binary-security.md
+          echo '```' >> binary-security.md
+
+          cat binary-security.md
+
+      - name: Upload binary analysis
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: binary-security
+          path: binary-security.md

@@ -92,11 +92,16 @@ impl CachePoisoningScanner {
         // Check for session/auth cookies (indicates personalized content)
         if let Some(cookie) = response.header("set-cookie") {
             let cookie_lower = cookie.to_lowercase();
-            if cookie_lower.contains("session") || cookie_lower.contains("auth") ||
-               cookie_lower.contains("token") || cookie_lower.contains("user") {
+            if cookie_lower.contains("session")
+                || cookie_lower.contains("auth")
+                || cookie_lower.contains("token")
+                || cookie_lower.contains("user")
+            {
                 sensitivity.is_sensitive = true;
                 sensitivity.has_user_data = true;
-                sensitivity.evidence.push("Session/auth cookie set".to_string());
+                sensitivity
+                    .evidence
+                    .push("Session/auth cookie set".to_string());
             }
         }
 
@@ -114,7 +119,9 @@ impl CachePoisoningScanner {
             if body_lower.contains(indicator) {
                 sensitivity.is_sensitive = true;
                 sensitivity.has_user_data = true;
-                sensitivity.evidence.push(format!("User content: {}", indicator));
+                sensitivity
+                    .evidence
+                    .push(format!("User content: {}", indicator));
                 break;
             }
         }
@@ -122,12 +129,12 @@ impl CachePoisoningScanner {
         // Check for sensitive data patterns - use more specific patterns to avoid false positives
         // Note: Simple substring matching causes false positives (e.g., "ssn" matches "session")
         let sensitive_patterns = [
-            ("credit card", true),       // Space ensures it's the phrase
+            ("credit card", true), // Space ensures it's the phrase
             ("creditcard", true),
-            ("social security", true),   // Full phrase, not "ssn" substring
-            ("\"ssn\"", true),           // JSON key "ssn"
-            ("'ssn'", true),             // JavaScript string 'ssn'
-            ("name=\"ssn\"", true),      // Form field
+            ("social security", true), // Full phrase, not "ssn" substring
+            ("\"ssn\"", true),         // JSON key "ssn"
+            ("'ssn'", true),           // JavaScript string 'ssn'
+            ("name=\"ssn\"", true),    // Form field
             ("password", true),
             ("api_key", true),
             ("apikey", true),
@@ -135,12 +142,14 @@ impl CachePoisoningScanner {
             ("secretkey", true),
             ("private_key", true),
             ("privatekey", true),
-            ("access_token", false),     // Too common in JS apps, lower confidence
+            ("access_token", false), // Too common in JS apps, lower confidence
         ];
         for (pattern, high_confidence) in &sensitive_patterns {
             if body_lower.contains(pattern) && *high_confidence {
                 sensitivity.is_sensitive = true;
-                sensitivity.evidence.push(format!("Sensitive data: {}", pattern));
+                sensitivity
+                    .evidence
+                    .push(format!("Sensitive data: {}", pattern));
                 break;
             }
         }
@@ -167,11 +176,14 @@ impl CachePoisoningScanner {
         match self.http_client.get(url).await {
             Ok(response) => {
                 // Check for cache headers
-                let has_cache_control = response.headers.contains_key("cache-control") ||
-                                       response.headers.contains_key("Cache-Control");
-                let has_age = response.headers.contains_key("age") ||
-                             response.headers.contains_key("Age");
-                let has_x_cache = response.headers.iter().any(|(k, _)| k.to_lowercase().contains("x-cache"));
+                let has_cache_control = response.headers.contains_key("cache-control")
+                    || response.headers.contains_key("Cache-Control");
+                let has_age =
+                    response.headers.contains_key("age") || response.headers.contains_key("Age");
+                let has_x_cache = response
+                    .headers
+                    .iter()
+                    .any(|(k, _)| k.to_lowercase().contains("x-cache"));
 
                 if has_cache_control || has_age || has_x_cache {
                     // Cache is enabled, check for vulnerabilities
@@ -221,7 +233,11 @@ impl CachePoisoningScanner {
             // In production, you'd want GET with custom headers
             let headers_vec = vec![(header.to_string(), value.to_string())];
 
-            match self.http_client.post_with_headers(&test_url, "", headers_vec).await {
+            match self
+                .http_client
+                .post_with_headers(&test_url, "", headers_vec)
+                .await
+            {
                 Ok(response) => {
                     if response.body.contains(&self.test_marker) || response.body.contains(value) {
                         info!("Unkeyed header {} causes cache poisoning", header);
@@ -268,7 +284,8 @@ impl CachePoisoningScanner {
         for deception_url in deception_paths {
             match self.http_client.get(&deception_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && self.detect_cache_deception(&response.headers) {
+                    if response.status_code == 200 && self.detect_cache_deception(&response.headers)
+                    {
                         info!("Cache deception possible");
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -298,9 +315,10 @@ impl CachePoisoningScanner {
                 let value_lower = value.to_lowercase();
 
                 // If content is cached but not marked as private
-                if !value_lower.contains("private") &&
-                   !value_lower.contains("no-cache") &&
-                   !value_lower.contains("no-store") {
+                if !value_lower.contains("private")
+                    && !value_lower.contains("no-cache")
+                    && !value_lower.contains("no-store")
+                {
                     // Check if max-age or s-maxage is set
                     if value_lower.contains("max-age") || value_lower.contains("s-maxage") {
                         return true;
@@ -374,9 +392,10 @@ impl CachePoisoningScanner {
                          7. Implement proper path-based caching rules\n\
                          8. Add X-Cache-Control for CDN configuration\n\
                          9. Monitor cache hit ratios for anomalies\n\
-                         10. Use SameSite cookies to prevent cache deception".to_string(),
+                         10. Use SameSite cookies to prevent cache deception"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -410,7 +429,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CachePoisoningScanner {
@@ -423,11 +442,17 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
 
         let mut headers = std::collections::HashMap::new();
-        headers.insert("Cache-Control".to_string(), "public, max-age=3600".to_string());
+        headers.insert(
+            "Cache-Control".to_string(),
+            "public, max-age=3600".to_string(),
+        );
         assert!(scanner.detect_unsafe_caching(&headers));
 
         let mut safe_headers = std::collections::HashMap::new();
-        safe_headers.insert("Cache-Control".to_string(), "private, max-age=3600".to_string());
+        safe_headers.insert(
+            "Cache-Control".to_string(),
+            "private, max-age=3600".to_string(),
+        );
         assert!(!scanner.detect_unsafe_caching(&safe_headers));
     }
 
@@ -436,7 +461,10 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
 
         let mut headers = std::collections::HashMap::new();
-        headers.insert("Cache-Control".to_string(), "public, max-age=86400".to_string());
+        headers.insert(
+            "Cache-Control".to_string(),
+            "public, max-age=86400".to_string(),
+        );
         assert!(scanner.detect_cache_deception(&headers));
 
         let mut headers2 = std::collections::HashMap::new();

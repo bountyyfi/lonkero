@@ -17,7 +17,6 @@
  *
  * © 2026 Bountyy Oy
  */
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -157,10 +156,10 @@ impl InternalAgent {
         info!("Creating mutual TLS client");
 
         // Load client certificate
-        let cert_pem = std::fs::read(&config.tls_cert_path)
-            .context("Failed to read client certificate")?;
-        let key_pem = std::fs::read(&config.tls_key_path)
-            .context("Failed to read client private key")?;
+        let cert_pem =
+            std::fs::read(&config.tls_cert_path).context("Failed to read client certificate")?;
+        let key_pem =
+            std::fs::read(&config.tls_key_path).context("Failed to read client private key")?;
 
         // Combine cert and key into single PEM buffer for reqwest::Identity::from_pem
         let mut combined_pem = cert_pem.clone();
@@ -171,10 +170,9 @@ impl InternalAgent {
             .context("Failed to create identity from certificate and key")?;
 
         // Load CA certificate
-        let ca_pem = std::fs::read(&config.tls_ca_path)
-            .context("Failed to read CA certificate")?;
-        let ca_cert = reqwest::Certificate::from_pem(&ca_pem)
-            .context("Failed to parse CA certificate")?;
+        let ca_pem = std::fs::read(&config.tls_ca_path).context("Failed to read CA certificate")?;
+        let ca_cert =
+            reqwest::Certificate::from_pem(&ca_pem).context("Failed to parse CA certificate")?;
 
         // Build client with mutual TLS
         let client = reqwest::Client::builder()
@@ -213,7 +211,8 @@ impl InternalAgent {
 
         let url = format!("{}/api/internal/agent/register", self.config.server_url);
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .json(&registration_data)
             .send()
@@ -280,7 +279,8 @@ impl InternalAgent {
                     &error_count,
                     &last_error,
                     start_time,
-                ).await;
+                )
+                .await;
 
                 // Send heartbeat
                 if let Err(e) = Self::send_heartbeat(&client, &server_url, &health).await {
@@ -338,7 +338,8 @@ impl InternalAgent {
                     &error_count,
                     &last_error,
                     max_concurrent,
-                ).await;
+                )
+                .await;
             }
         })
     }
@@ -499,11 +500,9 @@ impl InternalAgent {
 
             // Spawn task execution
             tokio::spawn(async move {
-                if let Err(e) = Self::execute_scan_task(
-                    &client_clone,
-                    &server_url_clone,
-                    &task_clone,
-                ).await {
+                if let Err(e) =
+                    Self::execute_scan_task(&client_clone, &server_url_clone, &task_clone).await
+                {
                     error!("Scan task failed: {}", e);
                     *error_count_clone.write().await += 1;
                     *last_error_clone.write().await = Some(e.to_string());
@@ -522,22 +521,22 @@ impl InternalAgent {
         server_url: &str,
         task: &ScanTask,
     ) -> Result<()> {
-        info!("Executing scan task: scan_id={}, type={}", task.scan_id, task.scan_type);
+        info!(
+            "Executing scan task: scan_id={}, type={}",
+            task.scan_id, task.scan_type
+        );
 
         let start_time = std::time::Instant::now();
 
         // Execute scan for each target
         for target in &task.targets {
             let result = match task.scan_type.as_str() {
-                "network_discovery" => {
-                    Self::execute_network_discovery(target, &task.options).await
-                }
+                "network_discovery" => Self::execute_network_discovery(target, &task.options).await,
                 "authenticated" => {
-                    Self::execute_authenticated_scan(target, &task.credential_ids, &task.options).await
+                    Self::execute_authenticated_scan(target, &task.credential_ids, &task.options)
+                        .await
                 }
-                _ => {
-                    Err(anyhow::anyhow!("Unknown scan type: {}", task.scan_type))
-                }
+                _ => Err(anyhow::anyhow!("Unknown scan type: {}", task.scan_type)),
             };
 
             let duration = start_time.elapsed().as_millis() as u64;
@@ -621,15 +620,15 @@ impl InternalAgent {
             .await
             .context("Failed to send scan result")?;
 
-        info!("Sent scan result for scan_id={}, target={}", result.scan_id, result.target);
+        info!(
+            "Sent scan result for scan_id={}, target={}",
+            result.scan_id, result.target
+        );
         Ok(())
     }
 
     /// Check for updates
-    async fn check_for_updates(
-        client: &reqwest::Client,
-        server_url: &str,
-    ) -> Result<()> {
+    async fn check_for_updates(client: &reqwest::Client, server_url: &str) -> Result<()> {
         let url = format!("{}/api/internal/agent/version", server_url);
 
         let response = client
@@ -647,7 +646,10 @@ impl InternalAgent {
 
         if let Some(latest) = latest_version.get("version").and_then(|v| v.as_str()) {
             if latest != current_version {
-                info!("New version available: {} (current: {})", latest, current_version);
+                info!(
+                    "New version available: {} (current: {})",
+                    latest, current_version
+                );
                 // In production, would download and apply update
             }
         }

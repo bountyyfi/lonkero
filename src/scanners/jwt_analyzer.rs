@@ -9,7 +9,7 @@
 //! - Header injection (kid, jku, x5u)
 //! - Secret brute-forcing with wordlist
 
-use crate::analysis::{IntelligenceBus, AuthType, InsightType};
+use crate::analysis::{AuthType, InsightType, IntelligenceBus};
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -20,40 +20,172 @@ use tracing::{debug, info, warn};
 
 /// Common weak JWT secrets to test
 const WEAK_SECRETS: &[&str] = &[
-    "secret", "password", "123456", "key", "private", "jwt_secret",
-    "your-256-bit-secret", "your-secret-key", "mysecretkey", "changeme",
-    "supersecret", "jwt", "token", "auth", "api_secret", "secret123",
-    "password123", "admin", "root", "test", "development", "staging",
-    "production", "default", "example", "demo", "sample", "qwerty",
-    "letmein", "welcome", "monkey", "dragon", "master", "login",
-    "abc123", "111111", "passw0rd", "trustno1", "654321", "superman",
-    "qazwsx", "michael", "football", "iloveyou", "access", "shadow",
-    "ashley", "fuckme", "696969", "123123", "baseball", "mustang",
-    "pussy", "master123", "killer", "jordan", "jennifer", "hunter",
-    "buster", "soccer", "harley", "batman", "andrew", "tigger",
-    "sunshine", "charlie", "robert", "thomas", "hockey", "ranger",
-    "daniel", "starwars", "klaster", "112233", "george", "asshole",
-    "computer", "corvette", "hammer", "love", "whatever", "maverick",
-    "ginger", "sparky", "fender", "freedom", "merlin", "secret1",
-    "gfhjkm", "shithead", "morgan", "biteme", "qwertyuiop", "12345678",
+    "secret",
+    "password",
+    "123456",
+    "key",
+    "private",
+    "jwt_secret",
+    "your-256-bit-secret",
+    "your-secret-key",
+    "mysecretkey",
+    "changeme",
+    "supersecret",
+    "jwt",
+    "token",
+    "auth",
+    "api_secret",
+    "secret123",
+    "password123",
+    "admin",
+    "root",
+    "test",
+    "development",
+    "staging",
+    "production",
+    "default",
+    "example",
+    "demo",
+    "sample",
+    "qwerty",
+    "letmein",
+    "welcome",
+    "monkey",
+    "dragon",
+    "master",
+    "login",
+    "abc123",
+    "111111",
+    "passw0rd",
+    "trustno1",
+    "654321",
+    "superman",
+    "qazwsx",
+    "michael",
+    "football",
+    "iloveyou",
+    "access",
+    "shadow",
+    "ashley",
+    "fuckme",
+    "696969",
+    "123123",
+    "baseball",
+    "mustang",
+    "pussy",
+    "master123",
+    "killer",
+    "jordan",
+    "jennifer",
+    "hunter",
+    "buster",
+    "soccer",
+    "harley",
+    "batman",
+    "andrew",
+    "tigger",
+    "sunshine",
+    "charlie",
+    "robert",
+    "thomas",
+    "hockey",
+    "ranger",
+    "daniel",
+    "starwars",
+    "klaster",
+    "112233",
+    "george",
+    "asshole",
+    "computer",
+    "corvette",
+    "hammer",
+    "love",
+    "whatever",
+    "maverick",
+    "ginger",
+    "sparky",
+    "fender",
+    "freedom",
+    "merlin",
+    "secret1",
+    "gfhjkm",
+    "shithead",
+    "morgan",
+    "biteme",
+    "qwertyuiop",
+    "12345678",
     // Common in tutorials/examples
-    "your_jwt_secret", "your-jwt-secret", "jwt-secret", "jwt_secret_key",
-    "my-secret-key", "my_secret_key", "app_secret", "app-secret",
-    "secret_key", "secret-key", "api_key", "api-key", "auth_secret",
-    "token_secret", "session_secret", "cookie_secret", "encryption_key",
+    "your_jwt_secret",
+    "your-jwt-secret",
+    "jwt-secret",
+    "jwt_secret_key",
+    "my-secret-key",
+    "my_secret_key",
+    "app_secret",
+    "app-secret",
+    "secret_key",
+    "secret-key",
+    "api_key",
+    "api-key",
+    "auth_secret",
+    "token_secret",
+    "session_secret",
+    "cookie_secret",
+    "encryption_key",
     // Framework defaults
-    "AllYourBase", "change_me", "secret_key_base", "devise_secret",
-    "HS256-secret", "RS256-secret", "ES256-secret", "none",
+    "AllYourBase",
+    "change_me",
+    "secret_key_base",
+    "devise_secret",
+    "HS256-secret",
+    "RS256-secret",
+    "ES256-secret",
+    "none",
 ];
 
 /// Sensitive claim patterns that indicate data exposure
 const SENSITIVE_CLAIM_PATTERNS: &[&str] = &[
-    "email", "mail", "password", "pass", "pwd", "secret", "token",
-    "key", "api", "credit", "card", "ssn", "social", "phone", "mobile",
-    "address", "street", "zip", "postal", "dob", "birth", "age",
-    "salary", "income", "bank", "account", "routing", "iban", "swift",
-    "private", "internal", "admin", "role", "permission", "privilege",
-    "group", "department", "employee", "staff", "user_id", "customer_id",
+    "email",
+    "mail",
+    "password",
+    "pass",
+    "pwd",
+    "secret",
+    "token",
+    "key",
+    "api",
+    "credit",
+    "card",
+    "ssn",
+    "social",
+    "phone",
+    "mobile",
+    "address",
+    "street",
+    "zip",
+    "postal",
+    "dob",
+    "birth",
+    "age",
+    "salary",
+    "income",
+    "bank",
+    "account",
+    "routing",
+    "iban",
+    "swift",
+    "private",
+    "internal",
+    "admin",
+    "role",
+    "permission",
+    "privilege",
+    "group",
+    "department",
+    "employee",
+    "staff",
+    "user_id",
+    "customer_id",
 ];
 
 /// Decoded JWT structure
@@ -146,7 +278,9 @@ impl DecodedJwt {
 
     fn classify_sensitivity(pattern: &str) -> Severity {
         match pattern {
-            "password" | "pass" | "pwd" | "secret" | "key" | "credit" | "card" | "ssn" => Severity::Critical,
+            "password" | "pass" | "pwd" | "secret" | "key" | "credit" | "card" | "ssn" => {
+                Severity::Critical
+            }
             "email" | "phone" | "mobile" | "bank" | "account" | "private" => Severity::High,
             "admin" | "role" | "permission" | "privilege" => Severity::Medium,
             _ => Severity::Low,
@@ -154,7 +288,8 @@ impl DecodedJwt {
     }
 
     fn looks_like_base64(s: &str) -> bool {
-        s.chars().all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '=')
+        s.chars()
+            .all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '=')
             && s.len() % 4 == 0
     }
 
@@ -236,7 +371,10 @@ impl DecodedJwt {
 
     /// Try to crack the JWT secret
     pub fn try_crack_secret(&self) -> Option<String> {
-        if self.algorithm() != Some("HS256") && self.algorithm() != Some("HS384") && self.algorithm() != Some("HS512") {
+        if self.algorithm() != Some("HS256")
+            && self.algorithm() != Some("HS384")
+            && self.algorithm() != Some("HS512")
+        {
             return None;
         }
 
@@ -298,14 +436,24 @@ impl JwtAnalyzer {
     /// Broadcast algorithm confusion vulnerability insight
     async fn broadcast_algorithm_confusion(&self) {
         if let Some(ref bus) = self.intelligence_bus {
-            bus.report_insight("jwt", InsightType::WeakValidation, "Algorithm confusion possible").await;
+            bus.report_insight(
+                "jwt",
+                InsightType::WeakValidation,
+                "Algorithm confusion possible",
+            )
+            .await;
         }
     }
 
     /// Broadcast weak secret found insight
     async fn broadcast_weak_secret(&self, secret: &str) {
         if let Some(ref bus) = self.intelligence_bus {
-            bus.report_insight("jwt", InsightType::BypassFound, &format!("Weak secret: {}", secret)).await;
+            bus.report_insight(
+                "jwt",
+                InsightType::BypassFound,
+                &format!("Weak secret: {}", secret),
+            )
+            .await;
         }
     }
 
@@ -470,7 +618,12 @@ impl JwtAnalyzer {
 
         // 5. Test jku injection
         tests_run += 1;
-        if jwt.jku().is_some() || jwt.algorithm().map(|a| a.starts_with("RS") || a.starts_with("ES")).unwrap_or(false) {
+        if jwt.jku().is_some()
+            || jwt
+                .algorithm()
+                .map(|a| a.starts_with("RS") || a.starts_with("ES"))
+                .unwrap_or(false)
+        {
             // Note: Can't fully test without actually hosting a JWKS endpoint
             // But we can check if the header is accepted
             debug!("[JWT] jku injection test - server uses asymmetric algorithm");
@@ -528,7 +681,11 @@ impl JwtAnalyzer {
             }
         }
 
-        info!("[JWT] Analysis complete: {} tests, {} vulnerabilities", tests_run, vulnerabilities.len());
+        info!(
+            "[JWT] Analysis complete: {} tests, {} vulnerabilities",
+            tests_run,
+            vulnerabilities.len()
+        );
         Ok((vulnerabilities, tests_run))
     }
 
@@ -542,12 +699,13 @@ impl JwtAnalyzer {
         if status == 200 || status == 201 {
             // Check for common auth success patterns
             let body_lower = body.to_lowercase();
-            if body_lower.contains("welcome") ||
-               body_lower.contains("dashboard") ||
-               body_lower.contains("profile") ||
-               body_lower.contains("\"authenticated\":true") ||
-               body_lower.contains("\"success\":true") ||
-               body_lower.contains("\"user\":{") {
+            if body_lower.contains("welcome")
+                || body_lower.contains("dashboard")
+                || body_lower.contains("profile")
+                || body_lower.contains("\"authenticated\":true")
+                || body_lower.contains("\"success\":true")
+                || body_lower.contains("\"user\":{")
+            {
                 return true;
             }
         }
@@ -593,7 +751,10 @@ mod tests {
 
         let jwt = DecodedJwt::decode(token).unwrap();
         assert_eq!(jwt.algorithm(), Some("HS256"));
-        assert_eq!(jwt.payload.get("name").and_then(|v| v.as_str()), Some("John Doe"));
+        assert_eq!(
+            jwt.payload.get("name").and_then(|v| v.as_str()),
+            Some("John Doe")
+        );
     }
 
     #[test]

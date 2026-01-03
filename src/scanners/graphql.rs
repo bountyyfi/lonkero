@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -103,7 +102,7 @@ impl GraphQlScanner {
     async fn detect_graphql_endpoint(&self, url: &str) -> bool {
         // Try common GraphQL paths
         let graphql_paths = vec![
-            "",              // base URL (might already be /graphql)
+            "", // base URL (might already be /graphql)
             "/graphql",
             "/graphql/",
             "/api/graphql",
@@ -133,7 +132,15 @@ impl GraphQlScanner {
             }
 
             // Also try GET request with query param
-            if let Ok(response) = self.http_client.get(&format!("{}?query={}", test_url, urlencoding::encode(&query))).await {
+            if let Ok(response) = self
+                .http_client
+                .get(&format!(
+                    "{}?query={}",
+                    test_url,
+                    urlencoding::encode(&query)
+                ))
+                .await
+            {
                 if response.body.contains("__typename")
                     || response.body.contains("\"data\"")
                     || (response.body.contains("\"errors\"") && response.body.contains("query"))
@@ -153,7 +160,13 @@ impl GraphQlScanner {
             "query": "query IntrospectionQuery { __schema { types { name kind description fields { name type { name kind ofType { name kind } } } } } }"
         }"#;
 
-        self.http_client.get(&format!("{}?query={}", url, urlencoding::encode(introspection_query))).await
+        self.http_client
+            .get(&format!(
+                "{}?query={}",
+                url,
+                urlencoding::encode(introspection_query)
+            ))
+            .await
     }
 
     /// Check if introspection is enabled
@@ -186,7 +199,13 @@ impl GraphQlScanner {
             "query": "query { user { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { posts { author { name } } } } } } } } } } } } } } } } } } } }"
         }"#;
 
-        self.http_client.get(&format!("{}?query={}", url, urlencoding::encode(deep_query))).await
+        self.http_client
+            .get(&format!(
+                "{}?query={}",
+                url,
+                urlencoding::encode(deep_query)
+            ))
+            .await
     }
 
     /// Check depth limit protection
@@ -197,7 +216,10 @@ impl GraphQlScanner {
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
         // If deep query succeeds, depth limit is not enforced
-        if response.status_code == 200 && !response.body.contains("depth") && !response.body.contains("complexity") {
+        if response.status_code == 200
+            && !response.body.contains("depth")
+            && !response.body.contains("complexity")
+        {
             vulnerabilities.push(self.create_vulnerability(
                 "No GraphQL Query Depth Limit",
                 url,
@@ -222,7 +244,13 @@ impl GraphQlScanner {
             {"query":"query{__typename}"}
         ]"#;
 
-        self.http_client.get(&format!("{}?query={}", url, urlencoding::encode(batch_query))).await
+        self.http_client
+            .get(&format!(
+                "{}?query={}",
+                url,
+                urlencoding::encode(batch_query)
+            ))
+            .await
     }
 
     /// Check batch limit protection
@@ -253,7 +281,13 @@ impl GraphQlScanner {
             "query": "query { __typename __typename __typename __typename __typename __typename __typename __typename __typename __typename }"
         }"#;
 
-        self.http_client.get(&format!("{}?query={}", url, urlencoding::encode(duplicate_query))).await
+        self.http_client
+            .get(&format!(
+                "{}?query={}",
+                url,
+                urlencoding::encode(duplicate_query)
+            ))
+            .await
     }
 
     /// Check field duplication protection
@@ -284,7 +318,13 @@ impl GraphQlScanner {
             "query": "query { users { id email password } admin { id email } }"
         }"#;
 
-        self.http_client.get(&format!("{}?query={}", url, urlencoding::encode(auth_query))).await
+        self.http_client
+            .get(&format!(
+                "{}?query={}",
+                url,
+                urlencoding::encode(auth_query)
+            ))
+            .await
     }
 
     /// Check for authorization bypass
@@ -298,7 +338,13 @@ impl GraphQlScanner {
 
         // Check if sensitive fields are exposed
         let sensitive_indicators = vec![
-            "password", "email", "token", "secret", "admin", "ssn", "credit_card"
+            "password",
+            "email",
+            "token",
+            "secret",
+            "admin",
+            "ssn",
+            "credit_card",
         ];
 
         for indicator in &sensitive_indicators {
@@ -309,7 +355,10 @@ impl GraphQlScanner {
                     Severity::Critical,
                     Confidence::Medium,
                     "GraphQL exposes sensitive fields without proper authorization",
-                    format!("Sensitive field '{}' accessible without authentication", indicator),
+                    format!(
+                        "Sensitive field '{}' accessible without authentication",
+                        indicator
+                    ),
                     "query { users { id email password } admin { id email } }".to_string(),
                     8.2,
                 ));
@@ -325,7 +374,13 @@ impl GraphQlScanner {
             "query": "query { invalid_field_xyz_123 }"
         }"#;
 
-        self.http_client.get(&format!("{}?query={}", url, urlencoding::encode(error_query))).await
+        self.http_client
+            .get(&format!(
+                "{}?query={}",
+                url,
+                urlencoding::encode(error_query)
+            ))
+            .await
     }
 
     /// Check for verbose error messages
@@ -339,8 +394,17 @@ impl GraphQlScanner {
 
         // Check for stack traces or detailed errors
         let error_indicators = vec![
-            "at ", "line ", "column ", "stack", "exception", "trace",
-            "file:", "resolver", "database", "sql", "query failed"
+            "at ",
+            "line ",
+            "column ",
+            "stack",
+            "exception",
+            "trace",
+            "file:",
+            "resolver",
+            "database",
+            "sql",
+            "query failed",
         ];
 
         let mut found_indicators = Vec::new();
@@ -545,9 +609,10 @@ References:
 - OWASP GraphQL Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html
 - GraphQL Security Best Practices: https://www.apollographql.com/blog/graphql/security/
 - Escape GraphQL Security Guide: https://escape.tech/blog/9-graphql-security-best-practices/
-"#.to_string(),
+"#
+            .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -604,13 +669,18 @@ mod tests {
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
-            body: r#"{"data":{"__schema":{"types":[{"name":"Query","kind":"OBJECT"}]}}}"#.to_string(),
+            body: r#"{"data":{"__schema":{"types":[{"name":"Query","kind":"OBJECT"}]}}}"#
+                .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
 
         let mut vulns = Vec::new();
-        let result = scanner.check_introspection_enabled(&response, "https://api.example.com/graphql", &mut vulns);
+        let result = scanner.check_introspection_enabled(
+            &response,
+            "https://api.example.com/graphql",
+            &mut vulns,
+        );
 
         assert!(result, "Should detect introspection enabled");
         assert_eq!(vulns.len(), 1);
@@ -623,7 +693,8 @@ mod tests {
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
-            body: r#"[{"data":{"__typename":"Query"}},{"data":{"__typename":"Query"}}]"#.to_string(),
+            body: r#"[{"data":{"__typename":"Query"}},{"data":{"__typename":"Query"}}]"#
+                .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
@@ -641,7 +712,9 @@ mod tests {
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
-            body: r#"{"data":{"users":[{"id":"1","email":"admin@example.com","password":"hashed"}]}}"#.to_string(),
+            body:
+                r#"{"data":{"users":[{"id":"1","email":"admin@example.com","password":"hashed"}]}}"#
+                    .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };

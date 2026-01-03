@@ -68,7 +68,10 @@ impl Http3Scanner {
         match self.http_client.get(url).await {
             Ok(response) => {
                 if let Some(alt_svc) = response.header("alt-svc") {
-                    if alt_svc.contains("h3") || alt_svc.contains("h3-29") || alt_svc.contains("h3-32") {
+                    if alt_svc.contains("h3")
+                        || alt_svc.contains("h3-29")
+                        || alt_svc.contains("h3-32")
+                    {
                         info!("HTTP/3 advertised in Alt-Svc header");
 
                         if !self.has_secure_alt_svc(&alt_svc) {
@@ -130,9 +133,7 @@ impl Http3Scanner {
         ];
 
         for alt_svc_value in malicious_alt_svc_values {
-            let headers = vec![
-                ("Alt-Svc".to_string(), alt_svc_value.to_string()),
-            ];
+            let headers = vec![("Alt-Svc".to_string(), alt_svc_value.to_string())];
 
             match self.http_client.get_with_headers(url, headers).await {
                 Ok(response) => {
@@ -174,7 +175,10 @@ impl Http3Scanner {
     /// 2. Compare responses with and without Early-Data header
     /// 3. Look for actual behavioral differences, not just status codes
     /// 4. Require actual HTTP/3 support to be meaningful
-    async fn test_early_data_replay(&self, _url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_early_data_replay(
+        &self,
+        _url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let vulnerabilities = Vec::new();
         let tests_run = 0;
 
@@ -189,7 +193,10 @@ impl Http3Scanner {
     }
 
     /// Test for header injection that could affect HTTP/3 implementations
-    async fn test_header_smuggling_h3(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_header_smuggling_h3(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -197,23 +204,28 @@ impl Http3Scanner {
 
         let smuggling_payloads = vec![
             ("X-Test\r\nX-Injected", "CRLF in header name"),
-            ("X-Test\r\nContent-Length: 0\r\n\r\nGET /admin", "Full request injection"),
-            ("X-Test\nTransfer-Encoding: chunked", "Transfer-Encoding injection"),
+            (
+                "X-Test\r\nContent-Length: 0\r\n\r\nGET /admin",
+                "Full request injection",
+            ),
+            (
+                "X-Test\nTransfer-Encoding: chunked",
+                "Transfer-Encoding injection",
+            ),
             ("X-Test: value\r\nHost: evil.com", "Host header injection"),
             ("X-Test\x00X-Injected", "Null byte in header"),
         ];
 
         for (header_value, attack_type) in smuggling_payloads {
-            let headers = vec![
-                ("X-Custom-Header".to_string(), header_value.to_string()),
-            ];
+            let headers = vec![("X-Custom-Header".to_string(), header_value.to_string())];
 
             match self.http_client.get_with_headers(url, headers).await {
                 Ok(response) => {
                     if response.status_code == 200 {
-                        if response.body.to_lowercase().contains("injected") ||
-                           response.body.to_lowercase().contains("admin") ||
-                           response.body.to_lowercase().contains("evil") {
+                        if response.body.to_lowercase().contains("injected")
+                            || response.body.to_lowercase().contains("admin")
+                            || response.body.to_lowercase().contains("evil")
+                        {
                             info!("Header injection detected: {}", attack_type);
                             vulnerabilities.push(self.create_vulnerability(
                                 url,
@@ -239,7 +251,10 @@ impl Http3Scanner {
     }
 
     /// Test for request splitting in URL paths
-    async fn test_request_splitting_h3(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_request_splitting_h3(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
@@ -258,8 +273,9 @@ impl Http3Scanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     if response.status_code == 200 {
-                        if response.body.to_lowercase().contains("admin") ||
-                           response.body.to_lowercase().contains("evil") {
+                        if response.body.to_lowercase().contains("admin")
+                            || response.body.to_lowercase().contains("evil")
+                        {
                             info!("Request splitting detected");
                             vulnerabilities.push(self.create_vulnerability(
                                 url,
@@ -351,7 +367,7 @@ impl Http3Scanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -365,7 +381,8 @@ impl Http3Scanner {
                  5. Implement proper certificate validation\n\
                  6. Use HSTS to prevent downgrade attacks\n\
                  7. Monitor Alt-Svc header generation\n\
-                 8. Regular security testing of Alt-Svc configuration".to_string()
+                 8. Regular security testing of Alt-Svc configuration"
+                    .to_string()
             }
             "Excessive HTTP/3 Alt-Svc Max-Age" => {
                 "1. Set reasonable max-age values (24-72 hours)\n\
@@ -374,18 +391,18 @@ impl Http3Scanner {
                  4. Implement versioning for Alt-Svc changes\n\
                  5. Monitor for stale Alt-Svc entries\n\
                  6. Document Alt-Svc lifecycle management\n\
-                 7. Test with various client implementations".to_string()
+                 7. Test with various client implementations"
+                    .to_string()
             }
-            "Alt-Svc Header Injection" => {
-                "1. Never reflect client-provided Alt-Svc headers\n\
+            "Alt-Svc Header Injection" => "1. Never reflect client-provided Alt-Svc headers\n\
                  2. Generate Alt-Svc headers server-side only\n\
                  3. Validate and sanitize all header values\n\
                  4. Use strict header parsing\n\
                  5. Implement header allowlisting\n\
                  6. Log suspicious header manipulation attempts\n\
                  7. Use web application firewall rules\n\
-                 8. Regular penetration testing".to_string()
-            }
+                 8. Regular penetration testing"
+                .to_string(),
             "Early-Data Header Accepted on State-Changing Endpoint" => {
                 "1. Reject Early-Data header on non-idempotent operations\n\
                  2. Implement replay protection mechanisms if using HTTP/3\n\
@@ -394,7 +411,8 @@ impl Http3Scanner {
                  5. Check Early-Data header and reject if present for state changes\n\
                  6. Implement proper TLS 1.3 anti-replay mechanisms\n\
                  7. Monitor for replay attack patterns\n\
-                 8. Document early data handling policy".to_string()
+                 8. Document early data handling policy"
+                    .to_string()
             }
             "Header Injection Vulnerability" | "Request Splitting Vulnerability" => {
                 "1. Implement strict header parsing and validation\n\
@@ -405,7 +423,8 @@ impl Http3Scanner {
                  6. Log and alert on malformed header attempts\n\
                  7. Use web application firewall rules\n\
                  8. Regular security updates for HTTP libraries\n\
-                 9. Penetration testing for injection vulnerabilities".to_string()
+                 9. Penetration testing for injection vulnerabilities"
+                    .to_string()
             }
             _ => "Follow HTTP security best practices and validate all input".to_string(),
         }
@@ -440,7 +459,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> Http3Scanner {
@@ -462,8 +481,14 @@ use crate::http_client::HttpClient;
     fn test_extract_max_age() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.extract_max_age(r#"h3=":443"; ma=86400"#), Some(86400));
-        assert_eq!(scanner.extract_max_age(r#"h3=":443"; ma=2592000"#), Some(2592000));
+        assert_eq!(
+            scanner.extract_max_age(r#"h3=":443"; ma=86400"#),
+            Some(86400)
+        );
+        assert_eq!(
+            scanner.extract_max_age(r#"h3=":443"; ma=2592000"#),
+            Some(2592000)
+        );
         assert_eq!(scanner.extract_max_age(r#"h3=":443""#), None);
     }
 

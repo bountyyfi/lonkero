@@ -6,10 +6,9 @@
  * Scanner registry and metadata management
  * © 2026 Bountyy Oy
  */
-
 pub mod scanner_registry;
 
 pub use scanner_registry::{
-    ScannerRegistry, ScannerMetadata, ScannerCategory, RiskLevel,
-    ScannerCapability, ScannerConfigSchema, ConfigProperty, SCANNER_REGISTRY
+    ConfigProperty, RiskLevel, ScannerCapability, ScannerCategory, ScannerConfigSchema,
+    ScannerMetadata, ScannerRegistry, SCANNER_REGISTRY,
 };

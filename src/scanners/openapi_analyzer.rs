@@ -26,7 +26,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -80,20 +79,53 @@ const SWAGGER_UI_PATHS: &[&str] = &[
 
 /// Sensitive data patterns to check in examples and defaults
 const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
-    (r#"(?i)password\s*[:=]\s*["'][^"']+["']"#, "hardcoded password"),
-    (r#"(?i)api[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{16,}["']"#, "API key"),
+    (
+        r#"(?i)password\s*[:=]\s*["'][^"']+["']"#,
+        "hardcoded password",
+    ),
+    (
+        r#"(?i)api[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{16,}["']"#,
+        "API key",
+    ),
     (r#"(?i)secret\s*[:=]\s*["'][^"']+["']"#, "secret value"),
-    (r#"(?i)token\s*[:=]\s*["'][a-zA-Z0-9._-]{20,}["']"#, "token value"),
+    (
+        r#"(?i)token\s*[:=]\s*["'][a-zA-Z0-9._-]{20,}["']"#,
+        "token value",
+    ),
     (r"(?i)bearer\s+[a-zA-Z0-9._-]{20,}", "bearer token"),
-    (r#"(?i)authorization\s*[:=]\s*["']basic\s+[a-zA-Z0-9+/=]+["']"#, "basic auth"),
-    (r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "email address"),
-    (r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']AKIA[A-Z0-9]{16}["']"#, "AWS access key"),
-    (r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["'][A-Za-z0-9/+=]{40}["']"#, "AWS secret key"),
+    (
+        r#"(?i)authorization\s*[:=]\s*["']basic\s+[a-zA-Z0-9+/=]+["']"#,
+        "basic auth",
+    ),
+    (
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+        "email address",
+    ),
+    (
+        r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']AKIA[A-Z0-9]{16}["']"#,
+        "AWS access key",
+    ),
+    (
+        r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["'][A-Za-z0-9/+=]{40}["']"#,
+        "AWS secret key",
+    ),
     (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "internal IP address"),
-    (r"(?i)(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}", "private IP address"),
-    (r"(?i)localhost|127\.0\.0\.1|0\.0\.0\.0", "localhost reference"),
-    (r"(?i)internal[._-]?(?:api|server|host)", "internal hostname"),
-    (r"(?i)(?:dev|staging|test)[._-]", "non-production environment"),
+    (
+        r"(?i)(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}",
+        "private IP address",
+    ),
+    (
+        r"(?i)localhost|127\.0\.0\.1|0\.0\.0\.0",
+        "localhost reference",
+    ),
+    (
+        r"(?i)internal[._-]?(?:api|server|host)",
+        "internal hostname",
+    ),
+    (
+        r"(?i)(?:dev|staging|test)[._-]",
+        "non-production environment",
+    ),
 ];
 
 /// Admin/debug endpoint patterns
@@ -234,7 +266,10 @@ pub struct OpenApiAnalyzer {
 
 impl OpenApiAnalyzer {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        let test_marker = format!("openapi-{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        let test_marker = format!(
+            "openapi-{}",
+            uuid::Uuid::new_v4().to_string().replace("-", "")
+        );
         Self {
             http_client,
             test_marker,
@@ -249,10 +284,15 @@ impl OpenApiAnalyzer {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
-        info!("[OpenAPI] Starting OpenAPI/Swagger specification analysis on {}", url);
+        info!(
+            "[OpenAPI] Starting OpenAPI/Swagger specification analysis on {}",
+            url
+        );
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
@@ -276,11 +316,17 @@ impl OpenApiAnalyzer {
             return Ok((all_vulnerabilities, total_tests));
         }
 
-        info!("[OpenAPI] Found {} OpenAPI specification(s)", discovered_specs.len());
+        info!(
+            "[OpenAPI] Found {} OpenAPI specification(s)",
+            discovered_specs.len()
+        );
 
         // Step 2: Analyze each discovered specification
         for spec in discovered_specs {
-            info!("[OpenAPI] Analyzing {} specification at {}", spec.version, spec.spec_url);
+            info!(
+                "[OpenAPI] Analyzing {} specification at {}",
+                spec.version, spec.spec_url
+            );
 
             // Analyze security definitions
             let (vulns, tests) = self.analyze_security_definitions(&spec, url).await;
@@ -401,19 +447,38 @@ impl OpenApiAnalyzer {
     /// Parse Swagger 2.0 specification
     fn parse_swagger2(&self, spec: &Value, spec_url: &str) -> Option<OpenApiSpec> {
         let info = spec.get("info")?;
-        let title = info.get("title").and_then(|v| v.as_str()).unwrap_or("Unknown API").to_string();
-        let description = info.get("description").and_then(|v| v.as_str()).map(String::from);
+        let title = info
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown API")
+            .to_string();
+        let description = info
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         // Parse host and basePath
         let host = spec.get("host").and_then(|v| v.as_str()).unwrap_or("");
-        let base_path = spec.get("basePath").and_then(|v| v.as_str()).map(String::from);
-        let schemes = spec.get("schemes")
+        let base_path = spec
+            .get("basePath")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let schemes = spec
+            .get("schemes")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>())
             .unwrap_or_else(|| vec!["https"]);
 
-        let servers: Vec<String> = schemes.iter()
-            .map(|scheme| format!("{}://{}{}", scheme, host, base_path.as_deref().unwrap_or("")))
+        let servers: Vec<String> = schemes
+            .iter()
+            .map(|scheme| {
+                format!(
+                    "{}://{}{}",
+                    scheme,
+                    host,
+                    base_path.as_deref().unwrap_or("")
+                )
+            })
             .collect();
 
         // Parse security definitions
@@ -440,13 +505,26 @@ impl OpenApiAnalyzer {
     }
 
     /// Parse OpenAPI 3.x specification
-    fn parse_openapi3(&self, spec: &Value, spec_url: &str, version: OpenApiVersion) -> Option<OpenApiSpec> {
+    fn parse_openapi3(
+        &self,
+        spec: &Value,
+        spec_url: &str,
+        version: OpenApiVersion,
+    ) -> Option<OpenApiSpec> {
         let info = spec.get("info")?;
-        let title = info.get("title").and_then(|v| v.as_str()).unwrap_or("Unknown API").to_string();
-        let description = info.get("description").and_then(|v| v.as_str()).map(String::from);
+        let title = info
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown API")
+            .to_string();
+        let description = info
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         // Parse servers
-        let servers = spec.get("servers")
+        let servers = spec
+            .get("servers")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -486,13 +564,23 @@ impl OpenApiAnalyzer {
         if let Some(defs) = spec.get("securityDefinitions").and_then(|v| v.as_object()) {
             for (name, def) in defs {
                 let scheme = SecurityScheme {
-                    scheme_type: def.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    scheme_type: def
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     name: def.get("name").and_then(|v| v.as_str()).map(String::from),
                     in_location: def.get("in").and_then(|v| v.as_str()).map(String::from),
                     scheme: None,
-                    flows: def.get("flow").cloned().or_else(|| def.get("scopes").cloned()),
+                    flows: def
+                        .get("flow")
+                        .cloned()
+                        .or_else(|| def.get("scopes").cloned()),
                     bearer_format: None,
-                    openid_connect_url: def.get("authorizationUrl").and_then(|v| v.as_str()).map(String::from),
+                    openid_connect_url: def
+                        .get("authorizationUrl")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                 };
                 schemes.insert(name.clone(), scheme);
             }
@@ -506,16 +594,29 @@ impl OpenApiAnalyzer {
         let mut schemes = HashMap::new();
 
         if let Some(components) = spec.get("components") {
-            if let Some(security_schemes) = components.get("securitySchemes").and_then(|v| v.as_object()) {
+            if let Some(security_schemes) = components
+                .get("securitySchemes")
+                .and_then(|v| v.as_object())
+            {
                 for (name, def) in security_schemes {
                     let scheme = SecurityScheme {
-                        scheme_type: def.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        scheme_type: def
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         name: def.get("name").and_then(|v| v.as_str()).map(String::from),
                         in_location: def.get("in").and_then(|v| v.as_str()).map(String::from),
                         scheme: def.get("scheme").and_then(|v| v.as_str()).map(String::from),
                         flows: def.get("flows").cloned(),
-                        bearer_format: def.get("bearerFormat").and_then(|v| v.as_str()).map(String::from),
-                        openid_connect_url: def.get("openIdConnectUrl").and_then(|v| v.as_str()).map(String::from),
+                        bearer_format: def
+                            .get("bearerFormat")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                        openid_connect_url: def
+                            .get("openIdConnectUrl")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
                     };
                     schemes.insert(name.clone(), scheme);
                 }
@@ -533,8 +634,13 @@ impl OpenApiAnalyzer {
             for item in security_array {
                 if let Some(obj) = item.as_object() {
                     for (name, scopes) in obj {
-                        let scope_vec = scopes.as_array()
-                            .map(|arr| arr.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+                        let scope_vec = scopes
+                            .as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|s| s.as_str().map(String::from))
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         requirements.push(SecurityRequirement {
                             scheme_name: name.clone(),
@@ -557,7 +663,9 @@ impl OpenApiAnalyzer {
                 if let Some(methods_obj) = methods.as_object() {
                     for (method, operation) in methods_obj {
                         // Skip non-HTTP method keys like "parameters"
-                        if !["get", "post", "put", "delete", "patch", "options", "head"].contains(&method.to_lowercase().as_str()) {
+                        if !["get", "post", "put", "delete", "patch", "options", "head"]
+                            .contains(&method.to_lowercase().as_str())
+                        {
                             continue;
                         }
 
@@ -580,7 +688,11 @@ impl OpenApiAnalyzer {
                 if let Some(methods_obj) = methods.as_object() {
                     for (method, operation) in methods_obj {
                         // Skip non-HTTP method keys like "parameters", "summary", "description"
-                        if !["get", "post", "put", "delete", "patch", "options", "head", "trace"].contains(&method.to_lowercase().as_str()) {
+                        if ![
+                            "get", "post", "put", "delete", "patch", "options", "head", "trace",
+                        ]
+                        .contains(&method.to_lowercase().as_str())
+                        {
                             continue;
                         }
 
@@ -595,15 +707,38 @@ impl OpenApiAnalyzer {
     }
 
     /// Parse an operation (endpoint) definition
-    fn parse_operation(&self, path: &str, method: &str, operation: &Value, is_openapi3: bool) -> Endpoint {
-        let operation_id = operation.get("operationId").and_then(|v| v.as_str()).map(String::from);
-        let summary = operation.get("summary").and_then(|v| v.as_str()).map(String::from);
-        let description = operation.get("description").and_then(|v| v.as_str()).map(String::from);
-        let deprecated = operation.get("deprecated").and_then(|v| v.as_bool()).unwrap_or(false);
+    fn parse_operation(
+        &self,
+        path: &str,
+        method: &str,
+        operation: &Value,
+        is_openapi3: bool,
+    ) -> Endpoint {
+        let operation_id = operation
+            .get("operationId")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let summary = operation
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let description = operation
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let deprecated = operation
+            .get("deprecated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let tags = operation.get("tags")
+        let tags = operation
+            .get("tags")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| t.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         let security = if operation.get("security").is_some() {
@@ -641,27 +776,55 @@ impl OpenApiAnalyzer {
 
         if let Some(params_array) = params.and_then(|v| v.as_array()) {
             for param in params_array {
-                let name = param.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let in_location = param.get("in").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let required = param.get("required").and_then(|v| v.as_bool()).unwrap_or(false);
+                let name = param
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let in_location = param
+                    .get("in")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let required = param
+                    .get("required")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
 
                 // Schema might be nested or direct
                 let schema = param.get("schema").unwrap_or(param);
 
-                let param_type = schema.get("type").and_then(|v| v.as_str()).map(String::from);
-                let format = schema.get("format").and_then(|v| v.as_str()).map(String::from);
-                let pattern = schema.get("pattern").and_then(|v| v.as_str()).map(String::from);
+                let param_type = schema
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let format = schema
+                    .get("format")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let pattern = schema
+                    .get("pattern")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 let min_length = schema.get("minLength").and_then(|v| v.as_u64());
                 let max_length = schema.get("maxLength").and_then(|v| v.as_u64());
                 let minimum = schema.get("minimum").and_then(|v| v.as_f64());
                 let maximum = schema.get("maximum").and_then(|v| v.as_f64());
 
-                let enum_values = schema.get("enum")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|e| e.as_str().map(String::from)).collect());
+                let enum_values = schema.get("enum").and_then(|v| v.as_array()).map(|arr| {
+                    arr.iter()
+                        .filter_map(|e| e.as_str().map(String::from))
+                        .collect()
+                });
 
-                let example = param.get("example").or_else(|| schema.get("example")).cloned();
-                let default = param.get("default").or_else(|| schema.get("default")).cloned();
+                let example = param
+                    .get("example")
+                    .or_else(|| schema.get("example"))
+                    .cloned();
+                let default = param
+                    .get("default")
+                    .or_else(|| schema.get("default"))
+                    .cloned();
 
                 parameters.push(Parameter {
                     name,
@@ -688,14 +851,18 @@ impl OpenApiAnalyzer {
     fn parse_request_body(&self, body: Option<&Value>) -> Option<RequestBody> {
         let body = body?;
 
-        let required = body.get("required").and_then(|v| v.as_bool()).unwrap_or(false);
+        let required = body
+            .get("required")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let content = body.get("content").and_then(|v| v.as_object())?;
 
         let content_types: Vec<String> = content.keys().cloned().collect();
 
         // Get schema from the first content type
-        let schema = content.values()
+        let schema = content
+            .values()
             .next()
             .and_then(|v| v.get("schema"))
             .cloned();
@@ -708,7 +875,11 @@ impl OpenApiAnalyzer {
     }
 
     /// Analyze security definitions
-    async fn analyze_security_definitions(&self, spec: &OpenApiSpec, base_url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn analyze_security_definitions(
+        &self,
+        spec: &OpenApiSpec,
+        base_url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -760,7 +931,9 @@ impl OpenApiAnalyzer {
             }
 
             // Check for basic auth without HTTPS requirement
-            if scheme.scheme_type == "basic" || (scheme.scheme_type == "http" && scheme.scheme.as_deref() == Some("basic")) {
+            if scheme.scheme_type == "basic"
+                || (scheme.scheme_type == "http" && scheme.scheme.as_deref() == Some("basic"))
+            {
                 let has_https = spec.servers.iter().all(|s| s.starts_with("https://"));
                 if !has_https && !spec.servers.is_empty() {
                     vulnerabilities.push(self.create_vulnerability(
@@ -794,7 +967,9 @@ impl OpenApiAnalyzer {
         // Check for HTTPS requirement
         tests_run += 1;
         if !spec.servers.is_empty() {
-            let non_https_servers: Vec<_> = spec.servers.iter()
+            let non_https_servers: Vec<_> = spec
+                .servers
+                .iter()
                 .filter(|s| !s.starts_with("https://") && !s.starts_with("{"))
                 .collect();
 
@@ -814,12 +989,17 @@ impl OpenApiAnalyzer {
     }
 
     /// Analyze endpoints for security issues
-    async fn analyze_endpoints(&self, spec: &OpenApiSpec, base_url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn analyze_endpoints(
+        &self,
+        spec: &OpenApiSpec,
+        base_url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
         // Compile admin patterns
-        let admin_regexes: Vec<Regex> = ADMIN_PATTERNS.iter()
+        let admin_regexes: Vec<Regex> = ADMIN_PATTERNS
+            .iter()
             .filter_map(|p| Regex::new(p).ok())
             .collect();
 
@@ -827,7 +1007,9 @@ impl OpenApiAnalyzer {
             tests_run += 1;
 
             // Check for endpoints without authentication
-            let has_security = endpoint.security.as_ref()
+            let has_security = endpoint
+                .security
+                .as_ref()
                 .map(|s| !s.is_empty())
                 .unwrap_or(!spec.global_security.is_empty());
 
@@ -848,14 +1030,23 @@ impl OpenApiAnalyzer {
             // Check for admin/debug endpoints
             for regex in &admin_regexes {
                 if regex.is_match(&endpoint.path) {
-                    let severity = if has_security { Severity::Low } else { Severity::High };
+                    let severity = if has_security {
+                        Severity::Low
+                    } else {
+                        Severity::High
+                    };
                     vulnerabilities.push(self.create_vulnerability(
                         "OpenAPI Admin/Debug Endpoint Exposed",
                         base_url,
-                        &format!("Potentially sensitive endpoint exposed: {} {}. {}",
+                        &format!(
+                            "Potentially sensitive endpoint exposed: {} {}. {}",
                             endpoint.method,
                             endpoint.path,
-                            if has_security { "Authentication is required." } else { "No authentication required!" }
+                            if has_security {
+                                "Authentication is required."
+                            } else {
+                                "No authentication required!"
+                            }
                         ),
                         severity,
                         "CWE-200",
@@ -884,7 +1075,11 @@ impl OpenApiAnalyzer {
     }
 
     /// Analyze input validation
-    async fn analyze_input_validation(&self, spec: &OpenApiSpec, base_url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn analyze_input_validation(
+        &self,
+        spec: &OpenApiSpec,
+        base_url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -894,7 +1089,10 @@ impl OpenApiAnalyzer {
 
                 // Check for string parameters without length limits
                 if param.param_type.as_deref() == Some("string") {
-                    if param.max_length.is_none() && param.pattern.is_none() && param.enum_values.is_none() {
+                    if param.max_length.is_none()
+                        && param.pattern.is_none()
+                        && param.enum_values.is_none()
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "OpenAPI Missing String Validation",
                             base_url,
@@ -941,20 +1139,19 @@ impl OpenApiAnalyzer {
     fn is_weak_pattern(&self, pattern: &str) -> bool {
         // Very permissive patterns
         let weak_patterns = [
-            r"^.*$",
-            r"^.+$",
-            r".*",
-            r".+",
-            r"[\s\S]*",
-            r"[\s\S]+",
-            r"^[^/]+$",  // Often too permissive for path validation
+            r"^.*$", r"^.+$", r".*", r".+", r"[\s\S]*", r"[\s\S]+",
+            r"^[^/]+$", // Often too permissive for path validation
         ];
 
         weak_patterns.iter().any(|weak| pattern == *weak)
     }
 
     /// Analyze for information disclosure
-    async fn analyze_information_disclosure(&self, spec: &OpenApiSpec, base_url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn analyze_information_disclosure(
+        &self,
+        spec: &OpenApiSpec,
+        base_url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -966,14 +1163,23 @@ impl OpenApiAnalyzer {
 
             if let Ok(regex) = Regex::new(pattern) {
                 if let Some(capture) = regex.find(&spec_string) {
-                    let evidence = &spec_string[capture.start()..capture.end().min(capture.start() + 100)];
+                    let evidence =
+                        &spec_string[capture.start()..capture.end().min(capture.start() + 100)];
                     vulnerabilities.push(self.create_vulnerability(
                         "OpenAPI Sensitive Data Exposure",
                         base_url,
-                        &format!("OpenAPI specification contains {}: '{}...'", description, evidence),
-                        if description.contains("password") || description.contains("secret") || description.contains("AWS") {
+                        &format!(
+                            "OpenAPI specification contains {}: '{}...'",
+                            description, evidence
+                        ),
+                        if description.contains("password")
+                            || description.contains("secret")
+                            || description.contains("AWS")
+                        {
                             Severity::High
-                        } else if description.contains("internal") || description.contains("localhost") {
+                        } else if description.contains("internal")
+                            || description.contains("localhost")
+                        {
                             Severity::Medium
                         } else {
                             Severity::Low
@@ -991,7 +1197,10 @@ impl OpenApiAnalyzer {
             if info.get("version").is_some() {
                 // Only flag if it looks like an internal version
                 let version = info.get("version").and_then(|v| v.as_str()).unwrap_or("");
-                if version.contains("dev") || version.contains("internal") || version.contains("snapshot") {
+                if version.contains("dev")
+                    || version.contains("internal")
+                    || version.contains("snapshot")
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "OpenAPI Internal Version Exposed",
                         base_url,
@@ -1008,7 +1217,11 @@ impl OpenApiAnalyzer {
     }
 
     /// Analyze deprecated features
-    async fn analyze_deprecated_features(&self, spec: &OpenApiSpec, base_url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn analyze_deprecated_features(
+        &self,
+        spec: &OpenApiSpec,
+        base_url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -1026,12 +1239,17 @@ impl OpenApiAnalyzer {
             vulnerabilities.push(self.create_vulnerability(
                 "OpenAPI Deprecated Endpoints",
                 base_url,
-                &format!("{} deprecated endpoint(s) are still documented and potentially accessible: {}",
+                &format!(
+                    "{} deprecated endpoint(s) are still documented and potentially accessible: {}",
                     deprecated_endpoints.len(),
                     if deprecated_endpoints.len() <= 5 {
                         deprecated_endpoints.join(", ")
                     } else {
-                        format!("{}, and {} more", deprecated_endpoints[..5].join(", "), deprecated_endpoints.len() - 5)
+                        format!(
+                            "{}, and {} more",
+                            deprecated_endpoints[..5].join(", "),
+                            deprecated_endpoints.len() - 5
+                        )
                     }
                 ),
                 Severity::Low,
@@ -1044,7 +1262,10 @@ impl OpenApiAnalyzer {
     }
 
     /// Check for Swagger UI exposure
-    async fn check_swagger_ui_exposure(&self, base_url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn check_swagger_ui_exposure(
+        &self,
+        base_url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
         let base = base_url.trim_end_matches('/');
@@ -1057,11 +1278,12 @@ impl OpenApiAnalyzer {
                 Ok(response) => {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
-                        if body_lower.contains("swagger-ui") ||
-                           body_lower.contains("swagger ui") ||
-                           body_lower.contains("redoc") ||
-                           body_lower.contains("rapidoc") ||
-                           body_lower.contains("api documentation") {
+                        if body_lower.contains("swagger-ui")
+                            || body_lower.contains("swagger ui")
+                            || body_lower.contains("redoc")
+                            || body_lower.contains("rapidoc")
+                            || body_lower.contains("api documentation")
+                        {
                             vulnerabilities.push(self.create_vulnerability(
                                 "OpenAPI Documentation UI Exposed",
                                 base_url,
@@ -1116,7 +1338,7 @@ impl OpenApiAnalyzer {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1191,21 +1413,24 @@ mod tests {
     #[test]
     fn test_detect_version_swagger2() {
         let scanner = create_test_scanner();
-        let spec: Value = serde_json::from_str(r#"{"swagger": "2.0", "info": {"title": "Test"}}"#).unwrap();
+        let spec: Value =
+            serde_json::from_str(r#"{"swagger": "2.0", "info": {"title": "Test"}}"#).unwrap();
         assert_eq!(scanner.detect_version(&spec), OpenApiVersion::Swagger2);
     }
 
     #[test]
     fn test_detect_version_openapi30() {
         let scanner = create_test_scanner();
-        let spec: Value = serde_json::from_str(r#"{"openapi": "3.0.1", "info": {"title": "Test"}}"#).unwrap();
+        let spec: Value =
+            serde_json::from_str(r#"{"openapi": "3.0.1", "info": {"title": "Test"}}"#).unwrap();
         assert_eq!(scanner.detect_version(&spec), OpenApiVersion::OpenApi30);
     }
 
     #[test]
     fn test_detect_version_openapi31() {
         let scanner = create_test_scanner();
-        let spec: Value = serde_json::from_str(r#"{"openapi": "3.1.0", "info": {"title": "Test"}}"#).unwrap();
+        let spec: Value =
+            serde_json::from_str(r#"{"openapi": "3.1.0", "info": {"title": "Test"}}"#).unwrap();
         assert_eq!(scanner.detect_version(&spec), OpenApiVersion::OpenApi31);
     }
 
@@ -1354,7 +1579,8 @@ mod tests {
     #[test]
     fn test_parse_security_requirements() {
         let scanner = create_test_scanner();
-        let security: Value = serde_json::from_str(r#"[{"oauth2": ["read", "write"]}, {"api_key": []}]"#).unwrap();
+        let security: Value =
+            serde_json::from_str(r#"[{"oauth2": ["read", "write"]}, {"api_key": []}]"#).unwrap();
         let requirements = scanner.parse_security_requirements(Some(&security));
 
         assert_eq!(requirements.len(), 2);
@@ -1367,7 +1593,8 @@ mod tests {
     #[test]
     fn test_parse_parameters() {
         let scanner = create_test_scanner();
-        let params: Value = serde_json::from_str(r#"[
+        let params: Value = serde_json::from_str(
+            r#"[
             {
                 "name": "id",
                 "in": "path",
@@ -1379,7 +1606,9 @@ mod tests {
                 "in": "query",
                 "schema": {"type": "string", "maxLength": 100, "pattern": "^[a-zA-Z]+$"}
             }
-        ]"#).unwrap();
+        ]"#,
+        )
+        .unwrap();
 
         let parameters = scanner.parse_parameters(Some(&params), true);
 

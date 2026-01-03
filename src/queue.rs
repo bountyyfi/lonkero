@@ -31,7 +31,11 @@ impl RedisQueue {
 
     /// Pop a scan job from the queue (blocking with timeout)
     pub async fn pop_scan_job(&self, timeout_secs: u64) -> Result<Option<ScanJob>> {
-        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .context("Failed to get Redis connection")?;
 
         // BRPOP scan:queue timeout
         let result: Option<(String, String)> = deadpool_redis::redis::cmd("BRPOP")
@@ -43,8 +47,8 @@ impl RedisQueue {
 
         match result {
             Some((_, job_json)) => {
-                let job: ScanJob = serde_json::from_str(&job_json)
-                    .context("Failed to deserialize scan job")?;
+                let job: ScanJob =
+                    serde_json::from_str(&job_json).context("Failed to deserialize scan job")?;
                 debug!("Popped scan job: {}", job.scan_id);
                 Ok(Some(job))
             }
@@ -54,7 +58,11 @@ impl RedisQueue {
 
     /// Update scan status
     pub async fn update_scan_status(&self, scan_id: String, status: String) -> Result<()> {
-        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .context("Failed to get Redis connection")?;
         let key = format!("scan:{}:status", scan_id);
 
         deadpool_redis::redis::cmd("SET")
@@ -78,10 +86,13 @@ impl RedisQueue {
 
     /// Publish scan progress
     pub async fn publish_progress(&self, progress: &ScanProgress) -> Result<()> {
-        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .context("Failed to get Redis connection")?;
         let channel = format!("scan:{}:progress", progress.scan_id);
-        let message = serde_json::to_string(progress)
-            .context("Failed to serialize progress")?;
+        let message = serde_json::to_string(progress).context("Failed to serialize progress")?;
 
         deadpool_redis::redis::cmd("PUBLISH")
             .arg(&channel)
@@ -95,10 +106,14 @@ impl RedisQueue {
 
     /// Store scan results
     pub async fn store_scan_results(&self, scan_id: String, results: &ScanResults) -> Result<()> {
-        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .context("Failed to get Redis connection")?;
         let key = format!("scan:{}:results", scan_id);
-        let results_json = serde_json::to_string(results)
-            .context("Failed to serialize scan results")?;
+        let results_json =
+            serde_json::to_string(results).context("Failed to serialize scan results")?;
 
         deadpool_redis::redis::cmd("SET")
             .arg(&key)
@@ -125,7 +140,11 @@ impl RedisQueue {
 
     /// Store scan error
     pub async fn store_scan_error(&self, scan_id: String, error: String) -> Result<()> {
-        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .context("Failed to get Redis connection")?;
         let key = format!("scan:{}:error", scan_id);
 
         deadpool_redis::redis::cmd("SET")
@@ -148,7 +167,11 @@ impl RedisQueue {
 
     /// Increment test counter
     pub async fn increment_tests(&self, scan_id: String, count: u64) -> Result<()> {
-        let mut conn = self.pool.get().await.context("Failed to get Redis connection")?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .context("Failed to get Redis connection")?;
         let key = format!("scan:{}:tests", scan_id);
 
         deadpool_redis::redis::cmd("INCRBY")

@@ -279,19 +279,33 @@ pub mod cve_scanners {
 pub fn get_required_feature(module_id: &str) -> Option<&'static str> {
     // Free modules - no feature required
     match module_id {
-        "port_scanner" | "http_headers" | "ssl_checker" | "dns_enum"
-        | "security_headers" | "cors_basic" | "clickjacking"
+        "port_scanner"
+        | "http_headers"
+        | "ssl_checker"
+        | "dns_enum"
+        | "security_headers"
+        | "cors_basic"
+        | "clickjacking"
         | "info_disclosure_basic" => return None,
         _ => {}
     }
 
     // CMS security modules (Personal+)
     match module_id {
-        "wordpress_scanner" | "drupal_scanner" | "joomla_scanner"
-        | "laravel_scanner" | "django_scanner" | "rails_scanner"
-        | "nextjs_scanner" | "sveltekit_scanner" | "react_scanner"
-        | "express_scanner" | "liferay_scanner" | "spring_scanner"
-        | "fastapi_scanner" | "go_frameworks_scanner" => {
+        "wordpress_scanner"
+        | "drupal_scanner"
+        | "joomla_scanner"
+        | "laravel_scanner"
+        | "django_scanner"
+        | "rails_scanner"
+        | "nextjs_scanner"
+        | "sveltekit_scanner"
+        | "react_scanner"
+        | "express_scanner"
+        | "liferay_scanner"
+        | "spring_scanner"
+        | "fastapi_scanner"
+        | "go_frameworks_scanner" => {
             return Some("cms_security");
         }
         _ => {}

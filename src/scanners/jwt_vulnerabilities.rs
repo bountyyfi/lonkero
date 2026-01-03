@@ -38,7 +38,9 @@ impl JwtVulnerabilitiesScanner {
         let mut total_tests = 0;
 
         // If user provided an auth_token, assume JWT is used
-        let has_user_jwt = config.auth_token.as_ref()
+        let has_user_jwt = config
+            .auth_token
+            .as_ref()
             .map(|t| t.matches('.').count() == 2)
             .unwrap_or(false);
 
@@ -109,7 +111,10 @@ impl JwtVulnerabilitiesScanner {
                         vulnerabilities.push(self.create_vulnerability(
                             "JWT None Algorithm Accepted",
                             url,
-                            &format!("Server accepts JWT tokens with 'none' algorithm. Token: {}", token),
+                            &format!(
+                                "Server accepts JWT tokens with 'none' algorithm. Token: {}",
+                                token
+                            ),
                             Severity::Critical,
                             "CWE-347",
                         ));
@@ -126,7 +131,10 @@ impl JwtVulnerabilitiesScanner {
     }
 
     /// Test for algorithm confusion (HS256 vs RS256)
-    async fn test_algorithm_confusion(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_algorithm_confusion(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -216,8 +224,12 @@ impl JwtVulnerabilitiesScanner {
         debug!("Testing expired JWT token acceptance");
 
         // Header: {"alg":"HS256","typ":"JWT"}, Payload: {"sub":"user","exp":1}
-        let expired_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIiwiZXhwIjoxfQ.invalid";
-        let auth_header = vec![("Authorization".to_string(), format!("Bearer {}", expired_token))];
+        let expired_token =
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIiwiZXhwIjoxfQ.invalid";
+        let auth_header = vec![(
+            "Authorization".to_string(),
+            format!("Bearer {}", expired_token),
+        )];
 
         match self.http_client.get_with_headers(url, auth_header).await {
             Ok(response) => {
@@ -257,15 +269,17 @@ impl JwtVulnerabilitiesScanner {
         // Only report if we see BOTH a 200 status AND JWT-specific success patterns
         if status_code == 200 {
             // Look for JWT token in response (strongest secondary evidence)
-            if (body_lower.contains("\"token\"") || body_lower.contains("\"jwt\"")) &&
-               (body_lower.contains("bearer") || body_lower.contains("authorization")) {
+            if (body_lower.contains("\"token\"") || body_lower.contains("\"jwt\""))
+                && (body_lower.contains("bearer") || body_lower.contains("authorization"))
+            {
                 return true;
             }
 
             // Look for structured auth response with role/admin properties
             if body.trim().starts_with('{') || body.trim().starts_with('[') {
-                if (body_lower.contains("\"role\":") || body_lower.contains("\"admin\":true")) &&
-                   (body_lower.contains("authenticated") || body_lower.contains("token")) {
+                if (body_lower.contains("\"role\":") || body_lower.contains("\"admin\":true"))
+                    && (body_lower.contains("authenticated") || body_lower.contains("token"))
+                {
                     return true;
                 }
             }
@@ -316,7 +330,7 @@ impl JwtVulnerabilitiesScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 

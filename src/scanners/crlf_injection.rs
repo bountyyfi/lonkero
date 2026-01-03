@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use std::sync::Arc;
 /**
  * Bountyy Oy - CRLF Injection Scanner
  * Tests for HTTP response splitting and CRLF injection vulnerabilities
@@ -16,12 +20,7 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use tracing::{debug, info};
-use crate::http_client::HttpClient;
-use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use std::sync::Arc;
 
 pub struct CrlfInjectionScanner {
     http_client: Arc<HttpClient>,
@@ -41,49 +40,89 @@ impl CrlfInjectionScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
-            debug!("[CRLF] Skipping framework/internal parameter: {}", param_name);
+            debug!(
+                "[CRLF] Skipping framework/internal parameter: {}",
+                param_name
+            );
             return Ok((Vec::new(), 0));
         }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("[CRLF] Testing CRLF injection on parameter: {} (priority: {})",
-              param_name,
-              ParameterFilter::get_parameter_priority(param_name));
+        info!(
+            "[CRLF] Testing CRLF injection on parameter: {} (priority: {})",
+            param_name,
+            ParameterFilter::get_parameter_priority(param_name)
+        );
 
         // Test various CRLF injection payloads
         let payloads = vec![
             // Cookie injection
-            ("%0d%0aSet-Cookie:%20admin=true", "Cookie injection (URL encoded)"),
-            ("\r\nSet-Cookie: admin=true", "Cookie injection (literal CRLF)"),
-            ("%0d%0aSet-Cookie:%20session=hijacked", "Session cookie injection"),
-            ("\r\n\r\nSet-Cookie: token=stolen", "Double CRLF cookie injection"),
-
+            (
+                "%0d%0aSet-Cookie:%20admin=true",
+                "Cookie injection (URL encoded)",
+            ),
+            (
+                "\r\nSet-Cookie: admin=true",
+                "Cookie injection (literal CRLF)",
+            ),
+            (
+                "%0d%0aSet-Cookie:%20session=hijacked",
+                "Session cookie injection",
+            ),
+            (
+                "\r\n\r\nSet-Cookie: token=stolen",
+                "Double CRLF cookie injection",
+            ),
             // Location header injection
-            ("%0d%0aLocation:%20https://evil.com", "Location header injection"),
-            ("\r\nLocation: https://evil.com", "Location redirect injection"),
-
+            (
+                "%0d%0aLocation:%20https://evil.com",
+                "Location header injection",
+            ),
+            (
+                "\r\nLocation: https://evil.com",
+                "Location redirect injection",
+            ),
             // Arbitrary header injection
-            ("%0d%0aX-Custom-Header:%20injected", "Custom header injection"),
+            (
+                "%0d%0aX-Custom-Header:%20injected",
+                "Custom header injection",
+            ),
             ("\r\nX-Injected: true", "Header injection (literal)"),
-
             // HTTP response splitting
-            ("%0d%0a%0d%0aHTTP/1.1%20200%20OK%0d%0a", "HTTP response splitting (encoded)"),
-            ("\r\n\r\nHTTP/1.1 200 OK\r\n", "HTTP response splitting (literal)"),
-            ("%0d%0a%0d%0a<script>alert(1)</script>", "Response splitting with XSS"),
-
+            (
+                "%0d%0a%0d%0aHTTP/1.1%20200%20OK%0d%0a",
+                "HTTP response splitting (encoded)",
+            ),
+            (
+                "\r\n\r\nHTTP/1.1 200 OK\r\n",
+                "HTTP response splitting (literal)",
+            ),
+            (
+                "%0d%0a%0d%0a<script>alert(1)</script>",
+                "Response splitting with XSS",
+            ),
             // Content-Type injection
-            ("%0d%0aContent-Type:%20text/html", "Content-Type header injection"),
-            ("\r\nContent-Type: text/html\r\n\r\n<html><script>alert(1)</script></html>", "Content-Type with XSS"),
-
+            (
+                "%0d%0aContent-Type:%20text/html",
+                "Content-Type header injection",
+            ),
+            (
+                "\r\nContent-Type: text/html\r\n\r\n<html><script>alert(1)</script></html>",
+                "Content-Type with XSS",
+            ),
             // Multiple header injection
-            ("%0d%0aX-Header1:%20value1%0d%0aX-Header2:%20value2", "Multiple headers"),
-
+            (
+                "%0d%0aX-Header1:%20value1%0d%0aX-Header2:%20value2",
+                "Multiple headers",
+            ),
             // Unicode/alternative encodings
             ("%E5%98%8A%E5%98%8DSet-Cookie:%20admin=true", "Unicode CRLF"),
-            ("%E5%98%8D%E5%98%8ASet-Cookie:%20admin=true", "Alternative Unicode"),
-
+            (
+                "%E5%98%8D%E5%98%8ASet-Cookie:%20admin=true",
+                "Alternative Unicode",
+            ),
             // Null byte variants
             ("%00%0d%0aSet-Cookie:%20admin=true", "Null byte + CRLF"),
         ];
@@ -99,7 +138,9 @@ impl CrlfInjectionScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    let headers_vec: Vec<(String, String)> = response.headers.iter()
+                    let headers_vec: Vec<(String, String)> = response
+                        .headers
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                     if let Some(vuln) = self.analyze_response(
@@ -196,21 +237,23 @@ impl CrlfInjectionScanner {
         }
 
         // Check for injected custom headers - these should ONLY exist if we successfully injected them
-        let injected_header_names = vec![
-            "x-custom-header",
-            "x-injected",
-            "x-header1",
-            "x-header2",
-        ];
+        let injected_header_names = vec!["x-custom-header", "x-injected", "x-header1", "x-header2"];
 
-        if payload.contains("X-Custom-Header") || payload.contains("X-Injected")
-            || payload.contains("X-Header1") || payload.contains("X-Header2") {
+        if payload.contains("X-Custom-Header")
+            || payload.contains("X-Injected")
+            || payload.contains("X-Header1")
+            || payload.contains("X-Header2")
+        {
             for (key, value) in headers {
                 let key_lower = key.to_lowercase();
                 for injected_name in &injected_header_names {
                     if key_lower == *injected_name {
                         // Verify the value matches what we tried to inject
-                        if value == "injected" || value == "true" || value == "value1" || value == "value2" {
+                        if value == "injected"
+                            || value == "true"
+                            || value == "value1"
+                            || value == "value2"
+                        {
                             return Some(self.create_vulnerability(
                                 url,
                                 param_name,
@@ -231,7 +274,10 @@ impl CrlfInjectionScanner {
         if payload.contains("HTTP/1.1") {
             // The body should contain literal "HTTP/1.1 200 OK" at start of a line (response splitting)
             // AND this should be in addition to normal body content (indicating two responses)
-            if body.lines().any(|line| line.trim().starts_with("HTTP/1.1 200 OK")) {
+            if body
+                .lines()
+                .any(|line| line.trim().starts_with("HTTP/1.1 200 OK"))
+            {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
@@ -325,9 +371,10 @@ impl CrlfInjectionScanner {
                          4. Implement proper input validation and output encoding\n\
                          5. Reject requests containing CRLF sequences\n\
                          6. Use allowlists for redirect URLs\n\
-                         7. Set proper Content-Type and X-Content-Type-Options headers".to_string(),
+                         7. Set proper Content-Type and X-Content-Type-Options headers"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -357,7 +404,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CrlfInjectionScanner {
@@ -369,9 +416,7 @@ use crate::http_client::HttpClient;
     fn test_analyze_cookie_injection() {
         let scanner = create_test_scanner();
 
-        let headers = vec![
-            ("Set-Cookie".to_string(), "admin=true".to_string()),
-        ];
+        let headers = vec![("Set-Cookie".to_string(), "admin=true".to_string())];
         let body = "";
 
         let result = scanner.analyze_response(
@@ -395,9 +440,7 @@ use crate::http_client::HttpClient;
     fn test_analyze_location_injection() {
         let scanner = create_test_scanner();
 
-        let headers = vec![
-            ("Location".to_string(), "https://evil.com".to_string()),
-        ];
+        let headers = vec![("Location".to_string(), "https://evil.com".to_string())];
         let body = "";
 
         let result = scanner.analyze_response(
@@ -418,9 +461,7 @@ use crate::http_client::HttpClient;
     fn test_analyze_custom_header_injection() {
         let scanner = create_test_scanner();
 
-        let headers = vec![
-            ("X-Custom-Header".to_string(), "injected".to_string()),
-        ];
+        let headers = vec![("X-Custom-Header".to_string(), "injected".to_string())];
         let body = "";
 
         let result = scanner.analyze_response(
@@ -483,9 +524,7 @@ use crate::http_client::HttpClient;
     fn test_analyze_safe_response() {
         let scanner = create_test_scanner();
 
-        let headers = vec![
-            ("Content-Type".to_string(), "text/html".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "text/html".to_string())];
         let body = "<html><body>Normal page</body></html>";
 
         let result = scanner.analyze_response(

@@ -5,21 +5,20 @@
 // Production-grade external scanning for internet-facing assets
 // © 2026 Bountyy Oy
 
+pub mod dns_scanner;
 pub mod port_scanner;
 pub mod ssl_scanner;
-pub mod dns_scanner;
 
 pub use port_scanner::{
-    ExternalPortScanner, PortScanConfig, PortScanResult, PortScanSummary,
-    PortState, ScanTechnique,
+    ExternalPortScanner, PortScanConfig, PortScanResult, PortScanSummary, PortState, ScanTechnique,
 };
 
 pub use ssl_scanner::{
-    SslScanner, SslScanConfig, SslScanResult, SslGrade,
-    CertificateInfo, CipherSuite, ProtocolSupport, SslIssue, SslVulnerability,
+    CertificateInfo, CipherSuite, ProtocolSupport, SslGrade, SslIssue, SslScanConfig,
+    SslScanResult, SslScanner, SslVulnerability,
 };
 
 pub use dns_scanner::{
-    DnsScanner, DnsScanConfig, DnsScanResult,
-    SpfRecord, DkimRecord, DmarcRecord, CaaRecord, DnssecInfo, SubdomainTakeover,
+    CaaRecord, DkimRecord, DmarcRecord, DnsScanConfig, DnsScanResult, DnsScanner, DnssecInfo,
+    SpfRecord, SubdomainTakeover,
 };

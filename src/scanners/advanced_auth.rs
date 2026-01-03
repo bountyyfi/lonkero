@@ -1,6 +1,17 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::detection_helpers::AppCharacteristics;
+use crate::http_client::HttpClient;
+use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use anyhow::Result;
+use base64::{engine::general_purpose, Engine as _};
+use hmac::{Hmac, Mac};
+use rand::Rng;
+use regex::Regex;
+use sha2::Sha256;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 /**
  * Bountyy Oy - Advanced Authentication Security Scanner
  * Enterprise-grade authentication security testing
@@ -8,30 +19,18 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use tracing::debug;
-use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose};
-use hmac::{Hmac, Mac};
-use rand::Rng;
-use regex::Regex;
-use sha2::Sha256;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 type HmacSha256 = Hmac<Sha256>;
 
 /// Aggression levels for authentication testing
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AggressionLevel {
-    Passive,    // Only passive detection, no active testing
-    Low,        // Minimal testing, safe operations
-    Medium,     // Standard testing
-    High,       // Aggressive testing
-    Maximum,    // Maximum testing intensity
+    Passive, // Only passive detection, no active testing
+    Low,     // Minimal testing, safe operations
+    Medium,  // Standard testing
+    High,    // Aggressive testing
+    Maximum, // Maximum testing intensity
 }
 
 impl AggressionLevel {
@@ -75,24 +74,35 @@ impl AdvancedAuthScanner {
         let mut tests_run = 0;
         let aggression = AggressionLevel::from_scan_mode(config.scan_mode.as_str());
 
-        tracing::info!("Starting advanced authentication scan with aggression level: {:?}", aggression);
+        tracing::info!(
+            "Starting advanced authentication scan with aggression level: {:?}",
+            aggression
+        );
 
         // Check if authentication is present before running auth tests
         let baseline_response = self.http_client.get(url).await?;
         let characteristics = AppCharacteristics::from_response(&baseline_response, url);
 
-        if !characteristics.has_authentication && !characteristics.has_oauth && !characteristics.has_jwt {
-            tracing::info!("[AdvAuth] No authentication detected - skipping advanced authentication tests");
+        if !characteristics.has_authentication
+            && !characteristics.has_oauth
+            && !characteristics.has_jwt
+        {
+            tracing::info!(
+                "[AdvAuth] No authentication detected - skipping advanced authentication tests"
+            );
             return Ok((vulnerabilities, tests_run));
         }
 
         // Session Management Tests
-        let (session_vulns, session_tests) = self.test_session_management(url, config, aggression).await?;
+        let (session_vulns, session_tests) = self
+            .test_session_management(url, config, aggression)
+            .await?;
         vulnerabilities.extend(session_vulns);
         tests_run += session_tests;
 
         // Password Security Tests
-        let (password_vulns, password_tests) = self.test_password_security(url, config, aggression).await?;
+        let (password_vulns, password_tests) =
+            self.test_password_security(url, config, aggression).await?;
         vulnerabilities.extend(password_vulns);
         tests_run += password_tests;
 
@@ -111,8 +121,11 @@ impl AdvancedAuthScanner {
         vulnerabilities.extend(jwt_vulns);
         tests_run += jwt_tests;
 
-        tracing::info!("Advanced authentication scan completed: {} vulnerabilities, {} tests",
-                      vulnerabilities.len(), tests_run);
+        tracing::info!(
+            "Advanced authentication scan completed: {} vulnerabilities, {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -170,10 +183,16 @@ impl AdvancedAuthScanner {
         // Test if application accepts pre-set session IDs
         let custom_session_id = "test_fixed_session_12345";
 
-        let response = self.http_client.get_with_headers(
-            url,
-            vec![("Cookie".to_string(), format!("sessionid={}", custom_session_id))],
-        ).await?;
+        let response = self
+            .http_client
+            .get_with_headers(
+                url,
+                vec![(
+                    "Cookie".to_string(),
+                    format!("sessionid={}", custom_session_id),
+                )],
+            )
+            .await?;
 
         // Check if the application accepted our session ID
         if let Some(set_cookie) = response.header("set-cookie") {
@@ -312,9 +331,13 @@ impl AdvancedAuthScanner {
         if let Some(set_cookie) = response.header("set-cookie") {
             // Look for absence of session invalidation mechanisms
             let _has_max_age = set_cookie.to_lowercase().contains("max-age");
-            let has_single_session_indicator = response.body.to_lowercase().contains("single session")
-                || response.body.to_lowercase().contains("logout other devices")
-                || response.body.to_lowercase().contains("active sessions");
+            let has_single_session_indicator =
+                response.body.to_lowercase().contains("single session")
+                    || response
+                        .body
+                        .to_lowercase()
+                        .contains("logout other devices")
+                    || response.body.to_lowercase().contains("active sessions");
 
             if !has_single_session_indicator {
                 return Ok(Some(Vulnerability {
@@ -592,18 +615,16 @@ impl AdvancedAuthScanner {
         ];
 
         let weak_passwords = vec![
-            "123456",
-            "password",
-            "12345678",
-            "abc123",
-            "test",
-            "a", // Single character
+            "123456", "password", "12345678", "abc123", "test", "a", // Single character
         ];
 
         for endpoint in &test_endpoints {
             for weak_pwd in &weak_passwords {
                 // Try to detect if weak password is accepted
-                let test_data = format!("password={}&username=testuser&email=test@test.com", weak_pwd);
+                let test_data = format!(
+                    "password={}&username=testuser&email=test@test.com",
+                    weak_pwd
+                );
 
                 match self.http_client.post_form(endpoint, &test_data).await {
                     Ok(response) => {
@@ -664,10 +685,26 @@ impl AdvancedAuthScanner {
 
         // Common passwords from rockyou.txt top entries
         let common_passwords = vec![
-            "123456", "password", "12345678", "qwerty", "123456789",
-            "12345", "1234", "111111", "1234567", "dragon",
-            "123123", "baseball", "abc123", "football", "monkey",
-            "letmein", "shadow", "master", "666666", "qwertyuiop",
+            "123456",
+            "password",
+            "12345678",
+            "qwerty",
+            "123456789",
+            "12345",
+            "1234",
+            "111111",
+            "1234567",
+            "dragon",
+            "123123",
+            "baseball",
+            "abc123",
+            "football",
+            "monkey",
+            "letmein",
+            "shadow",
+            "master",
+            "666666",
+            "qwertyuiop",
         ];
 
         let test_count = aggression.max_attempts().min(common_passwords.len());
@@ -697,8 +734,8 @@ impl AdvancedAuthScanner {
                                 && (body_lower.contains("dashboard")
                                     || body_lower.contains("welcome")
                                     || body_lower.contains("logged in")
-                                    || response.header("location").is_some()) {
-
+                                    || response.header("location").is_some())
+                            {
                                 vulnerabilities.push(Vulnerability {
                                     id: generate_uuid(),
                                     vuln_type: "Account with Common Password".to_string(),
@@ -732,7 +769,10 @@ impl AdvancedAuthScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    async fn test_password_reset_vulnerabilities(&self, url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_password_reset_vulnerabilities(
+        &self,
+        url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -752,7 +792,9 @@ impl AdvancedAuthScanner {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
 
-                        if body_lower.contains("new password") || body_lower.contains("reset password") {
+                        if body_lower.contains("new password")
+                            || body_lower.contains("reset password")
+                        {
                             vulnerabilities.push(Vulnerability {
                                 id: generate_uuid(),
                                 vuln_type: "Password Reset Token in URL".to_string(),
@@ -787,9 +829,9 @@ impl AdvancedAuthScanner {
 
                     // Look for exposed tokens in response
                     let token_patterns = vec![
-                        r#""token"\s*:\s*"(\d{4,8})"#,  // Numeric token in JSON
-                        r#"token=(\d{4,8})"#,  // Numeric token in URL
-                        r#"reset_code['":\s=]+(\d{4,6})"#,  // Numeric code
+                        r#""token"\s*:\s*"(\d{4,8})"#,     // Numeric token in JSON
+                        r#"token=(\d{4,8})"#,              // Numeric token in URL
+                        r#"reset_code['":\s=]+(\d{4,6})"#, // Numeric code
                     ];
 
                     for pattern_str in &token_patterns {
@@ -847,26 +889,34 @@ impl AdvancedAuthScanner {
             let test_data = format!("username=nonexistent_user_{}&password=wrongpass", i);
 
             let start = Instant::now();
-            let _ = self.http_client.post_form(&login_endpoint, &test_data).await;
+            let _ = self
+                .http_client
+                .post_form(&login_endpoint, &test_data)
+                .await;
             let elapsed = start.elapsed();
             nonexistent_times.push(elapsed);
         }
 
         // Test with potentially valid username
         let mut valid_times = Vec::new();
-        let test_usernames_timing = vec!["admin".to_string(), "user".to_string(), "test".to_string()];
+        let test_usernames_timing =
+            vec!["admin".to_string(), "user".to_string(), "test".to_string()];
         for username in &test_usernames_timing {
             tests_run += 1;
             let test_data = format!("username={}&password=wrongpass", &username);
 
             let start = Instant::now();
-            let _ = self.http_client.post_form(&login_endpoint, &test_data).await;
+            let _ = self
+                .http_client
+                .post_form(&login_endpoint, &test_data)
+                .await;
             let elapsed = start.elapsed();
             valid_times.push(elapsed);
         }
 
         // Calculate average response times
-        let avg_nonexistent: Duration = nonexistent_times.iter().sum::<Duration>() / nonexistent_times.len() as u32;
+        let avg_nonexistent: Duration =
+            nonexistent_times.iter().sum::<Duration>() / nonexistent_times.len() as u32;
         let avg_valid: Duration = valid_times.iter().sum::<Duration>() / valid_times.len() as u32;
 
         // Check for significant timing difference (>100ms)
@@ -908,8 +958,14 @@ impl AdvancedAuthScanner {
 
         let endpoints_to_test = vec![
             (format!("{}/login", url.trim_end_matches('/')), "login"),
-            (format!("{}/register", url.trim_end_matches('/')), "register"),
-            (format!("{}/forgot-password", url.trim_end_matches('/')), "password_reset"),
+            (
+                format!("{}/register", url.trim_end_matches('/')),
+                "register",
+            ),
+            (
+                format!("{}/forgot-password", url.trim_end_matches('/')),
+                "password_reset",
+            ),
         ];
 
         for (endpoint, endpoint_type) in &endpoints_to_test {
@@ -1050,7 +1106,9 @@ impl AdvancedAuthScanner {
                         && response.status_code != 404  // Endpoint must exist
                         && !response.body.to_lowercase().contains("mfa")
                         && !response.body.to_lowercase().contains("not found")  // Additional check
-                        && !response.body.to_lowercase().contains("cannot get") {  // NestJS 404 message
+                        && !response.body.to_lowercase().contains("cannot get")
+                    {
+                        // NestJS 404 message
                         vulnerabilities.push(Vulnerability {
                             id: generate_uuid(),
                             vuln_type: "MFA Bypass - Direct Access".to_string(),
@@ -1082,8 +1140,8 @@ impl AdvancedAuthScanner {
                 Ok(response) => {
                     if (response.status_code == 200 || response.status_code == 302)
                         && (response.body.to_lowercase().contains("success")
-                            || response.header("location").is_some()) {
-
+                            || response.header("location").is_some())
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: generate_uuid(),
                             vuln_type: "MFA Bypass - Empty Code Accepted".to_string(),
@@ -1113,7 +1171,9 @@ impl AdvancedAuthScanner {
             let test_data = "code=invalid";
             match self.http_client.post_form(endpoint, test_data).await {
                 Ok(response) => {
-                    if response.status_code == 200 && !response.body.to_lowercase().contains("invalid") {
+                    if response.status_code == 200
+                        && !response.body.to_lowercase().contains("invalid")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: generate_uuid(),
                             vuln_type: "Weak MFA Code Validation".to_string(),
@@ -1241,15 +1301,20 @@ impl AdvancedAuthScanner {
             tests_run += 1;
 
             // Test: Predictable backup codes
-            let test_codes = vec!["12345678".to_string(), "00000000".to_string(), "11111111".to_string(), "AAAAAAAA".to_string()];
+            let test_codes = vec![
+                "12345678".to_string(),
+                "00000000".to_string(),
+                "11111111".to_string(),
+                "AAAAAAAA".to_string(),
+            ];
 
             for code in &test_codes {
                 let test_data = format!("backup_code={}", code);
                 match self.http_client.post_form(endpoint, &test_data).await {
                     Ok(response) => {
                         if (response.status_code == 200 || response.status_code == 302)
-                            && response.body.to_lowercase().contains("success") {
-
+                            && response.body.to_lowercase().contains("success")
+                        {
                             vulnerabilities.push(Vulnerability {
                                 id: generate_uuid(),
                                 vuln_type: "Predictable MFA Backup Codes".to_string(),
@@ -1302,8 +1367,9 @@ impl AdvancedAuthScanner {
                     // Check if MFA was enabled without code verification
                     if (response.status_code == 200 || response.status_code == 302)
                         && (body_lower.contains("enabled") || body_lower.contains("activated"))
-                        && !body_lower.contains("verify") && !body_lower.contains("code") {
-
+                        && !body_lower.contains("verify")
+                        && !body_lower.contains("code")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: generate_uuid(),
                             vuln_type: "MFA Enrollment Without Verification".to_string(),
@@ -1375,7 +1441,10 @@ impl AdvancedAuthScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    async fn test_authorization_code_interception(&self, url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_authorization_code_interception(
+        &self,
+        url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -1463,7 +1532,10 @@ impl AdvancedAuthScanner {
                     Ok(response) => {
                         if response.status_code == 302 {
                             if let Some(location) = response.header("location") {
-                                if location.contains("evil.com") || location.starts_with("javascript:") || location.starts_with("data:") {
+                                if location.contains("evil.com")
+                                    || location.starts_with("javascript:")
+                                    || location.starts_with("data:")
+                                {
                                     vulnerabilities.push(Vulnerability {
                                         id: generate_uuid(),
                                         vuln_type: "OAuth Open Redirect - Weak Redirect URI Validation".to_string(),
@@ -1603,7 +1675,8 @@ impl AdvancedAuthScanner {
         for endpoint in &token_endpoints {
             // Test: Missing client authentication
             tests_run += 1;
-            let test_data = "grant_type=authorization_code&code=test123&redirect_uri=https://example.com";
+            let test_data =
+                "grant_type=authorization_code&code=test123&redirect_uri=https://example.com";
 
             match self.http_client.post_form(endpoint, test_data).await {
                 Ok(response) => {
@@ -1797,7 +1870,8 @@ impl AdvancedAuthScanner {
                 }
 
                 // Check response body for JWT pattern
-                let jwt_regex = Regex::new(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+").unwrap();
+                let jwt_regex =
+                    Regex::new(r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+").unwrap();
                 if let Some(captures) = jwt_regex.find(&response.body) {
                     return Some(captures.as_str().to_string());
                 }
@@ -1859,10 +1933,11 @@ impl AdvancedAuthScanner {
             // Test if server accepts it
             let test_url = format!("{}/api/protected", url.trim_end_matches('/'));
             let auth_header = format!("Bearer {}", modified_token);
-            match self.http_client.get_with_headers(
-                &test_url,
-                vec![("Authorization".to_string(), auth_header)],
-            ).await {
+            match self
+                .http_client
+                .get_with_headers(&test_url, vec![("Authorization".to_string(), auth_header)])
+                .await
+            {
                 Ok(response) => {
                     if response.status_code == 200 {
                         vulnerabilities.push(Vulnerability {
@@ -1914,10 +1989,11 @@ impl AdvancedAuthScanner {
         // Test if server accepts unsigned JWT
         let test_url = format!("{}/api/protected", url.trim_end_matches('/'));
         let auth_header = format!("Bearer {}", modified_token);
-        match self.http_client.get_with_headers(
-            &test_url,
-            vec![("Authorization".to_string(), auth_header)],
-        ).await {
+        match self
+            .http_client
+            .get_with_headers(&test_url, vec![("Authorization".to_string(), auth_header)])
+            .await
+        {
             Ok(response) => {
                 if response.status_code == 200 {
                     vulnerabilities.push(Vulnerability {
@@ -2001,10 +2077,11 @@ impl AdvancedAuthScanner {
         // Test if server accepts modified token
         let test_url = format!("{}/api/admin", url.trim_end_matches('/'));
         let auth_header = format!("Bearer {}", modified_token);
-        match self.http_client.get_with_headers(
-            &test_url,
-            vec![("Authorization".to_string(), auth_header)],
-        ).await {
+        match self
+            .http_client
+            .get_with_headers(&test_url, vec![("Authorization".to_string(), auth_header)])
+            .await
+        {
             Ok(response) => {
                 if response.status_code == 200 {
                     vulnerabilities.push(Vulnerability {
@@ -2355,7 +2432,11 @@ mod tests {
     #[test]
     fn test_sequential_detection() {
         let sequential = vec!["100".to_string(), "101".to_string(), "102".to_string()];
-        let random = vec!["abc123".to_string(), "def456".to_string(), "ghi789".to_string()];
+        let random = vec![
+            "abc123".to_string(),
+            "def456".to_string(),
+            "ghi789".to_string(),
+        ];
 
         assert!(check_sequential_pattern(&sequential));
         assert!(!check_sequential_pattern(&random));
@@ -2365,7 +2446,10 @@ mod tests {
     fn test_aggression_levels() {
         assert_eq!(AggressionLevel::from_scan_mode("fast").max_attempts(), 3);
         assert_eq!(AggressionLevel::from_scan_mode("normal").max_attempts(), 5);
-        assert_eq!(AggressionLevel::from_scan_mode("thorough").max_attempts(), 10);
+        assert_eq!(
+            AggressionLevel::from_scan_mode("thorough").max_attempts(),
+            10
+        );
         assert_eq!(AggressionLevel::from_scan_mode("insane").max_attempts(), 20);
     }
 }

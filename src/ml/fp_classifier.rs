@@ -12,7 +12,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use super::features::VulnFeatures;
 use super::training_data::TrainingDataCollector;
 use anyhow::{Context, Result};
@@ -76,17 +75,22 @@ impl ModelWeights {
             return 0.5; // Unknown - return neutral
         }
 
-        let z: f32 = self.weights.iter()
+        let z: f32 = self
+            .weights
+            .iter()
             .zip(features.iter())
             .map(|(w, f)| w * f)
-            .sum::<f32>() + self.bias;
+            .sum::<f32>()
+            + self.bias;
 
         Self::sigmoid(z)
     }
 
     /// Get top contributing features for interpretability
     pub fn top_features(&self, features: &[f32], top_k: usize) -> Vec<(String, f32)> {
-        let mut contributions: Vec<(String, f32)> = self.weights.iter()
+        let mut contributions: Vec<(String, f32)> = self
+            .weights
+            .iter()
             .zip(features.iter())
             .zip(self.feature_names.iter())
             .map(|((w, f), name)| (name.clone(), w * f))
@@ -127,8 +131,7 @@ impl FalsePositiveClassifier {
 
     /// Get path to saved model
     fn get_model_path() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .context("Could not determine home directory")?;
+        let home = dirs::home_dir().context("Could not determine home directory")?;
         let dir = home.join(".lonkero").join("models");
         fs::create_dir_all(&dir)?;
         Ok(dir.join("fp_classifier.json"))
@@ -140,8 +143,10 @@ impl FalsePositiveClassifier {
             let file = File::open(path)?;
             let reader = BufReader::new(file);
             let weights: ModelWeights = serde_json::from_reader(reader)?;
-            info!("Loaded FP classifier model (v{}, {} examples)",
-                weights.version, weights.training_examples);
+            info!(
+                "Loaded FP classifier model (v{}, {} examples)",
+                weights.version, weights.training_examples
+            );
             Ok(weights)
         } else {
             let num_features = VulnFeatures::feature_names().len();
@@ -169,7 +174,8 @@ impl FalsePositiveClassifier {
 
         // Get explanations from top features
         let top = self.weights.top_features(&feature_vec, 3);
-        let explanation: Vec<String> = top.iter()
+        let explanation: Vec<String> = top
+            .iter()
             .map(|(name, contrib)| {
                 if *contrib > 0.0 {
                     format!("{} indicates true positive", name)
@@ -204,13 +210,9 @@ impl FalsePositiveClassifier {
         }
 
         // Prepare feature matrix and labels
-        let features: Vec<Vec<f32>> = data.iter()
-            .map(|e| e.to_feature_vector())
-            .collect();
+        let features: Vec<Vec<f32>> = data.iter().map(|e| e.to_feature_vector()).collect();
 
-        let labels: Vec<f32> = data.iter()
-            .filter_map(|e| e.get_label())
-            .collect();
+        let labels: Vec<f32> = data.iter().filter_map(|e| e.get_label()).collect();
 
         if features.len() != labels.len() {
             return Ok(TrainingResult {
@@ -221,7 +223,11 @@ impl FalsePositiveClassifier {
             });
         }
 
-        info!("Training on {} examples for {} epochs", features.len(), epochs);
+        info!(
+            "Training on {} examples for {} epochs",
+            features.len(),
+            epochs
+        );
 
         // Gradient descent training
         for epoch in 0..epochs {
@@ -244,7 +250,11 @@ impl FalsePositiveClassifier {
             }
 
             if epoch % 100 == 0 {
-                debug!("Epoch {}: avg loss = {:.4}", epoch, total_loss / features.len() as f32);
+                debug!(
+                    "Epoch {}: avg loss = {:.4}",
+                    epoch,
+                    total_loss / features.len() as f32
+                );
             }
         }
 
@@ -296,20 +306,26 @@ impl FalsePositiveClassifier {
         let local_weight = 0.7;
         let federated_weight = 0.3;
 
-        for (_i, (local, federated)) in self.weights.weights.iter_mut()
+        for (_i, (local, federated)) in self
+            .weights
+            .weights
+            .iter_mut()
             .zip(federated_weights.weights.iter())
             .enumerate()
         {
             *local = *local * local_weight + federated * federated_weight;
         }
 
-        self.weights.bias = self.weights.bias * local_weight +
-            federated_weights.bias * federated_weight;
+        self.weights.bias =
+            self.weights.bias * local_weight + federated_weights.bias * federated_weight;
 
         self.weights.version += 1;
         self.save_model()?;
 
-        info!("Updated model with federated weights (v{})", self.weights.version);
+        info!(
+            "Updated model with federated weights (v{})",
+            self.weights.version
+        );
         Ok(())
     }
 

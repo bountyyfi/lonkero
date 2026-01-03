@@ -27,7 +27,8 @@ async fn main() {
     };
 
     // Test stored XSS endpoint
-    let url = "https://training-data-lonkero.bountyy-fi-clients.workers.dev/xss/admin?action=comments";
+    let url =
+        "https://training-data-lonkero.bountyy-fi-clients.workers.dev/xss/admin?action=comments";
 
     println!("Target: {}\n", url);
 

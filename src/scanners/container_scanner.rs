@@ -14,9 +14,7 @@ pub struct ContainerScanner {
 
 impl ContainerScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self {
-            http_client,
-        }
+        Self { http_client }
     }
 
     /// Scan endpoint for container security vulnerabilities
@@ -56,7 +54,10 @@ impl ContainerScanner {
     }
 
     /// Test for exposed Docker API
-    async fn test_docker_api_exposure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_docker_api_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
@@ -110,8 +111,10 @@ impl ContainerScanner {
                     // Use short timeout for port checks
                     match tokio::time::timeout(
                         Duration::from_secs(3),
-                        self.http_client.get(&test_url)
-                    ).await {
+                        self.http_client.get(&test_url),
+                    )
+                    .await
+                    {
                         Ok(Ok(response)) => {
                             if response.status_code == 200 && response.body.contains("OK") {
                                 info!("Docker daemon exposed on port {}", port);
@@ -119,7 +122,10 @@ impl ContainerScanner {
                                     url,
                                     "Exposed Docker Daemon",
                                     "",
-                                    &format!("Docker daemon exposed on port {} without authentication", port),
+                                    &format!(
+                                        "Docker daemon exposed on port {} without authentication",
+                                        port
+                                    ),
                                     &format!("Docker daemon accessible at port {}", port),
                                     Severity::Critical,
                                     "CWE-306",
@@ -143,7 +149,10 @@ impl ContainerScanner {
     }
 
     /// Test for exposed Kubernetes API
-    async fn test_kubernetes_api_exposure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_kubernetes_api_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
@@ -189,7 +198,10 @@ impl ContainerScanner {
                             "Kubernetes API Exposed (Auth Required)",
                             "",
                             &format!("{} is exposed but requires authentication", api_name),
-                            &format!("Kubernetes API detected at {} (may be misconfigured)", endpoint),
+                            &format!(
+                                "Kubernetes API detected at {} (may be misconfigured)",
+                                endpoint
+                            ),
                             Severity::Medium,
                             "CWE-200",
                             5.3,
@@ -214,10 +226,14 @@ impl ContainerScanner {
                     // Use short timeout for port checks
                     match tokio::time::timeout(
                         Duration::from_secs(3),
-                        self.http_client.get(&test_url)
-                    ).await {
+                        self.http_client.get(&test_url),
+                    )
+                    .await
+                    {
                         Ok(Ok(response)) => {
-                            if response.status_code == 200 && response.body.to_lowercase().contains("ok") {
+                            if response.status_code == 200
+                                && response.body.to_lowercase().contains("ok")
+                            {
                                 info!("Kubernetes component exposed on port {}", port);
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
@@ -247,7 +263,10 @@ impl ContainerScanner {
     }
 
     /// Test for container registry exposure
-    async fn test_container_registry_exposure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_container_registry_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -266,7 +285,9 @@ impl ContainerScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && self.is_registry_response(&response.body, &response.headers) {
+                    if response.status_code == 200
+                        && self.is_registry_response(&response.body, &response.headers)
+                    {
                         info!("Exposed container registry detected: {}", registry_name);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -281,11 +302,17 @@ impl ContainerScanner {
                         break;
                     }
 
-                    if response.status_code == 401 &&
-                       response.headers.get("www-authenticate")
-                           .map(|v| v.to_lowercase().contains("bearer"))
-                           .unwrap_or(false) {
-                        info!("Container registry found (auth required): {}", registry_name);
+                    if response.status_code == 401
+                        && response
+                            .headers
+                            .get("www-authenticate")
+                            .map(|v| v.to_lowercase().contains("bearer"))
+                            .unwrap_or(false)
+                    {
+                        info!(
+                            "Container registry found (auth required): {}",
+                            registry_name
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "Container Registry Detected",
@@ -315,11 +342,14 @@ impl ContainerScanner {
 
                     match tokio::time::timeout(
                         Duration::from_secs(3),
-                        self.http_client.get(&test_url)
-                    ).await {
+                        self.http_client.get(&test_url),
+                    )
+                    .await
+                    {
                         Ok(Ok(response)) => {
-                            if (response.status_code == 200 || response.status_code == 401) &&
-                               self.is_registry_response(&response.body, &response.headers) {
+                            if (response.status_code == 200 || response.status_code == 401)
+                                && self.is_registry_response(&response.body, &response.headers)
+                            {
                                 info!("Container registry on port {}", port);
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
@@ -349,7 +379,10 @@ impl ContainerScanner {
     }
 
     /// Test for container secrets exposure
-    async fn test_container_secrets_exposure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_container_secrets_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
@@ -377,7 +410,10 @@ impl ContainerScanner {
                 Ok(response) => {
                     if response.status_code == 200 && !response.body.is_empty() {
                         if let Some(secret_type) = self.detect_container_secret(&response.body) {
-                            info!("Container secret exposed: {} at {}", secret_type, secret_path);
+                            info!(
+                                "Container secret exposed: {} at {}",
+                                secret_type, secret_path
+                            );
                             vulnerabilities.push(self.create_vulnerability(
                                 url,
                                 "Container Secret Exposure",
@@ -453,22 +489,27 @@ impl ContainerScanner {
         false
     }
 
-    fn is_registry_response(&self, body: &str, headers: &std::collections::HashMap<String, String>) -> bool {
+    fn is_registry_response(
+        &self,
+        body: &str,
+        headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
         for (key, value) in headers {
             let key_lower = key.to_lowercase();
             let value_lower = value.to_lowercase();
 
-            if key_lower == "docker-distribution-api-version" ||
-               value_lower.contains("registry") ||
-               value_lower.contains("docker") {
+            if key_lower == "docker-distribution-api-version"
+                || value_lower.contains("registry")
+                || value_lower.contains("docker")
+            {
                 return true;
             }
         }
 
         let body_lower = body.to_lowercase();
-        body_lower.contains("\"repositories\"") ||
-        body_lower.contains("\"name\"") && body_lower.contains("\"tags\"") ||
-        body_lower == "{}"
+        body_lower.contains("\"repositories\"")
+            || body_lower.contains("\"name\"") && body_lower.contains("\"tags\"")
+            || body_lower == "{}"
     }
 
     fn detect_container_secret(&self, body: &str) -> Option<String> {
@@ -549,7 +590,7 @@ impl ContainerScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -636,7 +677,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> ContainerScanner {
@@ -648,7 +689,8 @@ use crate::http_client::HttpClient;
     fn test_is_docker_api_response() {
         let scanner = create_test_scanner();
 
-        let docker_json = r#"[{"Id":"abc123","Image":"nginx:latest","Command":"nginx","Created":1234567890}]"#;
+        let docker_json =
+            r#"[{"Id":"abc123","Image":"nginx:latest","Command":"nginx","Created":1234567890}]"#;
         assert!(scanner.is_docker_api_response(docker_json));
 
         let docker_info = r#"{"ApiVersion":"1.41","Platform":{"Name":"Docker Engine"}}"#;
@@ -671,7 +713,10 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
         let mut headers = std::collections::HashMap::new();
 
-        headers.insert("Docker-Distribution-Api-Version".to_string(), "registry/2.0".to_string());
+        headers.insert(
+            "Docker-Distribution-Api-Version".to_string(),
+            "registry/2.0".to_string(),
+        );
         assert!(scanner.is_registry_response("", &headers));
 
         headers.clear();
@@ -683,7 +728,8 @@ use crate::http_client::HttpClient;
     fn test_detect_container_secret() {
         let scanner = create_test_scanner();
 
-        let k8s_token = "eyJhbGciOiJSUzI1NiIsImtpZCI6IiJ9.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50In0...";
+        let k8s_token =
+            "eyJhbGciOiJSUzI1NiIsImtpZCI6IiJ9.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50In0...";
         assert!(scanner.detect_container_secret(k8s_token).is_some());
 
         let cert = "-----BEGIN CERTIFICATE-----\nMIIDHTCCA...";

@@ -14,12 +14,11 @@
  *
  * © 2026 Bountyy Oy
  */
-
 use serde::{Deserialize, Serialize};
-use std::process::{Command, Stdio};
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
@@ -50,9 +49,15 @@ pub struct ExecutionConfig {
     pub verbose: bool,
 }
 
-fn default_timeout() -> u64 { 300000 } // 5 minutes
-fn default_concurrency() -> usize { 25 }
-fn default_max_redirects() -> usize { 5 }
+fn default_timeout() -> u64 {
+    300000
+} // 5 minutes
+fn default_concurrency() -> usize {
+    25
+}
+fn default_max_redirects() -> usize {
+    5
+}
 
 impl Default for ExecutionConfig {
     fn default() -> Self {
@@ -130,10 +135,10 @@ pub struct CustomTemplateExecutor {
 impl CustomTemplateExecutor {
     /// Allowed nuclei binary paths for security
     const ALLOWED_BINARY_PATHS: &'static [&'static str] = &[
-        "nuclei",                    // Search in PATH
-        "/usr/bin/nuclei",          // Common Linux install
-        "/usr/local/bin/nuclei",    // Local Linux install
-        "/opt/nuclei/nuclei",       // Custom install location
+        "nuclei",                // Search in PATH
+        "/usr/bin/nuclei",       // Common Linux install
+        "/usr/local/bin/nuclei", // Local Linux install
+        "/opt/nuclei/nuclei",    // Custom install location
     ];
 
     /// Validate nuclei binary path
@@ -159,10 +164,7 @@ impl CustomTemplateExecutor {
         }
 
         // Verify it's actually the nuclei binary by checking version
-        match std::process::Command::new(path)
-            .arg("-version")
-            .output()
-        {
+        match std::process::Command::new(path).arg("-version").output() {
             Ok(output) => {
                 let version_output = String::from_utf8_lossy(&output.stdout);
                 if !version_output.to_lowercase().contains("nuclei") {
@@ -210,26 +212,33 @@ impl CustomTemplateExecutor {
         let mut total_findings = 0;
 
         // Write template to temporary file
-        let template_file = match self.write_template_file(request.template_id, &request.template_content) {
-            Ok(path) => path,
-            Err(e) => {
-                eprintln!("Failed to write template file: {}", e);
-                return BatchExecutionResult {
-                    total_targets,
-                    completed: 0,
-                    failed: total_targets,
-                    total_findings: 0,
-                    results: vec![],
-                    execution_time_ms: start_time.elapsed().as_millis() as u64,
-                };
-            }
-        };
+        let template_file =
+            match self.write_template_file(request.template_id, &request.template_content) {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("Failed to write template file: {}", e);
+                    return BatchExecutionResult {
+                        total_targets,
+                        completed: 0,
+                        failed: total_targets,
+                        total_findings: 0,
+                        results: vec![],
+                        execution_time_ms: start_time.elapsed().as_millis() as u64,
+                    };
+                }
+            };
 
         // Execute template against each target
         for target in &request.targets {
-            match self.execute_single(&template_file, target, request.template_id, &request.config).await {
+            match self
+                .execute_single(&template_file, target, request.template_id, &request.config)
+                .await
+            {
                 Ok(result) => {
-                    if matches!(result.status, ExecutionStatus::Success | ExecutionStatus::NoMatch) {
+                    if matches!(
+                        result.status,
+                        ExecutionStatus::Success | ExecutionStatus::NoMatch
+                    ) {
                         completed += 1;
                     } else {
                         failed += 1;
@@ -283,8 +292,10 @@ impl CustomTemplateExecutor {
 
         // Build nuclei command
         let mut cmd = TokioCommand::new(&self.nuclei_binary_path);
-        cmd.arg("-t").arg(template_file)
-            .arg("-u").arg(target)
+        cmd.arg("-t")
+            .arg(template_file)
+            .arg("-u")
+            .arg(target)
             .arg("-json")
             .arg("-silent")
             .arg("-nc"); // No color
@@ -295,7 +306,8 @@ impl CustomTemplateExecutor {
         }
 
         if config.max_redirects != 5 {
-            cmd.arg("-max-redirects").arg(config.max_redirects.to_string());
+            cmd.arg("-max-redirects")
+                .arg(config.max_redirects.to_string());
         }
 
         if let Some(rate_limit) = config.rate_limit {
@@ -308,8 +320,7 @@ impl CustomTemplateExecutor {
             cmd.arg("-retries").arg(config.retries.to_string());
         }
 
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         // Execute with timeout
         let timeout_duration = Duration::from_millis(config.timeout_ms);
@@ -339,7 +350,10 @@ impl CustomTemplateExecutor {
                     status: ExecutionStatus::Timeout,
                     findings: vec![],
                     execution_time_ms: config.timeout_ms,
-                    error_message: Some(format!("Execution timed out after {}ms", config.timeout_ms)),
+                    error_message: Some(format!(
+                        "Execution timed out after {}ms",
+                        config.timeout_ms
+                    )),
                     stats: ExecutionStats {
                         templates_executed: 0,
                         requests_made: 0,
@@ -428,7 +442,10 @@ impl CustomTemplateExecutor {
                     findings.push(Finding {
                         template_id: nuclei_finding.template_id.unwrap_or_default(),
                         template_name: nuclei_finding.info.name.unwrap_or_default(),
-                        severity: nuclei_finding.info.severity.unwrap_or_else(|| "info".to_string()),
+                        severity: nuclei_finding
+                            .info
+                            .severity
+                            .unwrap_or_else(|| "info".to_string()),
                         matched_at: nuclei_finding.matched_at.unwrap_or_default(),
                         extracted_results: nuclei_finding.extracted_results.unwrap_or_default(),
                         matcher_name: nuclei_finding.matcher_name,
@@ -436,11 +453,16 @@ impl CustomTemplateExecutor {
                         curl_command: nuclei_finding.curl_command,
                         request: nuclei_finding.request,
                         response: nuclei_finding.response,
-                        timestamp: nuclei_finding.timestamp.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                        timestamp: nuclei_finding
+                            .timestamp
+                            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                     });
                 }
                 Err(e) => {
-                    eprintln!("Failed to parse nuclei output line: {} - Error: {}", line, e);
+                    eprintln!(
+                        "Failed to parse nuclei output line: {} - Error: {}",
+                        line, e
+                    );
                 }
             }
         }

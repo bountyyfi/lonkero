@@ -11,7 +11,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use std::sync::Arc;
 use tracing::debug;
@@ -133,7 +132,7 @@ impl BaselineDetector {
                 body.contains("angular.") ||  // Angular
                 body.contains("/graphql") ||  // GraphQL endpoint reference
                 body.contains("apolloclient") ||  // Apollo GraphQL client
-                body.contains("__apollo");  // Apollo state
+                body.contains("__apollo"); // Apollo state
 
             if is_spa {
                 debug!(
@@ -194,10 +193,8 @@ impl BaselineDetector {
         };
 
         // Factor 3: Content similarity (40% weight)
-        let content_similarity = Self::calculate_content_similarity(
-            &response_a.body,
-            &response_b.body,
-        );
+        let content_similarity =
+            Self::calculate_content_similarity(&response_a.body, &response_b.body);
 
         (status_similarity * 0.30) + (length_similarity * 0.30) + (content_similarity * 0.40)
     }
@@ -363,6 +360,8 @@ mod tests {
             duration_ms: 100,
         };
 
-        assert!(BaselineDetector::responses_are_different(&resp1, &resp2, 0.85));
+        assert!(BaselineDetector::responses_are_different(
+            &resp1, &resp2, 0.85
+        ));
     }
 }

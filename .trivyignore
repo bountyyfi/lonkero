@@ -1,0 +1,27 @@
+# Trivy ignore file for Lonkero Security Scanner
+#
+# IMPORTANT: This is a SECURITY SCANNER application.
+# The codebase intentionally contains test payloads for vulnerability detection:
+# - Test JWT tokens
+# - Example API keys (Stripe, GCP, etc.)
+# - Sample credentials
+# - ws:// WebSocket URLs
+#
+# These are NOT real secrets - they are test data for scanning targets.
+
+# Ignore secret detection in scanner modules
+src/scanners/
+
+# Ignore secret detection in form replay (contains test tokens)
+src/form_replay.rs
+
+# Payload files contain test data for vulnerability detection
+src/payloads.rs
+src/payloads_comprehensive.rs
+src/payload_cache.rs
+src/config/secrets.rs
+src/detection_helpers.rs
+
+# Ignore test and example files
+examples/
+tests/

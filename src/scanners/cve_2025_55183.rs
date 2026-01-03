@@ -14,7 +14,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::cdn_detector::is_waf_protected_against_cve;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -83,7 +82,10 @@ impl Cve202555183Scanner {
             if is_vulnerable {
                 // Check if WAF protection mitigates the vulnerability
                 if let Some(ref waf) = waf_protection {
-                    info!("[NOTE] CVE-2025-55183: Vulnerable version detected but protected by {}", waf);
+                    info!(
+                        "[NOTE] CVE-2025-55183: Vulnerable version detected but protected by {}",
+                        waf
+                    );
 
                     vulnerabilities.push(Vulnerability {
                         id: generate_uuid(),
@@ -185,8 +187,11 @@ impl Cve202555183Scanner {
             }
         }
 
-        info!("[SUCCESS] [CVE-2025-55183] Completed {} tests, found {} issues",
-            tests_run, vulnerabilities.len());
+        info!(
+            "[SUCCESS] [CVE-2025-55183] Completed {} tests, found {} issues",
+            tests_run,
+            vulnerabilities.len()
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -215,7 +220,9 @@ impl Cve202555183Scanner {
             "_ssgManifest.js",
         ];
 
-        nextjs_indicators.iter().any(|indicator| body.contains(indicator))
+        nextjs_indicators
+            .iter()
+            .any(|indicator| body.contains(indicator))
     }
 
     /// Detect React Server Components usage
@@ -224,32 +231,40 @@ impl Cve202555183Scanner {
 
         // RSC indicators
         let rsc_indicators = [
-            "__next_f",           // Next.js RSC Flight data
-            "self.__next_f",      // RSC hydration
-            "react-server",       // React server module
-            "rsc=",               // RSC query parameter
-            "Flight",             // Flight protocol references
-            "createFromFetch",    // RSC fetch creation
-            "__RSC_MANIFEST",     // RSC manifest
+            "__next_f",        // Next.js RSC Flight data
+            "self.__next_f",   // RSC hydration
+            "react-server",    // React server module
+            "rsc=",            // RSC query parameter
+            "Flight",          // Flight protocol references
+            "createFromFetch", // RSC fetch creation
+            "__RSC_MANIFEST",  // RSC manifest
         ];
 
-        rsc_indicators.iter().any(|indicator| body.contains(indicator))
+        rsc_indicators
+            .iter()
+            .any(|indicator| body.contains(indicator))
     }
 
     /// Detect Server Actions usage (specific to CVE-2025-55183)
-    async fn detect_server_actions(&self, response: &crate::http_client::HttpResponse, _url: &str) -> bool {
+    async fn detect_server_actions(
+        &self,
+        response: &crate::http_client::HttpResponse,
+        _url: &str,
+    ) -> bool {
         let body = &response.body;
 
         // Server Actions indicators
         let server_action_indicators = [
-            "use server",         // Server actions directive
-            "$$ACTION",           // Server action reference
-            "formAction",         // Form actions
-            "serverActions",      // Server actions config
-            "__next_action__",    // Next.js action marker
+            "use server",      // Server actions directive
+            "$$ACTION",        // Server action reference
+            "formAction",      // Form actions
+            "serverActions",   // Server actions config
+            "__next_action__", // Next.js action marker
         ];
 
-        server_action_indicators.iter().any(|indicator| body.contains(indicator))
+        server_action_indicators
+            .iter()
+            .any(|indicator| body.contains(indicator))
     }
 
     /// Check if version is 15.x or higher (CVE-2025-55183 only affects 15+)
@@ -314,13 +329,19 @@ impl Cve202555183Scanner {
     /// Check if detected version is vulnerable to CVE-2025-55183
     fn check_vulnerability_status(&self, version: &Option<String>) -> (bool, String) {
         let Some(ver) = version else {
-            return (true, "Version could not be determined - assume vulnerable until verified.".to_string());
+            return (
+                true,
+                "Version could not be determined - assume vulnerable until verified.".to_string(),
+            );
         };
 
         // Parse version
         let parts: Vec<&str> = ver.split('.').collect();
         if parts.len() < 2 {
-            return (true, format!("Invalid version format: {} - assume vulnerable.", ver));
+            return (
+                true,
+                format!("Invalid version format: {} - assume vulnerable.", ver),
+            );
         }
 
         let major: u32 = parts[0].parse().unwrap_or(0);
@@ -329,7 +350,13 @@ impl Cve202555183Scanner {
 
         // CVE-2025-55183 does NOT affect Next.js 13.x or 14.x
         if major < 15 {
-            return (false, format!("Version {} is not affected by CVE-2025-55183 (only affects 15.x+).", ver));
+            return (
+                false,
+                format!(
+                    "Version {} is not affected by CVE-2025-55183 (only affects 15.x+).",
+                    ver
+                ),
+            );
         }
 
         // Patched versions for Next.js (CVE-2025-55183):
@@ -347,9 +374,21 @@ impl Cve202555183Scanner {
         };
 
         if is_patched {
-            (false, format!("Detected version {} appears to be patched for CVE-2025-55183.", ver))
+            (
+                false,
+                format!(
+                    "Detected version {} appears to be patched for CVE-2025-55183.",
+                    ver
+                ),
+            )
         } else {
-            (true, format!("Detected version {} is VULNERABLE to CVE-2025-55183! Upgrade required.", ver))
+            (
+                true,
+                format!(
+                    "Detected version {} is VULNERABLE to CVE-2025-55183! Upgrade required.",
+                    ver
+                ),
+            )
         }
     }
 }
@@ -374,37 +413,77 @@ mod tests {
     #[test]
     fn test_version_check_vulnerable() {
         let scanner = Cve202555183Scanner::new(Arc::new(
-            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap()
+            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap(),
         ));
 
         // Vulnerable versions (15.x unpatched)
-        assert!(scanner.check_vulnerability_status(&Some("15.0.0".to_string())).0);
-        assert!(scanner.check_vulnerability_status(&Some("15.1.0".to_string())).0);
-        assert!(scanner.check_vulnerability_status(&Some("15.5.0".to_string())).0);
-        assert!(scanner.check_vulnerability_status(&Some("16.0.0".to_string())).0);
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("15.0.0".to_string()))
+                .0
+        );
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("15.1.0".to_string()))
+                .0
+        );
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("15.5.0".to_string()))
+                .0
+        );
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("16.0.0".to_string()))
+                .0
+        );
     }
 
     #[test]
     fn test_version_check_patched() {
         let scanner = Cve202555183Scanner::new(Arc::new(
-            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap()
+            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap(),
         ));
 
         // Patched versions
-        assert!(!scanner.check_vulnerability_status(&Some("15.0.7".to_string())).0);
-        assert!(!scanner.check_vulnerability_status(&Some("15.1.11".to_string())).0);
-        assert!(!scanner.check_vulnerability_status(&Some("15.5.9".to_string())).0);
-        assert!(!scanner.check_vulnerability_status(&Some("16.0.10".to_string())).0);
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("15.0.7".to_string()))
+                .0
+        );
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("15.1.11".to_string()))
+                .0
+        );
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("15.5.9".to_string()))
+                .0
+        );
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("16.0.10".to_string()))
+                .0
+        );
     }
 
     #[test]
     fn test_version_13_14_not_affected() {
         let scanner = Cve202555183Scanner::new(Arc::new(
-            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap()
+            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap(),
         ));
 
         // 13.x and 14.x are not affected
-        assert!(!scanner.check_vulnerability_status(&Some("13.5.0".to_string())).0);
-        assert!(!scanner.check_vulnerability_status(&Some("14.2.0".to_string())).0);
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("13.5.0".to_string()))
+                .0
+        );
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("14.2.0".to_string()))
+                .0
+        );
     }
 }

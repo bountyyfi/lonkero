@@ -20,7 +20,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -245,7 +244,9 @@ impl WebCacheDeceptionScanner {
             status.infrastructure = CacheInfrastructure::Cloudflare;
             status.is_cached = true;
             status.cache_hit = cf_cache.to_lowercase().contains("hit");
-            status.evidence.push(format!("CF-Cache-Status: {}", cf_cache));
+            status
+                .evidence
+                .push(format!("CF-Cache-Status: {}", cf_cache));
         }
 
         if response.header("cf-ray").is_some() {
@@ -258,7 +259,9 @@ impl WebCacheDeceptionScanner {
             if fastly_state.to_lowercase().contains("cache-") {
                 status.infrastructure = CacheInfrastructure::Fastly;
                 status.is_cached = true;
-                status.evidence.push(format!("X-Served-By: {}", fastly_state));
+                status
+                    .evidence
+                    .push(format!("X-Served-By: {}", fastly_state));
             }
         }
 
@@ -294,7 +297,9 @@ impl WebCacheDeceptionScanner {
         if let Some(akamai) = response.header("x-akamai-request-id") {
             status.infrastructure = CacheInfrastructure::Akamai;
             status.is_cached = true;
-            status.evidence.push("X-Akamai-Request-ID present".to_string());
+            status
+                .evidence
+                .push("X-Akamai-Request-ID present".to_string());
         }
 
         if let Some(x_cache) = response.header("x-cache-key") {
@@ -360,7 +365,9 @@ impl WebCacheDeceptionScanner {
                 }
             }
 
-            status.evidence.push(format!("Cache-Control: {}", cache_control));
+            status
+                .evidence
+                .push(format!("Cache-Control: {}", cache_control));
         }
 
         // Parse Age header
@@ -465,7 +472,9 @@ impl WebCacheDeceptionScanner {
             {
                 result.has_auth_tokens = true;
                 result.has_sensitive_data = true;
-                result.evidence.push("Session cookie in response".to_string());
+                result
+                    .evidence
+                    .push("Session cookie in response".to_string());
             }
         }
 
@@ -509,7 +518,8 @@ impl WebCacheDeceptionScanner {
         ];
 
         // Limit extensions based on scan intensity
-        let test_extensions = if crate::license::is_feature_available("enterprise_cache_deception") {
+        let test_extensions = if crate::license::is_feature_available("enterprise_cache_deception")
+        {
             static_extensions
         } else {
             static_extensions[..6].to_vec() // First 6 most common
@@ -621,7 +631,10 @@ impl WebCacheDeceptionScanner {
             tests_run += 1;
 
             let deception_url = format!("{}{}", base_url, pattern);
-            debug!("[WebCacheDeception] Testing path injection: {}", deception_url);
+            debug!(
+                "[WebCacheDeception] Testing path injection: {}",
+                deception_url
+            );
 
             match self.http_client.get(&deception_url).await {
                 Ok(response) => {
@@ -633,8 +646,8 @@ impl WebCacheDeceptionScanner {
                         && (deception_sensitive.has_sensitive_data
                             || deception_sensitive.has_user_data)
                     {
-                        let is_critical = deception_sensitive.has_pii
-                            || deception_sensitive.has_auth_tokens;
+                        let is_critical =
+                            deception_sensitive.has_pii || deception_sensitive.has_auth_tokens;
                         let severity = if is_critical {
                             Severity::Critical
                         } else {
@@ -702,7 +715,10 @@ impl WebCacheDeceptionScanner {
             tests_run += 1;
 
             let deception_url = format!("{}{}", base_url, pattern);
-            debug!("[WebCacheDeception] Testing encoded confusion: {}", deception_url);
+            debug!(
+                "[WebCacheDeception] Testing encoded confusion: {}",
+                deception_url
+            );
 
             match self.http_client.get(&deception_url).await {
                 Ok(response) => {
@@ -736,7 +752,10 @@ impl WebCacheDeceptionScanner {
                     }
                 }
                 Err(e) => {
-                    debug!("[WebCacheDeception] Encoded confusion request failed: {}", e);
+                    debug!(
+                        "[WebCacheDeception] Encoded confusion request failed: {}",
+                        e
+                    );
                 }
             }
         }
@@ -907,7 +926,7 @@ impl WebCacheDeceptionScanner {
             false_positive: false,
             remediation: WEB_CACHE_DECEPTION_REMEDIATION.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }

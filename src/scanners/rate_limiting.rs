@@ -99,23 +99,35 @@ impl RateLimitingScanner {
 
         // Detect endpoints to test
         let endpoints = self.detect_endpoints(&response.body, url);
-        info!("Found {} endpoints to test for rate limiting", endpoints.len());
+        info!(
+            "Found {} endpoints to test for rate limiting",
+            endpoints.len()
+        );
 
         // Test each endpoint
         for endpoint in endpoints {
             // Limit requests in fast mode
-            let request_count = if config.scan_mode.as_str() == "fast" { 5 } else { 10 };
+            let request_count = if config.scan_mode.as_str() == "fast" {
+                5
+            } else {
+                10
+            };
 
             // First test basic rate limiting
             tests_run += request_count;
-            let basic_result = self.test_rate_limiting(&endpoint, request_count, BypassTechnique::None, &[]).await;
+            let basic_result = self
+                .test_rate_limiting(&endpoint, request_count, BypassTechnique::None, &[])
+                .await;
 
             if basic_result.vulnerable {
                 vulnerabilities.push(self.create_vulnerability(&basic_result, url));
             } else if basic_result.rate_limited_at.is_some() {
                 // Rate limiting is present, now test bypass techniques (PREMIUM FEATURE)
                 if crate::license::is_feature_available("rate_limiting_bypass") {
-                    info!("Rate limiting detected on {} - testing bypass techniques", endpoint.url);
+                    info!(
+                        "Rate limiting detected on {} - testing bypass techniques",
+                        endpoint.url
+                    );
 
                     let bypass_results = self.test_bypass_techniques(&endpoint, config).await;
                     tests_run += bypass_results.1;
@@ -179,14 +191,38 @@ impl RateLimitingScanner {
 
         // Look for common API endpoints in JavaScript
         let api_patterns = vec![
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?register)['\"]"#, EndpointType::Signup),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?signup)['\"]"#, EndpointType::Signup),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?login)['\"]"#, EndpointType::Login),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?signin)['\"]"#, EndpointType::Login),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?password-reset)['\"]"#, EndpointType::PasswordReset),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?forgot-password)['\"]"#, EndpointType::PasswordReset),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?verify-otp)['\"]"#, EndpointType::OTP),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?verify-code)['\"]"#, EndpointType::OTP),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?register)['\"]"#,
+                EndpointType::Signup,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?signup)['\"]"#,
+                EndpointType::Signup,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?login)['\"]"#,
+                EndpointType::Login,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?signin)['\"]"#,
+                EndpointType::Login,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?password-reset)['\"]"#,
+                EndpointType::PasswordReset,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?forgot-password)['\"]"#,
+                EndpointType::PasswordReset,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?verify-otp)['\"]"#,
+                EndpointType::OTP,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?verify-code)['\"]"#,
+                EndpointType::OTP,
+            ),
         ];
 
         for (pattern, endpoint_type) in api_patterns {
@@ -211,7 +247,13 @@ impl RateLimitingScanner {
     }
 
     /// Analyze a form to determine if it's a rate-limit-worthy endpoint
-    fn analyze_form(&self, action: &str, method: &str, form_content: &str, base_url: &str) -> Option<DetectedEndpoint> {
+    fn analyze_form(
+        &self,
+        action: &str,
+        method: &str,
+        form_content: &str,
+        base_url: &str,
+    ) -> Option<DetectedEndpoint> {
         let action_lower = action.to_lowercase();
         let form_lower = form_content.to_lowercase();
 
@@ -244,8 +286,16 @@ impl RateLimitingScanner {
     /// Check if form is a signup form
     fn is_signup_form(&self, action: &str, content: &str) -> bool {
         let signup_indicators = [
-            "signup", "sign-up", "sign_up", "register", "create-account", "create_account",
-            "rekisteröidy", "registrieren", "inscription", "registrazione",
+            "signup",
+            "sign-up",
+            "sign_up",
+            "register",
+            "create-account",
+            "create_account",
+            "rekisteröidy",
+            "registrieren",
+            "inscription",
+            "registrazione",
         ];
 
         // Check action URL
@@ -258,10 +308,14 @@ impl RateLimitingScanner {
         // Check form content - must have password confirmation or specific signup fields
         let has_email = content.contains("email") || content.contains("sähköposti");
         let has_password = content.contains("password") || content.contains("salasana");
-        let has_confirm = content.contains("confirm") || content.contains("repeat") ||
-                          content.contains("retype") || content.contains("vahvista");
-        let has_name = content.contains("name") || content.contains("nimi") ||
-                       content.contains("username") || content.contains("käyttäjänimi");
+        let has_confirm = content.contains("confirm")
+            || content.contains("repeat")
+            || content.contains("retype")
+            || content.contains("vahvista");
+        let has_name = content.contains("name")
+            || content.contains("nimi")
+            || content.contains("username")
+            || content.contains("käyttäjänimi");
 
         // Signup usually has: email + password + (confirm OR name)
         has_email && has_password && (has_confirm || has_name)
@@ -270,8 +324,16 @@ impl RateLimitingScanner {
     /// Check if form is a login form
     fn is_login_form(&self, action: &str, content: &str) -> bool {
         let login_indicators = [
-            "login", "signin", "sign-in", "sign_in", "authenticate", "auth",
-            "kirjaudu", "anmelden", "connexion", "accedi",
+            "login",
+            "signin",
+            "sign-in",
+            "sign_in",
+            "authenticate",
+            "auth",
+            "kirjaudu",
+            "anmelden",
+            "connexion",
+            "accedi",
         ];
 
         for indicator in login_indicators {
@@ -281,10 +343,13 @@ impl RateLimitingScanner {
         }
 
         // Login: has email/username + password, but NO confirm password
-        let has_email_or_user = content.contains("email") || content.contains("username") ||
-                                content.contains("käyttäjä") || content.contains("benutzer");
+        let has_email_or_user = content.contains("email")
+            || content.contains("username")
+            || content.contains("käyttäjä")
+            || content.contains("benutzer");
         let has_password = content.contains("password") || content.contains("salasana");
-        let has_confirm = content.contains("confirm") || content.contains("repeat") || content.contains("retype");
+        let has_confirm =
+            content.contains("confirm") || content.contains("repeat") || content.contains("retype");
 
         has_email_or_user && has_password && !has_confirm
     }
@@ -292,8 +357,14 @@ impl RateLimitingScanner {
     /// Check if form is a password reset form
     fn is_password_reset_form(&self, action: &str, content: &str) -> bool {
         let reset_indicators = [
-            "password-reset", "password_reset", "forgot", "reset-password", "recover",
-            "unohdin", "passwort-vergessen", "mot-de-passe-oublie",
+            "password-reset",
+            "password_reset",
+            "forgot",
+            "reset-password",
+            "recover",
+            "unohdin",
+            "passwort-vergessen",
+            "mot-de-passe-oublie",
         ];
 
         for indicator in reset_indicators {
@@ -304,9 +375,12 @@ impl RateLimitingScanner {
 
         // Reset form: has email but NO password field typically
         let has_email = content.contains("email") || content.contains("sähköposti");
-        let has_password = content.contains("type=\"password\"") || content.contains("type='password'");
-        let has_reset_text = content.contains("reset") || content.contains("forgot") ||
-                             content.contains("recover") || content.contains("unohdin");
+        let has_password =
+            content.contains("type=\"password\"") || content.contains("type='password'");
+        let has_reset_text = content.contains("reset")
+            || content.contains("forgot")
+            || content.contains("recover")
+            || content.contains("unohdin");
 
         has_email && has_reset_text && !has_password
     }
@@ -314,8 +388,17 @@ impl RateLimitingScanner {
     /// Check if form is an OTP form
     fn is_otp_form(&self, action: &str, content: &str) -> bool {
         let otp_indicators = [
-            "otp", "verify", "verification", "code", "2fa", "mfa", "totp",
-            "vahvistus", "bestätigung", "vérification", "verifica",
+            "otp",
+            "verify",
+            "verification",
+            "code",
+            "2fa",
+            "mfa",
+            "totp",
+            "vahvistus",
+            "bestätigung",
+            "vérification",
+            "verifica",
         ];
 
         for indicator in otp_indicators {
@@ -325,11 +408,13 @@ impl RateLimitingScanner {
         }
 
         // OTP form usually has a single code input
-        let has_code = content.contains("code") || content.contains("otp") ||
-                       content.contains("verification") || content.contains("koodi");
-        let has_digit_input = content.contains("maxlength=\"6\"") ||
-                              content.contains("maxlength=\"4\"") ||
-                              content.contains("pattern=\"[0-9]");
+        let has_code = content.contains("code")
+            || content.contains("otp")
+            || content.contains("verification")
+            || content.contains("koodi");
+        let has_digit_input = content.contains("maxlength=\"6\"")
+            || content.contains("maxlength=\"4\"")
+            || content.contains("pattern=\"[0-9]");
 
         has_code || has_digit_input
     }
@@ -340,7 +425,11 @@ impl RateLimitingScanner {
         endpoint: &DetectedEndpoint,
         config: &ScanConfig,
     ) -> (Vec<RateLimitTestResult>, usize) {
-        let request_count = if config.scan_mode.as_str() == "fast" { 5 } else { 10 };
+        let request_count = if config.scan_mode.as_str() == "fast" {
+            5
+        } else {
+            10
+        };
         let mut results = Vec::new();
         let mut total_tests = 0;
 
@@ -348,7 +437,10 @@ impl RateLimitingScanner {
 
         // Define bypass techniques to test
         let bypass_techniques = vec![
-            (BypassTechnique::XForwardedFor, "X-Forwarded-For".to_string()),
+            (
+                BypassTechnique::XForwardedFor,
+                "X-Forwarded-For".to_string(),
+            ),
             (BypassTechnique::XRealIP, "X-Real-IP".to_string()),
             (BypassTechnique::XClientIP, "X-Client-IP".to_string()),
             (BypassTechnique::XRemoteIP, "X-Remote-IP".to_string()),
@@ -359,12 +451,14 @@ impl RateLimitingScanner {
         // Test each bypass technique
         for (technique, header_name) in bypass_techniques {
             total_tests += request_count;
-            let result = self.test_single_bypass_technique(
-                endpoint,
-                request_count,
-                technique.clone(),
-                &header_name,
-            ).await;
+            let result = self
+                .test_single_bypass_technique(
+                    endpoint,
+                    request_count,
+                    technique.clone(),
+                    &header_name,
+                )
+                .await;
 
             if result.vulnerable {
                 results.push(result);
@@ -395,7 +489,11 @@ impl RateLimitingScanner {
         technique: BypassTechnique,
         header_name: &str,
     ) -> RateLimitTestResult {
-        debug!("Testing {} bypass on {}", technique.as_string(), endpoint.url);
+        debug!(
+            "Testing {} bypass on {}",
+            technique.as_string(),
+            endpoint.url
+        );
 
         let start = Instant::now();
         let mut successful = 0;
@@ -424,21 +522,23 @@ impl RateLimitingScanner {
                     let headers = Self::build_bypass_headers(&tech, &header, i);
 
                     // Send request with bypass headers
-                    let result = client.post_with_headers(&endpoint.url, &body, headers).await;
+                    let result = client
+                        .post_with_headers(&endpoint.url, &body, headers)
+                        .await;
 
                     match result {
                         Ok(response) => {
                             // Check for rate limiting
-                            let is_rate_limited = response.status_code == 429 ||
-                                response.body.to_lowercase().contains("rate limit") ||
-                                response.body.to_lowercase().contains("too many") ||
-                                response.body.to_lowercase().contains("slow down") ||
-                                response.body.to_lowercase().contains("liian monta");
+                            let is_rate_limited = response.status_code == 429
+                                || response.body.to_lowercase().contains("rate limit")
+                                || response.body.to_lowercase().contains("too many")
+                                || response.body.to_lowercase().contains("slow down")
+                                || response.body.to_lowercase().contains("liian monta");
 
-                            let is_successful = !is_rate_limited &&
-                                (response.status_code < 400 ||
-                                 response.status_code == 400 ||
-                                 response.status_code == 422);
+                            let is_successful = !is_rate_limited
+                                && (response.status_code < 400
+                                    || response.status_code == 400
+                                    || response.status_code == 422);
 
                             (is_rate_limited, is_successful)
                         }
@@ -495,10 +595,7 @@ impl RateLimitingScanner {
         let mut successful = 0;
         let mut rate_limited_at = None;
 
-        let combined_techniques = vec![
-            "X-Forwarded-For".to_string(),
-            "User-Agent".to_string(),
-        ];
+        let combined_techniques = vec!["X-Forwarded-For".to_string(), "User-Agent".to_string()];
 
         for i in 0..request_count {
             // Generate unique data
@@ -510,18 +607,25 @@ impl RateLimitingScanner {
             headers.push(("X-Forwarded-For".to_string(), Self::generate_fake_ip(i)));
             headers.push(("User-Agent".to_string(), Self::generate_user_agent(i)));
 
-            let result = self.http_client.post_with_headers(&endpoint.url, &body, headers).await;
+            let result = self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await;
 
             match result {
                 Ok(response) => {
-                    if response.status_code == 429 ||
-                       response.body.to_lowercase().contains("rate limit") ||
-                       response.body.to_lowercase().contains("too many") {
+                    if response.status_code == 429
+                        || response.body.to_lowercase().contains("rate limit")
+                        || response.body.to_lowercase().contains("too many")
+                    {
                         rate_limited_at = Some(i + 1);
                         break;
                     }
 
-                    if response.status_code < 400 || response.status_code == 400 || response.status_code == 422 {
+                    if response.status_code < 400
+                        || response.status_code == 400
+                        || response.status_code == 422
+                    {
                         successful += 1;
                     }
                 }
@@ -547,15 +651,19 @@ impl RateLimitingScanner {
     }
 
     /// Build headers for bypass technique
-    fn build_bypass_headers(technique: &BypassTechnique, header_name: &str, index: usize) -> Vec<(String, String)> {
+    fn build_bypass_headers(
+        technique: &BypassTechnique,
+        header_name: &str,
+        index: usize,
+    ) -> Vec<(String, String)> {
         let mut headers = Vec::new();
 
         match technique {
-            BypassTechnique::XForwardedFor |
-            BypassTechnique::XRealIP |
-            BypassTechnique::XClientIP |
-            BypassTechnique::XRemoteIP |
-            BypassTechnique::TrueClientIP => {
+            BypassTechnique::XForwardedFor
+            | BypassTechnique::XRealIP
+            | BypassTechnique::XClientIP
+            | BypassTechnique::XRemoteIP
+            | BypassTechnique::TrueClientIP => {
                 // Generate a unique IP for this request
                 headers.push((header_name.to_string(), Self::generate_fake_ip(index)));
             }
@@ -600,20 +708,33 @@ impl RateLimitingScanner {
         match &endpoint.endpoint_type {
             EndpointType::Signup => {
                 vec![
-                    ("email".to_string(), format!("ratelimit-test-{}@bountyy-scanner.invalid", Self::generate_random_string(12))),
-                    ("password".to_string(), format!("RateTest{}!@#", Self::generate_random_string(6))),
-                    ("username".to_string(), format!("ratetest_{}_{}", index, Self::generate_random_string(8))),
+                    (
+                        "email".to_string(),
+                        format!(
+                            "ratelimit-test-{}@bountyy-scanner.invalid",
+                            Self::generate_random_string(12)
+                        ),
+                    ),
+                    (
+                        "password".to_string(),
+                        format!("RateTest{}!@#", Self::generate_random_string(6)),
+                    ),
+                    (
+                        "username".to_string(),
+                        format!("ratetest_{}_{}", index, Self::generate_random_string(8)),
+                    ),
                     ("name".to_string(), "Rate Limit Test".to_string()),
                 ]
             }
-            _ => {
-                endpoint.form_data.clone().unwrap_or_else(|| {
-                    vec![
-                        ("email".to_string(), "ratelimit-test@bountyy-scanner.invalid".to_string()),
-                        ("password".to_string(), "TestPassword123!".to_string()),
-                    ]
-                })
-            }
+            _ => endpoint.form_data.clone().unwrap_or_else(|| {
+                vec![
+                    (
+                        "email".to_string(),
+                        "ratelimit-test@bountyy-scanner.invalid".to_string(),
+                    ),
+                    ("password".to_string(), "TestPassword123!".to_string()),
+                ]
+            }),
         }
     }
 
@@ -629,9 +750,9 @@ impl RateLimitingScanner {
     fn extract_form_fields(&self, form_content: &str) -> Vec<(String, String)> {
         let mut fields = Vec::new();
 
-        let input_pattern = Regex::new(
-            r#"<input[^>]*name=["']([^"']+)["'][^>]*(?:type=["']([^"']+)["'])?"#
-        ).unwrap();
+        let input_pattern =
+            Regex::new(r#"<input[^>]*name=["']([^"']+)["'][^>]*(?:type=["']([^"']+)["'])?"#)
+                .unwrap();
 
         for cap in input_pattern.captures_iter(form_content) {
             let name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
@@ -639,16 +760,25 @@ impl RateLimitingScanner {
 
             // Generate appropriate test values
             let value = match input_type {
-                "email" => format!("test-{}@bountyy-scanner.invalid", Self::generate_random_string(8)),
+                "email" => format!(
+                    "test-{}@bountyy-scanner.invalid",
+                    Self::generate_random_string(8)
+                ),
                 "password" => format!("TestP@ss{}!", Self::generate_random_string(4)),
                 "text" if name.to_lowercase().contains("email") => {
-                    format!("test-{}@bountyy-scanner.invalid", Self::generate_random_string(8))
+                    format!(
+                        "test-{}@bountyy-scanner.invalid",
+                        Self::generate_random_string(8)
+                    )
                 }
                 "text" if name.to_lowercase().contains("user") => {
                     format!("testuser_{}", Self::generate_random_string(8))
                 }
                 "text" if name.to_lowercase().contains("name") => "Test User".to_string(),
-                "text" if name.to_lowercase().contains("code") || name.to_lowercase().contains("otp") => {
+                "text"
+                    if name.to_lowercase().contains("code")
+                        || name.to_lowercase().contains("otp") =>
+                {
                     "123456".to_string()
                 }
                 "hidden" => continue, // Skip hidden fields
@@ -662,8 +792,17 @@ impl RateLimitingScanner {
 
         // Ensure we have minimum required fields
         if fields.is_empty() {
-            fields.push(("email".to_string(), format!("test-{}@bountyy-scanner.invalid", Self::generate_random_string(8))));
-            fields.push(("password".to_string(), format!("TestP@ss{}!", Self::generate_random_string(4))));
+            fields.push((
+                "email".to_string(),
+                format!(
+                    "test-{}@bountyy-scanner.invalid",
+                    Self::generate_random_string(8)
+                ),
+            ));
+            fields.push((
+                "password".to_string(),
+                format!("TestP@ss{}!", Self::generate_random_string(4)),
+            ));
         }
 
         fields
@@ -677,7 +816,10 @@ impl RateLimitingScanner {
         bypass_technique: BypassTechnique,
         custom_headers: &[(String, String)],
     ) -> RateLimitTestResult {
-        debug!("Testing rate limiting on {} ({:?})", endpoint.url, endpoint.endpoint_type);
+        debug!(
+            "Testing rate limiting on {} ({:?})",
+            endpoint.url, endpoint.endpoint_type
+        );
 
         let start = Instant::now();
         let mut successful = 0;
@@ -689,9 +831,21 @@ impl RateLimitingScanner {
                 EndpointType::Signup => {
                     // For signup, each request needs unique email
                     vec![
-                        ("email".to_string(), format!("ratelimit-test-{}@bountyy-scanner.invalid", Self::generate_random_string(12))),
-                        ("password".to_string(), format!("RateTest{}!@#", Self::generate_random_string(6))),
-                        ("username".to_string(), format!("ratetest_{}", Self::generate_random_string(8))),
+                        (
+                            "email".to_string(),
+                            format!(
+                                "ratelimit-test-{}@bountyy-scanner.invalid",
+                                Self::generate_random_string(12)
+                            ),
+                        ),
+                        (
+                            "password".to_string(),
+                            format!("RateTest{}!@#", Self::generate_random_string(6)),
+                        ),
+                        (
+                            "username".to_string(),
+                            format!("ratetest_{}", Self::generate_random_string(8)),
+                        ),
                         ("name".to_string(), "Rate Limit Test".to_string()),
                     ]
                 }
@@ -699,7 +853,10 @@ impl RateLimitingScanner {
                     // For other endpoints, use consistent data
                     endpoint.form_data.clone().unwrap_or_else(|| {
                         vec![
-                            ("email".to_string(), "ratelimit-test@bountyy-scanner.invalid".to_string()),
+                            (
+                                "email".to_string(),
+                                "ratelimit-test@bountyy-scanner.invalid".to_string(),
+                            ),
                             ("password".to_string(), "TestPassword123!".to_string()),
                         ]
                     })
@@ -712,24 +869,31 @@ impl RateLimitingScanner {
             let result = if custom_headers.is_empty() {
                 self.http_client.post(&endpoint.url, body.clone()).await
             } else {
-                self.http_client.post_with_headers(&endpoint.url, &body, custom_headers.to_vec()).await
+                self.http_client
+                    .post_with_headers(&endpoint.url, &body, custom_headers.to_vec())
+                    .await
             };
 
             match result {
                 Ok(response) => {
                     // Check for rate limiting responses
-                    if response.status_code == 429 ||
-                       response.body.to_lowercase().contains("rate limit") ||
-                       response.body.to_lowercase().contains("too many") ||
-                       response.body.to_lowercase().contains("slow down") ||
-                       response.body.to_lowercase().contains("liian monta") {  // Finnish
+                    if response.status_code == 429
+                        || response.body.to_lowercase().contains("rate limit")
+                        || response.body.to_lowercase().contains("too many")
+                        || response.body.to_lowercase().contains("slow down")
+                        || response.body.to_lowercase().contains("liian monta")
+                    {
+                        // Finnish
                         rate_limited_at = Some(i + 1);
                         info!("Rate limiting detected at request {}", i + 1);
                         break;
                     }
 
                     // Count as successful if not explicitly rejected
-                    if response.status_code < 400 || response.status_code == 400 || response.status_code == 422 {
+                    if response.status_code < 400
+                        || response.status_code == 400
+                        || response.status_code == 422
+                    {
                         successful += 1;
                     }
                 }
@@ -759,7 +923,11 @@ impl RateLimitingScanner {
     }
 
     /// Create vulnerability from test result
-    fn create_vulnerability(&self, result: &RateLimitTestResult, original_url: &str) -> Vulnerability {
+    fn create_vulnerability(
+        &self,
+        result: &RateLimitTestResult,
+        original_url: &str,
+    ) -> Vulnerability {
         // Adjust severity based on whether this is a bypass or missing rate limit
         let is_bypass = result.bypass_technique != BypassTechnique::None;
 
@@ -808,7 +976,7 @@ impl RateLimitingScanner {
                      5. Add honeypot fields to detect bots\n\
                      6. Consider phone number verification for sensitive accounts\n\
                      7. Monitor for signup anomalies (bulk creation, disposable emails)"
-                }
+                },
             ),
             "Login" => (
                 Severity::High,
@@ -842,7 +1010,7 @@ impl RateLimitingScanner {
                      4. Use progressive delays between attempts\n\
                      5. Send notification on suspicious login attempts\n\
                      6. Consider 2FA for sensitive accounts"
-                }
+                },
             ),
             "PasswordReset" => (
                 Severity::Medium,
@@ -873,7 +1041,7 @@ impl RateLimitingScanner {
                      3. Implement cooldown period between reset requests\n\
                      4. Log and monitor reset request patterns\n\
                      5. Send single consolidated email for multiple requests"
-                }
+                },
             ),
             "OTP" => (
                 Severity::Critical,
@@ -907,7 +1075,7 @@ impl RateLimitingScanner {
                      5. Implement time-based lockout\n\
                      6. Alert user on failed OTP attempts\n\
                      7. Consider hardware security keys for sensitive accounts"
-                }
+                },
             ),
             _ => (
                 Severity::Medium,
@@ -932,21 +1100,29 @@ impl RateLimitingScanner {
                      2. Use API keys with rate limits\n\
                      3. Implement request throttling\n\
                      4. Monitor and alert on unusual traffic patterns"
-                }
+                },
             ),
         };
 
         // Increase severity for bypasses on critical endpoints
-        let severity = if is_bypass && matches!(base_severity, Severity::High | Severity::Critical) {
+        let severity = if is_bypass && matches!(base_severity, Severity::High | Severity::Critical)
+        {
             Severity::Critical
         } else {
             base_severity
         };
 
         let vuln_type = if is_bypass {
-            format!("Rate Limiting Bypass via {} - {} Endpoint", result.bypass_technique.as_string(), result.endpoint_type)
+            format!(
+                "Rate Limiting Bypass via {} - {} Endpoint",
+                result.bypass_technique.as_string(),
+                result.endpoint_type
+            )
         } else {
-            format!("Insufficient Rate Limiting - {} Endpoint", result.endpoint_type)
+            format!(
+                "Insufficient Rate Limiting - {} Endpoint",
+                result.endpoint_type
+            )
         };
 
         let payload = if is_bypass {
@@ -959,8 +1135,7 @@ impl RateLimitingScanner {
         } else {
             format!(
                 "{} requests sent, {} successful, no rate limiting detected",
-                result.requests_sent,
-                result.successful_requests
+                result.requests_sent, result.successful_requests
             )
         };
 
@@ -986,7 +1161,12 @@ impl RateLimitingScanner {
                 result.bypass_technique.as_string(),
                 result.requests_sent,
                 result.successful_requests,
-                result.rate_limited_at.map_or("Never (bypassed)".to_string(), |n| format!("After {} requests", n)),
+                result
+                    .rate_limited_at
+                    .map_or("Never (bypassed)".to_string(), |n| format!(
+                        "After {} requests",
+                        n
+                    )),
                 result.total_time,
                 result.bypass_technique.as_string()
             )
@@ -1008,13 +1188,19 @@ impl RateLimitingScanner {
                 result.endpoint_type,
                 result.requests_sent,
                 result.successful_requests,
-                result.rate_limited_at.map_or("Never".to_string(), |n| format!("After {} requests", n)),
+                result
+                    .rate_limited_at
+                    .map_or("Never".to_string(), |n| format!("After {} requests", n)),
                 result.total_time
             )
         };
 
         Vulnerability {
-            id: format!("rate_limit_{}_{}", result.endpoint_type.to_lowercase(), Self::generate_id()),
+            id: format!(
+                "rate_limit_{}_{}",
+                result.endpoint_type.to_lowercase(),
+                Self::generate_id()
+            ),
             vuln_type,
             severity,
             confidence: Confidence::High,
@@ -1030,7 +1216,7 @@ impl RateLimitingScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 

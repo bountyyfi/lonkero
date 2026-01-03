@@ -7,13 +7,8 @@
  *
  * Copyright 2025 Bountyy Oy
  */
-
 pub mod exclusion_validator;
 
 pub use exclusion_validator::{
-    ExclusionRule,
-    ExclusionValidator,
-    TimeWindow,
-    ValidationResult,
-    MatchedRule,
+    ExclusionRule, ExclusionValidator, MatchedRule, TimeWindow, ValidationResult,
 };

@@ -113,8 +113,13 @@ impl SvelteKitSecurityScanner {
             return Ok((vec![], tests_run));
         }
 
-        info!("[SvelteKit] Detected SvelteKit application{}",
-            version.as_ref().map(|v| format!(" (version: {})", v)).unwrap_or_default());
+        info!(
+            "[SvelteKit] Detected SvelteKit application{}",
+            version
+                .as_ref()
+                .map(|v| format!(" (version: {})", v))
+                .unwrap_or_default()
+        );
 
         // Test server load data exposure
         let (load_vulns, load_tests) = self.check_load_data_exposure(url, config).await?;
@@ -173,8 +178,11 @@ impl SvelteKitSecurityScanner {
             tests_run += cve_tests;
         }
 
-        info!("[SvelteKit] Completed: {} vulnerabilities, {} tests",
-            vulnerabilities.len(), tests_run);
+        info!(
+            "[SvelteKit] Completed: {} vulnerabilities, {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -187,17 +195,17 @@ impl SvelteKitSecurityScanner {
         // Check for SvelteKit indicators
         if let Ok(resp) = self.http_client.get(url).await {
             // Check for Svelte hydration markers
-            if resp.body.contains("__sveltekit") ||
-               resp.body.contains("data-sveltekit") ||
-               resp.body.contains("__svelte") ||
-               resp.body.contains("svelte-") ||
-               resp.body.contains("/_app/") {
+            if resp.body.contains("__sveltekit")
+                || resp.body.contains("data-sveltekit")
+                || resp.body.contains("__svelte")
+                || resp.body.contains("svelte-")
+                || resp.body.contains("/_app/")
+            {
                 is_sveltekit = true;
             }
 
             // Check for SvelteKit-specific paths
-            if resp.body.contains("/_app/immutable/") ||
-               resp.body.contains("/_app/version.json") {
+            if resp.body.contains("/_app/immutable/") || resp.body.contains("/_app/version.json") {
                 is_sveltekit = true;
             }
 
@@ -267,17 +275,25 @@ impl SvelteKitSecurityScanner {
             let data_url = format!("{}{}/__data.json", base, page.trim_end_matches('/'));
 
             if let Ok(resp) = self.http_client.get(&data_url).await {
-                if resp.status_code == 200 && (resp.body.starts_with("{") || resp.body.starts_with("[")) {
+                if resp.status_code == 200
+                    && (resp.body.starts_with("{") || resp.body.starts_with("["))
+                {
                     // Check for sensitive data patterns
                     let sensitive_patterns = [
                         ("email", r#"(?i)["']email["']\s*:\s*["'][^"']+@[^"']+"#),
                         ("password", r#"(?i)["']password["']\s*:"#),
                         ("token", r#"(?i)["'](?:auth|access|api)?[_-]?token["']\s*:"#),
-                        ("secret", r#"(?i)["'](?:secret|private)[_-]?(?:key)?["']\s*:"#),
+                        (
+                            "secret",
+                            r#"(?i)["'](?:secret|private)[_-]?(?:key)?["']\s*:"#,
+                        ),
                         ("user_id", r#"(?i)["']user[_-]?id["']\s*:"#),
                         ("session", r#"(?i)["']session["']\s*:"#),
                         ("api_key", r#"(?i)["']api[_-]?key["']\s*:"#),
-                        ("database", r#"(?i)["'](?:db|database)[_-]?(?:url|connection)["']\s*:"#),
+                        (
+                            "database",
+                            r#"(?i)["'](?:db|database)[_-]?(?:url|connection)["']\s*:"#,
+                        ),
                     ];
 
                     let mut found_sensitive = Vec::new();
@@ -368,18 +384,29 @@ impl SvelteKitSecurityScanner {
 
             // Test CSRF by sending request without proper origin
             let mut headers = HashMap::new();
-            headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+            headers.insert(
+                "Content-Type".to_string(),
+                "application/x-www-form-urlencoded".to_string(),
+            );
             headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-            let headers_vec: Vec<(String, String)> = headers.iter()
+            let headers_vec: Vec<(String, String)> = headers
+                .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
 
-            if let Ok(resp) = self.http_client.post_with_headers(&action_url, "test=value", headers_vec).await {
+            if let Ok(resp) = self
+                .http_client
+                .post_with_headers(&action_url, "test=value", headers_vec)
+                .await
+            {
                 // CVE-2024-23641: Check if action accepts cross-origin requests
                 if resp.status_code == 200 || resp.status_code == 303 {
                     // Check if it's not a proper rejection
-                    if !resp.body.contains("CSRF") && !resp.body.contains("forbidden") && !resp.body.contains("403") {
+                    if !resp.body.contains("CSRF")
+                        && !resp.body.contains("forbidden")
+                        && !resp.body.contains("403")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("sveltekit_csrf_{}", Self::generate_id()),
                             vuln_type: "SvelteKit Form Action CSRF Vulnerability".to_string(),
@@ -423,11 +450,16 @@ impl SvelteKitSecurityScanner {
             let mut bypass_headers = HashMap::new();
             bypass_headers.insert("Content-Type".to_string(), "text/plain".to_string());
 
-            let bypass_headers_vec: Vec<(String, String)> = bypass_headers.iter()
+            let bypass_headers_vec: Vec<(String, String)> = bypass_headers
+                .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
 
-            if let Ok(resp) = self.http_client.post_with_headers(&action_url, "test=value", bypass_headers_vec).await {
+            if let Ok(resp) = self
+                .http_client
+                .post_with_headers(&action_url, "test=value", bypass_headers_vec)
+                .await
+            {
                 if resp.status_code == 200 || resp.status_code == 303 {
                     vulnerabilities.push(Vulnerability {
                         id: format!("sveltekit_csrf_bypass_{}", Self::generate_id()),
@@ -511,7 +543,12 @@ impl SvelteKitSecurityScanner {
                 // Case manipulation
                 (path.to_uppercase(), "Uppercase path"),
                 // URL encoding
-                (path.chars().map(|c| format!("%{:02X}", c as u8)).collect::<String>(), "URL encoded"),
+                (
+                    path.chars()
+                        .map(|c| format!("%{:02X}", c as u8))
+                        .collect::<String>(),
+                    "URL encoded",
+                ),
             ];
 
             for (bypass_path, technique) in &bypass_attempts {
@@ -599,14 +636,18 @@ impl SvelteKitSecurityScanner {
                 if resp.status_code == 200 {
                     let body_lower = resp.body.to_lowercase();
 
-                    let is_sensitive = body_lower.contains("internal") ||
-                        body_lower.contains("debug") ||
-                        body_lower.contains("config") ||
-                        body_lower.contains("database") ||
-                        body_lower.contains("secret") ||
-                        body_lower.contains("api_key");
+                    let is_sensitive = body_lower.contains("internal")
+                        || body_lower.contains("debug")
+                        || body_lower.contains("config")
+                        || body_lower.contains("database")
+                        || body_lower.contains("secret")
+                        || body_lower.contains("api_key");
 
-                    if is_sensitive && (endpoint.contains("internal") || endpoint.contains("debug") || endpoint.contains("config")) {
+                    if is_sensitive
+                        && (endpoint.contains("internal")
+                            || endpoint.contains("debug")
+                            || endpoint.contains("config"))
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("sveltekit_api_exposure_{}", Self::generate_id()),
                             vuln_type: "SvelteKit +server.js Endpoint Exposed".to_string(),
@@ -645,13 +686,20 @@ impl SvelteKitSecurityScanner {
                 let mut cors_headers = HashMap::new();
                 cors_headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-                let headers_vec: Vec<(String, String)> = cors_headers.iter()
+                let headers_vec: Vec<(String, String)> = cors_headers
+                    .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
+                if let Ok(cors_resp) = self
+                    .http_client
+                    .get_with_headers(&api_url, headers_vec)
+                    .await
+                {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "https://evil.com" || acao == "*" {
-                            let has_credentials = cors_resp.headers.get("access-control-allow-credentials")
+                            let has_credentials = cors_resp
+                                .headers
+                                .get("access-control-allow-credentials")
                                 .map(|v| v == "true")
                                 .unwrap_or(false);
 
@@ -715,13 +763,19 @@ impl SvelteKitSecurityScanner {
             // SvelteKit uses $env/static/private and $env/dynamic/private for server-only
             // $env/static/public and $env/dynamic/public should be safe
             let server_env_patterns = [
-                (r#"(?i)DATABASE_URL\s*[=:]\s*["'][^"']+["']"#, "DATABASE_URL"),
+                (
+                    r#"(?i)DATABASE_URL\s*[=:]\s*["'][^"']+["']"#,
+                    "DATABASE_URL",
+                ),
                 (r#"(?i)SECRET_KEY\s*[=:]\s*["'][^"']+["']"#, "SECRET_KEY"),
                 (r#"(?i)JWT_SECRET\s*[=:]\s*["'][^"']+["']"#, "JWT_SECRET"),
                 (r#"(?i)API_SECRET\s*[=:]\s*["'][^"']+["']"#, "API_SECRET"),
                 (r#"(?i)PRIVATE_KEY\s*[=:]\s*["'][^"']+["']"#, "PRIVATE_KEY"),
                 (r#"(?i)AWS_SECRET\s*[=:]\s*["'][^"']+["']"#, "AWS_SECRET"),
-                (r#"(?i)STRIPE_SECRET\s*[=:]\s*["'][^"']+["']"#, "STRIPE_SECRET"),
+                (
+                    r#"(?i)STRIPE_SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "STRIPE_SECRET",
+                ),
                 (r#"\$env/static/private"#, "$env/static/private import"),
                 (r#"\$env/dynamic/private"#, "$env/dynamic/private import"),
             ];
@@ -791,7 +845,8 @@ impl SvelteKitSecurityScanner {
 
         // Extract SvelteKit JS files
         let js_pattern = Regex::new(r#"/_app/[^"']+\.js"#)?;
-        let js_files: Vec<String> = js_pattern.find_iter(&resp.body)
+        let js_files: Vec<String> = js_pattern
+            .find_iter(&resp.body)
             .map(|m| format!("{}{}.map", url.trim_end_matches('/'), m.as_str()))
             .collect();
 
@@ -860,17 +915,21 @@ impl SvelteKitSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&file_url).await {
                 if resp.status_code == 200 {
-                    let is_config = resp.body.contains("export") ||
-                        resp.body.contains("module") ||
-                        resp.body.starts_with("{") ||
-                        resp.body.contains("DATABASE") ||
-                        resp.body.contains("SECRET");
+                    let is_config = resp.body.contains("export")
+                        || resp.body.contains("module")
+                        || resp.body.starts_with("{")
+                        || resp.body.contains("DATABASE")
+                        || resp.body.contains("SECRET");
 
                     if is_config {
                         vulnerabilities.push(Vulnerability {
                             id: format!("sveltekit_config_exposure_{}", Self::generate_id()),
                             vuln_type: format!("SvelteKit {} Exposed", desc),
-                            severity: if file.contains(".env") { Severity::Critical } else { Severity::Medium },
+                            severity: if file.contains(".env") {
+                                Severity::Critical
+                            } else {
+                                Severity::Medium
+                            },
                             confidence: Confidence::High,
                             category: "Information Disclosure".to_string(),
                             url: file_url.clone(),
@@ -881,15 +940,18 @@ impl SvelteKitSecurityScanner {
                                 "File: {}\n\
                                 Status: 200\n\
                                 Preview: {}...",
-                                file, &resp.body[..resp.body.len().min(200)]
+                                file,
+                                &resp.body[..resp.body.len().min(200)]
                             )),
                             cwe: "CWE-200".to_string(),
                             cvss: if file.contains(".env") { 9.1 } else { 5.3 },
                             verified: true,
                             false_positive: false,
-                            remediation: "Configure server/adapter to block access to config files.".to_string(),
+                            remediation:
+                                "Configure server/adapter to block access to config files."
+                                    .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -927,7 +989,10 @@ impl SvelteKitSecurityScanner {
                     // Check if data appears to be prerendered (static)
                     // and contains potentially outdated sensitive info
                     let body_lower = resp.body.to_lowercase();
-                    if body_lower.contains("user") || body_lower.contains("auth") || body_lower.contains("session") {
+                    if body_lower.contains("user")
+                        || body_lower.contains("auth")
+                        || body_lower.contains("session")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("sveltekit_prerender_{}", Self::generate_id()),
                             vuln_type: "SvelteKit Prerendered Data Exposure".to_string(),
@@ -951,9 +1016,10 @@ impl SvelteKitSecurityScanner {
                             false_positive: false,
                             remediation: "1. Don't prerender pages with user-specific data\n\
                                           2. Use +page.server.js for dynamic user data\n\
-                                          3. Add prerender = false for authenticated pages".to_string(),
+                                          3. Add prerender = false for authenticated pages"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -979,9 +1045,15 @@ impl SvelteKitSecurityScanner {
         let traversal_payloads = [
             ("/_app/../../../etc/passwd", "/etc/passwd"),
             ("/_app/..%2f..%2f..%2fetc/passwd", "/etc/passwd (encoded)"),
-            ("/_app/....//....//....//etc/passwd", "/etc/passwd (double dot)"),
+            (
+                "/_app/....//....//....//etc/passwd",
+                "/etc/passwd (double dot)",
+            ),
             ("/static/../../../package.json", "package.json"),
-            ("/_app/%2e%2e/%2e%2e/%2e%2e/etc/passwd", "/etc/passwd (full encode)"),
+            (
+                "/_app/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+                "/etc/passwd (full encode)",
+            ),
         ];
 
         for (payload, desc) in &traversal_payloads {
@@ -989,11 +1061,10 @@ impl SvelteKitSecurityScanner {
             let test_url = format!("{}{}", base, payload);
 
             if let Ok(resp) = self.http_client.get(&test_url).await {
-                let is_success = resp.status_code == 200 && (
-                    resp.body.contains("root:") ||  // /etc/passwd
+                let is_success = resp.status_code == 200
+                    && (resp.body.contains("root:") ||  // /etc/passwd
                     resp.body.contains("\"name\":") ||  // package.json
-                    resp.body.contains("dependencies")
-                );
+                    resp.body.contains("dependencies"));
 
                 if is_success {
                     vulnerabilities.push(Vulnerability {
@@ -1022,7 +1093,7 @@ impl SvelteKitSecurityScanner {
                         false_positive: false,
                         remediation: "Upgrade SvelteKit to version 2.4.3 or later.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -1110,10 +1181,7 @@ impl SvelteKitSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        let version_parts: Vec<u32> = version
-            .split('.')
-            .filter_map(|p| p.parse().ok())
-            .collect();
+        let version_parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
 
         if version_parts.len() < 2 {
             return Ok((vec![], tests_run));
@@ -1127,10 +1195,26 @@ impl SvelteKitSecurityScanner {
             tests_run += 1;
 
             let is_affected = match cve.cve_id.as_str() {
-                "CVE-2024-23641" => major < 2 || (major == 2 && minor < 4) || (major == 2 && minor == 4 && patch < 1),
-                "CVE-2024-24563" => major < 2 || (major == 2 && minor < 4) || (major == 2 && minor == 4 && patch < 3),
-                "CVE-2024-29893" => major < 2 || (major == 2 && minor < 5) || (major == 2 && minor == 5 && patch < 4),
-                "CVE-2023-29008" | "CVE-2023-29007" => major < 1 || (major == 1 && minor < 15) || (major == 1 && minor == 15 && patch < 1),
+                "CVE-2024-23641" => {
+                    major < 2
+                        || (major == 2 && minor < 4)
+                        || (major == 2 && minor == 4 && patch < 1)
+                }
+                "CVE-2024-24563" => {
+                    major < 2
+                        || (major == 2 && minor < 4)
+                        || (major == 2 && minor == 4 && patch < 3)
+                }
+                "CVE-2024-29893" => {
+                    major < 2
+                        || (major == 2 && minor < 5)
+                        || (major == 2 && minor == 5 && patch < 4)
+                }
+                "CVE-2023-29008" | "CVE-2023-29007" => {
+                    major < 1
+                        || (major == 1 && minor < 15)
+                        || (major == 1 && minor == 15 && patch < 1)
+                }
                 "CVE-2022-25869" => false, // Svelte core, need different version check
                 _ => false,
             };
@@ -1159,7 +1243,8 @@ impl SvelteKitSecurityScanner {
                         CVECheckType::OpenRedirect => "CWE-601",
                         CVECheckType::XSS => "CWE-79",
                         _ => "CWE-1035",
-                    }.to_string(),
+                    }
+                    .to_string(),
                     cvss: match cve.severity {
                         Severity::Critical => 9.8,
                         Severity::High => 7.5,
@@ -1168,9 +1253,12 @@ impl SvelteKitSecurityScanner {
                     },
                     verified: false,
                     false_positive: false,
-                    remediation: format!("Upgrade SvelteKit. See: https://nvd.nist.gov/vuln/detail/{}", cve.cve_id),
+                    remediation: format!(
+                        "Upgrade SvelteKit. See: https://nvd.nist.gov/vuln/detail/{}",
+                        cve.cve_id
+                    ),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }

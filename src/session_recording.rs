@@ -899,7 +899,10 @@ impl SessionRecorder {
     pub fn start(&self, start_url: &str) {
         let mut state = self.state.write().unwrap();
         if *state != RecorderState::Idle && *state != RecorderState::Stopped {
-            warn!("[SessionRecorder] Cannot start recording, current state: {:?}", *state);
+            warn!(
+                "[SessionRecorder] Cannot start recording, current state: {:?}",
+                *state
+            );
             return;
         }
 
@@ -910,8 +913,12 @@ impl SessionRecorder {
         self.events.lock().unwrap().clear();
         *self.stats.lock().unwrap() = RecordingStats::default();
         self.unique_urls.lock().unwrap().clear();
-        self.unique_urls.lock().unwrap().insert(start_url.to_string());
-        self.event_counter.store(0, std::sync::atomic::Ordering::SeqCst);
+        self.unique_urls
+            .lock()
+            .unwrap()
+            .insert(start_url.to_string());
+        self.event_counter
+            .store(0, std::sync::atomic::Ordering::SeqCst);
 
         info!("[SessionRecorder] Started recording: {}", start_url);
     }
@@ -953,7 +960,10 @@ impl SessionRecorder {
 
         let recording = SessionRecording {
             id: uuid::Uuid::new_v4().to_string(),
-            name: format!("Recording {}", chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")),
+            name: format!(
+                "Recording {}",
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+            ),
             start_url: self.start_url.read().unwrap().clone(),
             started_at: chrono::Utc::now() - chrono::Duration::milliseconds(duration_ms as i64),
             ended_at: Some(chrono::Utc::now()),
@@ -990,7 +1000,9 @@ impl SessionRecorder {
 
     /// Generate a unique event ID
     fn next_event_id(&self) -> String {
-        let counter = self.event_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let counter = self
+            .event_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         format!("evt_{}", counter)
     }
 
@@ -1013,12 +1025,8 @@ impl SessionRecorder {
 
         self.set_current_url(&nav.url);
 
-        let event = SessionEvent::navigation(
-            self.next_event_id(),
-            self.offset_ms(),
-            nav.url.clone(),
-            nav,
-        );
+        let event =
+            SessionEvent::navigation(self.next_event_id(), self.offset_ms(), nav.url.clone(), nav);
 
         self.events.lock().unwrap().push(event);
         self.stats.lock().unwrap().navigations += 1;
@@ -1056,7 +1064,12 @@ impl SessionRecorder {
         }
 
         // Calculate duration from pending request
-        if let Some(start) = self.pending_requests.lock().unwrap().remove(&response.request_id) {
+        if let Some(start) = self
+            .pending_requests
+            .lock()
+            .unwrap()
+            .remove(&response.request_id)
+        {
             response.duration_ms = start.elapsed().as_millis() as u64;
         }
 
@@ -1080,7 +1093,10 @@ impl SessionRecorder {
             return;
         }
 
-        self.pending_requests.lock().unwrap().remove(&error.request_id);
+        self.pending_requests
+            .lock()
+            .unwrap()
+            .remove(&error.request_id);
 
         let current_url = self.get_current_url();
         let event = SessionEvent {
@@ -1130,7 +1146,9 @@ impl SessionRecorder {
             return;
         }
 
-        if message.severity == ConsoleSeverity::Error || message.severity == ConsoleSeverity::Warning {
+        if message.severity == ConsoleSeverity::Error
+            || message.severity == ConsoleSeverity::Warning
+        {
             self.stats.lock().unwrap().errors += 1;
         }
 
@@ -1785,9 +1803,16 @@ impl<'a> SessionExporter<'a> {
             }
             SessionEventType::NetworkError => {
                 let err = event.network_error.as_ref().unwrap();
-                ("error", "Network Error", format!("<div>{}</div>", html_escape::encode_text(&err.message)))
+                (
+                    "error",
+                    "Network Error",
+                    format!("<div>{}</div>", html_escape::encode_text(&err.message)),
+                )
             }
-            SessionEventType::Click | SessionEventType::Input | SessionEventType::FormSubmit | SessionEventType::Scroll => {
+            SessionEventType::Click
+            | SessionEventType::Input
+            | SessionEventType::FormSubmit
+            | SessionEventType::Scroll => {
                 let dom = event.dom_interaction.as_ref().unwrap();
                 (
                     "interaction",
@@ -2049,7 +2074,9 @@ impl RecordingCompression {
         let json = serde_json::to_string(recording).context("Failed to serialize recording")?;
 
         let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
-        encoder.write_all(json.as_bytes()).context("Failed to compress")?;
+        encoder
+            .write_all(json.as_bytes())
+            .context("Failed to compress")?;
         encoder.finish().context("Failed to finish compression")
     }
 
@@ -2057,7 +2084,9 @@ impl RecordingCompression {
     pub fn decompress(data: &[u8]) -> Result<SessionRecording> {
         let mut decoder = GzDecoder::new(data);
         let mut json = String::new();
-        decoder.read_to_string(&mut json).context("Failed to decompress")?;
+        decoder
+            .read_to_string(&mut json)
+            .context("Failed to decompress")?;
 
         serde_json::from_str(&json).context("Failed to parse recording")
     }
@@ -2136,9 +2165,10 @@ impl SessionRecording {
                 SessionEventType::Navigation => stats.navigations += 1,
                 SessionEventType::NetworkRequest => stats.network_requests += 1,
                 SessionEventType::NetworkError => stats.network_errors += 1,
-                SessionEventType::Click | SessionEventType::Input | SessionEventType::FormSubmit | SessionEventType::Scroll => {
-                    stats.dom_interactions += 1
-                }
+                SessionEventType::Click
+                | SessionEventType::Input
+                | SessionEventType::FormSubmit
+                | SessionEventType::Scroll => stats.dom_interactions += 1,
                 SessionEventType::ConsoleMessage | SessionEventType::JsError => {
                     stats.console_messages += 1;
                     if event.event_type == SessionEventType::JsError {
@@ -2152,7 +2182,10 @@ impl SessionRecording {
 
         SessionRecording {
             id: format!("{}-segment", self.id),
-            name: format!("{} ({}ms - {}ms)", self.name, start_offset_ms, end_offset_ms),
+            name: format!(
+                "{} ({}ms - {}ms)",
+                self.name, start_offset_ms, end_offset_ms
+            ),
             start_url: self.start_url.clone(),
             started_at: self.started_at + chrono::Duration::milliseconds(start_offset_ms as i64),
             ended_at: Some(self.started_at + chrono::Duration::milliseconds(end_offset_ms as i64)),

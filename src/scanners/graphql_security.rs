@@ -124,12 +124,17 @@ impl GraphqlSecurityScanner {
         ];
 
         // Introspection query
-        let introspection_query = r#"{"query":"{\n  __schema {\n    types {\n      name\n    }\n  }\n}"}"#;
+        let introspection_query =
+            r#"{"query":"{\n  __schema {\n    types {\n      name\n    }\n  }\n}"}"#;
 
         for endpoint in graphql_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(&endpoint, introspection_query, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint, introspection_query, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_introspection_enabled(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -153,7 +158,10 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for GraphQL injection vulnerabilities
-    async fn test_graphql_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_graphql_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -166,16 +174,29 @@ impl GraphqlSecurityScanner {
 
         // Injection payloads
         let injection_payloads = vec![
-            (r#"{"query":"{ user(id: \"1' OR '1'='1\") { name } }"}"#, "SQL injection in GraphQL"),
-            (r#"{"query":"{ user(id: \"1; DROP TABLE users--\") { name } }"}"#, "SQL injection with DROP"),
-            (r#"{"query":"{ user(id: \"$ne\") { name } }"}"#, "NoSQL injection"),
+            (
+                r#"{"query":"{ user(id: \"1' OR '1'='1\") { name } }"}"#,
+                "SQL injection in GraphQL",
+            ),
+            (
+                r#"{"query":"{ user(id: \"1; DROP TABLE users--\") { name } }"}"#,
+                "SQL injection with DROP",
+            ),
+            (
+                r#"{"query":"{ user(id: \"$ne\") { name } }"}"#,
+                "NoSQL injection",
+            ),
         ];
 
         for endpoint in &graphql_endpoints {
             for (payload, description) in &injection_payloads {
                 let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers)
+                    .await
+                {
                     Ok(response) => {
                         if self.detect_injection_success(&response.body) {
                             vulnerabilities.push(self.create_vulnerability(
@@ -199,15 +220,16 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for field suggestions (information disclosure)
-    async fn test_field_suggestions(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_field_suggestions(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
         debug!("Testing GraphQL field suggestions");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         // Query with typo to trigger field suggestions
         let suggestion_query = r#"{"query":"{ usr { name } }"}"#;
@@ -215,7 +237,11 @@ impl GraphqlSecurityScanner {
         for endpoint in graphql_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(&endpoint, suggestion_query, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint, suggestion_query, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_field_suggestions(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -245,9 +271,7 @@ impl GraphqlSecurityScanner {
 
         debug!("Testing GraphQL batch query attacks");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         for endpoint in &graphql_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
@@ -255,12 +279,19 @@ impl GraphqlSecurityScanner {
             // Test 1: Array-based batching (multiple queries in one request)
             let mut batch_array_items = Vec::new();
             for i in 1..=100 {
-                batch_array_items.push(format!(r#"{{"query":"{{ user(id: {}) {{ id name email }} }}"}}"#, i));
+                batch_array_items.push(format!(
+                    r#"{{"query":"{{ user(id: {}) {{ id name email }} }}"}}"#,
+                    i
+                ));
             }
             let batch_array_query = format!("[{}]", batch_array_items.join(","));
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, &batch_array_query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, &batch_array_query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -285,20 +316,31 @@ impl GraphqlSecurityScanner {
             for i in 1..=100 {
                 alias_queries.push(format!("user{}: user(id: {}) {{ id name email }}", i, i));
             }
-            let coalesced_query = format!(r#"{{"query":"query BatchCoalesce {{ {} }}"}}"#, alias_queries.join(" "));
+            let coalesced_query = format!(
+                r#"{{"query":"query BatchCoalesce {{ {} }}"}}"#,
+                alias_queries.join(" ")
+            );
 
             let start = std::time::Instant::now();
-            let baseline_time = match self.http_client.post_with_headers(
-                endpoint,
-                r#"{"query":"query Single { user(id: 1) { id name email } }"}"#,
-                headers.clone()
-            ).await {
+            let baseline_time = match self
+                .http_client
+                .post_with_headers(
+                    endpoint,
+                    r#"{"query":"query Single { user(id: 1) { id name email } }"}"#,
+                    headers.clone(),
+                )
+                .await
+            {
                 Ok(_) => start.elapsed(),
                 Err(_) => std::time::Duration::from_millis(0),
             };
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, &coalesced_query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, &coalesced_query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -334,10 +376,16 @@ impl GraphqlSecurityScanner {
             }
             let mutation_batch_query = format!("[{}]", mutation_batch.join(","));
 
-            match self.http_client.post_with_headers(endpoint, &mutation_batch_query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, &mutation_batch_query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     // Check if mutations were accepted
-                    if response.body.starts_with('[') && !response.body.to_lowercase().contains("rate limit") {
+                    if response.body.starts_with('[')
+                        && !response.body.to_lowercase().contains("rate limit")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "GraphQL Mutation Batching Bypass",
                             endpoint,
@@ -357,15 +405,16 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for query complexity DoS attacks via deep nesting, circular queries, and field duplication
-    async fn test_query_complexity_dos(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_query_complexity_dos(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
         debug!("Testing GraphQL query complexity / deep nesting / circular query DoS");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         for endpoint in &graphql_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
@@ -380,10 +429,17 @@ impl GraphqlSecurityScanner {
             }
             nesting_levels.push_str("} ");
 
-            let deep_recursive_query = format!(r#"{{"query":"query DeepRecursive {{ {} }}"}}"#, nesting_levels);
+            let deep_recursive_query = format!(
+                r#"{{"query":"query DeepRecursive {{ {} }}"}}"#,
+                nesting_levels
+            );
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, &deep_recursive_query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, &deep_recursive_query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -422,7 +478,11 @@ impl GraphqlSecurityScanner {
             let circular_query = r#"{"query":"query CircularRef { user { ...UserData } } fragment UserData on User { id name friends { ...UserData } }"}"#;
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, circular_query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, circular_query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -435,7 +495,8 @@ impl GraphqlSecurityScanner {
                         && !response.body.to_lowercase().contains("infinite")
                         && !response.body.to_lowercase().contains("recursive");
 
-                    let slow_or_accepted = elapsed.as_secs() > 2 || response.body.contains("\"data\"");
+                    let slow_or_accepted =
+                        elapsed.as_secs() > 2 || response.body.contains("\"data\"");
 
                     if no_circular_check && slow_or_accepted {
                         vulnerabilities.push(self.create_vulnerability(
@@ -464,7 +525,11 @@ impl GraphqlSecurityScanner {
             );
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, &field_dup_query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, &field_dup_query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -499,7 +564,11 @@ impl GraphqlSecurityScanner {
             // Test 4: Deeply nested fragments with circular relationships
             let nested_circular = r#"{"query":"query NestedCircular { user { ...Level1 } } fragment Level1 on User { friends { ...Level2 } } fragment Level2 on User { friends { ...Level3 } } fragment Level3 on User { friends { ...Level4 } } fragment Level4 on User { friends { ...Level5 } } fragment Level5 on User { friends { ...Level1 } }"}"#;
 
-            match self.http_client.post_with_headers(endpoint, nested_circular, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, nested_circular, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     // Verify this is actually a GraphQL response
                     if !self.is_graphql_response(&response.body) {
@@ -529,7 +598,11 @@ impl GraphqlSecurityScanner {
             let multi_entry_recursive = r#"{"query":"query MultiEntry { user { friends { friends { friends { posts { comments { author { friends { friends { id } } } } } } } } post { author { friends { friends { posts { author { id } } } } } } }"}"#;
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, multi_entry_recursive, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, multi_entry_recursive, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -565,9 +638,7 @@ impl GraphqlSecurityScanner {
 
         debug!("Testing GraphQL alias abuse and overloading attacks");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         for endpoint in &graphql_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
@@ -583,7 +654,11 @@ impl GraphqlSecurityScanner {
             );
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, &alias_overload, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, &alias_overload, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -617,7 +692,10 @@ impl GraphqlSecurityScanner {
             // Test 2: Alias amplification with expensive fields
             let mut expensive_aliases = Vec::new();
             for i in 1..=100 {
-                expensive_aliases.push(format!("u{}: user(id: {}) {{ id name email posts {{ id title }} }}", i, i));
+                expensive_aliases.push(format!(
+                    "u{}: user(id: {}) {{ id name email posts {{ id title }} }}",
+                    i, i
+                ));
             }
             let expensive_alias_query = format!(
                 r#"{{"query":"query ExpensiveAliases {{ {} }}"}}"#,
@@ -625,7 +703,11 @@ impl GraphqlSecurityScanner {
             );
 
             let start = std::time::Instant::now();
-            match self.http_client.post_with_headers(endpoint, &expensive_alias_query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, &expensive_alias_query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     let elapsed = start.elapsed();
 
@@ -666,7 +748,11 @@ impl GraphqlSecurityScanner {
                 a5: user { p1: posts { id } p2: posts { id } p3: posts { id } p4: posts { id } p5: posts { id } }
             }"}"#;
 
-            match self.http_client.post_with_headers(endpoint, nested_alias, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, nested_alias, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     // Verify this is actually a GraphQL response
                     if !self.is_graphql_response(&response.body) {
@@ -696,15 +782,16 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for persisted query attacks
-    async fn test_persisted_query_attacks(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_persisted_query_attacks(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
         debug!("Testing GraphQL persisted query attacks");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         // APQ (Automatic Persisted Queries) probe
         let apq_probe = r#"{"extensions":{"persistedQuery":{"version":1,"sha256Hash":"ecf4edb46db40b5132295c0291d62fb65d6759a9eedfa4d5d612dd5ec54a6b38"}}}"#;
@@ -725,7 +812,11 @@ impl GraphqlSecurityScanner {
             for (payload, description) in &pq_payloads {
                 let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers)
+                    .await
+                {
                     Ok(response) => {
                         // Check if APQ is enabled without proper validation
                         let apq_enabled = response.body.contains("PersistedQueryNotFound")
@@ -753,8 +844,10 @@ impl GraphqlSecurityScanner {
                             vulnerabilities.push(self.create_vulnerability(
                                 "GraphQL Persisted Query Bypass",
                                 endpoint,
-                                &format!("{} - Queries can be registered or bypass validation.",
-                                    description),
+                                &format!(
+                                    "{} - Queries can be registered or bypass validation.",
+                                    description
+                                ),
                                 Severity::High,
                                 "CWE-284",
                             ));
@@ -772,7 +865,10 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for subscription vulnerabilities
-    async fn test_subscription_vulnerabilities(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_subscription_vulnerabilities(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -780,21 +876,29 @@ impl GraphqlSecurityScanner {
 
         // Check for WebSocket endpoint
         let _ws_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/').replace("http", "ws")),
-            format!("{}/subscriptions", url.trim_end_matches('/').replace("http", "ws")),
+            format!(
+                "{}/graphql",
+                url.trim_end_matches('/').replace("http", "ws")
+            ),
+            format!(
+                "{}/subscriptions",
+                url.trim_end_matches('/').replace("http", "ws")
+            ),
         ];
 
         // Subscription probe query via HTTP (some implementations allow this)
         let subscription_http_query = r#"{"query":"subscription { newMessage { id content } }"}"#;
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         for endpoint in &graphql_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(endpoint, subscription_http_query, headers).await {
+            match self
+                .http_client
+                .post_with_headers(endpoint, subscription_http_query, headers)
+                .await
+            {
                 Ok(response) => {
                     // Check if subscriptions are exposed via HTTP
                     let subscription_enabled = response.body.contains("subscription")
@@ -820,11 +924,18 @@ impl GraphqlSecurityScanner {
             }
 
             // Test for subscription DoS (many concurrent subscriptions)
-            let subscription_dos_query = r#"{"query":"subscription SubDoS { onAnyEvent { type data } }"}"#;
+            let subscription_dos_query =
+                r#"{"query":"subscription SubDoS { onAnyEvent { type data } }"}"#;
 
-            match self.http_client.post_with_headers(endpoint, subscription_dos_query, vec![
-                ("Content-Type".to_string(), "application/json".to_string())
-            ]).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    endpoint,
+                    subscription_dos_query,
+                    vec![("Content-Type".to_string(), "application/json".to_string())],
+                )
+                .await
+            {
                 Ok(response) => {
                     // Must be a valid GraphQL response (200 OK with data), not 404/500
                     if response.status_code != 200 {
@@ -834,11 +945,15 @@ impl GraphqlSecurityScanner {
                     // Must be ACTUAL GraphQL JSON response, not just a webpage containing "data"
                     // Real GraphQL responses are JSON starting with { and containing "data" or "errors" key
                     let body_trimmed = response.body.trim();
-                    let is_graphql_json = body_trimmed.starts_with('{') &&
-                        (body_trimmed.contains("\"data\"") || body_trimmed.contains("\"errors\""));
+                    let is_graphql_json = body_trimmed.starts_with('{')
+                        && (body_trimmed.contains("\"data\"")
+                            || body_trimmed.contains("\"errors\""));
 
                     // Also reject if it looks like HTML (static page)
-                    if !is_graphql_json || body_trimmed.contains("<!DOCTYPE") || body_trimmed.contains("<html") {
+                    if !is_graphql_json
+                        || body_trimmed.contains("<!DOCTYPE")
+                        || body_trimmed.contains("<html")
+                    {
                         continue;
                     }
 
@@ -864,15 +979,16 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for fragment spreading attacks
-    async fn test_fragment_attacks(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_fragment_attacks(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
         debug!("Testing GraphQL fragment attacks");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         // Fragment spread amplification
         let fragment_amplification = r#"{"query":"query FragmentAmplification { ...UserData ...UserData ...UserData ...UserData ...UserData ...UserData ...UserData ...UserData ...UserData ...UserData } fragment UserData on Query { user { id name email friends { id name } } }"}"#;
@@ -881,7 +997,10 @@ impl GraphqlSecurityScanner {
         let nested_fragments = r#"{"query":"query NestedFragments { ...A } fragment A on Query { user { ...B } } fragment B on User { friends { ...C } } fragment C on User { friends { ...D } } fragment D on User { friends { ...E } } fragment E on User { id name email }"}"#;
 
         let fragment_payloads = vec![
-            (fragment_amplification, "Fragment spread amplification (10x)"),
+            (
+                fragment_amplification,
+                "Fragment spread amplification (10x)",
+            ),
             (nested_fragments, "Deeply nested fragments (5 levels)"),
         ];
 
@@ -890,7 +1009,11 @@ impl GraphqlSecurityScanner {
                 let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
                 let start = std::time::Instant::now();
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers)
+                    .await
+                {
                     Ok(response) => {
                         let elapsed = start.elapsed();
 
@@ -902,11 +1025,15 @@ impl GraphqlSecurityScanner {
                         // Must be ACTUAL GraphQL JSON response, not just a webpage containing "data"
                         // Real GraphQL responses are JSON starting with { and containing "data" or "errors" key
                         let body_trimmed = response.body.trim();
-                        let is_graphql_json = body_trimmed.starts_with('{') &&
-                            (body_trimmed.contains("\"data\"") || body_trimmed.contains("\"errors\""));
+                        let is_graphql_json = body_trimmed.starts_with('{')
+                            && (body_trimmed.contains("\"data\"")
+                                || body_trimmed.contains("\"errors\""));
 
                         // Also reject if it looks like HTML (static page)
-                        if !is_graphql_json || body_trimmed.contains("<!DOCTYPE") || body_trimmed.contains("<html") {
+                        if !is_graphql_json
+                            || body_trimmed.contains("<!DOCTYPE")
+                            || body_trimmed.contains("<html")
+                        {
                             continue;
                         }
 
@@ -920,8 +1047,11 @@ impl GraphqlSecurityScanner {
                             vulnerabilities.push(self.create_vulnerability(
                                 "GraphQL Fragment Attack",
                                 endpoint,
-                                &format!("{} - No fragment limits detected. Response time: {}ms",
-                                    description, elapsed.as_millis()),
+                                &format!(
+                                    "{} - No fragment limits detected. Response time: {}ms",
+                                    description,
+                                    elapsed.as_millis()
+                                ),
                                 Severity::Medium,
                                 "CWE-400",
                             ));
@@ -945,22 +1075,25 @@ impl GraphqlSecurityScanner {
 
         debug!("Testing GraphQL directive abuse");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         // @skip/@include directive abuse
         let directive_abuse = r#"{"query":"query DirectiveAbuse { user @skip(if: false) @include(if: true) @skip(if: false) @include(if: true) { id @deprecated name @skip(if: false) } }"}"#;
 
         // Custom directive injection
-        let custom_directive = r#"{"query":"query CustomDir { user @debug @trace @admin { id name } }"}"#;
+        let custom_directive =
+            r#"{"query":"query CustomDir { user @debug @trace @admin { id name } }"}"#;
 
         // Directive with dangerous arguments
-        let directive_injection = r#"{"query":"query DirInject { user @export(as: \"${{ process.env }}\") { id } }"}"#;
+        let directive_injection =
+            r#"{"query":"query DirInject { user @export(as: \"${{ process.env }}\") { id } }"}"#;
 
         let directive_payloads = vec![
             (directive_abuse, "Multiple directive stacking"),
-            (custom_directive, "Custom directive probing (@debug, @admin)"),
+            (
+                custom_directive,
+                "Custom directive probing (@debug, @admin)",
+            ),
             (directive_injection, "Directive argument injection"),
         ];
 
@@ -968,7 +1101,11 @@ impl GraphqlSecurityScanner {
             for (payload, description) in &directive_payloads {
                 let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers)
+                    .await
+                {
                     Ok(response) => {
                         // Verify this is actually a GraphQL response
                         if !self.is_graphql_response(&response.body) {
@@ -986,16 +1123,19 @@ impl GraphqlSecurityScanner {
                             || response.body.contains("stack");
 
                         // Check for unrestricted directives
-                        let no_directive_limit = !response.body.to_lowercase().contains("directive")
-                            && !response.body.to_lowercase().contains("unknown")
-                            && response.body.contains("\"data\"");
+                        let no_directive_limit =
+                            !response.body.to_lowercase().contains("directive")
+                                && !response.body.to_lowercase().contains("unknown")
+                                && response.body.contains("\"data\"");
 
                         if debug_accepted || info_leak {
                             vulnerabilities.push(self.create_vulnerability(
                                 "GraphQL Custom Directive Abuse",
                                 endpoint,
-                                &format!("{} - Server accepts or leaks info from custom directives",
-                                    description),
+                                &format!(
+                                    "{} - Server accepts or leaks info from custom directives",
+                                    description
+                                ),
                                 Severity::High,
                                 "CWE-200",
                             ));
@@ -1029,9 +1169,7 @@ impl GraphqlSecurityScanner {
 
         debug!("Testing GraphQL authorization bypass");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         // Access admin fields without auth
         let admin_access = r#"{"query":"{ admin { users { id email password } } }"}"#;
@@ -1040,7 +1178,8 @@ impl GraphqlSecurityScanner {
         let idor_query = r#"{"query":"{ user(id: \"1\") { id email sensitiveData } }"}"#;
 
         // Type confusion attack
-        let type_confusion = r#"{"query":"mutation { updateUser(id: \"1\", role: \"admin\") { id role } }"}"#;
+        let type_confusion =
+            r#"{"query":"mutation { updateUser(id: \"1\", role: \"admin\") { id role } }"}"#;
 
         // Nested authorization bypass
         let nested_bypass = r#"{"query":"{ publicData { privateRelation { secretField } } }"}"#;
@@ -1056,11 +1195,15 @@ impl GraphqlSecurityScanner {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
             for (payload, description) in &auth_payloads {
-                match self.http_client.post_with_headers(endpoint, payload, headers.clone()).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers.clone())
+                    .await
+                {
                     Ok(response) => {
                         // Check for successful unauthorized access
-                        let has_data = response.body.contains("\"data\"")
-                            && !response.body.contains("null");
+                        let has_data =
+                            response.body.contains("\"data\"") && !response.body.contains("null");
 
                         let no_auth_error = !response.body.to_lowercase().contains("unauthorized")
                             && !response.body.to_lowercase().contains("forbidden")
@@ -1094,21 +1237,23 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for cost analysis and pagination abuse attacks
-    async fn test_cost_analysis_attacks(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_cost_analysis_attacks(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
         debug!("Testing GraphQL cost analysis and pagination abuse");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         // Pagination abuse - request excessive items
         let pagination_abuse = r#"{"query":"{ users(first: 999999) { id name } }"}"#;
 
         // Nested pagination abuse
-        let nested_pagination = r#"{"query":"{ posts(first: 1000) { comments(first: 1000) { id } } }"}"#;
+        let nested_pagination =
+            r#"{"query":"{ posts(first: 1000) { comments(first: 1000) { id } } }"}"#;
 
         // Cost calculation bypass
         let cost_bypass = r#"{"query":"{ a: users(first: 100) { id } b: users(first: 100) { id } c: users(first: 100) { id } }"}"#;
@@ -1123,13 +1268,18 @@ impl GraphqlSecurityScanner {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
             for (payload, description) in &cost_payloads {
-                match self.http_client.post_with_headers(endpoint, payload, headers.clone()).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers.clone())
+                    .await
+                {
                     Ok(response) => {
                         // Check if server accepted large pagination without limits
                         let has_data = response.body.contains("\"data\"");
-                        let no_limit_error = !response.body.to_lowercase().contains("limit exceeded")
-                            && !response.body.to_lowercase().contains("too many")
-                            && !response.body.to_lowercase().contains("cost");
+                        let no_limit_error =
+                            !response.body.to_lowercase().contains("limit exceeded")
+                                && !response.body.to_lowercase().contains("too many")
+                                && !response.body.to_lowercase().contains("cost");
 
                         if has_data && no_limit_error && response.status_code == 200 {
                             vulnerabilities.push(self.create_vulnerability(
@@ -1153,21 +1303,23 @@ impl GraphqlSecurityScanner {
     }
 
     /// Test for enhanced introspection abuse
-    async fn test_introspection_abuse(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_introspection_abuse(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
         debug!("Testing GraphQL introspection abuse");
 
-        let graphql_endpoints = vec![
-            format!("{}/graphql", url.trim_end_matches('/')),
-        ];
+        let graphql_endpoints = vec![format!("{}/graphql", url.trim_end_matches('/'))];
 
         // Full schema dump
         let schema_dump = r#"{"query":"{ __schema { types { name fields { name type { name kind ofType { name kind } } } } } }"}"#;
 
         // Directive introspection
-        let directive_introspection = r#"{"query":"{ __schema { directives { name description locations } } }"}"#;
+        let directive_introspection =
+            r#"{"query":"{ __schema { directives { name description locations } } }"}"#;
 
         // Query type introspection
         let query_introspection = r#"{"query":"{ __schema { queryType { fields { name description args { name type { name } } } } } }"}"#;
@@ -1186,15 +1338,22 @@ impl GraphqlSecurityScanner {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
             for (payload, description) in &introspection_payloads {
-                match self.http_client.post_with_headers(endpoint, payload, headers.clone()).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers.clone())
+                    .await
+                {
                     Ok(response) => {
                         // Check if introspection is enabled
                         if self.detect_introspection_enabled(&response.body) {
                             vulnerabilities.push(self.create_vulnerability(
                                 "GraphQL Introspection Enabled",
                                 endpoint,
-                                &format!("{} - Schema information exposed via introspection: {}",
-                                    description, self.extract_evidence(&response.body, 200)),
+                                &format!(
+                                    "{} - Schema information exposed via introspection: {}",
+                                    description,
+                                    self.extract_evidence(&response.body, 200)
+                                ),
                                 Severity::Medium,
                                 "CWE-200",
                             ));
@@ -1262,10 +1421,10 @@ impl GraphqlSecurityScanner {
         let body_lower = body.to_lowercase();
 
         // Check for schema information in response
-        (body_lower.contains("__schema") || body_lower.contains("__type")) &&
-        (body_lower.contains("types") || body_lower.contains("fields")) &&
-        !body_lower.contains("error") &&
-        !body_lower.contains("introspection is disabled")
+        (body_lower.contains("__schema") || body_lower.contains("__type"))
+            && (body_lower.contains("types") || body_lower.contains("fields"))
+            && !body_lower.contains("error")
+            && !body_lower.contains("introspection is disabled")
     }
 
     /// Detect successful injection
@@ -1290,18 +1449,20 @@ impl GraphqlSecurityScanner {
         }
 
         // Check for successful data extraction
-        body_lower.contains("\"data\"") &&
-        !body_lower.contains("\"errors\"") &&
-        (body_lower.contains("user") || body_lower.contains("admin"))
+        body_lower.contains("\"data\"")
+            && !body_lower.contains("\"errors\"")
+            && (body_lower.contains("user") || body_lower.contains("admin"))
     }
 
     /// Detect field suggestions
     fn detect_field_suggestions(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        body_lower.contains("did you mean") ||
-        body_lower.contains("suggestion") ||
-        (body_lower.contains("field") && body_lower.contains("not found") && body_lower.contains("available"))
+        body_lower.contains("did you mean")
+            || body_lower.contains("suggestion")
+            || (body_lower.contains("field")
+                && body_lower.contains("not found")
+                && body_lower.contains("available"))
     }
 
     /// Detect batch query acceptance
@@ -1353,7 +1514,7 @@ impl GraphqlSecurityScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1393,7 +1554,8 @@ mod tests {
     fn test_detect_introspection_enabled() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.detect_introspection_enabled(r#"{"data":{"__schema":{"types":[{"name":"User"}]}}}"#));
+        assert!(scanner
+            .detect_introspection_enabled(r#"{"data":{"__schema":{"types":[{"name":"User"}]}}}"#));
         assert!(scanner.detect_introspection_enabled(r#"{"__type":{"fields":[{"name":"id"}]}}"#));
 
         assert!(!scanner.detect_introspection_enabled(r#"{"error":"Introspection is disabled"}"#));
@@ -1424,7 +1586,9 @@ mod tests {
     fn test_detect_batch_query_accepted() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.detect_batch_query_accepted(r#"[{"data":{"__typename":"Query"}},{"data":{"__typename":"Query"}}]"#));
+        assert!(scanner.detect_batch_query_accepted(
+            r#"[{"data":{"__typename":"Query"}},{"data":{"__typename":"Query"}}]"#
+        ));
 
         assert!(!scanner.detect_batch_query_accepted(r#"{"data":{"__typename":"Query"}}"#));
     }

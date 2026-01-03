@@ -57,14 +57,46 @@ impl DoraScanner {
     /// Required security headers for DORA ICT risk management compliance
     fn build_required_headers() -> Vec<(&'static str, &'static str, Severity)> {
         vec![
-            ("Strict-Transport-Security", "HSTS required for transport security", Severity::High),
-            ("Content-Security-Policy", "CSP required for XSS mitigation", Severity::High),
-            ("X-Content-Type-Options", "Prevents MIME type sniffing attacks", Severity::Medium),
-            ("X-Frame-Options", "Clickjacking protection for financial interfaces", Severity::Medium),
-            ("Referrer-Policy", "Prevents sensitive URL leakage", Severity::Low),
-            ("Permissions-Policy", "Controls browser feature access", Severity::Low),
-            ("Cache-Control", "Sensitive data caching controls", Severity::Medium),
-            ("X-XSS-Protection", "Legacy XSS protection header", Severity::Low),
+            (
+                "Strict-Transport-Security",
+                "HSTS required for transport security",
+                Severity::High,
+            ),
+            (
+                "Content-Security-Policy",
+                "CSP required for XSS mitigation",
+                Severity::High,
+            ),
+            (
+                "X-Content-Type-Options",
+                "Prevents MIME type sniffing attacks",
+                Severity::Medium,
+            ),
+            (
+                "X-Frame-Options",
+                "Clickjacking protection for financial interfaces",
+                Severity::Medium,
+            ),
+            (
+                "Referrer-Policy",
+                "Prevents sensitive URL leakage",
+                Severity::Low,
+            ),
+            (
+                "Permissions-Policy",
+                "Controls browser feature access",
+                Severity::Low,
+            ),
+            (
+                "Cache-Control",
+                "Sensitive data caching controls",
+                Severity::Medium,
+            ),
+            (
+                "X-XSS-Protection",
+                "Legacy XSS protection header",
+                Severity::Low,
+            ),
         ]
     }
 
@@ -116,7 +148,10 @@ impl DoraScanner {
             ("cdnjs.cloudflare.com", "CDNJS - community-maintained"),
             ("cdn.jsdelivr.net", "jsDelivr CDN mirror"),
             ("rawgit.com", "RawGit - deprecated service"),
-            ("raw.githubusercontent.com", "GitHub raw files - no integrity verification"),
+            (
+                "raw.githubusercontent.com",
+                "GitHub raw files - no integrity verification",
+            ),
             ("gitcdn.xyz", "GitCDN - third-party GitHub mirror"),
             ("statically.io", "Statically CDN - public assets"),
             ("pagecdn.io", "PageCDN - third-party CDN"),
@@ -124,7 +159,11 @@ impl DoraScanner {
     }
 
     /// Main scan entry point
-    pub async fn scan(&self, url: &str, config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(
+        &self,
+        url: &str,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         info!("[DORA] Starting Digital Operational Resilience Act compliance scan");
 
         let mut vulnerabilities = Vec::new();
@@ -153,7 +192,8 @@ impl DoraScanner {
         tests_run += third_party_tests;
 
         // Phase 5: Information Sharing Assessment (Article 45)
-        let (info_sharing_vulns, info_sharing_tests) = self.assess_information_sharing(&base_url).await;
+        let (info_sharing_vulns, info_sharing_tests) =
+            self.assess_information_sharing(&base_url).await;
         vulnerabilities.extend(info_sharing_vulns);
         tests_run += info_sharing_tests;
 
@@ -194,15 +234,15 @@ impl DoraScanner {
         // Test 1: Check security headers
         tests_run += 1;
         if let Ok(response) = self.http_client.get(base_url).await {
-            let missing_headers: Vec<_> = self.required_security_headers
+            let missing_headers: Vec<_> = self
+                .required_security_headers
                 .iter()
-                .filter(|(header, _, _)| {
-                    response.headers.get(&header.to_lowercase()).is_none()
-                })
+                .filter(|(header, _, _)| response.headers.get(&header.to_lowercase()).is_none())
                 .collect();
 
             if !missing_headers.is_empty() {
-                let critical_missing: Vec<_> = missing_headers.iter()
+                let critical_missing: Vec<_> = missing_headers
+                    .iter()
                     .filter(|(_, _, sev)| matches!(sev, Severity::High | Severity::Critical))
                     .collect();
 
@@ -214,7 +254,8 @@ impl DoraScanner {
                     (Severity::Low, 3.7)
                 };
 
-                let missing_list: Vec<String> = missing_headers.iter()
+                let missing_list: Vec<String> = missing_headers
+                    .iter()
                     .map(|(h, desc, _)| format!("- {}: {}", h, desc))
                     .collect();
 
@@ -295,7 +336,8 @@ impl DoraScanner {
                     cookie_issues.push("Missing 'Secure' flag - cookies may be sent over HTTP");
                 }
                 if !cookie_lower.contains("httponly") {
-                    cookie_issues.push("Missing 'HttpOnly' flag - cookies accessible via JavaScript");
+                    cookie_issues
+                        .push("Missing 'HttpOnly' flag - cookies accessible via JavaScript");
                 }
                 if !cookie_lower.contains("samesite") {
                     cookie_issues.push("Missing 'SameSite' attribute - CSRF risk");
@@ -337,7 +379,12 @@ impl DoraScanner {
 
             // Test 4: Server version disclosure
             tests_run += 1;
-            let version_headers = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version"];
+            let version_headers = [
+                "server",
+                "x-powered-by",
+                "x-aspnet-version",
+                "x-aspnetmvc-version",
+            ];
             let mut disclosed_versions = Vec::new();
 
             for header in version_headers {
@@ -374,9 +421,10 @@ impl DoraScanner {
                         - Apache: ServerTokens Prod, ServerSignature Off\n\
                         - Nginx: server_tokens off\n\
                         - IIS: Remove X-Powered-By via URL Rewrite\n\
-                        - Application: Configure framework to hide version info".to_string(),
+                        - Application: Configure framework to hide version info"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -405,14 +453,23 @@ impl DoraScanner {
 
                     // Check if it exposes sensitive metrics without auth
                     let sensitive_patterns = [
-                        "error_count", "exception", "database", "connection",
-                        "memory", "cpu", "disk", "credentials", "password",
-                        "token", "secret", "key", "internal"
+                        "error_count",
+                        "exception",
+                        "database",
+                        "connection",
+                        "memory",
+                        "cpu",
+                        "disk",
+                        "credentials",
+                        "password",
+                        "token",
+                        "secret",
+                        "key",
+                        "internal",
                     ];
 
                     let body_lower = response.body.to_lowercase();
-                    let has_sensitive = sensitive_patterns.iter()
-                        .any(|p| body_lower.contains(p));
+                    let has_sensitive = sensitive_patterns.iter().any(|p| body_lower.contains(p));
 
                     if has_sensitive {
                         exposed_monitoring.push((endpoint.to_string(), response.body.len()));
@@ -473,7 +530,8 @@ impl DoraScanner {
                 "x-ms-request-id",
             ];
 
-            let has_tracing = logging_indicators.iter()
+            let has_tracing = logging_indicators
+                .iter()
                 .any(|h| response.headers.get(*h).is_some());
 
             if !has_tracing {
@@ -492,8 +550,11 @@ impl DoraScanner {
                         - Incident investigation and forensics\n\
                         - Root cause analysis\n\
                         - Transaction tracking across services\n\
-                        - Compliance audit trails".to_string(),
-                    evidence: Some("No X-Request-ID, X-Correlation-ID, or similar headers found".to_string()),
+                        - Compliance audit trails"
+                        .to_string(),
+                    evidence: Some(
+                        "No X-Request-ID, X-Correlation-ID, or similar headers found".to_string(),
+                    ),
                     cwe: "CWE-778".to_string(),
                     cvss: 3.7,
                     verified: true,
@@ -502,9 +563,10 @@ impl DoraScanner {
                         1. Add X-Request-ID or X-Correlation-ID to all responses\n\
                         2. Propagate trace IDs across microservices\n\
                         3. Consider OpenTelemetry/W3C Trace Context standard\n\
-                        4. Log trace IDs with all events for correlation".to_string(),
+                        4. Log trace IDs with all events for correlation"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -533,13 +595,25 @@ impl DoraScanner {
 
                     // Check if health endpoint exposes internal details
                     let sensitive_keywords = [
-                        "database", "redis", "mongodb", "postgresql", "mysql",
-                        "elasticsearch", "kafka", "rabbitmq", "version",
-                        "internal", "private", "host", "port", "connection"
+                        "database",
+                        "redis",
+                        "mongodb",
+                        "postgresql",
+                        "mysql",
+                        "elasticsearch",
+                        "kafka",
+                        "rabbitmq",
+                        "version",
+                        "internal",
+                        "private",
+                        "host",
+                        "port",
+                        "connection",
                     ];
 
                     let body_lower = response.body.to_lowercase();
-                    let exposed_details: Vec<_> = sensitive_keywords.iter()
+                    let exposed_details: Vec<_> = sensitive_keywords
+                        .iter()
                         .filter(|k| body_lower.contains(*k))
                         .map(|k| k.to_string())
                         .collect();
@@ -553,14 +627,20 @@ impl DoraScanner {
 
         // Check for status page
         tests_run += 1;
-        let status_paths = ["/status-page", "/system-status", "/service-status", "/.status"];
+        let status_paths = [
+            "/status-page",
+            "/system-status",
+            "/service-status",
+            "/.status",
+        ];
         let mut _has_status_page = false;
 
         for path in status_paths {
             let test_url = format!("{}{}", base_url.trim_end_matches('/'), path);
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("status") || response.body.contains("operational")) {
+                if response.status_code == 200
+                    && (response.body.contains("status") || response.body.contains("operational"))
+                {
                     _has_status_page = true;
                     break;
                 }
@@ -668,22 +748,28 @@ impl DoraScanner {
                 for cap in re.captures_iter(body) {
                     if let Some(src) = cap.get(1) {
                         let url = src.as_str();
-                        if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("//") {
+                        if url.starts_with("http://")
+                            || url.starts_with("https://")
+                            || url.starts_with("//")
+                        {
                             // Check for risky CDNs
                             for (pattern, description) in &self.risky_cdn_patterns {
                                 if url.contains(pattern) {
-                                    risky_resources.push((url.to_string(), description.to_string()));
+                                    risky_resources
+                                        .push((url.to_string(), description.to_string()));
                                 }
                             }
 
                             // Extract domain
                             let domain = url.split('/').nth(2).unwrap_or("unknown").to_string();
-                            external_resources.entry(domain.clone())
+                            external_resources
+                                .entry(domain.clone())
                                 .or_insert_with(Vec::new)
                                 .push(url.to_string());
 
                             // Check for SRI (Subresource Integrity)
-                            let script_tag_end = body.find(url)
+                            let script_tag_end = body
+                                .find(url)
                                 .and_then(|pos| body[pos..].find('>'))
                                 .map(|end| &body[..body.find(url).unwrap_or(0) + end]);
 
@@ -803,7 +889,11 @@ impl DoraScanner {
                         - Should be in ICT third-party register\n\n\
                         External domains: {}",
                         external_resources.len(),
-                        external_resources.keys().cloned().collect::<Vec<_>>().join(", ")
+                        external_resources
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                     evidence: Some(format!("{} external domains", external_resources.len())),
                     cwe: "CWE-1104".to_string(),
@@ -815,9 +905,10 @@ impl DoraScanner {
                         2. Self-host where possible\n\
                         3. Maintain ICT third-party register per DORA Article 28(3)\n\
                         4. Conduct risk assessment for each provider\n\
-                        5. Ensure contractual arrangements per DORA Article 30".to_string(),
+                        5. Ensure contractual arrangements per DORA Article 30"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -834,10 +925,7 @@ impl DoraScanner {
 
         // Test 1: Check for security.txt
         tests_run += 1;
-        let security_txt_paths = [
-            "/.well-known/security.txt",
-            "/security.txt",
-        ];
+        let security_txt_paths = ["/.well-known/security.txt", "/security.txt"];
 
         let mut has_security_txt = false;
         let mut security_txt_issues = Vec::new();
@@ -854,13 +942,15 @@ impl DoraScanner {
                         security_txt_issues.push("Missing 'Expires:' field (required by RFC 9116)");
                     }
                     if !content.contains("Encryption:") && !content.contains("encryption:") {
-                        security_txt_issues.push("Missing 'Encryption:' field for secure communication");
+                        security_txt_issues
+                            .push("Missing 'Encryption:' field for secure communication");
                     }
                     if !content.contains("Preferred-Languages:") {
                         security_txt_issues.push("Missing 'Preferred-Languages:' field");
                     }
                     if !content.contains("Policy:") {
-                        security_txt_issues.push("Missing 'Policy:' field linking to disclosure policy");
+                        security_txt_issues
+                            .push("Missing 'Policy:' field linking to disclosure policy");
                     }
                     break;
                 }
@@ -882,7 +972,8 @@ impl DoraScanner {
                     - Enables responsible vulnerability disclosure\n\
                     - Provides security contact information\n\
                     - Demonstrates security maturity\n\
-                    - Facilitates coordination with security researchers".to_string(),
+                    - Facilitates coordination with security researchers"
+                    .to_string(),
                 evidence: Some("Checked /.well-known/security.txt and /security.txt".to_string()),
                 cwe: "CWE-1059".to_string(),
                 cvss: 3.7,
@@ -895,7 +986,8 @@ impl DoraScanner {
                     Preferred-Languages: en, fi\n\
                     Canonical: https://example.com/.well-known/security.txt\n\
                     Policy: https://example.com/security-policy\n\n\
-                    Reference: RFC 9116, DORA Article 45".to_string(),
+                    Reference: RFC 9116, DORA Article 45"
+                    .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_data: None,
             });
@@ -912,7 +1004,8 @@ impl DoraScanner {
                 description: format!(
                     "security.txt exists but is missing recommended fields.\n\n\
                     Issues found:\n{}",
-                    security_txt_issues.iter()
+                    security_txt_issues
+                        .iter()
                         .map(|i| format!("- {}", i))
                         .collect::<Vec<_>>()
                         .join("\n")
@@ -927,7 +1020,8 @@ impl DoraScanner {
                     - Encryption: - PGP key for encrypted communication\n\
                     - Preferred-Languages: - Accepted languages for reports\n\
                     - Policy: - Link to disclosure policy\n\
-                    - Acknowledgments: - Link to hall of fame".to_string(),
+                    - Acknowledgments: - Link to hall of fame"
+                    .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_data: None,
             });
@@ -947,10 +1041,11 @@ impl DoraScanner {
         for path in disclosure_paths {
             let test_url = format!("{}{}", base_url.trim_end_matches('/'), path);
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 &&
-                   (response.body.to_lowercase().contains("disclosure") ||
-                    response.body.to_lowercase().contains("vulnerability") ||
-                    response.body.to_lowercase().contains("security")) {
+                if response.status_code == 200
+                    && (response.body.to_lowercase().contains("disclosure")
+                        || response.body.to_lowercase().contains("vulnerability")
+                        || response.body.to_lowercase().contains("security"))
+                {
                     has_disclosure_policy = true;
                     break;
                 }
@@ -972,7 +1067,8 @@ impl DoraScanner {
                     - Defines how researchers can report vulnerabilities\n\
                     - Sets expectations for response times\n\
                     - Provides legal safe harbor for researchers\n\
-                    - Demonstrates security program maturity".to_string(),
+                    - Demonstrates security program maturity"
+                    .to_string(),
                 evidence: Some("No disclosure policy found at standard locations".to_string()),
                 cwe: "CWE-1059".to_string(),
                 cvss: 3.7,
@@ -984,7 +1080,8 @@ impl DoraScanner {
                     3. Expected response timelines\n\
                     4. Safe harbor statement\n\
                     5. Recognition/rewards (if applicable)\n\n\
-                    Consider ISO 29147 guidelines for vulnerability disclosure".to_string(),
+                    Consider ISO 29147 guidelines for vulnerability disclosure"
+                    .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_data: None,
             });
@@ -1022,13 +1119,13 @@ impl DoraScanner {
             }
 
             // Check for single point of failure indicators
-            let has_cdn = response.headers.get("cf-ray").is_some() ||
-                         response.headers.get("x-cdn-pop").is_some() ||
-                         response.headers.get("x-amz-cf-id").is_some() ||
-                         response.headers.get("x-azure-ref").is_some();
+            let has_cdn = response.headers.get("cf-ray").is_some()
+                || response.headers.get("x-cdn-pop").is_some()
+                || response.headers.get("x-amz-cf-id").is_some()
+                || response.headers.get("x-azure-ref").is_some();
 
-            let has_cache = response.headers.get("x-cache").is_some() ||
-                           response.headers.get("age").is_some();
+            let has_cache =
+                response.headers.get("x-cache").is_some() || response.headers.get("age").is_some();
 
             if !has_cdn && !has_cache {
                 vulnerabilities.push(Vulnerability {
@@ -1046,7 +1143,8 @@ impl DoraScanner {
                         - Geographic distribution\n\
                         - DDoS protection\n\
                         - Failover capabilities\n\n\
-                        CDNs provide these capabilities by default.".to_string(),
+                        CDNs provide these capabilities by default."
+                        .to_string(),
                     evidence: Some("No CDN headers (CF-Ray, X-CDN-Pop, etc.) detected".to_string()),
                     cwe: "CWE-400".to_string(),
                     cvss: 3.7,
@@ -1057,16 +1155,18 @@ impl DoraScanner {
                         2. Configure caching for static assets\n\
                         3. Enable DDoS protection features\n\
                         4. Set up geographic distribution\n\
-                        5. Configure failover origins".to_string(),
+                        5. Configure failover origins"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
 
             // Check for backup/failover headers
             tests_run += 1;
-            if response.headers.get("retry-after").is_some() ||
-               response.headers.get("x-ratelimit-remaining").is_some() {
+            if response.headers.get("retry-after").is_some()
+                || response.headers.get("x-ratelimit-remaining").is_some()
+            {
                 // Good - has rate limiting/retry logic
             } else {
                 vulnerabilities.push(Vulnerability {
@@ -1083,7 +1183,8 @@ impl DoraScanner {
                         - Prevents resource exhaustion\n\
                         - Mitigates DoS attacks\n\
                         - Ensures fair resource allocation\n\
-                        - Required for API availability".to_string(),
+                        - Required for API availability"
+                        .to_string(),
                     evidence: Some("No X-RateLimit-* or Retry-After headers found".to_string()),
                     cwe: "CWE-770".to_string(),
                     cvss: 3.7,
@@ -1094,9 +1195,10 @@ impl DoraScanner {
                         X-RateLimit-Remaining: 99\n\
                         X-RateLimit-Reset: 1640000000\n\
                         Retry-After: 60 (when limit exceeded)\n\n\
-                        Use API gateway or reverse proxy for implementation".to_string(),
+                        Use API gateway or reverse proxy for implementation"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -1228,9 +1330,9 @@ impl DoraScanner {
                 if let Ok(admin_response) = self.http_client.get(&test_url).await {
                     // Check if admin panel is accessible without auth
                     if admin_response.status_code == 200 {
-                        let has_login = admin_response.body.to_lowercase().contains("login") ||
-                                       admin_response.body.to_lowercase().contains("sign in") ||
-                                       admin_response.body.to_lowercase().contains("password");
+                        let has_login = admin_response.body.to_lowercase().contains("login")
+                            || admin_response.body.to_lowercase().contains("sign in")
+                            || admin_response.body.to_lowercase().contains("password");
 
                         if !has_login {
                             vulnerabilities.push(Vulnerability {
@@ -1314,11 +1416,29 @@ mod tests {
 
     #[test]
     fn test_dora_category_strings() {
-        assert_eq!(DoraCategory::IctRiskManagement.as_str(), "DORA Article 5-16: ICT Risk Management");
-        assert_eq!(DoraCategory::IncidentReporting.as_str(), "DORA Article 17-23: ICT Incident Reporting");
-        assert_eq!(DoraCategory::ResilienceTesting.as_str(), "DORA Article 24-27: Resilience Testing");
-        assert_eq!(DoraCategory::ThirdPartyRisk.as_str(), "DORA Article 28-44: Third-Party ICT Risk");
-        assert_eq!(DoraCategory::InformationSharing.as_str(), "DORA Article 45: Information Sharing");
-        assert_eq!(DoraCategory::BusinessContinuity.as_str(), "DORA: Business Continuity");
+        assert_eq!(
+            DoraCategory::IctRiskManagement.as_str(),
+            "DORA Article 5-16: ICT Risk Management"
+        );
+        assert_eq!(
+            DoraCategory::IncidentReporting.as_str(),
+            "DORA Article 17-23: ICT Incident Reporting"
+        );
+        assert_eq!(
+            DoraCategory::ResilienceTesting.as_str(),
+            "DORA Article 24-27: Resilience Testing"
+        );
+        assert_eq!(
+            DoraCategory::ThirdPartyRisk.as_str(),
+            "DORA Article 28-44: Third-Party ICT Risk"
+        );
+        assert_eq!(
+            DoraCategory::InformationSharing.as_str(),
+            "DORA Article 45: Information Sharing"
+        );
+        assert_eq!(
+            DoraCategory::BusinessContinuity.as_str(),
+            "DORA: Business Continuity"
+        );
     }
 }

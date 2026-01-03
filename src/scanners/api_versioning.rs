@@ -17,7 +17,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -85,16 +84,24 @@ impl ApiVersioningScanner {
         info!("[API-Version] API endpoint detected, starting versioning analysis");
 
         // Step 2: Detect current versioning scheme
-        let (scheme, current_version) = self.detect_versioning_scheme(url, &baseline_response).await;
-        info!("[API-Version] Detected scheme: {:?}, current version: {:?}", scheme, current_version);
+        let (scheme, current_version) =
+            self.detect_versioning_scheme(url, &baseline_response).await;
+        info!(
+            "[API-Version] Detected scheme: {:?}, current version: {:?}",
+            scheme, current_version
+        );
 
         // Step 3: Enumerate available versions
-        let (vulns, tests) = self.enumerate_versions(url, &scheme, &current_version).await?;
+        let (vulns, tests) = self
+            .enumerate_versions(url, &scheme, &current_version)
+            .await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
         // Step 4: Test deprecated versions
-        let (vulns, tests) = self.test_deprecated_versions(url, &scheme, &current_version).await?;
+        let (vulns, tests) = self
+            .test_deprecated_versions(url, &scheme, &current_version)
+            .await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
@@ -104,7 +111,9 @@ impl ApiVersioningScanner {
         total_tests += tests;
 
         // Step 6: Compare security between versions
-        let (vulns, tests) = self.compare_version_security(url, &scheme, &current_version).await?;
+        let (vulns, tests) = self
+            .compare_version_security(url, &scheme, &current_version)
+            .await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
@@ -130,16 +139,16 @@ impl ApiVersioningScanner {
     /// Check if URL looks like an API endpoint
     fn looks_like_api_url(&self, url: &str) -> bool {
         let url_lower = url.to_lowercase();
-        url_lower.contains("/api/") ||
-        url_lower.contains("/api.") ||
-        url_lower.contains("/v1/") ||
-        url_lower.contains("/v2/") ||
-        url_lower.contains("/v3/") ||
-        url_lower.contains("/graphql") ||
-        url_lower.contains("/rest/") ||
-        url_lower.contains("api.") ||
-        url_lower.contains("/json") ||
-        url_lower.contains("api-version")
+        url_lower.contains("/api/")
+            || url_lower.contains("/api.")
+            || url_lower.contains("/v1/")
+            || url_lower.contains("/v2/")
+            || url_lower.contains("/v3/")
+            || url_lower.contains("/graphql")
+            || url_lower.contains("/rest/")
+            || url_lower.contains("api.")
+            || url_lower.contains("/json")
+            || url_lower.contains("api-version")
     }
 
     /// Detect the versioning scheme used by the API
@@ -236,26 +245,33 @@ impl ApiVersioningScanner {
         // Version patterns to test
         let numeric_versions: Vec<String> = (0..20).map(|i| format!("v{}", i)).collect();
         let semantic_versions = vec![
-            "v1.0.0", "v1.0.1", "v1.1.0", "v1.2.0",
-            "v2.0.0", "v2.1.0", "v2.2.0",
-            "v0.1.0", "v0.2.0", "v0.9.0",
+            "v1.0.0", "v1.0.1", "v1.1.0", "v1.2.0", "v2.0.0", "v2.1.0", "v2.2.0", "v0.1.0",
+            "v0.2.0", "v0.9.0",
         ];
         let special_versions = vec![
-            "beta", "alpha", "dev", "staging", "preview",
-            "v0", "v1-beta", "v2-beta", "v1-alpha",
+            "beta", "alpha", "dev", "staging", "preview", "v0", "v1-beta", "v2-beta", "v1-alpha",
             "latest", "stable", "next", "canary",
         ];
         let date_versions = vec![
-            "2023-01-01", "2023-06-01", "2023-12-01",
-            "2024-01-01", "2024-06-01", "2024-12-01",
+            "2023-01-01",
+            "2023-06-01",
+            "2023-12-01",
+            "2024-01-01",
+            "2024-06-01",
+            "2024-12-01",
             "2025-01-01",
         ];
 
         let mut discovered_versions: Vec<String> = Vec::new();
 
         // Test path-based versions
-        if matches!(scheme, VersioningScheme::PathBased | VersioningScheme::Mixed | VersioningScheme::Unknown) {
-            let all_versions: Vec<&str> = numeric_versions.iter().map(|s| s.as_str())
+        if matches!(
+            scheme,
+            VersioningScheme::PathBased | VersioningScheme::Mixed | VersioningScheme::Unknown
+        ) {
+            let all_versions: Vec<&str> = numeric_versions
+                .iter()
+                .map(|s| s.as_str())
                 .chain(semantic_versions.iter().copied())
                 .chain(special_versions.iter().copied())
                 .chain(date_versions.iter().copied())
@@ -276,7 +292,10 @@ impl ApiVersioningScanner {
                             }
 
                             discovered_versions.push(version.to_string());
-                            info!("[API-Version] Discovered version: {} at {}", version, test_url);
+                            info!(
+                                "[API-Version] Discovered version: {} at {}",
+                                version, test_url
+                            );
                         }
                     }
                     Err(e) => {
@@ -296,30 +315,46 @@ impl ApiVersioningScanner {
 
         // Report undocumented versions
         if !discovered_versions.is_empty() {
-            let hidden_versions: Vec<&String> = discovered_versions.iter()
+            let hidden_versions: Vec<&String> = discovered_versions
+                .iter()
                 .filter(|v| {
-                    special_versions.contains(&v.as_str()) ||
-                    v.contains("beta") || v.contains("alpha") || v.contains("dev")
+                    special_versions.contains(&v.as_str())
+                        || v.contains("beta")
+                        || v.contains("alpha")
+                        || v.contains("dev")
                 })
                 .collect();
 
             if !hidden_versions.is_empty() {
-                vulnerabilities.push(self.create_vulnerability(
-                    url,
-                    "Hidden/Development API Versions Exposed",
-                    &hidden_versions.iter().map(|v| v.as_str()).collect::<Vec<_>>().join(", "),
-                    &format!(
-                        "Development or hidden API versions are publicly accessible: {}. \
+                vulnerabilities.push(
+                    self.create_vulnerability(
+                        url,
+                        "Hidden/Development API Versions Exposed",
+                        &hidden_versions
+                            .iter()
+                            .map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        &format!(
+                            "Development or hidden API versions are publicly accessible: {}. \
                         These versions may contain debugging features, reduced security controls, \
                         or unfinished functionality that could be exploited.",
-                        hidden_versions.iter().map(|v| v.as_str()).collect::<Vec<_>>().join(", ")
+                            hidden_versions
+                                .iter()
+                                .map(|v| v.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        &format!(
+                            "Discovered {} hidden/development API versions",
+                            hidden_versions.len()
+                        ),
+                        Severity::Medium,
+                        Confidence::High,
+                        "CWE-693",
+                        5.5,
                     ),
-                    &format!("Discovered {} hidden/development API versions", hidden_versions.len()),
-                    Severity::Medium,
-                    Confidence::High,
-                    "CWE-693",
-                    5.5,
-                ));
+                );
             }
         }
 
@@ -436,7 +471,10 @@ impl ApiVersioningScanner {
                                 version-specific security controls.",
                                 technique
                             ),
-                            &format!("Version bypass succeeded at {} using {}", test_url, technique),
+                            &format!(
+                                "Version bypass succeeded at {} using {}",
+                                test_url, technique
+                            ),
                             Severity::High,
                             Confidence::Medium,
                             "CWE-693",
@@ -454,13 +492,20 @@ impl ApiVersioningScanner {
         // Test version parameter pollution
         let pollution_tests = vec![
             ("?v=1&v=2", "Parameter pollution"),
-            ("?api_version=1&api_version=2", "Parameter pollution (api_version)"),
+            (
+                "?api_version=1&api_version=2",
+                "Parameter pollution (api_version)",
+            ),
             ("?v=1&api_version=2", "Mixed parameter pollution"),
             ("?v[]=1&v[]=2", "Array parameter pollution"),
         ];
 
         for (pollution_query, technique) in &pollution_tests {
-            let test_url = format!("{}{}", url.split('?').next().unwrap_or(url), pollution_query);
+            let test_url = format!(
+                "{}{}",
+                url.split('?').next().unwrap_or(url),
+                pollution_query
+            );
             tests_run += 1;
 
             match self.http_client.get(&test_url).await {
@@ -584,14 +629,20 @@ impl ApiVersioningScanner {
         debug!("Testing header-based API versioning");
 
         let version_headers = [
-            ("X-API-Version", vec!["1", "0", "v1", "v0", "beta", "alpha", "dev"]),
+            (
+                "X-API-Version",
+                vec!["1", "0", "v1", "v0", "beta", "alpha", "dev"],
+            ),
             ("Api-Version", vec!["1", "0", "v1", "v0", "beta"]),
-            ("Accept", vec![
-                "application/vnd.api+json; version=1",
-                "application/vnd.api+json; version=0",
-                "application/vnd.api.v1+json",
-                "application/vnd.api.v0+json",
-            ]),
+            (
+                "Accept",
+                vec![
+                    "application/vnd.api+json; version=1",
+                    "application/vnd.api+json; version=0",
+                    "application/vnd.api.v1+json",
+                    "application/vnd.api.v0+json",
+                ],
+            ),
             ("X-Version", vec!["1", "0", "beta", "dev"]),
             ("Version", vec!["1", "0", "beta"]),
         ];
@@ -608,12 +659,15 @@ impl ApiVersioningScanner {
                 match self.http_client.get_with_headers(url, headers).await {
                     Ok(response) => {
                         // Check if header changed the response
-                        if self.is_valid_api_response(&response) &&
-                           self.responses_differ(&baseline, &response) {
-
+                        if self.is_valid_api_response(&response)
+                            && self.responses_differ(&baseline, &response)
+                        {
                             // Check if we accessed a dev/beta version
-                            if version.contains("beta") || version.contains("alpha") ||
-                               version.contains("dev") || *version == "0" {
+                            if version.contains("beta")
+                                || version.contains("alpha")
+                                || version.contains("dev")
+                                || *version == "0"
+                            {
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
                                     "Hidden API Version via Header",
@@ -705,7 +759,10 @@ impl ApiVersioningScanner {
         let base_url = url.split('?').next().unwrap_or(url);
 
         let version_params = vec![
-            ("api_version", vec!["1", "0", "v1", "v0", "beta", "alpha", "dev"]),
+            (
+                "api_version",
+                vec!["1", "0", "v1", "v0", "beta", "alpha", "dev"],
+            ),
             ("version", vec!["1", "0", "v1", "v0", "beta"]),
             ("v", vec!["1", "0", "beta", "dev"]),
             ("api-version", vec!["1", "0", "beta"]),
@@ -722,12 +779,15 @@ impl ApiVersioningScanner {
 
                 match self.http_client.get(&test_url).await {
                     Ok(response) => {
-                        if self.is_valid_api_response(&response) &&
-                           self.responses_differ(&baseline, &response) {
-
+                        if self.is_valid_api_response(&response)
+                            && self.responses_differ(&baseline, &response)
+                        {
                             // Check if we accessed a dev/beta version
-                            if version.contains("beta") || version.contains("alpha") ||
-                               version.contains("dev") || *version == "0" {
+                            if version.contains("beta")
+                                || version.contains("alpha")
+                                || version.contains("dev")
+                                || *version == "0"
+                            {
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
                                     "Hidden API Version via Query Parameter",
@@ -766,15 +826,17 @@ impl ApiVersioningScanner {
         let response = self.http_client.get(url).await?;
         let duration = start.elapsed().as_millis() as u64;
 
-        let has_security_headers = response.headers.contains_key("x-content-type-options") ||
-                                   response.headers.contains_key("x-frame-options") ||
-                                   response.headers.contains_key("strict-transport-security") ||
-                                   response.headers.contains_key("content-security-policy");
+        let has_security_headers = response.headers.contains_key("x-content-type-options")
+            || response.headers.contains_key("x-frame-options")
+            || response.headers.contains_key("strict-transport-security")
+            || response.headers.contains_key("content-security-policy");
 
         let has_rate_limiting = response.headers.keys().any(|k| {
             let k_lower = k.to_lowercase();
-            k_lower.contains("ratelimit") || k_lower.contains("rate-limit") ||
-            k_lower == "retry-after" || k_lower.contains("x-rate")
+            k_lower.contains("ratelimit")
+                || k_lower.contains("rate-limit")
+                || k_lower == "retry-after"
+                || k_lower.contains("x-rate")
         }) || response.status_code == 429;
 
         let requires_auth = response.status_code == 401 || response.status_code == 403;
@@ -795,31 +857,37 @@ impl ApiVersioningScanner {
     /// Check if response indicates a valid API response
     fn is_valid_api_response(&self, response: &crate::http_client::HttpResponse) -> bool {
         // Check status code
-        if response.status_code == 404 || response.status_code == 502 || response.status_code == 503 {
+        if response.status_code == 404 || response.status_code == 502 || response.status_code == 503
+        {
             return false;
         }
 
         // Check content type
         if let Some(content_type) = response.headers.get("content-type") {
             let ct_lower = content_type.to_lowercase();
-            if ct_lower.contains("application/json") ||
-               ct_lower.contains("application/xml") ||
-               ct_lower.contains("text/json") {
+            if ct_lower.contains("application/json")
+                || ct_lower.contains("application/xml")
+                || ct_lower.contains("text/json")
+            {
                 return true;
             }
         }
 
         // Check if body looks like JSON
         let body_trimmed = response.body.trim();
-        if (body_trimmed.starts_with('{') && body_trimmed.ends_with('}')) ||
-           (body_trimmed.starts_with('[') && body_trimmed.ends_with(']')) {
+        if (body_trimmed.starts_with('{') && body_trimmed.ends_with('}'))
+            || (body_trimmed.starts_with('[') && body_trimmed.ends_with(']'))
+        {
             return true;
         }
 
         // Check for common API error patterns
         let body_lower = response.body.to_lowercase();
-        if body_lower.contains("\"error\"") || body_lower.contains("\"message\"") ||
-           body_lower.contains("\"status\"") || body_lower.contains("\"data\"") {
+        if body_lower.contains("\"error\"")
+            || body_lower.contains("\"message\"")
+            || body_lower.contains("\"status\"")
+            || body_lower.contains("\"data\"")
+        {
             return true;
         }
 
@@ -829,18 +897,23 @@ impl ApiVersioningScanner {
     /// Check if response has deprecation warning
     fn has_deprecation_warning(&self, response: &crate::http_client::HttpResponse) -> bool {
         // Check headers
-        if response.headers.contains_key("deprecation") ||
-           response.headers.contains_key("sunset") ||
-           response.headers.get("warning").map(|w| w.to_lowercase().contains("deprecated")).unwrap_or(false) {
+        if response.headers.contains_key("deprecation")
+            || response.headers.contains_key("sunset")
+            || response
+                .headers
+                .get("warning")
+                .map(|w| w.to_lowercase().contains("deprecated"))
+                .unwrap_or(false)
+        {
             return true;
         }
 
         // Check body
         let body_lower = response.body.to_lowercase();
-        body_lower.contains("deprecated") ||
-        body_lower.contains("sunset") ||
-        body_lower.contains("end of life") ||
-        body_lower.contains("no longer supported")
+        body_lower.contains("deprecated")
+            || body_lower.contains("sunset")
+            || body_lower.contains("end of life")
+            || body_lower.contains("no longer supported")
     }
 
     /// Check if two responses differ significantly
@@ -987,7 +1060,7 @@ impl ApiVersioningScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1000,7 +1073,8 @@ impl ApiVersioningScanner {
                  3. Implement proper access controls for internal API versions\n\
                  4. Document all supported API versions and their lifecycle\n\
                  5. Use API gateway rules to block access to hidden versions\n\
-                 6. Implement IP allowlisting for development endpoints".to_string()
+                 6. Implement IP allowlisting for development endpoints"
+                    .to_string()
             }
             "Deprecated API Version Without Warning" => {
                 "1. Implement Deprecation and Sunset headers for old API versions\n\
@@ -1008,7 +1082,8 @@ impl ApiVersioningScanner {
                  3. Provide clear migration timelines and documentation\n\
                  4. Set a sunset date and disable old versions after that date\n\
                  5. Monitor usage of deprecated versions and notify consumers\n\
-                 6. Consider returning 410 Gone for truly end-of-life versions".to_string()
+                 6. Consider returning 410 Gone for truly end-of-life versions"
+                    .to_string()
             }
             "API Version Bypass" => {
                 "1. Implement strict version validation at the API gateway level\n\
@@ -1016,7 +1091,8 @@ impl ApiVersioningScanner {
                  3. Reject requests with malformed version identifiers\n\
                  4. Use allowlist-based version matching instead of pattern matching\n\
                  5. Implement defense in depth with application-level validation\n\
-                 6. Log and monitor version bypass attempts".to_string()
+                 6. Log and monitor version bypass attempts"
+                    .to_string()
             }
             "API Version Parameter Pollution" => {
                 "1. Implement strict parameter parsing that rejects duplicates\n\
@@ -1024,7 +1100,8 @@ impl ApiVersioningScanner {
                  3. Define and enforce parameter precedence rules\n\
                  4. Validate and sanitize all version parameters\n\
                  5. Use typed parameter binding instead of string parsing\n\
-                 6. Test parameter handling with security tools".to_string()
+                 6. Test parameter handling with security tools"
+                    .to_string()
             }
             "API Version Security Regression" => {
                 "1. Apply all security controls consistently across API versions\n\
@@ -1032,7 +1109,8 @@ impl ApiVersioningScanner {
                  3. Deprecate and sunset versions that cannot be secured\n\
                  4. Implement version-independent security policies at gateway\n\
                  5. Conduct security review when supporting multiple versions\n\
-                 6. Document security differences between versions for consumers".to_string()
+                 6. Document security differences between versions for consumers"
+                    .to_string()
             }
             "Hidden API Version via Header" | "Hidden API Version via Query Parameter" => {
                 "1. Restrict access to development/internal API versions\n\
@@ -1040,7 +1118,8 @@ impl ApiVersioningScanner {
                  3. Use authentication for access to non-production versions\n\
                  4. Implement version allowlisting at the API gateway\n\
                  5. Log and alert on access attempts to hidden versions\n\
-                 6. Remove support for undocumented version mechanisms".to_string()
+                 6. Remove support for undocumented version mechanisms"
+                    .to_string()
             }
             "Missing API Version Validation" => {
                 "1. Implement strict validation for all version parameters\n\
@@ -1048,16 +1127,16 @@ impl ApiVersioningScanner {
                  3. Use type-safe version parsing with explicit validation\n\
                  4. Sanitize version inputs to prevent injection attacks\n\
                  5. Return 400 Bad Request for invalid version formats\n\
-                 6. Document expected version format in API documentation".to_string()
+                 6. Document expected version format in API documentation"
+                    .to_string()
             }
-            _ => {
-                "1. Implement comprehensive API version management\n\
+            _ => "1. Implement comprehensive API version management\n\
                  2. Use Deprecation and Sunset headers for version lifecycle\n\
                  3. Apply security controls consistently across versions\n\
                  4. Validate version parameters at API gateway level\n\
                  5. Monitor for version manipulation attempts\n\
-                 6. Follow OWASP API Security guidelines".to_string()
-            }
+                 6. Follow OWASP API Security guidelines"
+                .to_string(),
         }
     }
 }
@@ -1277,8 +1356,8 @@ mod tests {
         ];
 
         for (path, should_match, expected_version) in path_patterns {
-            let has_version = path.contains("/v") &&
-                             regex::Regex::new(r"/v\d+").unwrap().is_match(path);
+            let has_version =
+                path.contains("/v") && regex::Regex::new(r"/v\d+").unwrap().is_match(path);
 
             if should_match && expected_version.starts_with('v') {
                 assert!(has_version, "Expected version match for {}", path);

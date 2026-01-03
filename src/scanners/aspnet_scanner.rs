@@ -379,12 +379,12 @@ impl AspNetScanner {
                     {
                         exposed_info.push("Database connection strings");
                     }
-                    if resp.body.contains("web.config")
-                        || resp.body.contains("appsettings.json")
-                    {
+                    if resp.body.contains("web.config") || resp.body.contains("appsettings.json") {
                         exposed_info.push("Configuration file paths");
                     }
-                    if resp.body.contains("c:\\") || resp.body.contains("C:\\") || resp.body.contains("/var/www")
+                    if resp.body.contains("c:\\")
+                        || resp.body.contains("C:\\")
+                        || resp.body.contains("/var/www")
                     {
                         exposed_info.push("Server file paths");
                     }
@@ -428,7 +428,7 @@ impl AspNetScanner {
                                       5. Implement custom error pages"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -452,7 +452,10 @@ impl AspNetScanner {
             ("/_blazor", "Blazor SignalR Hub"),
             ("/_blazor/negotiate", "Blazor Negotiation Endpoint"),
             ("/_framework/blazor.server.js", "Blazor Server JavaScript"),
-            ("/_framework/blazor.webassembly.js", "Blazor WASM JavaScript"),
+            (
+                "/_framework/blazor.webassembly.js",
+                "Blazor WASM JavaScript",
+            ),
             ("/_framework/blazor.boot.json", "Blazor Boot Configuration"),
             ("/_content/", "Blazor Static Content"),
             ("/_framework/dotnet.wasm", "WebAssembly Runtime"),
@@ -587,10 +590,15 @@ impl AspNetScanner {
             let mut headers = HashMap::new();
             headers.insert("Content-Type".to_string(), "application/json".to_string());
 
-            let headers_vec: Vec<(String, String)> =
-                headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let headers_vec: Vec<(String, String)> = headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
 
-            if let Ok(resp) = self.http_client.post_with_headers(&check_url, "{}", headers_vec).await
+            if let Ok(resp) = self
+                .http_client
+                .post_with_headers(&check_url, "{}", headers_vec)
+                .await
             {
                 let is_signalr = resp.status_code == 200
                     || resp.status_code == 400
@@ -682,7 +690,10 @@ impl AspNetScanner {
                 dev_indicators.push("Browser refresh script (hot reload)");
             }
 
-            if resp.body.contains("_framework/aspnetcore-browser-refresh.js") {
+            if resp
+                .body
+                .contains("_framework/aspnetcore-browser-refresh.js")
+            {
                 dev_indicators.push("ASP.NET Core development browser link");
             }
 
@@ -736,7 +747,7 @@ impl AspNetScanner {
                                   4. Use proper deployment configuration"
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -764,10 +775,9 @@ impl AspNetScanner {
                         url: swagger_url.clone(),
                         parameter: Some("swagger".to_string()),
                         payload: path.to_string(),
-                        description:
-                            "Swagger/OpenAPI documentation is publicly accessible. \
+                        description: "Swagger/OpenAPI documentation is publicly accessible. \
                             This reveals complete API structure, endpoints, and data models."
-                                .to_string(),
+                            .to_string(),
                         evidence: Some(format!("Swagger UI accessible at: {}", path)),
                         cwe: "CWE-200".to_string(),
                         cvss: 5.3,
@@ -778,7 +788,7 @@ impl AspNetScanner {
                                       3. Add authentication to Swagger endpoints"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -811,8 +821,16 @@ impl AspNetScanner {
                 "Production Settings",
                 Severity::Critical,
             ),
-            ("/connectionstrings.config", "Connection Strings", Severity::Critical),
-            ("/applicationhost.config", "IIS App Host Config", Severity::High),
+            (
+                "/connectionstrings.config",
+                "Connection Strings",
+                Severity::Critical,
+            ),
+            (
+                "/applicationhost.config",
+                "IIS App Host Config",
+                Severity::High,
+            ),
             ("/bin/", "Binary Directory", Severity::Medium),
             ("/obj/", "Build Objects", Severity::Low),
             ("/.vs/", "Visual Studio Directory", Severity::Medium),
@@ -852,9 +870,7 @@ impl AspNetScanner {
                         "ClientSecret",
                     ];
 
-                    let has_sensitive = sensitive_patterns
-                        .iter()
-                        .any(|p| resp.body.contains(p));
+                    let has_sensitive = sensitive_patterns.iter().any(|p| resp.body.contains(p));
 
                     let final_severity = if has_sensitive {
                         Severity::Critical
@@ -938,10 +954,13 @@ impl AspNetScanner {
                         url: url.to_string(),
                         parameter: Some("__RequestVerificationToken".to_string()),
                         payload: "Form without CSRF protection".to_string(),
-                        description: "HTML forms detected without ASP.NET anti-forgery tokens. \
+                        description:
+                            "HTML forms detected without ASP.NET anti-forgery tokens. \
                             This may indicate missing CSRF protection on state-changing operations."
-                            .to_string(),
-                        evidence: Some("Forms found without __RequestVerificationToken".to_string()),
+                                .to_string(),
+                        evidence: Some(
+                            "Forms found without __RequestVerificationToken".to_string(),
+                        ),
                         cwe: "CWE-352".to_string(),
                         cvss: 6.5,
                         verified: true,
@@ -952,7 +971,7 @@ impl AspNetScanner {
                                       4. For APIs, use X-XSRF-TOKEN header pattern"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -1065,7 +1084,7 @@ impl AspNetScanner {
                                 "Review OIDC configuration for sensitive information exposure."
                                     .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     } else if path.contains("Register") {
                         vulnerabilities.push(Vulnerability {
@@ -1198,14 +1217,13 @@ impl AspNetScanner {
                                 cvss: if exposed_info.len() > 2 { 5.3 } else { 3.7 },
                                 verified: true,
                                 false_positive: false,
-                                remediation:
-                                    "1. Restrict health endpoints to internal networks\n\
+                                remediation: "1. Restrict health endpoints to internal networks\n\
                                     2. Use RequireHost() for localhost-only access\n\
                                     3. Implement authentication on health UI\n\
                                     4. Limit information in health responses"
-                                        .to_string(),
+                                    .to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                ml_data: None,
                             });
                         }
                     }
@@ -1240,7 +1258,8 @@ impl AspNetScanner {
                         issues.push("Missing X-Content-Type-Options");
                     }
 
-                    if resp.headers.get("strict-transport-security").is_none() && url.starts_with("https://")
+                    if resp.headers.get("strict-transport-security").is_none()
+                        && url.starts_with("https://")
                     {
                         issues.push("Missing HSTS header");
                     }
@@ -1288,14 +1307,12 @@ impl AspNetScanner {
         let large_header = "X".repeat(16000);
         let mut headers = HashMap::new();
         headers.insert("X-Test-Large".to_string(), large_header);
-        let headers_vec: Vec<(String, String)> =
-            headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let headers_vec: Vec<(String, String)> = headers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
-        if let Ok(resp) = self
-            .http_client
-            .get_with_headers(url, headers_vec)
-            .await
-        {
+        if let Ok(resp) = self.http_client.get_with_headers(url, headers_vec).await {
             if resp.status_code == 431 {
                 vulnerabilities.push(Vulnerability {
                     id: format!("aspnet_kestrel_limits_{}", Self::generate_id()),
@@ -1387,7 +1404,7 @@ impl AspNetScanner {
                         cve.cve_id
                     ),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }

@@ -11,12 +11,11 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::crawler::FormInput;
 use regex::Regex;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 use tracing::debug;
 
 // ============================================================================
@@ -73,8 +72,11 @@ impl ContentType {
         }
 
         // API endpoints typically use JSON
-        if path_lower.contains("/api/") || path_lower.starts_with("/v1/") ||
-           path_lower.starts_with("/v2/") || path_lower.starts_with("/v3/") {
+        if path_lower.contains("/api/")
+            || path_lower.starts_with("/v1/")
+            || path_lower.starts_with("/v2/")
+            || path_lower.starts_with("/v3/")
+        {
             return ContentType::Json;
         }
 
@@ -145,7 +147,10 @@ impl ValueType {
         }
 
         // UUID check
-        let uuid_re = Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$").unwrap();
+        let uuid_re = Regex::new(
+            r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        )
+        .unwrap();
         if uuid_re.is_match(value) {
             return ValueType::UUID;
         }
@@ -165,18 +170,22 @@ impl ValueType {
         }
 
         // URL check
-        if value.starts_with("http://") || value.starts_with("https://") || value.starts_with("//") {
+        if value.starts_with("http://") || value.starts_with("https://") || value.starts_with("//")
+        {
             return ValueType::Url;
         }
 
         // Date check (various formats)
         let date_patterns = [
-            r"^\d{4}-\d{2}-\d{2}$",  // YYYY-MM-DD
-            r"^\d{2}/\d{2}/\d{4}$",  // DD/MM/YYYY or MM/DD/YYYY
-            r"^\d{2}-\d{2}-\d{4}$",  // DD-MM-YYYY
+            r"^\d{4}-\d{2}-\d{2}$", // YYYY-MM-DD
+            r"^\d{2}/\d{2}/\d{4}$", // DD/MM/YYYY or MM/DD/YYYY
+            r"^\d{2}-\d{2}-\d{4}$", // DD-MM-YYYY
         ];
         for pattern in &date_patterns {
-            if Regex::new(pattern).map(|re| re.is_match(value)).unwrap_or(false) {
+            if Regex::new(pattern)
+                .map(|re| re.is_match(value))
+                .unwrap_or(false)
+            {
                 return ValueType::Date;
             }
         }
@@ -187,14 +196,18 @@ impl ValueType {
             r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", // YYYY-MM-DD HH:MM:SS
         ];
         for pattern in &datetime_patterns {
-            if Regex::new(pattern).map(|re| re.is_match(value)).unwrap_or(false) {
+            if Regex::new(pattern)
+                .map(|re| re.is_match(value))
+                .unwrap_or(false)
+            {
                 return ValueType::DateTime;
             }
         }
 
         // JSON check
-        if (value.starts_with('{') && value.ends_with('}')) ||
-           (value.starts_with('[') && value.ends_with(']')) {
+        if (value.starts_with('{') && value.ends_with('}'))
+            || (value.starts_with('[') && value.ends_with(']'))
+        {
             if serde_json::from_str::<serde_json::Value>(value).is_ok() {
                 return ValueType::Json;
             }
@@ -211,15 +224,15 @@ impl ValueType {
     /// Get risk score for this value type (1-10)
     pub fn risk_score(&self) -> u8 {
         match self {
-            ValueType::Jwt => 10,      // JWTs are always security-critical
-            ValueType::Base64 => 8,    // Could be serialized data
-            ValueType::Json => 7,      // Could be deserialized
-            ValueType::Url => 7,       // SSRF potential
-            ValueType::Email => 6,     // Often used in auth flows
-            ValueType::String => 5,    // General injection target
-            ValueType::UUID => 3,      // Usually internal IDs
-            ValueType::Numeric => 2,   // Often just IDs
-            ValueType::Boolean => 1,   // Usually flags
+            ValueType::Jwt => 10,    // JWTs are always security-critical
+            ValueType::Base64 => 8,  // Could be serialized data
+            ValueType::Json => 7,    // Could be deserialized
+            ValueType::Url => 7,     // SSRF potential
+            ValueType::Email => 6,   // Often used in auth flows
+            ValueType::String => 5,  // General injection target
+            ValueType::UUID => 3,    // Usually internal IDs
+            ValueType::Numeric => 2, // Often just IDs
+            ValueType::Boolean => 1, // Usually flags
             ValueType::Date => 2,
             ValueType::DateTime => 2,
             ValueType::Unknown => 3,
@@ -232,7 +245,9 @@ fn base64_like(s: &str) -> bool {
     if s.len() < 4 {
         return false;
     }
-    s.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=' || c == '_' || c == '-')
+    s.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=' || c == '_' || c == '-'
+    })
 }
 
 // ============================================================================
@@ -266,12 +281,12 @@ impl ParameterSource {
     /// Get risk multiplier for this source (1.0-2.0)
     pub fn risk_multiplier(&self) -> f32 {
         match self {
-            ParameterSource::Header => 1.5,          // Headers often less validated
-            ParameterSource::Cookie => 1.4,          // Cookies trusted too much
-            ParameterSource::PathSegment => 1.3,     // Path segments often trusted
+            ParameterSource::Header => 1.5,      // Headers often less validated
+            ParameterSource::Cookie => 1.4,      // Cookies trusted too much
+            ParameterSource::PathSegment => 1.3, // Path segments often trusted
             ParameterSource::GraphQLVariable => 1.2, // GraphQL sometimes bypasses validation
             ParameterSource::JsonBody => 1.1,
-            ParameterSource::XmlBody => 1.2,         // XML parsers can be vulnerable
+            ParameterSource::XmlBody => 1.2, // XML parsers can be vulnerable
             ParameterSource::Form => 1.0,
             ParameterSource::Url => 1.0,
             ParameterSource::MultipartField => 1.1,
@@ -327,10 +342,10 @@ impl EndpointSignature {
 
 impl PartialEq for EndpointSignature {
     fn eq(&self, other: &Self) -> bool {
-        self.method == other.method &&
-        self.path_pattern == other.path_pattern &&
-        self.param_names == other.param_names &&
-        self.content_type == other.content_type
+        self.method == other.method
+            && self.path_pattern == other.path_pattern
+            && self.param_names == other.param_names
+            && self.content_type == other.content_type
     }
 }
 
@@ -355,7 +370,8 @@ pub struct PathNormalizer;
 impl PathNormalizer {
     // Lazy static patterns for path normalization
     fn uuid_pattern() -> Regex {
-        Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").unwrap()
+        Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+            .unwrap()
     }
 
     fn numeric_id_pattern() -> Regex {
@@ -363,7 +379,7 @@ impl PathNormalizer {
     }
 
     fn hex_id_pattern() -> Regex {
-        Regex::new(r"^[0-9a-fA-F]{24,}$").unwrap()  // MongoDB ObjectId and similar
+        Regex::new(r"^[0-9a-fA-F]{24,}$").unwrap() // MongoDB ObjectId and similar
     }
 
     fn date_pattern() -> Regex {
@@ -375,11 +391,11 @@ impl PathNormalizer {
     }
 
     fn version_pattern() -> Regex {
-        Regex::new(r"^v\d+(\.\d+)*$").unwrap()  // v1, v1.0, v2.1.3
+        Regex::new(r"^v\d+(\.\d+)*$").unwrap() // v1, v1.0, v2.1.3
     }
 
     fn hash_pattern() -> Regex {
-        Regex::new(r"^[a-fA-F0-9]{32,64}$").unwrap()  // MD5, SHA-1, SHA-256
+        Regex::new(r"^[a-fA-F0-9]{32,64}$").unwrap() // MD5, SHA-1, SHA-256
     }
 
     /// Normalize a URL path by replacing dynamic segments with placeholders
@@ -394,7 +410,11 @@ impl PathNormalizer {
                 } else if let Some(idx) = url.find("://") {
                     let after_scheme = &url[idx + 3..];
                     if let Some(path_start) = after_scheme.find('/') {
-                        after_scheme[path_start..].split('?').next().unwrap_or("").to_string()
+                        after_scheme[path_start..]
+                            .split('?')
+                            .next()
+                            .unwrap_or("")
+                            .to_string()
                     } else {
                         "/".to_string()
                     }
@@ -454,7 +474,7 @@ impl PathNormalizer {
 
         // Check for API version
         if Self::version_pattern().is_match(segment) {
-            return segment.to_string();  // Keep version as-is
+            return segment.to_string(); // Keep version as-is
         }
 
         // Check for file extensions
@@ -465,8 +485,9 @@ impl PathNormalizer {
                 let filename = parts[1];
 
                 // Common dynamic file patterns
-                if Self::numeric_id_pattern().is_match(filename) ||
-                   Self::uuid_pattern().is_match(filename) {
+                if Self::numeric_id_pattern().is_match(filename)
+                    || Self::uuid_pattern().is_match(filename)
+                {
                     return format!("{{file}}.{}", extension);
                 }
             }
@@ -490,9 +511,9 @@ impl PathNormalizer {
         }
 
         let has_separator = segment.contains('-') || segment.contains('_');
-        let all_slug_chars = segment.chars().all(|c|
-            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_'
-        );
+        let all_slug_chars = segment
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
         let has_letters = segment.chars().any(|c| c.is_ascii_lowercase());
 
         // It's a slug if it has separators and looks like text
@@ -553,13 +574,16 @@ impl ParameterContext {
     /// Add a sample value and detect type
     pub fn add_sample_value(&mut self, value: &str) {
         if !value.is_empty() && !self.sample_values.contains(&value.to_string()) {
-            if self.sample_values.len() < 5 {  // Keep up to 5 samples
+            if self.sample_values.len() < 5 {
+                // Keep up to 5 samples
                 self.sample_values.push(value.to_string());
             }
 
             // Detect type from value
             let detected_type = ValueType::detect(value);
-            if self.value_type == ValueType::Unknown || detected_type.risk_score() > self.value_type.risk_score() {
+            if self.value_type == ValueType::Unknown
+                || detected_type.risk_score() > self.value_type.risk_score()
+            {
                 self.value_type = detected_type;
             }
         }
@@ -572,9 +596,21 @@ impl ParameterContext {
 
         // CRITICAL (10): Auth/security-related
         let critical = [
-            "password", "passwd", "pwd", "token", "secret", "key", "auth",
-            "credential", "apikey", "api_key", "access_token", "refresh_token",
-            "session", "jwt", "bearer"
+            "password",
+            "passwd",
+            "pwd",
+            "token",
+            "secret",
+            "key",
+            "auth",
+            "credential",
+            "apikey",
+            "api_key",
+            "access_token",
+            "refresh_token",
+            "session",
+            "jwt",
+            "bearer",
         ];
         for term in &critical {
             if name_lower.contains(term) {
@@ -584,9 +620,22 @@ impl ParameterContext {
 
         // HIGH (8-9): User input fields
         let high = [
-            "email", "username", "user", "message", "comment", "feedback",
-            "description", "search", "query", "input", "text", "content", "body",
-            "title", "subject", "name"
+            "email",
+            "username",
+            "user",
+            "message",
+            "comment",
+            "feedback",
+            "description",
+            "search",
+            "query",
+            "input",
+            "text",
+            "content",
+            "body",
+            "title",
+            "subject",
+            "name",
         ];
         for term in &high {
             if name_lower.contains(term) {
@@ -596,8 +645,19 @@ impl ParameterContext {
 
         // MEDIUM-HIGH (7): File/URL operations
         let medium_high = [
-            "file", "path", "url", "uri", "link", "redirect", "callback",
-            "upload", "download", "attachment", "image", "document", "template"
+            "file",
+            "path",
+            "url",
+            "uri",
+            "link",
+            "redirect",
+            "callback",
+            "upload",
+            "download",
+            "attachment",
+            "image",
+            "document",
+            "template",
         ];
         for term in &medium_high {
             if name_lower.contains(term) {
@@ -607,8 +667,8 @@ impl ParameterContext {
 
         // MEDIUM (5): Business data
         let medium = [
-            "address", "phone", "company", "business", "product",
-            "price", "city", "country", "zip", "postal"
+            "address", "phone", "company", "business", "product", "price", "city", "country",
+            "zip", "postal",
         ];
         for term in &medium {
             if name_lower.contains(term) {
@@ -623,8 +683,8 @@ impl ParameterContext {
 
         // LOWEST (2): Pagination, sorting, boolean flags
         let lowest = [
-            "page", "limit", "offset", "sort", "order", "filter",
-            "enabled", "active", "visible", "show", "hide"
+            "page", "limit", "offset", "sort", "order", "filter", "enabled", "active", "visible",
+            "show", "hide",
         ];
         for term in &lowest {
             if name_lower.contains(term) {
@@ -654,7 +714,9 @@ impl ParameterContext {
         }
 
         // Apply source risk multipliers
-        let max_multiplier = self.sources.iter()
+        let max_multiplier = self
+            .sources
+            .iter()
             .map(|s| s.risk_multiplier())
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or(1.0);
@@ -686,15 +748,11 @@ impl FormSignature {
     pub fn new(action: &str, method: &str, fields: &[FormInput]) -> Self {
         let action_pattern = PathNormalizer::normalize(action);
 
-        let mut field_names: Vec<String> = fields.iter()
-            .map(|f| f.name.clone())
-            .collect();
+        let mut field_names: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
         field_names.sort();
         field_names.dedup();
 
-        let mut field_types: Vec<String> = fields.iter()
-            .map(|f| f.input_type.clone())
-            .collect();
+        let mut field_types: Vec<String> = fields.iter().map(|f| f.input_type.clone()).collect();
         field_types.sort();
 
         Self {
@@ -722,9 +780,9 @@ impl FormSignature {
 
 impl PartialEq for FormSignature {
     fn eq(&self, other: &Self) -> bool {
-        self.action_pattern == other.action_pattern &&
-        self.method == other.method &&
-        self.field_names == other.field_names
+        self.action_pattern == other.action_pattern
+            && self.method == other.method
+            && self.field_names == other.field_names
     }
 }
 
@@ -836,23 +894,36 @@ impl TestParameter {
         }
 
         // Name-based recommendations
-        if name_lower.contains("file") || name_lower.contains("path") || name_lower.contains("dir") {
+        if name_lower.contains("file") || name_lower.contains("path") || name_lower.contains("dir")
+        {
             recommendations.push("path_traversal".to_string());
         }
-        if name_lower.contains("url") || name_lower.contains("uri") || name_lower.contains("callback") {
+        if name_lower.contains("url")
+            || name_lower.contains("uri")
+            || name_lower.contains("callback")
+        {
             recommendations.push("ssrf".to_string());
         }
-        if name_lower.contains("redirect") || name_lower.contains("next") || name_lower.contains("return") {
+        if name_lower.contains("redirect")
+            || name_lower.contains("next")
+            || name_lower.contains("return")
+        {
             recommendations.push("open_redirect".to_string());
         }
-        if name_lower.contains("query") || name_lower.contains("search") || name_lower.contains("filter") {
+        if name_lower.contains("query")
+            || name_lower.contains("search")
+            || name_lower.contains("filter")
+        {
             recommendations.push("sqli".to_string());
             recommendations.push("nosql_injection".to_string());
         }
         if name_lower.contains("template") || name_lower.contains("render") {
             recommendations.push("ssti".to_string());
         }
-        if name_lower.contains("cmd") || name_lower.contains("exec") || name_lower.contains("command") {
+        if name_lower.contains("cmd")
+            || name_lower.contains("exec")
+            || name_lower.contains("command")
+        {
             recommendations.push("command_injection".to_string());
         }
         if name_lower.contains("xml") || name_lower.contains("soap") {
@@ -926,7 +997,8 @@ impl DeduplicatedTargets {
 
     /// Get high priority parameters (score >= 7)
     pub fn high_priority_parameters(&self) -> Vec<&TestParameter> {
-        self.unique_parameters.iter()
+        self.unique_parameters
+            .iter()
             .filter(|p| p.context.priority_score >= 7)
             .collect()
     }
@@ -992,8 +1064,12 @@ impl AttackSurface {
             .or_insert_with(Vec::new)
             .push(url.to_string());
 
-        debug!("[AttackSurface] Added endpoint: {} {} (normalized: {})",
-            method, url, PathNormalizer::normalize(url));
+        debug!(
+            "[AttackSurface] Added endpoint: {} {} (normalized: {})",
+            method,
+            url,
+            PathNormalizer::normalize(url)
+        );
     }
 
     /// Add a form to the attack surface
@@ -1002,7 +1078,13 @@ impl AttackSurface {
     }
 
     /// Add a form with source page tracking
-    pub fn add_form_with_source(&mut self, action: &str, method: &str, fields: &[FormInput], source_page: &str) {
+    pub fn add_form_with_source(
+        &mut self,
+        action: &str,
+        method: &str,
+        fields: &[FormInput],
+        source_page: &str,
+    ) {
         self.original_form_count += 1;
 
         let signature = FormSignature::new(action, method, fields);
@@ -1014,17 +1096,24 @@ impl AttackSurface {
                 }
             }
             None => {
-                self.forms.insert(signature, FormData {
-                    action: action.to_string(),
-                    method: method.to_uppercase(),
-                    fields: fields.to_vec(),
-                    discovered_at: vec![source_page.to_string()],
-                });
+                self.forms.insert(
+                    signature,
+                    FormData {
+                        action: action.to_string(),
+                        method: method.to_uppercase(),
+                        fields: fields.to_vec(),
+                        discovered_at: vec![source_page.to_string()],
+                    },
+                );
             }
         }
 
-        debug!("[AttackSurface] Added form: {} {} with {} fields",
-            method, action, fields.len());
+        debug!(
+            "[AttackSurface] Added form: {} {} with {} fields",
+            method,
+            action,
+            fields.len()
+        );
     }
 
     /// Add a parameter to the attack surface
@@ -1064,12 +1153,7 @@ impl AttackSurface {
     pub fn add_url_parameters(&mut self, url: &str) {
         if let Ok(parsed) = url::Url::parse(url) {
             for (key, value) in parsed.query_pairs() {
-                self.add_parameter_with_value(
-                    &key,
-                    ParameterSource::Url,
-                    url,
-                    Some(&value),
-                );
+                self.add_parameter_with_value(&key, ParameterSource::Url, url, Some(&value));
             }
         }
     }
@@ -1083,23 +1167,18 @@ impl AttackSurface {
                 ParameterSource::Form
             };
 
-            self.add_parameter_with_value(
-                &field.name,
-                source,
-                endpoint,
-                field.value.as_deref(),
-            );
+            self.add_parameter_with_value(&field.name, source, endpoint, field.value.as_deref());
         }
     }
 
     /// Build the deduplicated targets
     pub fn build(self) -> DeduplicatedTargets {
-        let total_original = self.original_endpoint_count +
-                           self.original_form_count +
-                           self.original_param_count;
+        let total_original =
+            self.original_endpoint_count + self.original_form_count + self.original_param_count;
 
         // Build unique endpoints
-        let unique_endpoints: Vec<TestEndpoint> = self.endpoints
+        let unique_endpoints: Vec<TestEndpoint> = self
+            .endpoints
             .into_iter()
             .map(|(signature, urls)| {
                 let representative = urls.first().cloned().unwrap_or_default();
@@ -1113,21 +1192,21 @@ impl AttackSurface {
             .collect();
 
         // Build unique forms
-        let unique_forms: Vec<TestForm> = self.forms
+        let unique_forms: Vec<TestForm> = self
+            .forms
             .into_iter()
-            .map(|(signature, data)| {
-                TestForm {
-                    signature,
-                    action: data.action,
-                    method: data.method,
-                    fields: data.fields,
-                    found_on_pages: data.discovered_at,
-                }
+            .map(|(signature, data)| TestForm {
+                signature,
+                action: data.action,
+                method: data.method,
+                fields: data.fields,
+                found_on_pages: data.discovered_at,
             })
             .collect();
 
         // Build unique parameters with recommendations
-        let unique_parameters: Vec<TestParameter> = self.parameters
+        let unique_parameters: Vec<TestParameter> = self
+            .parameters
             .into_iter()
             .map(|(name, context)| {
                 let recommendations = TestParameter::generate_recommendations(&context);
@@ -1139,9 +1218,8 @@ impl AttackSurface {
             })
             .collect();
 
-        let total_deduplicated = unique_endpoints.len() +
-                                unique_forms.len() +
-                                unique_parameters.len();
+        let total_deduplicated =
+            unique_endpoints.len() + unique_forms.len() + unique_parameters.len();
 
         let reduction_percent = if total_original > 0 {
             ((total_original - total_deduplicated) as f32 / total_original as f32) * 100.0
@@ -1213,7 +1291,8 @@ mod tests {
 
     #[test]
     fn test_path_normalization_mixed() {
-        let url = "https://example.com/api/v2/users/123/orders/550e8400-e29b-41d4-a716-446655440000";
+        let url =
+            "https://example.com/api/v2/users/123/orders/550e8400-e29b-41d4-a716-446655440000";
         let normalized = PathNormalizer::normalize(url);
         assert_eq!(normalized, "/api/v2/users/{id}/orders/{uuid}");
     }
@@ -1323,15 +1402,13 @@ mod tests {
         surface.add_endpoint("https://example.com/api/users/789", "GET", &[]);
 
         // Add same form from different pages
-        let fields = vec![
-            FormInput {
-                name: "email".to_string(),
-                input_type: "text".to_string(),
-                value: None,
-                options: None,
-                required: true,
-            },
-        ];
+        let fields = vec![FormInput {
+            name: "email".to_string(),
+            input_type: "text".to_string(),
+            value: None,
+            options: None,
+            required: true,
+        }];
         surface.add_form_with_source("/submit", "POST", &fields, "/page1");
         surface.add_form_with_source("/submit", "POST", &fields, "/page2");
         surface.add_form_with_source("/submit", "POST", &fields, "/page3");
@@ -1354,16 +1431,22 @@ mod tests {
     fn test_attack_surface_builder_pattern() {
         let mut surface = AttackSurface::new();
 
-        surface.add_endpoint("https://example.com/api/test", "POST", &["name".to_string()]);
-        surface.add_form("/login", "POST", &[
-            FormInput {
+        surface.add_endpoint(
+            "https://example.com/api/test",
+            "POST",
+            &["name".to_string()],
+        );
+        surface.add_form(
+            "/login",
+            "POST",
+            &[FormInput {
                 name: "username".to_string(),
                 input_type: "text".to_string(),
                 value: None,
                 options: None,
                 required: true,
-            },
-        ]);
+            }],
+        );
         surface.add_parameter("search", ParameterSource::Url, "/search");
 
         let (endpoints, forms, params) = surface.stats();
@@ -1399,7 +1482,9 @@ mod tests {
 
     #[test]
     fn test_parameter_source_risk_multiplier() {
-        assert!(ParameterSource::Header.risk_multiplier() > ParameterSource::Form.risk_multiplier());
+        assert!(
+            ParameterSource::Header.risk_multiplier() > ParameterSource::Form.risk_multiplier()
+        );
         assert!(ParameterSource::Cookie.risk_multiplier() > ParameterSource::Url.risk_multiplier());
     }
 

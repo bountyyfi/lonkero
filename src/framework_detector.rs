@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use anyhow::Result;
 use regex::Regex;
@@ -118,7 +117,10 @@ impl FrameworkDetector {
 
         info!("[SUCCESS] Detected {} technologies", detected.len());
         for tech in &detected {
-            debug!("  - {} ({:?}) - Confidence: {:?}", tech.name, tech.category, tech.confidence);
+            debug!(
+                "  - {} ({:?}) - Confidence: {:?}",
+                tech.name, tech.category, tech.confidence
+            );
         }
 
         Ok(detected)
@@ -157,22 +159,97 @@ impl FrameworkDetector {
 
                         // Detect frameworks from rendered HTML
                         let html_patterns = vec![
-                            ("__next", "Next.js", TechCategory::Framework, Confidence::High),
-                            ("_next/", "Next.js", TechCategory::Framework, Confidence::High),
-                            ("__next_data__", "Next.js", TechCategory::Framework, Confidence::High),
-                            ("data-next-head", "Next.js", TechCategory::Framework, Confidence::High),
-                            ("__nuxt", "Nuxt.js", TechCategory::Framework, Confidence::High),
-                            ("_nuxt/", "Nuxt.js", TechCategory::Framework, Confidence::High),
-                            ("data-reactroot", "React", TechCategory::JavaScript, Confidence::High),
-                            ("data-react-helmet", "React", TechCategory::JavaScript, Confidence::High),
-                            ("data-v-", "Vue.js", TechCategory::JavaScript, Confidence::High),
-                            ("__vue__", "Vue.js", TechCategory::JavaScript, Confidence::High),
-                            ("ng-version", "Angular", TechCategory::JavaScript, Confidence::High),
-                            ("_nghost", "Angular", TechCategory::JavaScript, Confidence::High),
-                            ("wp-content", "WordPress", TechCategory::CMS, Confidence::High),
-                            ("wp-includes", "WordPress", TechCategory::CMS, Confidence::High),
+                            (
+                                "__next",
+                                "Next.js",
+                                TechCategory::Framework,
+                                Confidence::High,
+                            ),
+                            (
+                                "_next/",
+                                "Next.js",
+                                TechCategory::Framework,
+                                Confidence::High,
+                            ),
+                            (
+                                "__next_data__",
+                                "Next.js",
+                                TechCategory::Framework,
+                                Confidence::High,
+                            ),
+                            (
+                                "data-next-head",
+                                "Next.js",
+                                TechCategory::Framework,
+                                Confidence::High,
+                            ),
+                            (
+                                "__nuxt",
+                                "Nuxt.js",
+                                TechCategory::Framework,
+                                Confidence::High,
+                            ),
+                            (
+                                "_nuxt/",
+                                "Nuxt.js",
+                                TechCategory::Framework,
+                                Confidence::High,
+                            ),
+                            (
+                                "data-reactroot",
+                                "React",
+                                TechCategory::JavaScript,
+                                Confidence::High,
+                            ),
+                            (
+                                "data-react-helmet",
+                                "React",
+                                TechCategory::JavaScript,
+                                Confidence::High,
+                            ),
+                            (
+                                "data-v-",
+                                "Vue.js",
+                                TechCategory::JavaScript,
+                                Confidence::High,
+                            ),
+                            (
+                                "__vue__",
+                                "Vue.js",
+                                TechCategory::JavaScript,
+                                Confidence::High,
+                            ),
+                            (
+                                "ng-version",
+                                "Angular",
+                                TechCategory::JavaScript,
+                                Confidence::High,
+                            ),
+                            (
+                                "_nghost",
+                                "Angular",
+                                TechCategory::JavaScript,
+                                Confidence::High,
+                            ),
+                            (
+                                "wp-content",
+                                "WordPress",
+                                TechCategory::CMS,
+                                Confidence::High,
+                            ),
+                            (
+                                "wp-includes",
+                                "WordPress",
+                                TechCategory::CMS,
+                                Confidence::High,
+                            ),
                             ("shopify", "Shopify", TechCategory::CMS, Confidence::High),
-                            ("cdn.shopify.com", "Shopify", TechCategory::CMS, Confidence::High),
+                            (
+                                "cdn.shopify.com",
+                                "Shopify",
+                                TechCategory::CMS,
+                                Confidence::High,
+                            ),
                         ];
 
                         for (pattern, name, category, confidence) in html_patterns {
@@ -205,11 +282,23 @@ impl FrameworkDetector {
             ("netlify.app", "Netlify", TechCategory::CloudProvider),
             ("netlify.com", "Netlify", TechCategory::CloudProvider),
             ("herokuapp.com", "Heroku", TechCategory::CloudProvider),
-            ("azurewebsites.net", "Azure App Service", TechCategory::CloudProvider),
-            ("azurestaticapps.net", "Azure Static Web Apps", TechCategory::CloudProvider),
+            (
+                "azurewebsites.net",
+                "Azure App Service",
+                TechCategory::CloudProvider,
+            ),
+            (
+                "azurestaticapps.net",
+                "Azure Static Web Apps",
+                TechCategory::CloudProvider,
+            ),
             ("s3.amazonaws.com", "Amazon S3", TechCategory::CloudProvider),
             ("s3-website", "Amazon S3", TechCategory::CloudProvider),
-            ("firebaseapp.com", "Firebase Hosting", TechCategory::CloudProvider),
+            (
+                "firebaseapp.com",
+                "Firebase Hosting",
+                TechCategory::CloudProvider,
+            ),
             ("web.app", "Firebase Hosting", TechCategory::CloudProvider),
             ("github.io", "GitHub Pages", TechCategory::CloudProvider),
             ("gitlab.io", "GitLab Pages", TechCategory::CloudProvider),
@@ -289,20 +378,44 @@ impl FrameworkDetector {
                 ("nginx", "Nginx", TechCategory::Server, Some("nginx/")),
                 ("apache", "Apache", TechCategory::Server, Some("apache/")),
                 ("cloudflare", "Cloudflare", TechCategory::CDN, None),
-                ("microsoft-iis", "Microsoft IIS", TechCategory::Server, Some("microsoft-iis/")),
-                ("litespeed", "LiteSpeed", TechCategory::Server, Some("litespeed/")),
+                (
+                    "microsoft-iis",
+                    "Microsoft IIS",
+                    TechCategory::Server,
+                    Some("microsoft-iis/"),
+                ),
+                (
+                    "litespeed",
+                    "LiteSpeed",
+                    TechCategory::Server,
+                    Some("litespeed/"),
+                ),
                 ("caddy", "Caddy", TechCategory::Server, None),
-                ("lighttpd", "Lighttpd", TechCategory::Server, Some("lighttpd/")),
+                (
+                    "lighttpd",
+                    "Lighttpd",
+                    TechCategory::Server,
+                    Some("lighttpd/"),
+                ),
                 ("openresty", "OpenResty", TechCategory::Server, None),
-                ("tomcat", "Apache Tomcat", TechCategory::Server, Some("tomcat/")),
-                ("coyote", "Apache Tomcat (Coyote)", TechCategory::Server, None),
+                (
+                    "tomcat",
+                    "Apache Tomcat",
+                    TechCategory::Server,
+                    Some("tomcat/"),
+                ),
+                (
+                    "coyote",
+                    "Apache Tomcat (Coyote)",
+                    TechCategory::Server,
+                    None,
+                ),
             ];
 
             for (pattern, name, category, version_prefix) in server_patterns {
                 if server_lower.contains(pattern) {
-                    let version = version_prefix.and_then(|prefix| {
-                        self.extract_version(&server_lower, prefix)
-                    });
+                    let version = version_prefix
+                        .and_then(|prefix| self.extract_version(&server_lower, prefix));
                     detected.insert(DetectedTechnology {
                         name: name.to_string(),
                         category,
@@ -317,42 +430,212 @@ impl FrameworkDetector {
         let header_detections = vec![
             // CDNs
             ("cf-ray", "Cloudflare", TechCategory::CDN, Confidence::High),
-            ("cf-cache-status", "Cloudflare", TechCategory::CDN, Confidence::High),
-            ("x-amz-cf-id", "Amazon CloudFront", TechCategory::CDN, Confidence::High),
-            ("x-amz-cf-pop", "Amazon CloudFront", TechCategory::CDN, Confidence::High),
-            ("x-akamai-transformed", "Akamai", TechCategory::CDN, Confidence::High),
-            ("x-fastly-request-id", "Fastly", TechCategory::CDN, Confidence::High),
-            ("x-cdn", "Generic CDN", TechCategory::CDN, Confidence::Medium),
-            ("x-azure-ref", "Azure CDN", TechCategory::CDN, Confidence::High),
-            ("x-bunny-cache", "Bunny CDN", TechCategory::CDN, Confidence::High),
-            ("bunny-cache-status", "Bunny CDN", TechCategory::CDN, Confidence::High),
-            ("cdn-pullzone", "Bunny CDN", TechCategory::CDN, Confidence::High),
-            ("x-keycdn-cache-status", "KeyCDN", TechCategory::CDN, Confidence::High),
-            ("x-sp-cache-status", "StackPath", TechCategory::CDN, Confidence::High),
-            ("x-sp-server", "StackPath", TechCategory::CDN, Confidence::High),
+            (
+                "cf-cache-status",
+                "Cloudflare",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-amz-cf-id",
+                "Amazon CloudFront",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-amz-cf-pop",
+                "Amazon CloudFront",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-akamai-transformed",
+                "Akamai",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-fastly-request-id",
+                "Fastly",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-cdn",
+                "Generic CDN",
+                TechCategory::CDN,
+                Confidence::Medium,
+            ),
+            (
+                "x-azure-ref",
+                "Azure CDN",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-bunny-cache",
+                "Bunny CDN",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "bunny-cache-status",
+                "Bunny CDN",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "cdn-pullzone",
+                "Bunny CDN",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-keycdn-cache-status",
+                "KeyCDN",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-sp-cache-status",
+                "StackPath",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
+            (
+                "x-sp-server",
+                "StackPath",
+                TechCategory::CDN,
+                Confidence::High,
+            ),
             // Cloud providers
-            ("x-vercel-id", "Vercel", TechCategory::CloudProvider, Confidence::High),
-            ("x-vercel-cache", "Vercel", TechCategory::CloudProvider, Confidence::High),
-            ("x-nf-request-id", "Netlify", TechCategory::CloudProvider, Confidence::High),
-            ("x-github-request-id", "GitHub", TechCategory::CloudProvider, Confidence::High),
-            ("x-heroku-queue-wait-time", "Heroku", TechCategory::CloudProvider, Confidence::High),
-            ("fly-request-id", "Fly.io", TechCategory::CloudProvider, Confidence::High),
-            ("x-render-origin-server", "Render", TechCategory::CloudProvider, Confidence::High),
+            (
+                "x-vercel-id",
+                "Vercel",
+                TechCategory::CloudProvider,
+                Confidence::High,
+            ),
+            (
+                "x-vercel-cache",
+                "Vercel",
+                TechCategory::CloudProvider,
+                Confidence::High,
+            ),
+            (
+                "x-nf-request-id",
+                "Netlify",
+                TechCategory::CloudProvider,
+                Confidence::High,
+            ),
+            (
+                "x-github-request-id",
+                "GitHub",
+                TechCategory::CloudProvider,
+                Confidence::High,
+            ),
+            (
+                "x-heroku-queue-wait-time",
+                "Heroku",
+                TechCategory::CloudProvider,
+                Confidence::High,
+            ),
+            (
+                "fly-request-id",
+                "Fly.io",
+                TechCategory::CloudProvider,
+                Confidence::High,
+            ),
+            (
+                "x-render-origin-server",
+                "Render",
+                TechCategory::CloudProvider,
+                Confidence::High,
+            ),
             // API Gateways
-            ("x-kong-request-id", "Kong", TechCategory::ApiGateway, Confidence::High),
-            ("x-kong-upstream-latency", "Kong", TechCategory::ApiGateway, Confidence::High),
-            ("x-kong-proxy-latency", "Kong", TechCategory::ApiGateway, Confidence::High),
-            ("kong-request-id", "Kong", TechCategory::ApiGateway, Confidence::High),
-            ("x-tyk-request-id", "Tyk", TechCategory::ApiGateway, Confidence::High),
-            ("x-ratelimit-remaining", "Tyk", TechCategory::ApiGateway, Confidence::Medium),
-            ("x-amzn-requestid", "AWS API Gateway", TechCategory::ApiGateway, Confidence::High),
-            ("x-amz-apigw-id", "AWS API Gateway", TechCategory::ApiGateway, Confidence::High),
-            ("x-amzn-trace-id", "AWS API Gateway", TechCategory::ApiGateway, Confidence::Medium),
-            ("x-ms-request-id", "Azure API Management", TechCategory::ApiGateway, Confidence::High),
-            ("ocp-apim-subscription-key", "Azure API Management", TechCategory::ApiGateway, Confidence::High),
-            ("apim-request-id", "Azure API Management", TechCategory::ApiGateway, Confidence::High),
-            ("x-goog-api-client", "Google Cloud Endpoints", TechCategory::ApiGateway, Confidence::High),
-            ("x-apigee-request-id", "Apigee", TechCategory::ApiGateway, Confidence::High),
+            (
+                "x-kong-request-id",
+                "Kong",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-kong-upstream-latency",
+                "Kong",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-kong-proxy-latency",
+                "Kong",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "kong-request-id",
+                "Kong",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-tyk-request-id",
+                "Tyk",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-ratelimit-remaining",
+                "Tyk",
+                TechCategory::ApiGateway,
+                Confidence::Medium,
+            ),
+            (
+                "x-amzn-requestid",
+                "AWS API Gateway",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-amz-apigw-id",
+                "AWS API Gateway",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-amzn-trace-id",
+                "AWS API Gateway",
+                TechCategory::ApiGateway,
+                Confidence::Medium,
+            ),
+            (
+                "x-ms-request-id",
+                "Azure API Management",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "ocp-apim-subscription-key",
+                "Azure API Management",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "apim-request-id",
+                "Azure API Management",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-goog-api-client",
+                "Google Cloud Endpoints",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
+            (
+                "x-apigee-request-id",
+                "Apigee",
+                TechCategory::ApiGateway,
+                Confidence::High,
+            ),
         ];
 
         for (header, name, category, confidence) in header_detections {
@@ -404,9 +687,8 @@ impl FrameworkDetector {
 
             for (pattern, name, category, version_prefix) in powered_by_patterns {
                 if pb_lower.contains(pattern) {
-                    let version = version_prefix.and_then(|prefix| {
-                        self.extract_version(&pb_lower, prefix)
-                    });
+                    let version =
+                        version_prefix.and_then(|prefix| self.extract_version(&pb_lower, prefix));
                     detected.insert(DetectedTechnology {
                         name: name.to_string(),
                         category,
@@ -515,64 +797,304 @@ impl FrameworkDetector {
         let body_lower = response.body.to_lowercase();
 
         let html_patterns = vec![
-            ("__next", "Next.js", TechCategory::Framework, Confidence::High),
-            ("_next/", "Next.js", TechCategory::Framework, Confidence::High),
-            ("__next_data__", "Next.js", TechCategory::Framework, Confidence::High),
-            ("__nuxt", "Nuxt.js", TechCategory::Framework, Confidence::High),
-            ("_nuxt/", "Nuxt.js", TechCategory::Framework, Confidence::High),
-            ("__remix", "Remix", TechCategory::Framework, Confidence::High),
-            ("__svelte", "SvelteKit", TechCategory::Framework, Confidence::High),
-            ("__astro", "Astro", TechCategory::Framework, Confidence::High),
+            (
+                "__next",
+                "Next.js",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "_next/",
+                "Next.js",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "__next_data__",
+                "Next.js",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "__nuxt",
+                "Nuxt.js",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "_nuxt/",
+                "Nuxt.js",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "__remix",
+                "Remix",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "__svelte",
+                "SvelteKit",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "__astro",
+                "Astro",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
             // Modern JS Frameworks
             ("__qwik", "Qwik", TechCategory::Framework, Confidence::High),
-            ("q:container", "Qwik", TechCategory::Framework, Confidence::High),
-            ("qwikloader", "Qwik", TechCategory::Framework, Confidence::High),
-            ("@builder.io/qwik", "Qwik", TechCategory::Framework, Confidence::High),
-            ("_solid", "Solid.js", TechCategory::Framework, Confidence::High),
-            ("solid-js", "Solid.js", TechCategory::Framework, Confidence::High),
-            ("data-hk", "Solid.js", TechCategory::Framework, Confidence::Medium),
-            ("__preact", "Preact", TechCategory::Framework, Confidence::High),
-            ("preact", "Preact", TechCategory::Framework, Confidence::Medium),
-            ("__fresh", "Fresh", TechCategory::Framework, Confidence::High),
+            (
+                "q:container",
+                "Qwik",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "qwikloader",
+                "Qwik",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "@builder.io/qwik",
+                "Qwik",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "_solid",
+                "Solid.js",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "solid-js",
+                "Solid.js",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "data-hk",
+                "Solid.js",
+                TechCategory::Framework,
+                Confidence::Medium,
+            ),
+            (
+                "__preact",
+                "Preact",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
+            (
+                "preact",
+                "Preact",
+                TechCategory::Framework,
+                Confidence::Medium,
+            ),
+            (
+                "__fresh",
+                "Fresh",
+                TechCategory::Framework,
+                Confidence::High,
+            ),
             ("_frsh", "Fresh", TechCategory::Framework, Confidence::High),
             ("__hono", "Hono", TechCategory::Framework, Confidence::High),
             ("hono", "Hono", TechCategory::Framework, Confidence::Low),
-            ("data-reactroot", "React", TechCategory::JavaScript, Confidence::High),
-            ("data-react-helmet", "React", TechCategory::JavaScript, Confidence::High),
-            ("__react", "React", TechCategory::JavaScript, Confidence::Medium),
-            ("data-v-", "Vue.js", TechCategory::JavaScript, Confidence::High),
-            ("__vue__", "Vue.js", TechCategory::JavaScript, Confidence::High),
-            ("ng-version", "Angular", TechCategory::JavaScript, Confidence::High),
-            ("_nghost", "Angular", TechCategory::JavaScript, Confidence::High),
-            ("ng-app", "Angular", TechCategory::JavaScript, Confidence::High),
-            ("wp-content", "WordPress", TechCategory::CMS, Confidence::High),
-            ("wp-includes", "WordPress", TechCategory::CMS, Confidence::High),
-            ("/sites/default/files", "Drupal", TechCategory::CMS, Confidence::High),
-            ("drupal.settings", "Drupal", TechCategory::CMS, Confidence::High),
+            (
+                "data-reactroot",
+                "React",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "data-react-helmet",
+                "React",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "__react",
+                "React",
+                TechCategory::JavaScript,
+                Confidence::Medium,
+            ),
+            (
+                "data-v-",
+                "Vue.js",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "__vue__",
+                "Vue.js",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "ng-version",
+                "Angular",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "_nghost",
+                "Angular",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "ng-app",
+                "Angular",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "wp-content",
+                "WordPress",
+                TechCategory::CMS,
+                Confidence::High,
+            ),
+            (
+                "wp-includes",
+                "WordPress",
+                TechCategory::CMS,
+                Confidence::High,
+            ),
+            (
+                "/sites/default/files",
+                "Drupal",
+                TechCategory::CMS,
+                Confidence::High,
+            ),
+            (
+                "drupal.settings",
+                "Drupal",
+                TechCategory::CMS,
+                Confidence::High,
+            ),
             ("joomla", "Joomla", TechCategory::CMS, Confidence::Medium),
             ("com_content", "Joomla", TechCategory::CMS, Confidence::High),
             ("shopify", "Shopify", TechCategory::CMS, Confidence::High),
-            ("cdn.shopify.com", "Shopify", TechCategory::CMS, Confidence::High),
+            (
+                "cdn.shopify.com",
+                "Shopify",
+                TechCategory::CMS,
+                Confidence::High,
+            ),
             ("wix.com", "Wix", TechCategory::CMS, Confidence::High),
-            ("squarespace", "Squarespace", TechCategory::CMS, Confidence::High),
-            ("bootstrap", "Bootstrap", TechCategory::CSS, Confidence::Medium),
-            ("tailwind", "Tailwind CSS", TechCategory::CSS, Confidence::Medium),
+            (
+                "squarespace",
+                "Squarespace",
+                TechCategory::CMS,
+                Confidence::High,
+            ),
+            (
+                "bootstrap",
+                "Bootstrap",
+                TechCategory::CSS,
+                Confidence::Medium,
+            ),
+            (
+                "tailwind",
+                "Tailwind CSS",
+                TechCategory::CSS,
+                Confidence::Medium,
+            ),
             ("tw-", "Tailwind CSS", TechCategory::CSS, Confidence::Low),
-            ("material-ui", "Material-UI", TechCategory::CSS, Confidence::Medium),
-            ("chakra-ui", "Chakra UI", TechCategory::CSS, Confidence::Medium),
-            ("jquery.min.js", "jQuery", TechCategory::JavaScript, Confidence::High),
-            ("jquery.js", "jQuery", TechCategory::JavaScript, Confidence::High),
-            ("jquery-", "jQuery", TechCategory::JavaScript, Confidence::Medium),
-            ("jquery/", "jQuery", TechCategory::JavaScript, Confidence::Medium),
-            ("google-analytics", "Google Analytics", TechCategory::Analytics, Confidence::High),
-            ("gtag", "Google Analytics 4", TechCategory::Analytics, Confidence::High),
-            ("ga.js", "Google Analytics", TechCategory::Analytics, Confidence::High),
-            ("googletagmanager", "Google Tag Manager", TechCategory::Analytics, Confidence::High),
-            ("hotjar", "Hotjar", TechCategory::Analytics, Confidence::High),
-            ("segment.com", "Segment", TechCategory::Analytics, Confidence::High),
-            ("mixpanel", "Mixpanel", TechCategory::Analytics, Confidence::High),
-            ("amplitude", "Amplitude", TechCategory::Analytics, Confidence::High),
-            ("intercom", "Intercom", TechCategory::Other, Confidence::High),
+            (
+                "material-ui",
+                "Material-UI",
+                TechCategory::CSS,
+                Confidence::Medium,
+            ),
+            (
+                "chakra-ui",
+                "Chakra UI",
+                TechCategory::CSS,
+                Confidence::Medium,
+            ),
+            (
+                "jquery.min.js",
+                "jQuery",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "jquery.js",
+                "jQuery",
+                TechCategory::JavaScript,
+                Confidence::High,
+            ),
+            (
+                "jquery-",
+                "jQuery",
+                TechCategory::JavaScript,
+                Confidence::Medium,
+            ),
+            (
+                "jquery/",
+                "jQuery",
+                TechCategory::JavaScript,
+                Confidence::Medium,
+            ),
+            (
+                "google-analytics",
+                "Google Analytics",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "gtag",
+                "Google Analytics 4",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "ga.js",
+                "Google Analytics",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "googletagmanager",
+                "Google Tag Manager",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "hotjar",
+                "Hotjar",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "segment.com",
+                "Segment",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "mixpanel",
+                "Mixpanel",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "amplitude",
+                "Amplitude",
+                TechCategory::Analytics,
+                Confidence::High,
+            ),
+            (
+                "intercom",
+                "Intercom",
+                TechCategory::Other,
+                Confidence::High,
+            ),
             ("zendesk", "Zendesk", TechCategory::Other, Confidence::High),
             ("stripe", "Stripe", TechCategory::Other, Confidence::Medium),
             ("paypal", "PayPal", TechCategory::Other, Confidence::Medium),
@@ -630,18 +1152,78 @@ impl FrameworkDetector {
             let cookies_lower = cookies.to_lowercase();
 
             let cookie_patterns = vec![
-                ("laravel_session", "Laravel", TechCategory::Framework, Confidence::High),
-                ("phpsessid", "PHP", TechCategory::Language, Confidence::Medium),
-                ("jsessionid", "Java", TechCategory::Language, Confidence::High),
-                ("asp.net_sessionid", "ASP.NET", TechCategory::Framework, Confidence::High),
-                ("__requestverificationtoken", "ASP.NET", TechCategory::Framework, Confidence::High),
-                ("csrftoken", "Django", TechCategory::Framework, Confidence::Medium),
-                ("sessionid", "Django", TechCategory::Framework, Confidence::Low),
-                ("_session", "Ruby on Rails", TechCategory::Framework, Confidence::Medium),
-                ("wordpress_", "WordPress", TechCategory::CMS, Confidence::High),
-                ("wp-settings", "WordPress", TechCategory::CMS, Confidence::High),
-                ("__cfduid", "Cloudflare", TechCategory::CDN, Confidence::High),
-                ("cf_clearance", "Cloudflare", TechCategory::CDN, Confidence::High),
+                (
+                    "laravel_session",
+                    "Laravel",
+                    TechCategory::Framework,
+                    Confidence::High,
+                ),
+                (
+                    "phpsessid",
+                    "PHP",
+                    TechCategory::Language,
+                    Confidence::Medium,
+                ),
+                (
+                    "jsessionid",
+                    "Java",
+                    TechCategory::Language,
+                    Confidence::High,
+                ),
+                (
+                    "asp.net_sessionid",
+                    "ASP.NET",
+                    TechCategory::Framework,
+                    Confidence::High,
+                ),
+                (
+                    "__requestverificationtoken",
+                    "ASP.NET",
+                    TechCategory::Framework,
+                    Confidence::High,
+                ),
+                (
+                    "csrftoken",
+                    "Django",
+                    TechCategory::Framework,
+                    Confidence::Medium,
+                ),
+                (
+                    "sessionid",
+                    "Django",
+                    TechCategory::Framework,
+                    Confidence::Low,
+                ),
+                (
+                    "_session",
+                    "Ruby on Rails",
+                    TechCategory::Framework,
+                    Confidence::Medium,
+                ),
+                (
+                    "wordpress_",
+                    "WordPress",
+                    TechCategory::CMS,
+                    Confidence::High,
+                ),
+                (
+                    "wp-settings",
+                    "WordPress",
+                    TechCategory::CMS,
+                    Confidence::High,
+                ),
+                (
+                    "__cfduid",
+                    "Cloudflare",
+                    TechCategory::CDN,
+                    Confidence::High,
+                ),
+                (
+                    "cf_clearance",
+                    "Cloudflare",
+                    TechCategory::CDN,
+                    Confidence::High,
+                ),
             ];
 
             for (pattern, name, category, confidence) in cookie_patterns {

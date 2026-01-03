@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::signing::ReportSignature;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::signing::ReportSignature;
 
 /// Scan mode determines the intensity and scope of the security scan
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -142,13 +142,19 @@ impl ScanConfig {
     /// Determine if cloud/container security scanning should run
     /// Enabled for Thorough, Insane, and Intelligent modes
     pub fn enable_cloud_scanning(&self) -> bool {
-        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane | ScanMode::Intelligent)
+        matches!(
+            self.scan_mode,
+            ScanMode::Thorough | ScanMode::Insane | ScanMode::Intelligent
+        )
     }
 
     /// Determine if extended subdomain enumeration should be used
     /// Enabled for Thorough, Insane, and Intelligent modes
     pub fn subdomain_extended(&self) -> bool {
-        matches!(self.scan_mode, ScanMode::Thorough | ScanMode::Insane | ScanMode::Intelligent)
+        matches!(
+            self.scan_mode,
+            ScanMode::Thorough | ScanMode::Insane | ScanMode::Intelligent
+        )
     }
 }
 
@@ -447,11 +453,16 @@ impl ScanContext {
 
     /// Check if a specific technology is detected
     pub fn has_tech(&self, tech: &str) -> bool {
-        self.detected_tech.iter().any(|t| t.to_lowercase().contains(&tech.to_lowercase()))
+        self.detected_tech
+            .iter()
+            .any(|t| t.to_lowercase().contains(&tech.to_lowercase()))
     }
 
     /// Check if framework matches
     pub fn is_framework(&self, name: &str) -> bool {
-        self.framework.as_ref().map(|f| f.to_lowercase().contains(&name.to_lowercase())).unwrap_or(false)
+        self.framework
+            .as_ref()
+            .map(|f| f.to_lowercase().contains(&name.to_lowercase()))
+            .unwrap_or(false)
     }
 }

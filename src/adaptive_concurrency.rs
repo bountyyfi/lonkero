@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -88,8 +87,7 @@ impl AdaptiveConcurrencyTracker {
         if metrics.avg_response_time_ms == 0.0 {
             metrics.avg_response_time_ms = response_ms;
         } else {
-            metrics.avg_response_time_ms =
-                0.7 * metrics.avg_response_time_ms + 0.3 * response_ms;
+            metrics.avg_response_time_ms = 0.7 * metrics.avg_response_time_ms + 0.3 * response_ms;
         }
 
         // Adjust concurrency based on response time

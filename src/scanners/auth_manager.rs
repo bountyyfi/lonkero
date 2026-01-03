@@ -36,8 +36,11 @@ impl AuthManagerScanner {
         let (advanced_vulns, advanced_tests) = self.advanced_scanner.scan(url, config).await?;
         vulnerabilities.extend(advanced_vulns);
         tests_run += advanced_tests;
-        tracing::info!("Advanced auth tests completed: {} vulnerabilities, {} tests",
-                      vulnerabilities.len(), advanced_tests);
+        tracing::info!(
+            "Advanced auth tests completed: {} vulnerabilities, {} tests",
+            vulnerabilities.len(),
+            advanced_tests
+        );
 
         // First, detect if authentication system exists
         tests_run += 1;
@@ -46,7 +49,10 @@ impl AuthManagerScanner {
 
         // Only run auth-specific tests if auth features detected
         if !has_auth_features {
-            tracing::debug!("No authentication features detected on {}, skipping auth vulnerability tests", url);
+            tracing::debug!(
+                "No authentication features detected on {}, skipping auth vulnerability tests",
+                url
+            );
             return Ok((vulnerabilities, tests_run));
         }
 
@@ -87,7 +93,11 @@ impl AuthManagerScanner {
         // Test 7: Test credential stuffing prevention
         tests_run += 1;
         if let Ok(stuffing_response) = self.test_credential_stuffing(url).await {
-            self.check_credential_stuffing_prevention(&stuffing_response, url, &mut vulnerabilities);
+            self.check_credential_stuffing_prevention(
+                &stuffing_response,
+                url,
+                &mut vulnerabilities,
+            );
         }
 
         Ok((vulnerabilities, tests_run))
@@ -116,12 +126,19 @@ impl AuthManagerScanner {
             || body_lower.contains("/signup");
 
         // Check for session cookies or auth headers
-        let has_auth_cookies = response.header("set-cookie")
-            .map(|c| c.to_lowercase().contains("session") || c.to_lowercase().contains("auth") || c.to_lowercase().contains("token"))
+        let has_auth_cookies = response
+            .header("set-cookie")
+            .map(|c| {
+                c.to_lowercase().contains("session")
+                    || c.to_lowercase().contains("auth")
+                    || c.to_lowercase().contains("token")
+            })
             .unwrap_or(false);
 
         // Check for JWT or OAuth indicators
-        let has_jwt = body_lower.contains("jwt") || body_lower.contains("bearer") || body_lower.contains("oauth");
+        let has_jwt = body_lower.contains("jwt")
+            || body_lower.contains("bearer")
+            || body_lower.contains("oauth");
 
         // Try common auth endpoints
         let auth_endpoints = vec![
@@ -134,7 +151,9 @@ impl AuthManagerScanner {
             if let Ok(resp) = self.http_client.get(endpoint).await {
                 if resp.status_code == 200 || resp.status_code == 401 || resp.status_code == 403 {
                     let endpoint_body_lower = resp.body.to_lowercase();
-                    if endpoint_body_lower.contains("password") || endpoint_body_lower.contains("login") {
+                    if endpoint_body_lower.contains("password")
+                        || endpoint_body_lower.contains("login")
+                    {
                         tracing::debug!("Found auth endpoint: {}", endpoint);
                         return true;
                     }
@@ -144,8 +163,14 @@ impl AuthManagerScanner {
 
         let detected = has_login_form || has_auth_links || has_auth_cookies || has_jwt;
         if detected {
-            tracing::debug!("Auth features detected on {}: form={}, links={}, cookies={}, jwt={}",
-                url, has_login_form, has_auth_links, has_auth_cookies, has_jwt);
+            tracing::debug!(
+                "Auth features detected on {}: form={}, links={}, cookies={}, jwt={}",
+                url,
+                has_login_form,
+                has_auth_links,
+                has_auth_cookies,
+                has_jwt
+            );
         }
         detected
     }
@@ -203,7 +228,9 @@ impl AuthManagerScanner {
         }
 
         // Check for password exposure in forms
-        let password_input_regex = Regex::new(r#"<input[^>]*type=["']?password["']?[^>]*value=["']([^"']+)["'][^>]*>"#).unwrap();
+        let password_input_regex =
+            Regex::new(r#"<input[^>]*type=["']?password["']?[^>]*value=["']([^"']+)["'][^>]*>"#)
+                .unwrap();
         if password_input_regex.is_match(body) {
             vulnerabilities.push(Vulnerability {
                 id: generate_uuid(),
@@ -227,7 +254,10 @@ impl AuthManagerScanner {
         }
     }
 
-    async fn test_account_enumeration(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_account_enumeration(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Test login with non-existent username
         let test_url = format!("{}?username=nonexistent_user_12345&password=test", url);
         self.http_client.get(&test_url).await
@@ -420,8 +450,14 @@ impl AuthManagerScanner {
         }
     }
 
-    async fn test_registration_security(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
-        let test_url = format!("{}/register?username=testuser&email=test@example.com&password=test123", url);
+    async fn test_registration_security(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
+        let test_url = format!(
+            "{}/register?username=testuser&email=test@example.com&password=test123",
+            url
+        );
         self.http_client.get(&test_url).await
     }
 
@@ -440,7 +476,8 @@ impl AuthManagerScanner {
             || body_lower.contains("logged in"))
             && response.status_code == 200;
 
-        if auto_logged_in && !body_lower.contains("verify") && !body_lower.contains("confirmation") {
+        if auto_logged_in && !body_lower.contains("verify") && !body_lower.contains("confirmation")
+        {
             vulnerabilities.push(Vulnerability {
                 id: generate_uuid(),
                 vuln_type: "Missing Email Verification".to_string(),
@@ -490,7 +527,10 @@ impl AuthManagerScanner {
         }
     }
 
-    async fn test_brute_force_protection(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_brute_force_protection(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Simulate multiple login attempts
         let test_url = format!("{}?username=admin&password=wrong", url);
         self.http_client.get(&test_url).await
@@ -518,8 +558,7 @@ impl AuthManagerScanner {
             || body_lower.contains("too many attempts");
 
         // Check for CAPTCHA after failures
-        let has_captcha = body_lower.contains("captcha")
-            || body_lower.contains("recaptcha");
+        let has_captcha = body_lower.contains("captcha") || body_lower.contains("recaptcha");
 
         if !has_rate_limit && !has_lockout && !has_captcha {
             vulnerabilities.push(Vulnerability {
@@ -586,7 +625,10 @@ impl AuthManagerScanner {
         }
     }
 
-    async fn test_credential_stuffing(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_credential_stuffing(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Test for credential stuffing protection
         let test_url = format!("{}?username=test@example.com&password=password123", url);
         self.http_client.get(&test_url).await
@@ -668,7 +710,8 @@ mod tests {
                     <label>New Password (minimum 6 characters)</label>
                     <input type="password" name="password" />
                 </form>
-            "#.to_string(),
+            "#
+            .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
@@ -676,7 +719,10 @@ mod tests {
         let mut vulns = Vec::new();
         scanner.check_password_policy(&response, "https://example.com/register", &mut vulns);
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("Weak Password")), "Should detect weak password policy");
+        assert!(
+            vulns.iter().any(|v| v.vuln_type.contains("Weak Password")),
+            "Should detect weak password policy"
+        );
     }
 
     #[tokio::test]
@@ -692,7 +738,12 @@ mod tests {
         let mut vulns = Vec::new();
         scanner.check_account_enumeration(&response, "https://example.com/login", &mut vulns);
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("Account Enumeration")), "Should detect account enumeration");
+        assert!(
+            vulns
+                .iter()
+                .any(|v| v.vuln_type.contains("Account Enumeration")),
+            "Should detect account enumeration"
+        );
     }
 
     #[tokio::test]
@@ -700,15 +751,23 @@ mod tests {
         let scanner = AuthManagerScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
         let response = HttpResponse {
             status_code: 200,
-            body: r#"{"message": "Reset email sent", "token": "abc123def456ghi789jkl012mno345"}"#.to_string(),
+            body: r#"{"message": "Reset email sent", "token": "abc123def456ghi789jkl012mno345"}"#
+                .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
 
         let mut vulns = Vec::new();
-        scanner.check_password_reset_security(&response, "https://example.com/forgot-password", &mut vulns);
+        scanner.check_password_reset_security(
+            &response,
+            "https://example.com/forgot-password",
+            &mut vulns,
+        );
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("Token Exposure")), "Should detect token exposure");
+        assert!(
+            vulns.iter().any(|v| v.vuln_type.contains("Token Exposure")),
+            "Should detect token exposure"
+        );
         assert!(vulns.iter().any(|v| v.severity == Severity::Critical));
     }
 
@@ -720,7 +779,8 @@ mod tests {
             body: r#"
                 <h1>Welcome to Dashboard!</h1>
                 <p>Account created successfully. You are now logged in.</p>
-            "#.to_string(),
+            "#
+            .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
@@ -728,7 +788,12 @@ mod tests {
         let mut vulns = Vec::new();
         scanner.check_registration_security(&response, "https://example.com/register", &mut vulns);
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("Email Verification")), "Should detect missing email verification");
+        assert!(
+            vulns
+                .iter()
+                .any(|v| v.vuln_type.contains("Email Verification")),
+            "Should detect missing email verification"
+        );
     }
 
     #[tokio::test]
@@ -744,7 +809,10 @@ mod tests {
         let mut vulns = Vec::new();
         scanner.check_brute_force_protection(&response, "https://example.com/login", &mut vulns);
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("Brute Force")), "Should detect missing brute force protection");
+        assert!(
+            vulns.iter().any(|v| v.vuln_type.contains("Brute Force")),
+            "Should detect missing brute force protection"
+        );
         assert_eq!(vulns[0].severity, Severity::High);
     }
 }

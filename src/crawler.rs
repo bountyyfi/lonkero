@@ -8,14 +8,13 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::HttpClient;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use anyhow::{Context, Result};
 use scraper::{Html, Selector};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet, HashMap};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -54,7 +53,8 @@ impl Ord for PrioritizedUrl {
     fn cmp(&self, other: &Self) -> Ordering {
         // Higher priority first (reverse order for max-heap)
         // Also prefer lower depth for same priority
-        self.priority.cmp(&other.priority)
+        self.priority
+            .cmp(&other.priority)
             .then_with(|| other.depth.cmp(&self.depth))
     }
 }
@@ -85,10 +85,16 @@ impl UrlPrioritizer {
         if url_lower.contains("admin") || url_lower.contains("dashboard") {
             score += 40;
         }
-        if url_lower.contains("profile") || url_lower.contains("account") || url_lower.contains("settings") {
+        if url_lower.contains("profile")
+            || url_lower.contains("account")
+            || url_lower.contains("settings")
+        {
             score += 35;
         }
-        if url_lower.contains("checkout") || url_lower.contains("payment") || url_lower.contains("cart") {
+        if url_lower.contains("checkout")
+            || url_lower.contains("payment")
+            || url_lower.contains("cart")
+        {
             score += 35;
         }
         if url_lower.contains("search") || url_lower.contains("filter") {
@@ -123,27 +129,41 @@ impl UrlPrioritizer {
         }
 
         // Dynamic-looking paths (numbers in path)
-        let dynamic_segments = path.split('/')
+        let dynamic_segments = path
+            .split('/')
             .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty())
             .count();
         score += (dynamic_segments * 10).min(30) as u32;
 
         // LOW PRIORITY: Static resources
-        if path.ends_with(".css") || path.ends_with(".js") || path.ends_with(".png")
-            || path.ends_with(".jpg") || path.ends_with(".gif") || path.ends_with(".svg")
-            || path.ends_with(".woff") || path.ends_with(".woff2") || path.ends_with(".ttf") {
+        if path.ends_with(".css")
+            || path.ends_with(".js")
+            || path.ends_with(".png")
+            || path.ends_with(".jpg")
+            || path.ends_with(".gif")
+            || path.ends_with(".svg")
+            || path.ends_with(".woff")
+            || path.ends_with(".woff2")
+            || path.ends_with(".ttf")
+        {
             score = score.saturating_sub(80);
         }
 
         // Deprioritize likely static pages
-        if url_lower.contains("/static/") || url_lower.contains("/assets/")
-            || url_lower.contains("/public/") || url_lower.contains("/cdn/") {
+        if url_lower.contains("/static/")
+            || url_lower.contains("/assets/")
+            || url_lower.contains("/public/")
+            || url_lower.contains("/cdn/")
+        {
             score = score.saturating_sub(40);
         }
 
         // Deprioritize blog/news/about (usually static content)
-        if url_lower.contains("/blog/") || url_lower.contains("/news/")
-            || url_lower.contains("/about") || url_lower.contains("/faq") {
+        if url_lower.contains("/blog/")
+            || url_lower.contains("/news/")
+            || url_lower.contains("/about")
+            || url_lower.contains("/faq")
+        {
             score = score.saturating_sub(20);
         }
 
@@ -153,7 +173,11 @@ impl UrlPrioritizer {
     /// Create a prioritized URL entry
     pub fn prioritize(url: String, depth: usize) -> PrioritizedUrl {
         let priority = Self::calculate_priority(&url, depth);
-        PrioritizedUrl { url, depth, priority }
+        PrioritizedUrl {
+            url,
+            depth,
+            priority,
+        }
     }
 }
 
@@ -243,7 +267,10 @@ impl CrawlResults {
         self.is_spa = self.is_spa || other.is_spa;
 
         for (endpoint, params) in other.parameters {
-            self.parameters.entry(endpoint).or_insert_with(HashSet::new).extend(params);
+            self.parameters
+                .entry(endpoint)
+                .or_insert_with(HashSet::new)
+                .extend(params);
         }
     }
 
@@ -287,7 +314,12 @@ impl CrawlResults {
 
         // Skip generic indexed fields like field_0, input_1, etc.
         if (name.starts_with("field_") || name.starts_with("input_"))
-            && name.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            && name
+                .chars()
+                .last()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        {
             return true;
         }
 
@@ -310,7 +342,9 @@ impl CrawlResults {
                         && parts[2].len() == 4
                         && parts[3].len() == 4
                         && parts[4].len() == 12
-                        && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()));
+                        && parts
+                            .iter()
+                            .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()));
                     if is_uuid {
                         return true;
                     }
@@ -399,7 +433,11 @@ impl WebCrawler {
     }
 
     /// Create a new crawler that ignores robots.txt
-    pub fn new_aggressive(http_client: Arc<HttpClient>, max_depth: usize, max_pages: usize) -> Self {
+    pub fn new_aggressive(
+        http_client: Arc<HttpClient>,
+        max_depth: usize,
+        max_pages: usize,
+    ) -> Self {
         let rate_config = RateLimiterConfig {
             default_rps: 100, // Higher for aggressive mode
             min_rps: 10,
@@ -430,7 +468,8 @@ impl WebCrawler {
 
         // Validate URL for SSRF protection
         let base_url = self.is_safe_url(start_url)?;
-        let base_domain = base_url.host_str()
+        let base_domain = base_url
+            .host_str()
             .context("Failed to get host from URL")?
             .to_string(); // Convert to owned String for Send safety
 
@@ -440,8 +479,16 @@ impl WebCrawler {
             to_visit.push(UrlPrioritizer::prioritize(url, 0));
         }
 
-        while let Some(PrioritizedUrl { url, depth, priority }) = to_visit.pop() {
-            debug!("[Priority] Crawling URL with priority {}: {}", priority, url);
+        while let Some(PrioritizedUrl {
+            url,
+            depth,
+            priority,
+        }) = to_visit.pop()
+        {
+            debug!(
+                "[Priority] Crawling URL with priority {}: {}",
+                priority, url
+            );
             // Check limits
             if visited.len() >= self.max_pages {
                 warn!("[WARNING]  Reached max pages limit ({})", self.max_pages);
@@ -590,7 +637,8 @@ impl WebCrawler {
         // Deduplicate forms before returning
         results.deduplicate_forms();
 
-        info!("[SUCCESS] Crawl complete: {} pages, {} forms, {} scripts, {} links",
+        info!(
+            "[SUCCESS] Crawl complete: {} pages, {} forms, {} scripts, {} links",
             results.crawled_urls.len(),
             results.forms.len(),
             results.scripts.len(),
@@ -609,7 +657,8 @@ impl WebCrawler {
 
     /// Discover URLs from sitemap.xml
     async fn discover_sitemap(&self, base_url: &Url) -> Vec<String> {
-        let sitemap_url = format!("{}://{}/sitemap.xml",
+        let sitemap_url = format!(
+            "{}://{}/sitemap.xml",
             base_url.scheme(),
             base_url.host_str().unwrap_or("")
         );
@@ -658,7 +707,12 @@ impl WebCrawler {
     async fn get_robots_data(&self, url: &Url) -> RobotsData {
         let host = match url.host_str() {
             Some(h) => h,
-            None => return RobotsData { allowed: true, ..Default::default() },
+            None => {
+                return RobotsData {
+                    allowed: true,
+                    ..Default::default()
+                }
+            }
         };
 
         let mut cache = self.robots_cache.lock().await;
@@ -667,7 +721,9 @@ impl WebCrawler {
         if let Some(cached) = cache.get(host) {
             // Check if this specific path is allowed
             let mut data = cached.clone();
-            data.allowed = !cached.disallowed_paths.iter()
+            data.allowed = !cached
+                .disallowed_paths
+                .iter()
                 .any(|path| url.path().starts_with(path));
             return data;
         }
@@ -676,12 +732,13 @@ impl WebCrawler {
         let robots_url = format!("{}://{}/robots.txt", url.scheme(), host);
 
         let robots_data = match self.http_client.get(&robots_url).await {
-            Ok(resp) => {
-                self.parse_robots_txt(&resp.body, url)
-            }
+            Ok(resp) => self.parse_robots_txt(&resp.body, url),
             Err(_) => {
                 // No robots.txt = allow all
-                RobotsData { allowed: true, ..Default::default() }
+                RobotsData {
+                    allowed: true,
+                    ..Default::default()
+                }
             }
         };
 
@@ -798,18 +855,23 @@ impl WebCrawler {
     /// Extract forms from HTML
     fn extract_forms(&self, document: &Html, page_url: &str) -> Vec<DiscoveredForm> {
         let mut forms = Vec::new();
-        let mut form_input_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut form_input_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         let form_selector = Selector::parse("form").unwrap();
         let input_selector = Selector::parse("input, textarea, select, button").unwrap();
 
         // First, extract traditional forms
         for form_element in document.select(&form_selector) {
-            let action = form_element.value().attr("action")
+            let action = form_element
+                .value()
+                .attr("action")
                 .unwrap_or("")
                 .to_string();
 
-            let method = form_element.value().attr("method")
+            let method = form_element
+                .value()
+                .attr("method")
                 .unwrap_or("GET")
                 .to_uppercase();
 
@@ -817,17 +879,20 @@ impl WebCrawler {
 
             for input_element in form_element.select(&input_selector) {
                 // Get name from 'name' attribute, or fall back to 'id' attribute
-                let name = input_element.value().attr("name")
+                let name = input_element
+                    .value()
+                    .attr("name")
                     .or_else(|| input_element.value().attr("id"));
 
                 if let Some(name) = name {
                     form_input_ids.insert(name.to_string());
-                    let input_type = input_element.value().attr("type")
+                    let input_type = input_element
+                        .value()
+                        .attr("type")
                         .unwrap_or("text")
                         .to_string();
 
-                    let value = input_element.value().attr("value")
-                        .map(|v| v.to_string());
+                    let value = input_element.value().attr("value").map(|v| v.to_string());
 
                     inputs_list.push(FormInput {
                         name: name.to_string(),
@@ -861,8 +926,9 @@ impl WebCrawler {
              [class*='checkout'], [class*='payment'], [class*='billing'], [class*='shipping'], \
              [data-form], [data-component*='form'], [data-testid*='form'], \
              section[id*='contact'], div[id*='form'], div[id*='contact'], \
-             [role='form'], [aria-label*='form'], [aria-label*='contact']"
-        ).unwrap_or_else(|_| Selector::parse("form").unwrap());
+             [role='form'], [aria-label*='form'], [aria-label*='contact']",
+        )
+        .unwrap_or_else(|_| Selector::parse("form").unwrap());
 
         for container in document.select(&form_container_selector) {
             // Skip if this is already a form element
@@ -874,7 +940,9 @@ impl WebCrawler {
 
             // Look for inputs within this container
             for input_element in container.select(&input_selector) {
-                let name = input_element.value().attr("name")
+                let name = input_element
+                    .value()
+                    .attr("name")
                     .or_else(|| input_element.value().attr("id"))
                     .or_else(|| input_element.value().attr("aria-label"))
                     .or_else(|| input_element.value().attr("placeholder"))
@@ -885,12 +953,19 @@ impl WebCrawler {
                         form_input_ids.insert(name.to_string());
 
                         let tag_name = input_element.value().name();
-                        let input_type = input_element.value().attr("type")
-                            .unwrap_or(if tag_name == "textarea" { "textarea" } else if tag_name == "select" { "select" } else { "text" })
+                        let input_type = input_element
+                            .value()
+                            .attr("type")
+                            .unwrap_or(if tag_name == "textarea" {
+                                "textarea"
+                            } else if tag_name == "select" {
+                                "select"
+                            } else {
+                                "text"
+                            })
                             .to_string();
 
-                        let value = input_element.value().attr("value")
-                            .map(|v| v.to_string());
+                        let value = input_element.value().attr("value").map(|v| v.to_string());
 
                         container_inputs.push(FormInput {
                             name: name.to_string(),
@@ -904,15 +979,19 @@ impl WebCrawler {
             }
 
             // Also look for button/submit elements to identify form endpoints
-            let button_selector = Selector::parse("button, [type='submit'], [role='button']").unwrap();
+            let button_selector =
+                Selector::parse("button, [type='submit'], [role='button']").unwrap();
             let mut form_action = page_url.to_string();
 
             for button in container.select(&button_selector) {
                 // Check for data attributes that might indicate submission endpoint
-                if let Some(action) = button.value().attr("data-action")
+                if let Some(action) = button
+                    .value()
+                    .attr("data-action")
                     .or_else(|| button.value().attr("data-url"))
                     .or_else(|| button.value().attr("data-endpoint"))
-                    .or_else(|| button.value().attr("formaction")) {
+                    .or_else(|| button.value().attr("formaction"))
+                {
                     form_action = self.resolve_url(page_url, action);
                     break;
                 }
@@ -920,8 +999,11 @@ impl WebCrawler {
 
             if !container_inputs.is_empty() {
                 let container_class = container.value().attr("class").unwrap_or("");
-                debug!("Found form-like container with class '{}' containing {} inputs",
-                    container_class, container_inputs.len());
+                debug!(
+                    "Found form-like container with class '{}' containing {} inputs",
+                    container_class,
+                    container_inputs.len()
+                );
 
                 forms.push(DiscoveredForm {
                     action: form_action,
@@ -936,19 +1018,33 @@ impl WebCrawler {
         // Broad selector: input, textarea, select, and contenteditable elements
         let all_inputs_selector = Selector::parse(
             "input, textarea, select, [contenteditable='true'], [role='textbox'], \
-             [role='combobox'], [role='searchbox'], [role='spinbutton']"
-        ).unwrap();
+             [role='combobox'], [role='searchbox'], [role='spinbutton']",
+        )
+        .unwrap();
         let mut standalone_inputs = Vec::new();
         let mut input_counter = 0;
 
         for input_element in document.select(&all_inputs_selector) {
             let tag_name = input_element.value().name();
-            let input_type = input_element.value().attr("type")
-                .unwrap_or(if tag_name == "textarea" { "textarea" } else if tag_name == "select" { "select" } else { "text" })
+            let input_type = input_element
+                .value()
+                .attr("type")
+                .unwrap_or(if tag_name == "textarea" {
+                    "textarea"
+                } else if tag_name == "select" {
+                    "select"
+                } else {
+                    "text"
+                })
                 .to_lowercase();
 
             // Skip hidden/submit but keep checkbox/radio (they can be attack vectors)
-            if tag_name == "input" && matches!(input_type.as_str(), "hidden" | "submit" | "button" | "image" | "reset") {
+            if tag_name == "input"
+                && matches!(
+                    input_type.as_str(),
+                    "hidden" | "submit" | "button" | "image" | "reset"
+                )
+            {
                 continue;
             }
 
@@ -966,7 +1062,9 @@ impl WebCrawler {
             }
 
             // Get name from multiple sources (expanded)
-            let name = input_element.value().attr("name")
+            let name = input_element
+                .value()
+                .attr("name")
                 .or_else(|| input_element.value().attr("id"))
                 .or_else(|| input_element.value().attr("aria-label"))
                 .or_else(|| input_element.value().attr("aria-labelledby"))
@@ -993,8 +1091,7 @@ impl WebCrawler {
                 continue;
             }
 
-            let value = input_element.value().attr("value")
-                .map(|v| v.to_string());
+            let value = input_element.value().attr("value").map(|v| v.to_string());
 
             standalone_inputs.push(FormInput {
                 name: final_name,
@@ -1013,14 +1110,18 @@ impl WebCrawler {
                 inputs: standalone_inputs.clone(),
                 discovered_at: page_url.to_string(),
             });
-            debug!("Found {} standalone inputs (React/JS form)", standalone_inputs.len());
+            debug!(
+                "Found {} standalone inputs (React/JS form)",
+                standalone_inputs.len()
+            );
         }
 
         // Also detect common form parameter names from the page even if no input elements
         // This catches React/Vue components that render inputs dynamically
         let common_form_params = self.detect_form_params_from_html(document);
         if !common_form_params.is_empty() && forms.is_empty() {
-            let synthetic_inputs: Vec<FormInput> = common_form_params.into_iter()
+            let synthetic_inputs: Vec<FormInput> = common_form_params
+                .into_iter()
                 .filter(|p| !form_input_ids.contains(p))
                 .map(|name| FormInput {
                     name,
@@ -1032,7 +1133,10 @@ impl WebCrawler {
                 .collect();
 
             if !synthetic_inputs.is_empty() {
-                debug!("Detected {} potential form params from HTML analysis", synthetic_inputs.len());
+                debug!(
+                    "Detected {} potential form params from HTML analysis",
+                    synthetic_inputs.len()
+                );
                 forms.push(DiscoveredForm {
                     action: page_url.to_string(),
                     method: "POST".to_string(),
@@ -1063,11 +1167,21 @@ impl WebCrawler {
         // First, check if the page actually has form-like structures
         // Only detect params if we see real form indicators
         let has_form_structure = {
-            let form_selector = Selector::parse("form, [role='form'], .form, .contact-form, .signup-form, .login-form").ok();
-            let input_selector = Selector::parse("input:not([type='hidden']):not([type='submit']), textarea, select").ok();
+            let form_selector = Selector::parse(
+                "form, [role='form'], .form, .contact-form, .signup-form, .login-form",
+            )
+            .ok();
+            let input_selector = Selector::parse(
+                "input:not([type='hidden']):not([type='submit']), textarea, select",
+            )
+            .ok();
 
-            let has_forms = form_selector.map(|s| document.select(&s).next().is_some()).unwrap_or(false);
-            let has_inputs = input_selector.map(|s| document.select(&s).next().is_some()).unwrap_or(false);
+            let has_forms = form_selector
+                .map(|s| document.select(&s).next().is_some())
+                .unwrap_or(false);
+            let has_inputs = input_selector
+                .map(|s| document.select(&s).next().is_some())
+                .unwrap_or(false);
 
             has_forms || has_inputs
         };
@@ -1081,34 +1195,56 @@ impl WebCrawler {
         // Form field name mappings (indicator -> param_name)
         let form_indicators = [
             // Email variations
-            ("email", "email"), ("e-mail", "email"), ("sähköposti", "email"),
-            ("correo", "email"), ("courriel", "email"),
+            ("email", "email"),
+            ("e-mail", "email"),
+            ("sähköposti", "email"),
+            ("correo", "email"),
+            ("courriel", "email"),
             // Name variations
-            ("nimi", "name"), ("full name", "fullname"),
-            ("nombre", "name"), ("nom", "name"),
+            ("nimi", "name"),
+            ("full name", "fullname"),
+            ("nombre", "name"),
+            ("nom", "name"),
             // Phone variations
-            ("phone", "phone"), ("puhelin", "phone"), ("telephone", "phone"),
-            ("telefono", "phone"), ("téléphone", "phone"), ("mobile", "phone"),
+            ("phone", "phone"),
+            ("puhelin", "phone"),
+            ("telephone", "phone"),
+            ("telefono", "phone"),
+            ("téléphone", "phone"),
+            ("mobile", "phone"),
             // Message variations
-            ("message", "message"), ("viesti", "message"), ("comment", "comment"),
-            ("mensaje", "message"), ("feedback", "message"),
+            ("message", "message"),
+            ("viesti", "message"),
+            ("comment", "comment"),
+            ("mensaje", "message"),
+            ("feedback", "message"),
             // Subject variations
-            ("subject", "subject"), ("aihe", "subject"), ("asunto", "subject"),
+            ("subject", "subject"),
+            ("aihe", "subject"),
+            ("asunto", "subject"),
             // Company variations
-            ("company", "company"), ("yritys", "company"),
+            ("company", "company"),
+            ("yritys", "company"),
             // Auth fields
-            ("password", "password"), ("salasana", "password"),
-            ("username", "username"), ("käyttäjänimi", "username"),
+            ("password", "password"),
+            ("salasana", "password"),
+            ("username", "username"),
+            ("käyttäjänimi", "username"),
             // Name parts
-            ("first name", "firstname"), ("etunimi", "firstname"),
-            ("last name", "lastname"), ("sukunimi", "lastname"),
+            ("first name", "firstname"),
+            ("etunimi", "firstname"),
+            ("last name", "lastname"),
+            ("sukunimi", "lastname"),
         ];
 
         // Look for label elements with for= attribute - these are REAL form fields
         if let Ok(label_selector) = Selector::parse("label[for]") {
             for label in document.select(&label_selector) {
                 if let Some(for_attr) = label.value().attr("for") {
-                    if !params.contains(&for_attr.to_string()) && for_attr.len() > 1 && for_attr.len() < 50 {
+                    if !params.contains(&for_attr.to_string())
+                        && for_attr.len() > 1
+                        && for_attr.len() < 50
+                    {
                         params.push(for_attr.to_string());
                     }
                 }
@@ -1121,13 +1257,19 @@ impl WebCrawler {
                 if let Some(placeholder) = elem.value().attr("placeholder") {
                     let placeholder_lower = placeholder.to_lowercase();
                     for (indicator, param_name) in &form_indicators {
-                        if placeholder_lower.contains(indicator) && !params.contains(&param_name.to_string()) {
+                        if placeholder_lower.contains(indicator)
+                            && !params.contains(&param_name.to_string())
+                        {
                             params.push(param_name.to_string());
                         }
                     }
                 }
                 // Also get name/id from the element itself
-                if let Some(name) = elem.value().attr("name").or_else(|| elem.value().attr("id")) {
+                if let Some(name) = elem
+                    .value()
+                    .attr("name")
+                    .or_else(|| elem.value().attr("id"))
+                {
                     if !params.contains(&name.to_string()) && name.len() > 1 && name.len() < 50 {
                         params.push(name.to_string());
                     }
@@ -1136,12 +1278,16 @@ impl WebCrawler {
         }
 
         // Look for aria-label attributes on input-like elements
-        if let Ok(aria_selector) = Selector::parse("input[aria-label], textarea[aria-label], select[aria-label]") {
+        if let Ok(aria_selector) =
+            Selector::parse("input[aria-label], textarea[aria-label], select[aria-label]")
+        {
             for elem in document.select(&aria_selector) {
                 if let Some(aria_label) = elem.value().attr("aria-label") {
                     let aria_lower = aria_label.to_lowercase();
                     for (indicator, param_name) in &form_indicators {
-                        if aria_lower.contains(indicator) && !params.contains(&param_name.to_string()) {
+                        if aria_lower.contains(indicator)
+                            && !params.contains(&param_name.to_string())
+                        {
                             params.push(param_name.to_string());
                         }
                     }
@@ -1165,7 +1311,9 @@ impl WebCrawler {
         }
 
         // Look specifically inside form containers for label text
-        if let Ok(form_label_selector) = Selector::parse("form label, [role='form'] label, .form label") {
+        if let Ok(form_label_selector) =
+            Selector::parse("form label, [role='form'] label, .form label")
+        {
             for label in document.select(&form_label_selector) {
                 let label_text = label.text().collect::<String>().to_lowercase();
                 for (indicator, param_name) in &form_indicators {
@@ -1193,21 +1341,36 @@ impl WebCrawler {
                 let json_text = script.text().collect::<String>();
                 // Look for form-related field names in the JSON
                 let form_field_patterns = [
-                    "email", "password", "username", "name", "phone", "message",
-                    "firstName", "lastName", "company", "address", "city", "subject",
-                    "comment", "feedback", "search", "query", "nimi", "viesti", "puhelin",
+                    "email",
+                    "password",
+                    "username",
+                    "name",
+                    "phone",
+                    "message",
+                    "firstName",
+                    "lastName",
+                    "company",
+                    "address",
+                    "city",
+                    "subject",
+                    "comment",
+                    "feedback",
+                    "search",
+                    "query",
+                    "nimi",
+                    "viesti",
+                    "puhelin",
                 ];
 
                 let mut next_inputs = Vec::new();
                 for field in form_field_patterns {
                     // Check if field appears as a key in JSON: "email": or "email":
-                    let patterns = [
-                        format!(r#""{}":\s*"#, field),
-                        format!(r#"'{}'\s*:"#, field),
-                    ];
+                    let patterns = [format!(r#""{}":\s*"#, field), format!(r#"'{}'\s*:"#, field)];
                     for pattern in patterns {
                         if let Ok(re) = regex::Regex::new(&pattern) {
-                            if re.is_match(&json_text) && !next_inputs.iter().any(|i: &FormInput| i.name == field) {
+                            if re.is_match(&json_text)
+                                && !next_inputs.iter().any(|i: &FormInput| i.name == field)
+                            {
                                 next_inputs.push(FormInput {
                                     name: field.to_string(),
                                     input_type: "text".to_string(),
@@ -1233,12 +1396,15 @@ impl WebCrawler {
         }
 
         // Look for Next.js RSC payload data (React Server Components)
-        if let Ok(rsc_selector) = Selector::parse("script[type='application/rsc'], script[data-rsc]") {
+        if let Ok(rsc_selector) =
+            Selector::parse("script[type='application/rsc'], script[data-rsc]")
+        {
             for script in document.select(&rsc_selector) {
                 let rsc_text = script.text().collect::<String>();
                 // RSC payloads often contain form field names
                 let mut rsc_inputs = Vec::new();
-                let field_pattern = r#"(?:name|field|input|param)\s*[=:]\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#;
+                let field_pattern =
+                    r#"(?:name|field|input|param)\s*[=:]\s*["']([a-zA-Z_][a-zA-Z0-9_]{1,30})["']"#;
                 if let Ok(re) = regex::Regex::new(field_pattern) {
                     for cap in re.captures_iter(&rsc_text) {
                         if let Some(field) = cap.get(1) {
@@ -1269,7 +1435,9 @@ impl WebCrawler {
         }
 
         // Look for hydration data that might contain form schemas
-        if let Ok(hydration_selector) = Selector::parse("script[data-nscript], script[data-next-font]") {
+        if let Ok(hydration_selector) =
+            Selector::parse("script[data-nscript], script[data-next-font]")
+        {
             // These scripts often load after SSR and contain form definitions
             for script in document.select(&hydration_selector) {
                 if let Some(src) = script.value().attr("src") {
@@ -1280,9 +1448,13 @@ impl WebCrawler {
         }
 
         // Look for Next.js server action forms
-        if let Ok(action_selector) = Selector::parse("[data-action], form[action^='/api'], form[action*='action']") {
+        if let Ok(action_selector) =
+            Selector::parse("[data-action], form[action^='/api'], form[action*='action']")
+        {
             for elem in document.select(&action_selector) {
-                let action = elem.value().attr("action")
+                let action = elem
+                    .value()
+                    .attr("action")
                     .or_else(|| elem.value().attr("data-action"))
                     .unwrap_or(page_url);
 
@@ -1290,7 +1462,11 @@ impl WebCrawler {
                 let input_selector = Selector::parse("input, textarea, select").unwrap();
 
                 for input in elem.select(&input_selector) {
-                    if let Some(name) = input.value().attr("name").or_else(|| input.value().attr("id")) {
+                    if let Some(name) = input
+                        .value()
+                        .attr("name")
+                        .or_else(|| input.value().attr("id"))
+                    {
                         inputs.push(FormInput {
                             name: name.to_string(),
                             input_type: input.value().attr("type").unwrap_or("text").to_string(),
@@ -1325,13 +1501,16 @@ impl WebCrawler {
                 let mut mui_inputs = Vec::new();
 
                 for elem in document.select(&mui_selector) {
-                    let name = elem.value().attr("name")
+                    let name = elem
+                        .value()
+                        .attr("name")
                         .or_else(|| elem.value().attr("id"))
                         .or_else(|| elem.value().attr("aria-label"))
                         .or_else(|| elem.value().attr("data-testid"));
 
                     if let Some(name) = name {
-                        if name.len() > 1 && !mui_inputs.iter().any(|i: &FormInput| i.name == name) {
+                        if name.len() > 1 && !mui_inputs.iter().any(|i: &FormInput| i.name == name)
+                        {
                             mui_inputs.push(FormInput {
                                 name: name.to_string(),
                                 input_type: elem.value().attr("type").unwrap_or("text").to_string(),
@@ -1344,7 +1523,10 @@ impl WebCrawler {
                 }
 
                 if !mui_inputs.is_empty() {
-                    debug!("Found {} inputs from UI framework pattern", mui_inputs.len());
+                    debug!(
+                        "Found {} inputs from UI framework pattern",
+                        mui_inputs.len()
+                    );
                     forms.push(DiscoveredForm {
                         action: page_url.to_string(),
                         method: "POST".to_string(),
@@ -1458,17 +1640,50 @@ impl WebCrawler {
     fn is_language_select_options(&self, options: &Option<Vec<String>>) -> bool {
         if let Some(opts) = options {
             let lang_codes = [
-                "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru",
-                "en-us", "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es",
-                "english", "finnish", "swedish", "german", "french", "spanish", "italian",
-                "suomi", "svenska", "deutsch", "français", "español",
+                "en",
+                "fi",
+                "sv",
+                "de",
+                "fr",
+                "es",
+                "it",
+                "nl",
+                "pt",
+                "ja",
+                "zh",
+                "ko",
+                "ru",
+                "en-us",
+                "en-gb",
+                "fi-fi",
+                "sv-se",
+                "de-de",
+                "fr-fr",
+                "es-es",
+                "english",
+                "finnish",
+                "swedish",
+                "german",
+                "french",
+                "spanish",
+                "italian",
+                "suomi",
+                "svenska",
+                "deutsch",
+                "français",
+                "español",
             ];
 
             // If most options are language codes, it's a language selector
-            let lang_matches = opts.iter().filter(|opt| {
-                let opt_lower = opt.to_lowercase();
-                lang_codes.iter().any(|lc| opt_lower == *lc || opt_lower.starts_with(&format!("{}-", lc)))
-            }).count();
+            let lang_matches = opts
+                .iter()
+                .filter(|opt| {
+                    let opt_lower = opt.to_lowercase();
+                    lang_codes
+                        .iter()
+                        .any(|lc| opt_lower == *lc || opt_lower.starts_with(&format!("{}-", lc)))
+                })
+                .count();
 
             // If at least 2 options match language codes, consider it a language selector
             lang_matches >= 2
@@ -1490,7 +1705,10 @@ impl WebCrawler {
                 // Only follow same-domain links
                 if let Ok(url) = Url::parse(&absolute_url) {
                     if let Some(host) = url.host_str() {
-                        if host == base_domain && !href.starts_with('#') && !href.starts_with("javascript:") {
+                        if host == base_domain
+                            && !href.starts_with('#')
+                            && !href.starts_with("javascript:")
+                        {
                             links.push(absolute_url);
                         }
                     }
@@ -1505,7 +1723,8 @@ impl WebCrawler {
     fn extract_script_urls(&self, document: &Html, page_url: &str) -> Vec<String> {
         let script_selector = Selector::parse("script[src]").unwrap();
 
-        let script_urls: Vec<String> = document.select(&script_selector)
+        let script_urls: Vec<String> = document
+            .select(&script_selector)
             .filter_map(|element| element.value().attr("src"))
             .map(|src| self.resolve_url(page_url, src))
             .collect();
@@ -1540,7 +1759,8 @@ impl WebCrawler {
             let ct_lower = content_type.to_lowercase();
             if ct_lower.contains("application/json")
                 || ct_lower.contains("application/xml")
-                || ct_lower.contains("application/graphql") {
+                || ct_lower.contains("application/graphql")
+            {
                 return true;
             }
         }
@@ -1581,9 +1801,7 @@ fn is_private_ip(ip: &IpAddr) -> bool {
             || (ipv4.octets()[0] == 172 && (16..=31).contains(&ipv4.octets()[1])) // 172.16.0.0/12
             || (ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168) // 192.168.0.0/16
         }
-        IpAddr::V6(ipv6) => {
-            ipv6.is_loopback() || ipv6.is_unspecified()
-        }
+        IpAddr::V6(ipv6) => ipv6.is_loopback() || ipv6.is_unspecified(),
     }
 }
 
@@ -1593,11 +1811,7 @@ mod tests {
 
     #[test]
     fn test_resolve_url() {
-        let crawler = WebCrawler::new(
-            Arc::new(HttpClient::new(30, 3).unwrap()),
-            2,
-            100
-        );
+        let crawler = WebCrawler::new(Arc::new(HttpClient::new(30, 3).unwrap()), 2, 100);
 
         assert_eq!(
             crawler.resolve_url("https://example.com/page", "/api/test"),
@@ -1629,8 +1843,20 @@ mod tests {
             action: "/submit".to_string(),
             method: "POST".to_string(),
             inputs: vec![
-                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None, options: None, required: false },
-                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None, options: None, required: false },
+                FormInput {
+                    name: "email".to_string(),
+                    input_type: "text".to_string(),
+                    value: None,
+                    options: None,
+                    required: false,
+                },
+                FormInput {
+                    name: "password".to_string(),
+                    input_type: "password".to_string(),
+                    value: None,
+                    options: None,
+                    required: false,
+                },
             ],
             discovered_at: "/login".to_string(),
         };
@@ -1639,8 +1865,20 @@ mod tests {
             action: "/submit".to_string(),
             method: "POST".to_string(),
             inputs: vec![
-                FormInput { name: "password".to_string(), input_type: "password".to_string(), value: None, options: None, required: false },
-                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None, options: None, required: false },
+                FormInput {
+                    name: "password".to_string(),
+                    input_type: "password".to_string(),
+                    value: None,
+                    options: None,
+                    required: false,
+                },
+                FormInput {
+                    name: "email".to_string(),
+                    input_type: "text".to_string(),
+                    value: None,
+                    options: None,
+                    required: false,
+                },
             ],
             discovered_at: "/login".to_string(),
         };
@@ -1656,9 +1894,13 @@ mod tests {
         let form = DiscoveredForm {
             action: "/submit".to_string(),
             method: "POST".to_string(),
-            inputs: vec![
-                FormInput { name: "email".to_string(), input_type: "text".to_string(), value: None, options: None, required: false },
-            ],
+            inputs: vec![FormInput {
+                name: "email".to_string(),
+                input_type: "text".to_string(),
+                value: None,
+                options: None,
+                required: false,
+            }],
             discovered_at: "/page1".to_string(),
         };
 

@@ -161,8 +161,11 @@ Reference: https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass"#.
             }
         }
 
-        info!("[SUCCESS] [Azure-APIM] Completed {} tests, found {} issues",
-            tests_run, vulnerabilities.len());
+        info!(
+            "[SUCCESS] [Azure-APIM] Completed {} tests, found {} issues",
+            tests_run,
+            vulnerabilities.len()
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -193,8 +196,7 @@ Reference: https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass"#.
 
             // Check headers for APIM indicators
             let has_apim_header = response.headers.iter().any(|(k, v)| {
-                k.to_lowercase().contains("apim") ||
-                v.to_lowercase().contains("azure-api")
+                k.to_lowercase().contains("apim") || v.to_lowercase().contains("azure-api")
             });
 
             if has_apim_header {
@@ -217,9 +219,7 @@ Reference: https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass"#.
         let signup_url = format!("{}/signup", origin);
 
         match self.http_client.get(&signup_url).await {
-            Ok(response) => {
-                response.status_code == 200 || response.status_code == 302
-            }
+            Ok(response) => response.status_code == 200 || response.status_code == 302,
             Err(_) => false,
         }
     }
@@ -260,31 +260,61 @@ Reference: https://github.com/bountyyfi/Azure-APIM-Cross-Tenant-Signup-Bypass"#.
                 // These responses indicate the signup API EXISTS and processes requests
                 if response.status_code == 400 {
                     if body_lower.contains("captcha") || body_lower.contains("challenge") {
-                        return (true, Some("Basic Auth signup API ACTIVE (captcha validation)".to_string()));
+                        return (
+                            true,
+                            Some("Basic Auth signup API ACTIVE (captcha validation)".to_string()),
+                        );
                     }
-                    if body_lower.contains("email") || body_lower.contains("password") || body_lower.contains("invalid") {
-                        return (true, Some("Basic Auth signup API ACTIVE (input validation)".to_string()));
+                    if body_lower.contains("email")
+                        || body_lower.contains("password")
+                        || body_lower.contains("invalid")
+                    {
+                        return (
+                            true,
+                            Some("Basic Auth signup API ACTIVE (input validation)".to_string()),
+                        );
                     }
-                    return (true, Some("Basic Auth signup API responds (400)".to_string()));
+                    return (
+                        true,
+                        Some("Basic Auth signup API responds (400)".to_string()),
+                    );
                 }
 
                 if response.status_code == 409 {
-                    return (true, Some("Basic Auth signup API ACTIVE (409 conflict)".to_string()));
+                    return (
+                        true,
+                        Some("Basic Auth signup API ACTIVE (409 conflict)".to_string()),
+                    );
                 }
 
                 if response.status_code == 200 || response.status_code == 201 {
-                    return (true, Some("Basic Auth signup API ACCEPTS requests".to_string()));
+                    return (
+                        true,
+                        Some("Basic Auth signup API ACCEPTS requests".to_string()),
+                    );
                 }
 
                 if response.status_code == 401 || response.status_code == 403 {
-                    return (true, Some(format!("Basic Auth signup API responds ({})", response.status_code)));
+                    return (
+                        true,
+                        Some(format!(
+                            "Basic Auth signup API responds ({})",
+                            response.status_code
+                        )),
+                    );
                 }
 
                 if response.status_code == 422 {
-                    return (true, Some("Basic Auth signup API validates (422)".to_string()));
+                    return (
+                        true,
+                        Some("Basic Auth signup API validates (422)".to_string()),
+                    );
                 }
 
-                (false, Some(format!("Signup returned {}", response.status_code)))
+                (
+                    false,
+                    Some(format!("Signup returned {}", response.status_code)),
+                )
             }
             Err(_) => (false, None),
         }

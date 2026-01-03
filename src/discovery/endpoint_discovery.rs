@@ -14,7 +14,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::HttpClient;
 use anyhow::Result;
 use std::collections::HashSet;
@@ -58,7 +57,10 @@ impl EndpointDiscovery {
 
     /// Discover endpoints on target
     pub async fn discover(&self, base_url: &str) -> Result<Vec<DiscoveredEndpoint>> {
-        info!("[EndpointDiscovery] Starting endpoint discovery on {}", base_url);
+        info!(
+            "[EndpointDiscovery] Starting endpoint discovery on {}",
+            base_url
+        );
 
         let mut discovered = Vec::new();
         let mut checked = HashSet::new();
@@ -116,7 +118,11 @@ impl EndpointDiscovery {
     /// Get baseline response for false positive detection
     async fn get_baseline_response(&self, base_url: &str) -> Option<(u16, usize, String)> {
         // Request a random non-existent path to detect custom 404 pages
-        let random_path = format!("{}/lonkero_random_404_test_{}", base_url, uuid::Uuid::new_v4());
+        let random_path = format!(
+            "{}/lonkero_random_404_test_{}",
+            base_url,
+            uuid::Uuid::new_v4()
+        );
 
         match self.http_client.get(&random_path).await {
             Ok(response) => Some((
@@ -294,7 +300,6 @@ impl EndpointDiscovery {
             "/vaihda-salasana",
             "/kirjaudu-ulos",
             "/uloskirjautuminen",
-
             // Admin
             "/hallinta",
             "/hallintapaneeli",
@@ -308,7 +313,6 @@ impl EndpointDiscovery {
             "/asetukset",
             "/jarjestelma",
             "/järjestelmä",
-
             // User
             "/kayttaja",
             "/käyttäjä",
@@ -318,7 +322,6 @@ impl EndpointDiscovery {
             "/tili",
             "/tilaus",
             "/tilaukset",
-
             // Content
             "/sisalto",
             "/sisältö",
@@ -331,7 +334,6 @@ impl EndpointDiscovery {
             "/tiedostot",
             "/lataukset",
             "/lataa",
-
             // E-commerce Finnish
             "/ostoskori",
             "/kassa",
@@ -342,7 +344,6 @@ impl EndpointDiscovery {
             "/kauppa",
             "/verkkokauppa",
             "/hinnasto",
-
             // Other Finnish
             "/haku",
             "/etsi",
@@ -359,7 +360,6 @@ impl EndpointDiscovery {
             "/evasteet",
             "/kayttoehdot",
             "/käyttöehdot",
-
             // ========================================
             // SWEDISH (Svenska)
             // ========================================
@@ -393,7 +393,6 @@ impl EndpointDiscovery {
             "/betalning",
             "/produkter",
             "/butik",
-
             // ========================================
             // GERMAN (Deutsch)
             // ========================================
@@ -430,7 +429,6 @@ impl EndpointDiscovery {
             "/shop",
             "/datenschutz",
             "/agb",
-
             // ========================================
             // FRENCH (Français)
             // ========================================
@@ -468,7 +466,6 @@ impl EndpointDiscovery {
             "/mentions-légales",
             "/confidentialite",
             "/confidentialité",
-
             // ========================================
             // SPANISH (Español)
             // ========================================
@@ -510,7 +507,6 @@ impl EndpointDiscovery {
             "/privacidad",
             "/terminos",
             "/términos",
-
             // ========================================
             // PORTUGUESE (Português)
             // ========================================
@@ -546,7 +542,6 @@ impl EndpointDiscovery {
             "/pagamento",
             "/produtos",
             "/loja",
-
             // ========================================
             // ITALIAN (Italiano)
             // ========================================
@@ -576,7 +571,6 @@ impl EndpointDiscovery {
             "/pagamento",
             "/prodotti",
             "/negozio",
-
             // ========================================
             // DUTCH (Nederlands)
             // ========================================
@@ -604,7 +598,6 @@ impl EndpointDiscovery {
             "/betaling",
             "/producten",
             "/winkel",
-
             // ========================================
             // POLISH (Polski)
             // ========================================
@@ -633,7 +626,6 @@ impl EndpointDiscovery {
             "/platnosc",
             "/produkty",
             "/sklep",
-
             // ========================================
             // RUSSIAN (Русский - transliterated)
             // ========================================
@@ -663,7 +655,6 @@ impl EndpointDiscovery {
             "/oplata",
             "/produkty",
             "/magazin",
-
             // ========================================
             // ENGLISH (Common)
             // ========================================
@@ -700,7 +691,6 @@ impl EndpointDiscovery {
             "/verify-email",
             "/confirm",
             "/activate",
-
             // Admin
             "/admin",
             "/administrator",
@@ -730,7 +720,6 @@ impl EndpointDiscovery {
             "/moderator",
             "/mod",
             "/staff",
-
             // User/Account
             "/user",
             "/users",
@@ -748,7 +737,6 @@ impl EndpointDiscovery {
             "/settings",
             "/preferences",
             "/options",
-
             // API
             "/api",
             "/api/v1",
@@ -777,7 +765,6 @@ impl EndpointDiscovery {
             "/api/version",
             "/api/info",
             "/api/ping",
-
             // Config/Environment
             "/config",
             "/configuration",
@@ -797,7 +784,6 @@ impl EndpointDiscovery {
             "/web.config",
             "/application.yml",
             "/application.properties",
-
             // Debug/Development
             "/debug",
             "/debugging",
@@ -866,7 +852,6 @@ impl EndpointDiscovery {
             "/actuator/trace",
             "/actuator/heapdump",
             "/actuator/threaddump",
-
             // Backup/Old files
             "/backup",
             "/backups",
@@ -887,7 +872,6 @@ impl EndpointDiscovery {
             "/dump.sql",
             "/data.sql",
             "/export.sql",
-
             // Database
             "/phpmyadmin",
             "/pma",
@@ -910,7 +894,6 @@ impl EndpointDiscovery {
             "/elasticsearch",
             "/kibana",
             "/grafana",
-
             // File management
             "/upload",
             "/uploads",
@@ -939,7 +922,6 @@ impl EndpointDiscovery {
             "/doc",
             "/pdf",
             "/pdfs",
-
             // E-commerce
             "/cart",
             "/basket",
@@ -965,7 +947,6 @@ impl EndpointDiscovery {
             "/compare",
             "/review",
             "/reviews",
-
             // Search
             "/search",
             "/find",
@@ -974,7 +955,6 @@ impl EndpointDiscovery {
             "/autocomplete",
             "/suggest",
             "/suggestions",
-
             // Communication
             "/contact",
             "/contact-us",
@@ -997,7 +977,6 @@ impl EndpointDiscovery {
             "/newsletter",
             "/subscribe",
             "/unsubscribe",
-
             // Legal/Info
             "/about",
             "/about-us",
@@ -1019,7 +998,6 @@ impl EndpointDiscovery {
             "/humans.txt",
             "/security.txt",
             "/.well-known/security.txt",
-
             // Git/Source
             "/.git",
             "/.git/config",
@@ -1032,7 +1010,6 @@ impl EndpointDiscovery {
             "/CVS",
             "/.DS_Store",
             "/Thumbs.db",
-
             // Package managers
             "/package.json",
             "/package-lock.json",
@@ -1049,7 +1026,6 @@ impl EndpointDiscovery {
             "/Cargo.toml",
             "/go.mod",
             "/go.sum",
-
             // Server/Infrastructure
             "/server",
             "/wp-admin",
@@ -1069,7 +1045,6 @@ impl EndpointDiscovery {
             "/sitecore",
             "/kentico",
             "/sitefinity",
-
             // Jenkins/CI
             "/jenkins",
             "/jenkins/login",
@@ -1081,7 +1056,6 @@ impl EndpointDiscovery {
             "/jobs",
             "/pipeline",
             "/pipelines",
-
             // Monitoring
             "/monitor",
             "/monitoring",
@@ -1094,7 +1068,6 @@ impl EndpointDiscovery {
             "/reporting",
             "/audit",
             "/auditing",
-
             // WebSocket
             "/ws",
             "/wss",
@@ -1102,14 +1075,12 @@ impl EndpointDiscovery {
             "/socket",
             "/socket.io",
             "/sockjs",
-
             // Mobile
             "/mobile",
             "/app",
             "/ios",
             "/android",
             "/api/mobile",
-
             // Internal/Hidden
             "/internal",
             "/private",
@@ -1123,7 +1094,6 @@ impl EndpointDiscovery {
             "/_",
             "/__",
             "/~",
-
             // Common vulnerabilities
             "/cgi-bin",
             "/cgi-bin/test-cgi",
@@ -1138,7 +1108,6 @@ impl EndpointDiscovery {
             "/shell",
             "/terminal",
             "/console",
-
             // Next.js specific
             "/_next",
             "/_next/static",
@@ -1147,7 +1116,6 @@ impl EndpointDiscovery {
             "/api/auth/signout",
             "/api/auth/session",
             "/api/auth/providers",
-
             // Common framework paths
             "/laravel",
             "/telescope",
@@ -1172,23 +1140,50 @@ mod tests {
 
     #[test]
     fn test_categorize_admin_paths() {
-        assert_eq!(EndpointDiscovery::categorize_path("/admin"), EndpointCategory::Admin);
-        assert_eq!(EndpointDiscovery::categorize_path("/hallinta"), EndpointCategory::Admin);
-        assert_eq!(EndpointDiscovery::categorize_path("/verwaltung"), EndpointCategory::Admin);
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/admin"),
+            EndpointCategory::Admin
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/hallinta"),
+            EndpointCategory::Admin
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/verwaltung"),
+            EndpointCategory::Admin
+        );
     }
 
     #[test]
     fn test_categorize_auth_paths() {
-        assert_eq!(EndpointDiscovery::categorize_path("/login"), EndpointCategory::Authentication);
-        assert_eq!(EndpointDiscovery::categorize_path("/kirjaudu"), EndpointCategory::Authentication);
-        assert_eq!(EndpointDiscovery::categorize_path("/anmelden"), EndpointCategory::Authentication);
-        assert_eq!(EndpointDiscovery::categorize_path("/connexion"), EndpointCategory::Authentication);
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/login"),
+            EndpointCategory::Authentication
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/kirjaudu"),
+            EndpointCategory::Authentication
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/anmelden"),
+            EndpointCategory::Authentication
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/connexion"),
+            EndpointCategory::Authentication
+        );
     }
 
     #[test]
     fn test_categorize_api_paths() {
-        assert_eq!(EndpointDiscovery::categorize_path("/api/v1"), EndpointCategory::Api);
-        assert_eq!(EndpointDiscovery::categorize_path("/graphql"), EndpointCategory::Api);
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/api/v1"),
+            EndpointCategory::Api
+        );
+        assert_eq!(
+            EndpointDiscovery::categorize_path("/graphql"),
+            EndpointCategory::Api
+        );
     }
 
     #[test]

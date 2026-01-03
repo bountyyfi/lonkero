@@ -53,7 +53,10 @@ impl WebAuthnScanner {
     }
 
     /// Test for WebAuthn endpoint exposure and configuration
-    async fn test_webauthn_endpoints(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_webauthn_endpoints(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
@@ -86,7 +89,10 @@ impl WebAuthnScanner {
                                 url,
                                 "Weak WebAuthn Configuration",
                                 "",
-                                &format!("{} endpoint has weak security configuration", endpoint_name),
+                                &format!(
+                                    "{} endpoint has weak security configuration",
+                                    endpoint_name
+                                ),
                                 "WebAuthn endpoint accessible with weak parameters",
                                 Severity::High,
                                 "CWE-287",
@@ -100,7 +106,10 @@ impl WebAuthnScanner {
                         let body_lower = response.body.to_lowercase();
                         if body_lower.contains("challenge") && body_lower.contains("user") {
                             if !self.has_proper_csrf_protection(&response.headers) {
-                                info!("WebAuthn endpoint without CSRF protection: {}", endpoint_name);
+                                info!(
+                                    "WebAuthn endpoint without CSRF protection: {}",
+                                    endpoint_name
+                                );
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
                                     "WebAuthn Endpoint Missing CSRF Protection",
@@ -126,7 +135,10 @@ impl WebAuthnScanner {
     }
 
     /// Test for weak challenge generation
-    async fn test_weak_challenge_generation(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_weak_challenge_generation(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
@@ -169,13 +181,18 @@ impl WebAuthnScanner {
                         "Predictable WebAuthn Challenge",
                         "",
                         "WebAuthn challenge is not randomly generated",
-                        &format!("Same challenge returned on multiple requests: {}", challenges[0]),
+                        &format!(
+                            "Same challenge returned on multiple requests: {}",
+                            challenges[0]
+                        ),
                         Severity::Critical,
                         "CWE-330",
                         9.1,
                     ));
                     break;
-                } else if self.is_weak_challenge(&challenges[0]) || self.is_weak_challenge(&challenges[1]) {
+                } else if self.is_weak_challenge(&challenges[0])
+                    || self.is_weak_challenge(&challenges[1])
+                {
                     info!("Weak challenge generation detected at {}", endpoint);
                     vulnerabilities.push(self.create_vulnerability(
                         url,
@@ -196,18 +213,33 @@ impl WebAuthnScanner {
     }
 
     /// Test registration flow for vulnerabilities
-    async fn test_registration_flow(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_registration_flow(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
         debug!("Testing WebAuthn registration flow");
 
         let registration_payloads = vec![
-            (r#"{"user":{"id":"admin","name":"admin"}}"#, "User Enumeration"),
-            (r#"{"challenge":"AAAA","user":{"id":"test"}}"#, "Weak Challenge Acceptance"),
+            (
+                r#"{"user":{"id":"admin","name":"admin"}}"#,
+                "User Enumeration",
+            ),
+            (
+                r#"{"challenge":"AAAA","user":{"id":"test"}}"#,
+                "Weak Challenge Acceptance",
+            ),
             (r#"{"attestation":"none"}"#, "Missing Attestation"),
-            (r#"{"userVerification":"discouraged"}"#, "Weak User Verification"),
-            (r#"{"authenticatorSelection":{"userVerification":"discouraged"}}"#, "Discouraged User Verification"),
+            (
+                r#"{"userVerification":"discouraged"}"#,
+                "Weak User Verification",
+            ),
+            (
+                r#"{"authenticatorSelection":{"userVerification":"discouraged"}}"#,
+                "Discouraged User Verification",
+            ),
         ];
 
         let register_endpoints = vec![
@@ -220,14 +252,19 @@ impl WebAuthnScanner {
             let test_url = self.build_url(url, endpoint);
 
             for (payload, issue_name) in &registration_payloads {
-                let headers = vec![
-                    ("Content-Type".to_string(), "application/json".to_string()),
-                ];
+                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                match self.http_client.post_with_headers(&test_url, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(&test_url, payload, headers)
+                    .await
+                {
                     Ok(response) => {
-                        if response.status_code == 200 && self.is_webauthn_response(&response.body) {
-                            if issue_name == &"Weak Challenge Acceptance" && response.body.contains("AAAA") {
+                        if response.status_code == 200 && self.is_webauthn_response(&response.body)
+                        {
+                            if issue_name == &"Weak Challenge Acceptance"
+                                && response.body.contains("AAAA")
+                            {
                                 info!("Registration accepts weak challenges");
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
@@ -244,7 +281,9 @@ impl WebAuthnScanner {
 
                             if issue_name == &"Weak User Verification" {
                                 let body_lower = response.body.to_lowercase();
-                                if body_lower.contains("discouraged") || body_lower.contains("userverification") {
+                                if body_lower.contains("discouraged")
+                                    || body_lower.contains("userverification")
+                                {
                                     info!("Registration allows discouraged user verification");
                                     vulnerabilities.push(self.create_vulnerability(
                                         url,
@@ -272,7 +311,10 @@ impl WebAuthnScanner {
     }
 
     /// Test origin validation
-    async fn test_origin_validation(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_origin_validation(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
@@ -302,10 +344,19 @@ impl WebAuthnScanner {
 
                 let payload = r#"{"id":"test","response":{"clientDataJSON":"eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0="}}"#;
 
-                match self.http_client.post_with_headers(&test_url, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(&test_url, payload, headers)
+                    .await
+                {
                     Ok(response) => {
-                        if response.status_code == 200 && !response.body.to_lowercase().contains("invalid") {
-                            info!("WebAuthn accepts requests from malicious origin: {}", origin);
+                        if response.status_code == 200
+                            && !response.body.to_lowercase().contains("invalid")
+                        {
+                            info!(
+                                "WebAuthn accepts requests from malicious origin: {}",
+                                origin
+                            );
                             vulnerabilities.push(self.create_vulnerability(
                                 url,
                                 "Missing WebAuthn Origin Validation",
@@ -358,13 +409,16 @@ impl WebAuthnScanner {
     fn has_weak_configuration(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        body_lower.contains(r#""attestation":"none""#) ||
-        body_lower.contains(r#""userverification":"discouraged""#) ||
-        body_lower.contains(r#"userverification":"preferred""#) ||
-        body_lower.contains(r#""requireresidentkey":false"#)
+        body_lower.contains(r#""attestation":"none""#)
+            || body_lower.contains(r#""userverification":"discouraged""#)
+            || body_lower.contains(r#"userverification":"preferred""#)
+            || body_lower.contains(r#""requireresidentkey":false"#)
     }
 
-    fn has_proper_csrf_protection(&self, headers: &std::collections::HashMap<String, String>) -> bool {
+    fn has_proper_csrf_protection(
+        &self,
+        headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
         for (key, _value) in headers {
             let key_lower = key.to_lowercase();
             if key_lower.contains("csrf") || key_lower.contains("xsrf") {
@@ -405,9 +459,10 @@ impl WebAuthnScanner {
             }
         }
 
-        if challenge == "AAAAAAAAAAAAAAAA" ||
-           challenge == "0000000000000000" ||
-           challenge == "1111111111111111" {
+        if challenge == "AAAAAAAAAAAAAAAA"
+            || challenge == "0000000000000000"
+            || challenge == "1111111111111111"
+        {
             return true;
         }
 
@@ -462,7 +517,7 @@ impl WebAuthnScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -476,9 +531,12 @@ impl WebAuthnScanner {
                  5. Implement proper timeout values (60-120 seconds)\n\
                  6. Follow W3C WebAuthn Level 2 specifications\n\
                  7. Regular security audits of WebAuthn implementation\n\
-                 8. Test with FIDO2 conformance tools".to_string()
+                 8. Test with FIDO2 conformance tools"
+                    .to_string()
             }
-            "Predictable WebAuthn Challenge" | "Weak WebAuthn Challenge" | "WebAuthn Accepts Weak Challenges" => {
+            "Predictable WebAuthn Challenge"
+            | "Weak WebAuthn Challenge"
+            | "WebAuthn Accepts Weak Challenges" => {
                 "1. Generate challenges using cryptographically secure random number generator\n\
                  2. Use at least 32 bytes of entropy for challenges\n\
                  3. Store challenges server-side with short expiration (2-5 minutes)\n\
@@ -486,7 +544,8 @@ impl WebAuthnScanner {
                  5. Implement one-time use for challenges\n\
                  6. Use crypto.getRandomValues() or equivalent\n\
                  7. Validate challenge in every authentication/registration request\n\
-                 8. Log and monitor for challenge reuse attempts".to_string()
+                 8. Log and monitor for challenge reuse attempts"
+                    .to_string()
             }
             "WebAuthn Endpoint Missing CSRF Protection" => {
                 "1. Implement CSRF tokens for all WebAuthn endpoints\n\
@@ -496,7 +555,8 @@ impl WebAuthnScanner {
                  5. Use framework-specific CSRF protection\n\
                  6. Require authentication before challenge generation\n\
                  7. Rate limit WebAuthn endpoints\n\
-                 8. Monitor for unusual registration patterns".to_string()
+                 8. Monitor for unusual registration patterns"
+                    .to_string()
             }
             "Weak User Verification Allowed" => {
                 "1. Set userVerification='required' for sensitive operations\n\
@@ -506,18 +566,18 @@ impl WebAuthnScanner {
                  5. Document user verification requirements\n\
                  6. Test with different authenticator types\n\
                  7. Implement step-up authentication for critical actions\n\
-                 8. Regular security testing of verification flow".to_string()
+                 8. Regular security testing of verification flow"
+                    .to_string()
             }
-            "Missing WebAuthn Origin Validation" => {
-                "1. Validate origin matches expected RP ID\n\
+            "Missing WebAuthn Origin Validation" => "1. Validate origin matches expected RP ID\n\
                  2. Parse and verify clientDataJSON origin field\n\
                  3. Reject null, localhost, or unexpected origins\n\
                  4. Use strict origin matching (no wildcards)\n\
                  5. Validate both Origin header and clientData origin\n\
                  6. Implement allowlist of valid origins\n\
                  7. Log and alert on invalid origin attempts\n\
-                 8. Follow FIDO2 origin validation requirements".to_string()
-            }
+                 8. Follow FIDO2 origin validation requirements"
+                .to_string(),
             _ => "Follow W3C WebAuthn and FIDO2 security best practices".to_string(),
         }
     }
@@ -551,7 +611,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> WebAuthnScanner {
@@ -584,7 +644,10 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
 
         let json = r#"{"challenge":"Y2hhbGxlbmdlMTIz","user":{"id":"test"}}"#;
-        assert_eq!(scanner.extract_challenge(json), Some("Y2hhbGxlbmdlMTIz".to_string()));
+        assert_eq!(
+            scanner.extract_challenge(json),
+            Some("Y2hhbGxlbmdlMTIz".to_string())
+        );
     }
 
     #[test]

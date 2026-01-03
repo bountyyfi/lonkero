@@ -53,7 +53,10 @@ impl ClientRouteAuthBypassScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[ClientRouteAuth] Scanning for client-side route auth bypass: {}", url);
+        info!(
+            "[ClientRouteAuth] Scanning for client-side route auth bypass: {}",
+            url
+        );
 
         // Step 1: Fetch main page to discover JavaScript bundles
         tests_run += 1;
@@ -73,19 +76,27 @@ impl ClientRouteAuthBypassScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[ClientRouteAuth] Found {} JavaScript bundles to analyze", js_urls.len());
+        info!(
+            "[ClientRouteAuth] Found {} JavaScript bundles to analyze",
+            js_urls.len()
+        );
 
         // Step 3: Fetch and analyze each JavaScript bundle
         let mut all_routes = Vec::new();
 
-        for js_url in js_urls.iter().take(10) {  // Limit to first 10 bundles for performance
+        for js_url in js_urls.iter().take(10) {
+            // Limit to first 10 bundles for performance
             tests_run += 1;
 
             if let Ok(js_response) = self.http_client.get(js_url).await {
                 let routes = self.extract_routes_from_js(&js_response.body);
 
                 if !routes.is_empty() {
-                    info!("[ClientRouteAuth] Extracted {} routes from {}", routes.len(), js_url);
+                    info!(
+                        "[ClientRouteAuth] Extracted {} routes from {}",
+                        routes.len(),
+                        js_url
+                    );
                     all_routes.extend(routes);
                 }
             }
@@ -99,12 +110,17 @@ impl ClientRouteAuthBypassScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[ClientRouteAuth] Discovered {} unique client routes", unique_routes.len());
+        info!(
+            "[ClientRouteAuth] Discovered {} unique client routes",
+            unique_routes.len()
+        );
 
         // Log discovered routes for debugging
         for route in &unique_routes {
-            debug!("[ClientRouteAuth] Route: {} (auth: {}, roles: {:?})",
-                   route.path, route.requires_auth, route.required_roles);
+            debug!(
+                "[ClientRouteAuth] Route: {} (auth: {}, roles: {:?})",
+                route.path, route.requires_auth, route.required_roles
+            );
         }
 
         // Step 4: Test routes for authorization bypass
@@ -159,9 +175,15 @@ impl ClientRouteAuthBypassScanner {
 
         // Pattern 2: Look for common bundle names in HTML
         let common_bundles = vec![
-            "/app.js", "/main.js", "/bundle.js", "/vendor.js",
-            "/js/app.js", "/js/main.js", "/static/js/main.js",
-            "/dist/app.js", "/dist/main.js",
+            "/app.js",
+            "/main.js",
+            "/bundle.js",
+            "/vendor.js",
+            "/js/app.js",
+            "/js/main.js",
+            "/static/js/main.js",
+            "/dist/app.js",
+            "/dist/main.js",
         ];
 
         for bundle in common_bundles {
@@ -192,8 +214,9 @@ impl ClientRouteAuthBypassScanner {
 
         // Pattern 1: {path: "/admin", meta: {requireAuth: true}}
         let auth_regex = Regex::new(
-            r#"(?:path|name):\s*["']([^"']+)["'][^}]*meta:\s*\{[^}]*requireAuth:\s*(!0|true)"#
-        ).unwrap();
+            r#"(?:path|name):\s*["']([^"']+)["'][^}]*meta:\s*\{[^}]*requireAuth:\s*(!0|true)"#,
+        )
+        .unwrap();
 
         for cap in auth_regex.captures_iter(js_code) {
             if let Some(path) = cap.get(1) {
@@ -209,9 +232,8 @@ impl ClientRouteAuthBypassScanner {
         }
 
         // Pattern 2: {path: "/admin", meta: {requireAnyRole: ["ADMIN", "MANAGEMENT"]}}
-        let role_regex = Regex::new(
-            r#"path:\s*["']([^"']+)["'][^}]*requireAnyRole:\s*\[([^\]]+)\]"#
-        ).unwrap();
+        let role_regex =
+            Regex::new(r#"path:\s*["']([^"']+)["'][^}]*requireAnyRole:\s*\[([^\]]+)\]"#).unwrap();
 
         for cap in role_regex.captures_iter(js_code) {
             if let (Some(path), Some(roles_str)) = (cap.get(1), cap.get(2)) {
@@ -274,8 +296,9 @@ impl ClientRouteAuthBypassScanner {
 
         // Pattern 1: <Route path="/admin" requireAuth />
         let route_regex = Regex::new(
-            r#"<(?:Route|PrivateRoute)[^>]*path=["']([^"']+)["'][^>]*(?:requireAuth|private)"#
-        ).unwrap();
+            r#"<(?:Route|PrivateRoute)[^>]*path=["']([^"']+)["'][^>]*(?:requireAuth|private)"#,
+        )
+        .unwrap();
 
         for cap in route_regex.captures_iter(js_code) {
             if let Some(path) = cap.get(1) {
@@ -291,9 +314,9 @@ impl ClientRouteAuthBypassScanner {
         }
 
         // Pattern 2: {path: "/admin", element: <Admin />, protected: true}
-        let protected_regex = Regex::new(
-            r#"path:\s*["']([^"']+)["'][^}]*(?:protected|requireAuth):\s*(!0|true)"#
-        ).unwrap();
+        let protected_regex =
+            Regex::new(r#"path:\s*["']([^"']+)["'][^}]*(?:protected|requireAuth):\s*(!0|true)"#)
+                .unwrap();
 
         for cap in protected_regex.captures_iter(js_code) {
             if let Some(path) = cap.get(1) {
@@ -316,14 +339,13 @@ impl ClientRouteAuthBypassScanner {
         let mut routes = Vec::new();
 
         // Pattern: {path: 'admin', canActivate: [AuthGuard]}
-        let guard_regex = Regex::new(
-            r#"path:\s*["']([^"']+)["'][^}]*canActivate:\s*\[([^\]]+)\]"#
-        ).unwrap();
+        let guard_regex =
+            Regex::new(r#"path:\s*["']([^"']+)["'][^}]*canActivate:\s*\[([^\]]+)\]"#).unwrap();
 
         for cap in guard_regex.captures_iter(js_code) {
             if let (Some(path), Some(guards)) = (cap.get(1), cap.get(2)) {
-                let has_auth_guard = guards.as_str().contains("Auth")
-                    || guards.as_str().contains("Guard");
+                let has_auth_guard =
+                    guards.as_str().contains("Auth") || guards.as_str().contains("Guard");
 
                 if has_auth_guard {
                     routes.push(ClientRoute {
@@ -391,7 +413,7 @@ impl ClientRouteAuthBypassScanner {
             && !response.body.to_lowercase().contains("unauthorized")
             && !response.body.to_lowercase().contains("not found")
             && !response.body.to_lowercase().contains("redirect")
-            && response.body.len() > 500;  // Must have substantial content
+            && response.body.len() > 500; // Must have substantial content
 
         if is_bypass {
             info!("[VULN] Auth bypass found on route: {}", route.path);
@@ -448,8 +470,10 @@ impl ClientRouteAuthBypassScanner {
         let test_path = self.replace_route_params(&route.path, "1");
         let test_url = self.resolve_url(base_url, &test_path);
 
-        debug!("[ClientRouteAuth] Testing RBAC bypass on: {} (requires roles: {:?})",
-               test_url, route.required_roles);
+        debug!(
+            "[ClientRouteAuth] Testing RBAC bypass on: {} (requires roles: {:?})",
+            test_url, route.required_roles
+        );
 
         // Try accessing without any authentication
         let response = match self.http_client.get(&test_url).await {
@@ -467,8 +491,10 @@ impl ClientRouteAuthBypassScanner {
             && response.body.len() > 500;
 
         if is_bypass {
-            info!("[VULN] RBAC bypass found on route: {} (requires: {:?})",
-                  route.path, route.required_roles);
+            info!(
+                "[VULN] RBAC bypass found on route: {} (requires: {:?})",
+                route.path, route.required_roles
+            );
 
             Some(Vulnerability {
                 id: format!("crrbac_{}", uuid::Uuid::new_v4().simple()),
@@ -526,9 +552,12 @@ impl ClientRouteAuthBypassScanner {
                     && response.status_code != 404
                     && response.body.len() > 500
                     && !response.body.to_lowercase().contains("not found")
-                    && !response.body.to_lowercase().contains("unauthorized") {
-
-                    info!("[VULN] Potential IDOR found on route: {} with ID: {}", route.path, test_id);
+                    && !response.body.to_lowercase().contains("unauthorized")
+                {
+                    info!(
+                        "[VULN] Potential IDOR found on route: {} with ID: {}",
+                        route.path, test_id
+                    );
 
                     return Some(Vulnerability {
                         id: format!("crador_{}", uuid::Uuid::new_v4().simple()),
@@ -607,11 +636,7 @@ mod uuid {
 
         pub fn simple(&self) -> String {
             let mut rng = rand::rng();
-            format!(
-                "{:08x}{:08x}",
-                rng.random::<u32>(),
-                rng.random::<u32>()
-            )
+            format!("{:08x}{:08x}", rng.random::<u32>(), rng.random::<u32>())
         }
     }
 }
@@ -623,7 +648,7 @@ mod tests {
     #[test]
     fn test_extract_vue_routes() {
         let scanner = ClientRouteAuthBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         let js_code = r#"
@@ -642,18 +667,23 @@ mod tests {
     #[test]
     fn test_replace_route_params() {
         let scanner = ClientRouteAuthBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
-        assert_eq!(scanner.replace_route_params("/user/:id", "123"), "/user/123");
-        assert_eq!(scanner.replace_route_params("/company/:companyId/user/:userId", "1"),
-                   "/company/1/user/1");
+        assert_eq!(
+            scanner.replace_route_params("/user/:id", "123"),
+            "/user/123"
+        );
+        assert_eq!(
+            scanner.replace_route_params("/company/:companyId/user/:userId", "1"),
+            "/company/1/user/1"
+        );
     }
 
     #[test]
     fn test_resolve_url() {
         let scanner = ClientRouteAuthBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         assert_eq!(

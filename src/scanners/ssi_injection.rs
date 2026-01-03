@@ -74,8 +74,10 @@ impl SSIInjectionScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[SSI] Testing SSI command execution (priority: {})",
-              ParameterFilter::get_parameter_priority("comment"));
+        info!(
+            "[SSI] Testing SSI command execution (priority: {})",
+            ParameterFilter::get_parameter_priority("comment")
+        );
 
         let payloads = vec![
             format!(r#"<!--#exec cmd="echo {}" -->"#, self.test_marker),
@@ -101,7 +103,10 @@ impl SSIInjectionScanner {
                             "SSI Command Execution",
                             &payload,
                             "Server-Side Includes allow command execution",
-                            &format!("SSI marker '{}' or command output detected", self.test_marker),
+                            &format!(
+                                "SSI marker '{}' or command output detected",
+                                self.test_marker
+                            ),
                             Severity::Critical,
                         ));
                         break;
@@ -232,7 +237,10 @@ impl SSIInjectionScanner {
                         "SSI Command Execution (Time-based)",
                         payload,
                         "SSI command execution detected via time delay",
-                        &format!("Response delayed by {:.2}s indicating SSI execution", elapsed),
+                        &format!(
+                            "Response delayed by {:.2}s indicating SSI execution",
+                            elapsed
+                        ),
                         Severity::Critical,
                     ));
                 }
@@ -275,12 +283,7 @@ impl SSIInjectionScanner {
     /// Detect SSI file inclusion
     fn detect_ssi_include(&self, body: &str) -> bool {
         // Check for /etc/passwd content
-        let passwd_indicators = vec![
-            "root:x:",
-            "daemon:x:",
-            "bin:x:",
-            "nobody:x:",
-        ];
+        let passwd_indicators = vec!["root:x:", "daemon:x:", "bin:x:", "nobody:x:"];
 
         for indicator in passwd_indicators {
             if body.contains(indicator) {
@@ -352,9 +355,10 @@ impl SSIInjectionScanner {
                          7. Implement strict file path validation for includes\n\
                          8. Run web server with minimal privileges\n\
                          9. Monitor for suspicious SSI directive usage\n\
-                         10. Consider Content Security Policy to prevent injection".to_string(),
+                         10. Consider Content Security Policy to prevent injection"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -388,7 +392,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> SSIInjectionScanner {

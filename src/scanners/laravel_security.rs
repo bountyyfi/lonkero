@@ -106,7 +106,11 @@ impl LaravelSecurityScanner {
     }
 
     /// Main scan function
-    pub async fn scan(&self, url: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         // Check license
         if !crate::license::has_feature("cms_security") {
             debug!("Laravel security scanner requires Personal+ license");
@@ -127,7 +131,10 @@ impl LaravelSecurityScanner {
 
         info!("[Laravel] Detected Laravel application, running security checks");
         if let Some(ref v) = version {
-            info!("[Laravel] Detected version: {}.{}.{}", v.major, v.minor, v.patch);
+            info!(
+                "[Laravel] Detected version: {}.{}.{}",
+                v.major, v.minor, v.patch
+            );
         }
 
         // Check for debug mode enabled
@@ -192,8 +199,11 @@ impl LaravelSecurityScanner {
         vulnerabilities.extend(misc_vulns);
         tests_run += misc_tests;
 
-        info!("[Laravel] Completed: {} vulnerabilities found in {} tests",
-              vulnerabilities.len(), tests_run);
+        info!(
+            "[Laravel] Completed: {} vulnerabilities found in {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -284,7 +294,8 @@ impl LaravelSecurityScanner {
             if let Ok(re) = Regex::new(pattern) {
                 if let Some(caps) = re.captures(body) {
                     if let (Some(major), Some(minor), Some(patch)) =
-                        (caps.get(1), caps.get(2), caps.get(3)) {
+                        (caps.get(1), caps.get(2), caps.get(3))
+                    {
                         return Some(LaravelVersion {
                             major: major.as_str().parse().unwrap_or(0),
                             minor: minor.as_str().parse().unwrap_or(0),
@@ -349,7 +360,10 @@ impl LaravelSecurityScanner {
                     (r#"DB_PASSWORD\s*[=:]\s*["']?([^"'\s]+)"#, "DB_PASSWORD"),
                     (r#"MAIL_PASSWORD\s*[=:]\s*["']?([^"'\s]+)"#, "MAIL_PASSWORD"),
                     (r#"AWS_SECRET\s*[=:]\s*["']?([^"'\s]+)"#, "AWS_SECRET"),
-                    (r#"REDIS_PASSWORD\s*[=:]\s*["']?([^"'\s]+)"#, "REDIS_PASSWORD"),
+                    (
+                        r#"REDIS_PASSWORD\s*[=:]\s*["']?([^"'\s]+)"#,
+                        "REDIS_PASSWORD",
+                    ),
                 ];
 
                 let mut exposed_secrets: Vec<String> = Vec::new();
@@ -364,7 +378,10 @@ impl LaravelSecurityScanner {
                 if !found_indicators.is_empty() || !exposed_secrets.is_empty() {
                     let severity = if !exposed_secrets.is_empty() {
                         Severity::Critical
-                    } else if found_indicators.iter().any(|i| *i == "APP_KEY" || *i == "DB_PASSWORD") {
+                    } else if found_indicators
+                        .iter()
+                        .any(|i| *i == "APP_KEY" || *i == "DB_PASSWORD")
+                    {
                         Severity::Critical
                     } else {
                         Severity::High
@@ -395,20 +412,29 @@ impl LaravelSecurityScanner {
                             Secrets potentially exposed: {}\n\
                             URL: {}",
                             found_indicators.join(", "),
-                            if exposed_secrets.is_empty() { "None directly visible".to_string() } else { exposed_secrets.join(", ") },
+                            if exposed_secrets.is_empty() {
+                                "None directly visible".to_string()
+                            } else {
+                                exposed_secrets.join(", ")
+                            },
                             test_url
                         )),
                         cwe: "CWE-215".to_string(),
-                        cvss: if !exposed_secrets.is_empty() { 9.8 } else { 7.5 },
+                        cvss: if !exposed_secrets.is_empty() {
+                            9.8
+                        } else {
+                            7.5
+                        },
                         verified: true,
                         false_positive: false,
                         remediation: "1. Set APP_DEBUG=false in .env file for production\n\
                                       2. Run: php artisan config:cache\n\
                                       3. Ensure error reporting is disabled in php.ini\n\
                                       4. Use proper error logging instead of displaying errors\n\
-                                      5. Consider using Laravel's logging to external services".to_string(),
+                                      5. Consider using Laravel's logging to external services"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
 
                     // Found debug mode, no need to test more paths
@@ -506,14 +532,30 @@ impl LaravelSecurityScanner {
         let mut tests_run = 0;
 
         let admin_panels = [
-            ("/telescope", "Laravel Telescope", "Debug/profiling dashboard"),
-            ("/telescope/requests", "Laravel Telescope Requests", "HTTP request logging"),
+            (
+                "/telescope",
+                "Laravel Telescope",
+                "Debug/profiling dashboard",
+            ),
+            (
+                "/telescope/requests",
+                "Laravel Telescope Requests",
+                "HTTP request logging",
+            ),
             ("/horizon", "Laravel Horizon", "Queue management dashboard"),
-            ("/horizon/api/stats", "Laravel Horizon API", "Queue statistics API"),
+            (
+                "/horizon/api/stats",
+                "Laravel Horizon API",
+                "Queue statistics API",
+            ),
             ("/nova", "Laravel Nova", "Admin panel"),
             ("/nova/login", "Laravel Nova Login", "Admin panel login"),
             ("/admin", "Admin Panel", "Generic admin panel"),
-            ("/administrator", "Administrator Panel", "Generic admin panel"),
+            (
+                "/administrator",
+                "Administrator Panel",
+                "Generic admin panel",
+            ),
             ("/pulse", "Laravel Pulse", "Application monitoring"),
             ("/log-viewer", "Log Viewer", "Application log viewer"),
             ("/logs", "Logs", "Application logs"),
@@ -530,8 +572,8 @@ impl LaravelSecurityScanner {
                 // Check if accessible (not 404, not redirect to login)
                 let is_accessible = response.status_code == 200;
                 let has_content = response.body.len() > 100;
-                let is_login_redirect = response.body.to_lowercase().contains("login") ||
-                                       response.body.to_lowercase().contains("unauthorized");
+                let is_login_redirect = response.body.to_lowercase().contains("login")
+                    || response.body.to_lowercase().contains("unauthorized");
 
                 if is_accessible && has_content && !is_login_redirect {
                     let severity = if path.contains("telescope") || path.contains("horizon") {
@@ -568,10 +610,16 @@ impl LaravelSecurityScanner {
                             "URL: {}\n\
                             Response code: {}\n\
                             Response size: {} bytes",
-                            test_url, response.status_code, response.body.len()
+                            test_url,
+                            response.status_code,
+                            response.body.len()
                         )),
                         cwe: "CWE-200".to_string(),
-                        cvss: if severity == Severity::Critical { 8.5 } else { 7.0 },
+                        cvss: if severity == Severity::Critical {
+                            8.5
+                        } else {
+                            7.0
+                        },
                         verified: true,
                         false_positive: false,
                         remediation: format!(
@@ -581,10 +629,12 @@ impl LaravelSecurityScanner {
                             - Use Gate::define('view{}', ...)\n\
                             3. Consider restricting by IP address in production\n\
                             4. Or disable {} entirely in production",
-                            name, name.to_lowercase().replace(" ", ""), name
+                            name,
+                            name.to_lowercase().replace(" ", ""),
+                            name
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -631,9 +681,18 @@ impl LaravelSecurityScanner {
                         // Extract what secrets are exposed
                         let mut exposed_vars: Vec<&str> = Vec::new();
                         let critical_vars = [
-                            "APP_KEY", "DB_PASSWORD", "DB_USERNAME", "MAIL_PASSWORD",
-                            "AWS_SECRET", "AWS_ACCESS", "REDIS_PASSWORD", "PUSHER_",
-                            "STRIPE_", "PAYPAL_", "JWT_SECRET", "API_KEY",
+                            "APP_KEY",
+                            "DB_PASSWORD",
+                            "DB_USERNAME",
+                            "MAIL_PASSWORD",
+                            "AWS_SECRET",
+                            "AWS_ACCESS",
+                            "REDIS_PASSWORD",
+                            "PUSHER_",
+                            "STRIPE_",
+                            "PAYPAL_",
+                            "JWT_SECRET",
+                            "API_KEY",
                         ];
 
                         for var in &critical_vars {
@@ -715,13 +774,14 @@ impl LaravelSecurityScanner {
             let test_url = format!("{}{}", url.trim_end_matches('/'), path);
 
             if let Ok(response) = self.http_client.get(&test_url).await {
-                let is_directory_listing = response.body.contains("Index of") ||
-                                          response.body.contains("Directory listing") ||
-                                          response.body.contains("<title>Index of");
-                let is_log_file = path.contains(".log") && response.status_code == 200 &&
-                                 (response.body.contains("[stacktrace]") ||
-                                  response.body.contains("production.ERROR") ||
-                                  response.body.contains("local.ERROR"));
+                let is_directory_listing = response.body.contains("Index of")
+                    || response.body.contains("Directory listing")
+                    || response.body.contains("<title>Index of");
+                let is_log_file = path.contains(".log")
+                    && response.status_code == 200
+                    && (response.body.contains("[stacktrace]")
+                        || response.body.contains("production.ERROR")
+                        || response.body.contains("local.ERROR"));
                 let is_session_dir = path.contains("sessions") && response.status_code == 200;
 
                 if is_directory_listing {
@@ -753,9 +813,10 @@ impl LaravelSecurityScanner {
                                       - Nginx: autoindex off;\n\
                                       - Apache: Options -Indexes\n\
                                       2. Block storage directory from web access\n\
-                                      3. Use storage:link for public files only".to_string(),
+                                      3. Use storage:link for public files only"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 } else if is_log_file {
                     vulnerabilities.push(Vulnerability {
@@ -767,13 +828,15 @@ impl LaravelSecurityScanner {
                         url: test_url.clone(),
                         parameter: None,
                         payload: path.to_string(),
-                        description: "Laravel log file is publicly accessible. Log files can contain:\n\
+                        description:
+                            "Laravel log file is publicly accessible. Log files can contain:\n\
                                      - Stack traces with file paths\n\
                                      - SQL queries\n\
                                      - User data and emails\n\
                                      - Session tokens\n\
                                      - API responses\n\
-                                     - Error messages with sensitive context".to_string(),
+                                     - Error messages with sensitive context"
+                                .to_string(),
                         evidence: Some(format!("Log file accessible at: {}", test_url)),
                         cwe: "CWE-532".to_string(),
                         cvss: 7.5,
@@ -782,9 +845,10 @@ impl LaravelSecurityScanner {
                         remediation: "1. Block storage/logs from web access\n\
                                       2. Move logs outside web root\n\
                                       3. Use external logging service (Papertrail, LogDNA)\n\
-                                      4. Configure log rotation".to_string(),
+                                      4. Configure log rotation"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 } else if is_session_dir {
                     vulnerabilities.push(Vulnerability {
@@ -797,7 +861,8 @@ impl LaravelSecurityScanner {
                         parameter: None,
                         payload: path.to_string(),
                         description: "Laravel session storage directory is accessible. \
-                                     This could allow session hijacking by reading session files.".to_string(),
+                                     This could allow session hijacking by reading session files."
+                            .to_string(),
                         evidence: Some(format!("Session directory accessible at: {}", test_url)),
                         cwe: "CWE-200".to_string(),
                         cvss: 8.5,
@@ -805,9 +870,10 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "1. Use database or Redis session driver instead of file\n\
                                       2. Block storage/framework/sessions from web access\n\
-                                      3. Configure SESSION_DRIVER=redis or database".to_string(),
+                                      3. Configure SESSION_DRIVER=redis or database"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -839,11 +905,11 @@ impl LaravelSecurityScanner {
             let test_url = format!("{}{}", url.trim_end_matches('/'), path);
 
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("[stacktrace]") ||
-                    response.body.contains(".ERROR:") ||
-                    response.body.contains("Stack trace:")) {
-
+                if response.status_code == 200
+                    && (response.body.contains("[stacktrace]")
+                        || response.body.contains(".ERROR:")
+                        || response.body.contains("Stack trace:"))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: format!("laravel_log_root_{}", Self::generate_id()),
                         vuln_type: "Laravel Log File at Root".to_string(),
@@ -861,7 +927,7 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "Remove log files from web-accessible locations.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -897,7 +963,11 @@ impl LaravelSecurityScanner {
                     let is_phpunit = path.contains("phpunit");
 
                     if is_php || is_json {
-                        let severity = if is_phpunit { Severity::Critical } else { Severity::High };
+                        let severity = if is_phpunit {
+                            Severity::Critical
+                        } else {
+                            Severity::High
+                        };
 
                         vulnerabilities.push(Vulnerability {
                             id: format!("laravel_vendor_exposure_{}", Self::generate_id()),
@@ -971,7 +1041,11 @@ impl LaravelSecurityScanner {
                     let is_artisan = path.contains("artisan");
 
                     if response.body.contains("<?php") || response.body.contains("[core]") {
-                        let severity = if is_cached_config { Severity::Critical } else { Severity::High };
+                        let severity = if is_cached_config {
+                            Severity::Critical
+                        } else {
+                            Severity::High
+                        };
 
                         vulnerabilities.push(Vulnerability {
                             id: format!("laravel_config_exposure_{}", Self::generate_id()),
@@ -1046,12 +1120,12 @@ impl LaravelSecurityScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
                     let is_json = body.trim().starts_with('{') || body.trim().starts_with('[');
-                    let has_user_data = body.contains("\"email\"") ||
-                                       body.contains("\"password\"") ||
-                                       body.contains("\"user\"") ||
-                                       body.contains("\"admin\"");
-                    let is_graphql = path.contains("graphql") &&
-                                    (body.contains("__schema") || body.contains("playground"));
+                    let has_user_data = body.contains("\"email\"")
+                        || body.contains("\"password\"")
+                        || body.contains("\"user\"")
+                        || body.contains("\"admin\"");
+                    let is_graphql = path.contains("graphql")
+                        && (body.contains("__schema") || body.contains("playground"));
 
                     if (is_json && has_user_data) || is_graphql {
                         vulnerabilities.push(Vulnerability {
@@ -1125,7 +1199,8 @@ impl LaravelSecurityScanner {
                             parameter: None,
                             payload: "/livewire/message".to_string(),
                             description: "Livewire message endpoint may be misconfigured. \
-                                         Should return 405 for GET or 419 for missing CSRF.".to_string(),
+                                         Should return 405 for GET or 419 for missing CSRF."
+                                .to_string(),
                             evidence: Some(format!(
                                 "Endpoint: {}\n\
                                 Response code: {} (expected 405 or 419)",
@@ -1135,9 +1210,10 @@ impl LaravelSecurityScanner {
                             cvss: 5.5,
                             verified: true,
                             false_positive: false,
-                            remediation: "Ensure CSRF middleware is active for Livewire routes.".to_string(),
+                            remediation: "Ensure CSRF middleware is active for Livewire routes."
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -1148,7 +1224,11 @@ impl LaravelSecurityScanner {
     }
 
     /// Check for known CVEs based on version
-    async fn check_version_cves(&self, url: &str, version: &LaravelVersion) -> (Vec<Vulnerability>, usize) {
+    async fn check_version_cves(
+        &self,
+        url: &str,
+        version: &LaravelVersion,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
@@ -1158,24 +1238,37 @@ impl LaravelSecurityScanner {
 
                 if is_vulnerable {
                     vulnerabilities.push(Vulnerability {
-                        id: format!("laravel_cve_{}_{}", cve.cve_id.replace("-", "_"), Self::generate_id()),
+                        id: format!(
+                            "laravel_cve_{}_{}",
+                            cve.cve_id.replace("-", "_"),
+                            Self::generate_id()
+                        ),
                         vuln_type: format!("Laravel {}", cve.cve_id),
                         severity: cve.severity.clone(),
                         confidence: Confidence::Medium,
                         category: "Known Vulnerability".to_string(),
                         url: url.to_string(),
                         parameter: None,
-                        payload: format!("Version {}.{}.{}", version.major, version.minor, version.patch),
+                        payload: format!(
+                            "Version {}.{}.{}",
+                            version.major, version.minor, version.patch
+                        ),
                         description: format!(
                             "{}\n\nAffected versions: {}\nDetected version: {}.{}.{}",
-                            cve.description, cve.affected_versions,
-                            version.major, version.minor, version.patch
+                            cve.description,
+                            cve.affected_versions,
+                            version.major,
+                            version.minor,
+                            version.patch
                         ),
                         evidence: Some(format!(
                             "CVE: {}\n\
                             Detected Laravel version: {}.{}.{}\n\
                             Vulnerable range: {}",
-                            cve.cve_id, version.major, version.minor, version.patch,
+                            cve.cve_id,
+                            version.major,
+                            version.minor,
+                            version.patch,
                             cve.affected_versions
                         )),
                         cwe: "CWE-1035".to_string(),
@@ -1190,10 +1283,11 @@ impl LaravelSecurityScanner {
                         remediation: format!(
                             "Upgrade Laravel to a patched version.\n\
                             Run: composer update laravel/framework\n\
-                            CVE: {}", cve.cve_id
+                            CVE: {}",
+                            cve.cve_id
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -1213,10 +1307,13 @@ impl LaravelSecurityScanner {
                     } else if version.major == affected_major {
                         if let Some((minor, patch)) = rest.split_once('.') {
                             if let (Ok(affected_minor), Ok(affected_patch)) =
-                                (minor.parse::<u32>(), patch.parse::<u32>()) {
+                                (minor.parse::<u32>(), patch.parse::<u32>())
+                            {
                                 if version.minor < affected_minor {
                                     return true;
-                                } else if version.minor == affected_minor && version.patch < affected_patch {
+                                } else if version.minor == affected_minor
+                                    && version.patch < affected_patch
+                                {
                                     return true;
                                 }
                             }
@@ -1255,15 +1352,17 @@ impl LaravelSecurityScanner {
                         url: url.to_string(),
                         parameter: Some("XSRF-TOKEN".to_string()),
                         payload: "Cookie flags".to_string(),
-                        description: "XSRF-TOKEN cookie is missing Secure flag on HTTPS site.".to_string(),
+                        description: "XSRF-TOKEN cookie is missing Secure flag on HTTPS site."
+                            .to_string(),
                         evidence: Some(format!("Cookie: {}", cookie_str)),
                         cwe: "CWE-614".to_string(),
                         cvss: 4.5,
                         verified: true,
                         false_positive: false,
-                        remediation: "Set SESSION_SECURE_COOKIE=true in .env for HTTPS sites.".to_string(),
+                        remediation: "Set SESSION_SECURE_COOKIE=true in .env for HTTPS sites."
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
 
@@ -1277,7 +1376,8 @@ impl LaravelSecurityScanner {
                         url: url.to_string(),
                         parameter: Some("XSRF-TOKEN".to_string()),
                         payload: "Cookie flags".to_string(),
-                        description: "Cookies missing SameSite attribute for CSRF protection.".to_string(),
+                        description: "Cookies missing SameSite attribute for CSRF protection."
+                            .to_string(),
                         evidence: Some(format!("Cookie: {}", cookie_str)),
                         cwe: "CWE-1275".to_string(),
                         cvss: 3.5,
@@ -1285,7 +1385,7 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "Set SESSION_SAME_SITE=lax or strict in .env".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -1297,8 +1397,9 @@ impl LaravelSecurityScanner {
         for path in &routes_paths {
             let test_url = format!("{}{}", url.trim_end_matches('/'), path);
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("\"uri\"") || response.body.contains("\"method\"")) {
+                if response.status_code == 200
+                    && (response.body.contains("\"uri\"") || response.body.contains("\"method\""))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: format!("laravel_routes_exposed_{}", Self::generate_id()),
                         vuln_type: "Laravel Routes List Exposed".to_string(),
@@ -1316,7 +1417,7 @@ impl LaravelSecurityScanner {
                         false_positive: false,
                         remediation: "Remove route listing endpoint from production.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -1342,13 +1443,25 @@ mod tests {
     fn test_version_vulnerable() {
         let scanner = LaravelSecurityScanner::new(Arc::new(HttpClient::new().unwrap()));
 
-        let v8_3_0 = LaravelVersion { major: 8, minor: 3, patch: 0 };
+        let v8_3_0 = LaravelVersion {
+            major: 8,
+            minor: 3,
+            patch: 0,
+        };
         assert!(scanner.is_version_vulnerable(&v8_3_0, "<8.4.2"));
 
-        let v8_4_2 = LaravelVersion { major: 8, minor: 4, patch: 2 };
+        let v8_4_2 = LaravelVersion {
+            major: 8,
+            minor: 4,
+            patch: 2,
+        };
         assert!(!scanner.is_version_vulnerable(&v8_4_2, "<8.4.2"));
 
-        let v9_0_0 = LaravelVersion { major: 9, minor: 0, patch: 0 };
+        let v9_0_0 = LaravelVersion {
+            major: 9,
+            minor: 0,
+            patch: 0,
+        };
         assert!(!scanner.is_version_vulnerable(&v9_0_0, "<8.4.2"));
     }
 

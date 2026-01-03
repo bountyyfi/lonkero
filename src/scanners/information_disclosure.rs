@@ -106,7 +106,9 @@ impl InformationDisclosureScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && self.detect_sensitive_content(&response.body, file) {
+                    if response.status_code == 200
+                        && self.detect_sensitive_content(&response.body, file)
+                    {
                         info!("Sensitive file exposed: {}", file);
                         vulnerabilities.push(self.create_vulnerability(
                             &test_url,
@@ -173,27 +175,25 @@ impl InformationDisclosureScanner {
     }
 
     /// Test for directory listing
-    async fn test_directory_listing(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_directory_listing(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
         debug!("Testing for directory listing");
 
         let base_url = self.extract_base_url(url);
-        let directories = vec![
-            "/uploads/",
-            "/images/",
-            "/files/",
-            "/static/",
-            "/assets/",
-        ];
+        let directories = vec!["/uploads/", "/images/", "/files/", "/static/", "/assets/"];
 
         for dir in directories {
             let test_url = format!("{}{}", base_url, dir);
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if response.status_code == 200 && self.detect_directory_listing(&response.body) {
+                    if response.status_code == 200 && self.detect_directory_listing(&response.body)
+                    {
                         info!("Directory listing exposed: {}", dir);
                         vulnerabilities.push(self.create_vulnerability(
                             &test_url,
@@ -217,7 +217,10 @@ impl InformationDisclosureScanner {
     }
 
     /// Test for server information disclosure
-    async fn test_server_disclosure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_server_disclosure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 1;
 
@@ -307,13 +310,19 @@ impl InformationDisclosureScanner {
                         // Check headers for version info
                         if let Some(evidence) = self.detect_server_disclosure(&response.headers) {
                             // Don't duplicate if we already found main header disclosure
-                            if !vulnerabilities.iter().any(|v| v.vuln_type == "Server Version Disclosure") {
+                            if !vulnerabilities
+                                .iter()
+                                .any(|v| v.vuln_type == "Server Version Disclosure")
+                            {
                                 info!("Server version disclosed via debug endpoint: {}", endpoint);
                                 vulnerabilities.push(self.create_vulnerability(
                                     &test_url,
                                     "Server Version Disclosure",
                                     endpoint,
-                                    &format!("Debug endpoint {} exposes server version information", endpoint),
+                                    &format!(
+                                        "Debug endpoint {} exposes server version information",
+                                        endpoint
+                                    ),
                                     &evidence,
                                     Severity::Low,
                                     "CWE-200",
@@ -396,7 +405,10 @@ impl InformationDisclosureScanner {
         if findings.is_empty() {
             None
         } else {
-            Some(format!("Version information found:\n  {}", findings.join("\n  ")))
+            Some(format!(
+                "Version information found:\n  {}",
+                findings.join("\n  ")
+            ))
         }
     }
 
@@ -408,12 +420,16 @@ impl InformationDisclosureScanner {
 
         match filename {
             f if f.contains(".env") => {
-                body.contains("API_KEY") || body.contains("DATABASE") ||
-                body.contains("SECRET") || body.contains("PASSWORD")
+                body.contains("API_KEY")
+                    || body.contains("DATABASE")
+                    || body.contains("SECRET")
+                    || body.contains("PASSWORD")
             }
             f if f.contains("config") => {
-                body.contains("password") || body.contains("secret") ||
-                body.contains("database") || body.contains("api")
+                body.contains("password")
+                    || body.contains("secret")
+                    || body.contains("database")
+                    || body.contains("api")
             }
             f if f.contains(".git") => {
                 body.contains("[core]") || body.contains("repositoryformatversion")
@@ -423,19 +439,26 @@ impl InformationDisclosureScanner {
             }
             f if f.contains("phpinfo") => {
                 // Must contain actual phpinfo() output indicators
-                body.contains("PHP Version") || body.contains("phpinfo()") ||
-                body.contains("php.ini") || body.contains("Configuration File")
+                body.contains("PHP Version")
+                    || body.contains("phpinfo()")
+                    || body.contains("php.ini")
+                    || body.contains("Configuration File")
             }
             f if f.contains(".htaccess") => {
-                body.contains("RewriteRule") || body.contains("RewriteEngine") ||
-                body.contains("AuthType") || body.contains("Require")
+                body.contains("RewriteRule")
+                    || body.contains("RewriteEngine")
+                    || body.contains("AuthType")
+                    || body.contains("Require")
             }
             // For unknown files, don't assume they're sensitive - require actual sensitive patterns
             _ => {
                 let body_lower = body.to_lowercase();
-                body_lower.contains("password") || body_lower.contains("secret") ||
-                body_lower.contains("api_key") || body_lower.contains("private_key") ||
-                body_lower.contains("credentials") || body_lower.contains("token=")
+                body_lower.contains("password")
+                    || body_lower.contains("secret")
+                    || body_lower.contains("api_key")
+                    || body_lower.contains("private_key")
+                    || body_lower.contains("credentials")
+                    || body_lower.contains("token=")
             }
         }
     }
@@ -473,8 +496,8 @@ impl InformationDisclosureScanner {
         }
 
         // Check for common stack trace patterns
-        body.contains(" at ") && (body.contains("(") && body.contains(":")) ||
-        body.contains("File \"") && body.contains("line ")
+        body.contains(" at ") && (body.contains("(") && body.contains(":"))
+            || body.contains("File \"") && body.contains("line ")
     }
 
     /// Detect directory listing
@@ -507,7 +530,10 @@ impl InformationDisclosureScanner {
 
     /// Detect server information disclosure
     /// Returns Some(evidence) if server info is disclosed, None otherwise
-    fn detect_server_disclosure(&self, headers: &std::collections::HashMap<String, String>) -> Option<String> {
+    fn detect_server_disclosure(
+        &self,
+        headers: &std::collections::HashMap<String, String>,
+    ) -> Option<String> {
         let mut evidence_parts = Vec::new();
 
         for (key, value) in headers {
@@ -533,7 +559,11 @@ impl InformationDisclosureScanner {
     }
 
     /// Detect debug mode
-    fn detect_debug_mode(&self, body: &str, headers: &std::collections::HashMap<String, String>) -> bool {
+    fn detect_debug_mode(
+        &self,
+        body: &str,
+        headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
         let body_lower = body.to_lowercase();
 
         // Check body for debug indicators
@@ -553,8 +583,7 @@ impl InformationDisclosureScanner {
 
         // Check headers
         for (key, value) in headers {
-            if key.to_lowercase().contains("debug") ||
-               value.to_lowercase().contains("debug") {
+            if key.to_lowercase().contains("debug") || value.to_lowercase().contains("debug") {
                 return true;
             }
         }
@@ -621,9 +650,10 @@ impl InformationDisclosureScanner {
                          7. Use custom error pages\n\
                          8. Implement proper .gitignore and file permissions\n\
                          9. Remove development files from production\n\
-                         10. Use Content Security Policy headers".to_string(),
+                         10. Use Content Security Policy headers"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -657,7 +687,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> InformationDisclosureScanner {
@@ -723,7 +753,13 @@ use crate::http_client::HttpClient;
     fn test_extract_base_url() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.extract_base_url("http://example.com/path?q=1"), "http://example.com");
-        assert_eq!(scanner.extract_base_url("https://test.org:8080/api"), "https://test.org:8080");
+        assert_eq!(
+            scanner.extract_base_url("http://example.com/path?q=1"),
+            "http://example.com"
+        );
+        assert_eq!(
+            scanner.extract_base_url("https://test.org:8080/api"),
+            "https://test.org:8080"
+        );
     }
 }

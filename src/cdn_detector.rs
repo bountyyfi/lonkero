@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::HttpResponse;
 use tracing::debug;
 
@@ -17,64 +16,89 @@ pub fn is_cdn_protected(response: &HttpResponse) -> Option<String> {
     // Cloudflare detection
     if response.header("cf-ray").is_some()
         || response.header("cf-cache-status").is_some()
-        || response.header("server").map(|s| s.contains("cloudflare")).unwrap_or(false) {
+        || response
+            .header("server")
+            .map(|s| s.contains("cloudflare"))
+            .unwrap_or(false)
+    {
         return Some("Cloudflare".to_string());
     }
 
     // AWS CloudFront
     if response.header("x-amz-cf-id").is_some()
         || response.header("x-amz-cf-pop").is_some()
-        || response.header("via").map(|s| s.contains("CloudFront")).unwrap_or(false) {
+        || response
+            .header("via")
+            .map(|s| s.contains("CloudFront"))
+            .unwrap_or(false)
+    {
         return Some("AWS CloudFront".to_string());
     }
 
     // Akamai
     if response.header("x-akamai-request-id").is_some()
         || response.header("akamai-grn").is_some()
-        || response.header("server").map(|s| s.contains("AkamaiGHost")).unwrap_or(false) {
+        || response
+            .header("server")
+            .map(|s| s.contains("AkamaiGHost"))
+            .unwrap_or(false)
+    {
         return Some("Akamai".to_string());
     }
 
     // Fastly
-    if response.header("x-served-by").map(|s| s.contains("cache")).unwrap_or(false)
+    if response
+        .header("x-served-by")
+        .map(|s| s.contains("cache"))
+        .unwrap_or(false)
         || response.header("x-fastly-request-id").is_some()
-        || response.header("fastly-io-info").is_some() {
+        || response.header("fastly-io-info").is_some()
+    {
         return Some("Fastly".to_string());
     }
 
     // Azure Front Door
-    if response.header("x-azure-ref").is_some()
-        || response.header("x-fd-healthprobe").is_some() {
+    if response.header("x-azure-ref").is_some() || response.header("x-fd-healthprobe").is_some() {
         return Some("Azure Front Door".to_string());
     }
 
     // Google Cloud CDN
-    if response.header("via").map(|s| s.contains("1.1 google")).unwrap_or(false)
-        || response.header("x-goog-generation").is_some() {
+    if response
+        .header("via")
+        .map(|s| s.contains("1.1 google"))
+        .unwrap_or(false)
+        || response.header("x-goog-generation").is_some()
+    {
         return Some("Google Cloud CDN".to_string());
     }
 
     // Incapsula
-    if response.header("x-cdn").map(|s| s.contains("Incapsula")).unwrap_or(false)
-        || response.header("x-iinfo").is_some() {
+    if response
+        .header("x-cdn")
+        .map(|s| s.contains("Incapsula"))
+        .unwrap_or(false)
+        || response.header("x-iinfo").is_some()
+    {
         return Some("Incapsula".to_string());
     }
 
     // Sucuri
-    if response.header("x-sucuri-id").is_some()
-        || response.header("x-sucuri-cache").is_some() {
+    if response.header("x-sucuri-id").is_some() || response.header("x-sucuri-cache").is_some() {
         return Some("Sucuri".to_string());
     }
 
     // StackPath
-    if response.header("x-sp-cache-status").is_some()
-        || response.header("x-sp-server").is_some() {
+    if response.header("x-sp-cache-status").is_some() || response.header("x-sp-server").is_some() {
         return Some("StackPath".to_string());
     }
 
     // KeyCDN
-    if response.header("server").map(|s| s.contains("keycdn")).unwrap_or(false)
-        || response.header("x-keycdn-cache-status").is_some() {
+    if response
+        .header("server")
+        .map(|s| s.contains("keycdn"))
+        .unwrap_or(false)
+        || response.header("x-keycdn-cache-status").is_some()
+    {
         return Some("KeyCDN".to_string());
     }
 
@@ -82,14 +106,19 @@ pub fn is_cdn_protected(response: &HttpResponse) -> Option<String> {
     if response.header("x-bunny-cache").is_some()
         || response.header("bunny-cache-status").is_some()
         || response.header("cdn-pullzone").is_some()
-        || response.header("server").map(|s| s.contains("bunny")).unwrap_or(false) {
+        || response
+            .header("server")
+            .map(|s| s.contains("bunny"))
+            .unwrap_or(false)
+    {
         return Some("Bunny CDN".to_string());
     }
 
     // Generic CDN detection via cache headers
     if response.header("x-cache").is_some()
         || response.header("x-cache-status").is_some()
-        || response.header("cdn-cache-control").is_some() {
+        || response.header("cdn-cache-control").is_some()
+    {
         return Some("Generic CDN".to_string());
     }
 
@@ -175,11 +204,14 @@ pub fn is_waf_protected_against_cve(response: &HttpResponse, cve_id: &str) -> Op
 
 /// Determines which scanner categories should be skipped for CDN-protected targets
 pub fn get_scanners_to_skip_for_cdn(cdn_name: &str) -> Vec<String> {
-    debug!("Target is CDN-protected ({}), skipping server-side tests", cdn_name);
+    debug!(
+        "Target is CDN-protected ({}), skipping server-side tests",
+        cdn_name
+    );
 
     // Skip server-side vulnerability tests that CDNs would block
     vec![
-        "sqli".to_string(),              // SQL Injection (server-side)
+        "sqli".to_string(),               // SQL Injection (server-side)
         "command_injection".to_string(),  // Command Injection (server-side)
         "path_traversal".to_string(),     // Path Traversal (server-side)
         "nosql".to_string(),              // NoSQL Injection (server-side)
@@ -197,14 +229,14 @@ pub fn get_scanners_to_skip_for_cdn(cdn_name: &str) -> Vec<String> {
 pub fn get_scanners_for_cdn() -> Vec<String> {
     // Only test client-side and CDN-specific vulnerabilities
     vec![
-        "xss".to_string(),                     // XSS (client-side)
-        "cors".to_string(),                    // CORS (CDN config)
-        "security_headers".to_string(),        // Security Headers (CDN config)
-        "clickjacking".to_string(),            // Clickjacking (client-side)
-        "open_redirect".to_string(),           // Open Redirect (routing)
-        "crlf_injection".to_string(),          // CRLF Injection (headers)
-        "cache_poisoning".to_string(),         // Cache Poisoning (CDN-specific)
-        "host_header_injection".to_string(),   // Host Header (CDN routing)
+        "xss".to_string(),                   // XSS (client-side)
+        "cors".to_string(),                  // CORS (CDN config)
+        "security_headers".to_string(),      // Security Headers (CDN config)
+        "clickjacking".to_string(),          // Clickjacking (client-side)
+        "open_redirect".to_string(),         // Open Redirect (routing)
+        "crlf_injection".to_string(),        // CRLF Injection (headers)
+        "cache_poisoning".to_string(),       // Cache Poisoning (CDN-specific)
+        "host_header_injection".to_string(), // Host Header (CDN routing)
     ]
 }
 
@@ -240,7 +272,10 @@ mod tests {
             duration_ms: 0,
         };
 
-        assert_eq!(is_cdn_protected(&response), Some("AWS CloudFront".to_string()));
+        assert_eq!(
+            is_cdn_protected(&response),
+            Some("AWS CloudFront".to_string())
+        );
     }
 
     #[test]

@@ -26,7 +26,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use anyhow::Result;
 use rand::Rng;
 use std::sync::Arc;
@@ -163,7 +162,10 @@ impl OobDetector {
 
         // Check environment for custom callback domain
         if let Ok(domain) = std::env::var("LONKERO_OOB_DOMAIN") {
-            info!("[OOB] Using custom callback domain from environment: {}", domain);
+            info!(
+                "[OOB] Using custom callback domain from environment: {}",
+                domain
+            );
             return (OobServiceType::BountyyCallback, domain);
         }
 
@@ -177,10 +179,8 @@ impl OobDetector {
     /// Get callback domain for specific service type
     fn get_domain_for_service(service_type: &OobServiceType) -> String {
         match service_type {
-            OobServiceType::BountyyCallback => {
-                std::env::var("LONKERO_OOB_DOMAIN")
-                    .unwrap_or_else(|_| "oob.lonkero.bountyy.fi".to_string())
-            }
+            OobServiceType::BountyyCallback => std::env::var("LONKERO_OOB_DOMAIN")
+                .unwrap_or_else(|_| "oob.lonkero.bountyy.fi".to_string()),
             OobServiceType::BurpCollaborator => "burpcollaborator.net".to_string(),
             OobServiceType::Interactsh => "oast.pro".to_string(),
             OobServiceType::Simulated => "simulated.local".to_string(),
@@ -383,10 +383,7 @@ impl OobDetector {
             // Check Bountyy OOB service API
             // Endpoint: https://oob.lonkero.bountyy.fi/api/check/{test_id}
 
-            let check_url = format!(
-                "https://{}/api/check/{}",
-                self.callback_domain, test_id
-            );
+            let check_url = format!("https://{}/api/check/{}", self.callback_domain, test_id);
 
             debug!("[OOB] Checking Bountyy callback service: {}", check_url);
 
@@ -558,10 +555,8 @@ mod tests {
     #[test]
     fn test_dns_exfil_payload() {
         let detector = OobDetector::new();
-        let payload = detector.generate_dns_exfil_payload(
-            OobVulnType::SqlInjection,
-            "mysql-5.7.33"
-        );
+        let payload =
+            detector.generate_dns_exfil_payload(OobVulnType::SqlInjection, "mysql-5.7.33");
 
         // Should contain sanitized data
         assert!(payload.contains("mysql-5"));
@@ -597,10 +592,7 @@ mod tests {
     #[test]
     fn test_callback_with_path() {
         let detector = OobDetector::new();
-        let url = detector.generate_callback_with_path(
-            OobVulnType::Ssrf,
-            "/latest/meta-data/"
-        );
+        let url = detector.generate_callback_with_path(OobVulnType::Ssrf, "/latest/meta-data/");
 
         // Should include the path
         assert!(url.ends_with("/latest/meta-data/"));

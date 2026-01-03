@@ -135,7 +135,11 @@ impl ExpressSecurityScanner {
     }
 
     /// Main scan function
-    pub async fn scan(&self, url: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         // Check license
         if !crate::license::has_feature("cms_security") {
             debug!("Express security scanner requires Personal+ license");
@@ -218,8 +222,11 @@ impl ExpressSecurityScanner {
             tests_run += cve_tests;
         }
 
-        info!("[Express] Completed: {} vulnerabilities found in {} tests",
-              vulnerabilities.len(), tests_run);
+        info!(
+            "[Express] Completed: {} vulnerabilities found in {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -248,8 +255,11 @@ impl ExpressSecurityScanner {
 
             // Check for Express-specific error responses
             let body = &response.body;
-            if body.contains("Cannot GET") || body.contains("Cannot POST") ||
-               body.contains("Express") || body.contains("node_modules") {
+            if body.contains("Cannot GET")
+                || body.contains("Cannot POST")
+                || body.contains("Express")
+                || body.contains("node_modules")
+            {
                 is_express = true;
             }
 
@@ -346,9 +356,10 @@ impl ExpressSecurityScanner {
                                   Or manually:\n\
                                   ```javascript\n\
                                   app.disable('x-powered-by');\n\
-                                  ```".to_string(),
+                                  ```"
+                    .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -487,18 +498,40 @@ impl ExpressSecurityScanner {
 
             // Essential security headers
             let security_headers = [
-                ("X-Content-Type-Options", "nosniff", "Prevents MIME-type sniffing attacks"),
-                ("X-Frame-Options", "DENY|SAMEORIGIN", "Prevents clickjacking attacks"),
-                ("Strict-Transport-Security", "", "Enforces HTTPS connections"),
+                (
+                    "X-Content-Type-Options",
+                    "nosniff",
+                    "Prevents MIME-type sniffing attacks",
+                ),
+                (
+                    "X-Frame-Options",
+                    "DENY|SAMEORIGIN",
+                    "Prevents clickjacking attacks",
+                ),
+                (
+                    "Strict-Transport-Security",
+                    "",
+                    "Enforces HTTPS connections",
+                ),
                 ("X-XSS-Protection", "1; mode=block", "Legacy XSS protection"),
-                ("Content-Security-Policy", "", "Prevents XSS and injection attacks"),
-                ("Referrer-Policy", "", "Controls referrer information leakage"),
+                (
+                    "Content-Security-Policy",
+                    "",
+                    "Prevents XSS and injection attacks",
+                ),
+                (
+                    "Referrer-Policy",
+                    "",
+                    "Controls referrer information leakage",
+                ),
                 ("Permissions-Policy", "", "Controls browser feature access"),
             ];
 
             for (header, _, desc) in &security_headers {
                 let header_lower = header.to_lowercase();
-                let has_header = response.headers.keys()
+                let has_header = response
+                    .headers
+                    .keys()
                     .any(|k| k.as_str().to_lowercase() == header_lower);
 
                 if !has_header {
@@ -507,14 +540,16 @@ impl ExpressSecurityScanner {
             }
 
             if !missing_headers.is_empty() {
-                let severity = if missing_headers.iter().any(|(h, _)|
-                    *h == "Content-Security-Policy" || *h == "Strict-Transport-Security") {
+                let severity = if missing_headers.iter().any(|(h, _)| {
+                    *h == "Content-Security-Policy" || *h == "Strict-Transport-Security"
+                }) {
                     Severity::Medium
                 } else {
                     Severity::Low
                 };
 
-                let header_list: Vec<String> = missing_headers.iter()
+                let header_list: Vec<String> = missing_headers
+                    .iter()
                     .map(|(h, d)| format!("- {}: {}", h, d))
                     .collect();
 
@@ -597,16 +632,23 @@ impl ExpressSecurityScanner {
                     let body = &response.body;
 
                     // Check for API documentation indicators
-                    let is_swagger = body.contains("swagger") || body.contains("openapi") ||
-                                    body.contains("Swagger") || body.contains("OpenAPI");
-                    let is_graphql = body.contains("graphql") || body.contains("GraphQL") ||
-                                    body.contains("__schema") || body.contains("query");
-                    let has_endpoints = body.contains("\"paths\"") || body.contains("\"endpoints\"") ||
-                                       body.contains("\"routes\"");
+                    let is_swagger = body.contains("swagger")
+                        || body.contains("openapi")
+                        || body.contains("Swagger")
+                        || body.contains("OpenAPI");
+                    let is_graphql = body.contains("graphql")
+                        || body.contains("GraphQL")
+                        || body.contains("__schema")
+                        || body.contains("query");
+                    let has_endpoints = body.contains("\"paths\"")
+                        || body.contains("\"endpoints\"")
+                        || body.contains("\"routes\"");
 
                     if is_swagger || is_graphql || has_endpoints {
-                        let severity = if path.contains("graphql") || path.contains("graphiql") ||
-                                         path.contains("playground") {
+                        let severity = if path.contains("graphql")
+                            || path.contains("graphiql")
+                            || path.contains("playground")
+                        {
                             Severity::High
                         } else {
                             Severity::Medium
@@ -629,14 +671,26 @@ impl ExpressSecurityScanner {
                                 - Authentication requirements\n\
                                 - Internal business logic\n\
                                 {}",
-                                name, desc, path,
-                                if is_graphql { "\n- GraphQL introspection allows full schema discovery" } else { "" }
+                                name,
+                                desc,
+                                path,
+                                if is_graphql {
+                                    "\n- GraphQL introspection allows full schema discovery"
+                                } else {
+                                    ""
+                                }
                             ),
                             evidence: Some(format!(
                                 "URL: {}\n\
                                 Type: {}\n\
                                 Response size: {} bytes",
-                                test_url, if is_graphql { "GraphQL" } else { "REST/OpenAPI" }, body.len()
+                                test_url,
+                                if is_graphql {
+                                    "GraphQL"
+                                } else {
+                                    "REST/OpenAPI"
+                                },
+                                body.len()
                             )),
                             cwe: "CWE-200".to_string(),
                             cvss: if is_graphql { 6.5 } else { 5.0 },
@@ -654,7 +708,7 @@ impl ExpressSecurityScanner {
                                 name
                             ),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -675,12 +729,24 @@ impl ExpressSecurityScanner {
             ("/yarn.lock", "Yarn lockfile", Severity::Low),
             ("/.env", "Environment file", Severity::Critical),
             ("/.env.local", "Local environment file", Severity::Critical),
-            ("/.env.development", "Development environment", Severity::Critical),
-            ("/.env.production", "Production environment", Severity::Critical),
+            (
+                "/.env.development",
+                "Development environment",
+                Severity::Critical,
+            ),
+            (
+                "/.env.production",
+                "Production environment",
+                Severity::Critical,
+            ),
             ("/config.json", "Config JSON", Severity::High),
             ("/config.js", "Config JS", Severity::High),
             ("/config/default.json", "Default config", Severity::High),
-            ("/config/production.json", "Production config", Severity::High),
+            (
+                "/config/production.json",
+                "Production config",
+                Severity::High,
+            ),
             ("/.npmrc", "NPM config", Severity::High),
             ("/.yarnrc", "Yarn config", Severity::Medium),
             ("/tsconfig.json", "TypeScript config", Severity::Low),
@@ -720,8 +786,16 @@ impl ExpressSecurityScanner {
                         // Check for exposed secrets in content
                         let mut exposed_secrets: Vec<&str> = Vec::new();
                         let secret_patterns = [
-                            "password", "secret", "api_key", "apikey", "token",
-                            "private_key", "auth", "credential", "mongo", "redis",
+                            "password",
+                            "secret",
+                            "api_key",
+                            "apikey",
+                            "token",
+                            "private_key",
+                            "auth",
+                            "credential",
+                            "mongo",
+                            "redis",
                         ];
 
                         for pattern in &secret_patterns {
@@ -759,7 +833,9 @@ impl ExpressSecurityScanner {
                                     "File: {}\n\
                                     Size: {} bytes\n\
                                     Secrets found: {}",
-                                    path, body.len(), secrets_str
+                                    path,
+                                    body.len(),
+                                    secrets_str
                                 )
                             }),
                             cwe: "CWE-200".to_string(),
@@ -780,7 +856,7 @@ impl ExpressSecurityScanner {
                                 name
                             ),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -817,9 +893,10 @@ impl ExpressSecurityScanner {
                     let body = &response.body;
 
                     // Check if it's a valid source map
-                    if body.contains("\"version\"") && body.contains("\"sources\"") &&
-                       body.contains("\"mappings\"") {
-
+                    if body.contains("\"version\"")
+                        && body.contains("\"sources\"")
+                        && body.contains("\"mappings\"")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("express_sourcemap_{}", Self::generate_id()),
                             vuln_type: "JavaScript Source Map Exposed".to_string(),
@@ -835,11 +912,13 @@ impl ExpressSecurityScanner {
                                          - Internal file structure\n\
                                          - Comments and documentation\n\
                                          - Business logic and algorithms\n\
-                                         - Potential hardcoded secrets".to_string(),
+                                         - Potential hardcoded secrets"
+                                .to_string(),
                             evidence: Some(format!(
                                 "Source map at: {}\n\
                                 Size: {} bytes",
-                                test_url, body.len()
+                                test_url,
+                                body.len()
                             )),
                             cwe: "CWE-540".to_string(),
                             cvss: 5.5,
@@ -848,9 +927,10 @@ impl ExpressSecurityScanner {
                             remediation: "1. Don't generate source maps for production builds\n\
                                           2. Or upload source maps to error tracking service only\n\
                                           3. Block .map files at web server level:\n\
-                                          - Nginx: location ~* \\.map$ { deny all; }".to_string(),
+                                          - Nginx: location ~* \\.map$ { deny all; }"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
 
                         break; // Found one source map
@@ -891,11 +971,12 @@ impl ExpressSecurityScanner {
 
                     // Check for process/metrics indicators
                     let process_indicators = [
-                        "memory", "cpu", "uptime", "pid", "heap",
-                        "requests", "latency", "process", "version",
+                        "memory", "cpu", "uptime", "pid", "heap", "requests", "latency", "process",
+                        "version",
                     ];
 
-                    let found_count = process_indicators.iter()
+                    let found_count = process_indicators
+                        .iter()
                         .filter(|i| body.to_lowercase().contains(*i))
                         .count();
 
@@ -926,9 +1007,10 @@ impl ExpressSecurityScanner {
                             false_positive: false,
                             remediation: "1. Add authentication to status/metrics endpoints\n\
                                           2. Restrict access by IP address\n\
-                                          3. Use internal network only for monitoring".to_string(),
+                                          3. Use internal network only for monitoring"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -962,9 +1044,10 @@ impl ExpressSecurityScanner {
                     let body = &response.body;
 
                     // Check for prototype pollution error signatures
-                    if body.contains("prototype") || body.contains("__proto__") ||
-                       body.contains("constructor") {
-
+                    if body.contains("prototype")
+                        || body.contains("__proto__")
+                        || body.contains("constructor")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("express_proto_pollution_{}", Self::generate_id()),
                             vuln_type: "Potential Prototype Pollution".to_string(),
@@ -1032,10 +1115,16 @@ impl ExpressSecurityScanner {
             tests_run += 1;
 
             let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert("Origin", origin.parse().unwrap_or_else(|_| "https://test.com".parse().unwrap()));
+            headers.insert(
+                "Origin",
+                origin
+                    .parse()
+                    .unwrap_or_else(|_| "https://test.com".parse().unwrap()),
+            );
 
             // Convert HeaderMap to Vec for get_with_headers
-            let headers_vec: Vec<(String, String)> = headers.iter()
+            let headers_vec: Vec<(String, String)> = headers
+                .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
 
@@ -1048,15 +1137,16 @@ impl ExpressSecurityScanner {
                     let allows_null = value == "null";
 
                     // Check for credentials
-                    let allows_credentials = response.headers
+                    let allows_credentials = response
+                        .headers
                         .get("access-control-allow-credentials")
                         .map(|v| v.as_str() == "true")
                         .unwrap_or(false);
 
-                    if (is_wildcard && allows_credentials) ||
-                       (reflects_origin && *origin_type == "arbitrary") ||
-                       allows_null {
-
+                    if (is_wildcard && allows_credentials)
+                        || (reflects_origin && *origin_type == "arbitrary")
+                        || allows_null
+                    {
                         let severity = if allows_credentials {
                             Severity::High
                         } else {
@@ -1101,9 +1191,10 @@ impl ExpressSecurityScanner {
                                             credentials: true\n\
                                           }));\n\
                                           ```\n\
-                                          Never use wildcard (*) with credentials.".to_string(),
+                                          Never use wildcard (*) with credentials."
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
 
                         break;
@@ -1128,9 +1219,9 @@ impl ExpressSecurityScanner {
                 let value_lower = value.to_lowercase();
 
                 // Check for session cookie
-                let is_session = value.contains("connect.sid") ||
-                                value.contains("session") ||
-                                value.contains("sess");
+                let is_session = value.contains("connect.sid")
+                    || value.contains("session")
+                    || value.contains("sess");
 
                 if is_session {
                     let mut issues: Vec<&str> = Vec::new();
@@ -1161,7 +1252,11 @@ impl ExpressSecurityScanner {
                                 - Session hijacking via XSS (missing HttpOnly)\n\
                                 - Session theft over HTTP (missing Secure)\n\
                                 - CSRF attacks (missing SameSite)",
-                                issues.iter().map(|i| format!("- {}", i)).collect::<Vec<_>>().join("\n")
+                                issues
+                                    .iter()
+                                    .map(|i| format!("- {}", i))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
                             ),
                             evidence: Some(format!("Cookie: {}", value)),
                             cwe: "CWE-614".to_string(),
@@ -1178,9 +1273,10 @@ impl ExpressSecurityScanner {
                                               maxAge: 3600000\n\
                                             }\n\
                                           }));\n\
-                                          ```".to_string(),
+                                          ```"
+                            .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -1221,11 +1317,12 @@ impl ExpressSecurityScanner {
 
                     // Check for dangerous functionality
                     let danger_indicators = [
-                        "eval", "exec", "spawn", "shell", "command",
-                        "query", "sql", "mongo", "redis",
+                        "eval", "exec", "spawn", "shell", "command", "query", "sql", "mongo",
+                        "redis",
                     ];
 
-                    let found: Vec<_> = danger_indicators.iter()
+                    let found: Vec<_> = danger_indicators
+                        .iter()
                         .filter(|i| body.to_lowercase().contains(*i))
                         .collect();
 
@@ -1256,9 +1353,10 @@ impl ExpressSecurityScanner {
                             remediation: "1. Remove debug endpoints from production\n\
                                           2. Add strong authentication\n\
                                           3. Restrict by IP address\n\
-                                          4. Use NODE_ENV to disable in production".to_string(),
+                                          4. Use NODE_ENV to disable in production"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -1269,7 +1367,11 @@ impl ExpressSecurityScanner {
     }
 
     /// Check for known CVEs in detected packages
-    async fn check_package_cves(&self, url: &str, _info: &PackageInfo) -> (Vec<Vulnerability>, usize) {
+    async fn check_package_cves(
+        &self,
+        url: &str,
+        _info: &PackageInfo,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
@@ -1282,13 +1384,20 @@ impl ExpressSecurityScanner {
                     if let Some(deps) = pkg.get("dependencies").and_then(|d| d.as_object()) {
                         if let Some(cves) = self.known_cves.get("express") {
                             for cve in cves {
-                                if let Some(version) = deps.get(&cve.package).and_then(|v| v.as_str()) {
+                                if let Some(version) =
+                                    deps.get(&cve.package).and_then(|v| v.as_str())
+                                {
                                     // Simple version check - could be more sophisticated
-                                    let is_vulnerable = self.is_version_vulnerable(version, &cve.affected_versions);
+                                    let is_vulnerable =
+                                        self.is_version_vulnerable(version, &cve.affected_versions);
 
                                     if is_vulnerable {
                                         vulnerabilities.push(Vulnerability {
-                                            id: format!("express_cve_{}_{}", cve.cve_id.replace("-", "_"), Self::generate_id()),
+                                            id: format!(
+                                                "express_cve_{}_{}",
+                                                cve.cve_id.replace("-", "_"),
+                                                Self::generate_id()
+                                            ),
                                             vuln_type: format!("{} in {}", cve.cve_id, cve.package),
                                             severity: cve.severity.clone(),
                                             confidence: Confidence::High,
@@ -1301,13 +1410,19 @@ impl ExpressSecurityScanner {
                                                 Package: {}\n\
                                                 Installed version: {}\n\
                                                 Affected versions: {}",
-                                                cve.description, cve.package, version, cve.affected_versions
+                                                cve.description,
+                                                cve.package,
+                                                version,
+                                                cve.affected_versions
                                             ),
                                             evidence: Some(format!(
                                                 "CVE: {}\n\
                                                 Package: {} @ {}\n\
                                                 Vulnerable: {}",
-                                                cve.cve_id, cve.package, version, cve.affected_versions
+                                                cve.cve_id,
+                                                cve.package,
+                                                version,
+                                                cve.affected_versions
                                             )),
                                             cwe: "CWE-1035".to_string(),
                                             cvss: match cve.severity {
@@ -1326,7 +1441,7 @@ impl ExpressSecurityScanner {
                                                 cve.package, cve.package, cve.package
                                             ),
                                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                            ml_data: None,
                                         });
                                     }
                                 }
@@ -1344,11 +1459,12 @@ impl ExpressSecurityScanner {
     fn is_version_vulnerable(&self, installed: &str, affected: &str) -> bool {
         // Simple implementation - just check if affected pattern matches
         // Format: "<4.19.2" or ">=1.0.0 <2.0.0"
-        let version = installed.trim_start_matches('^')
-                               .trim_start_matches('~')
-                               .trim_start_matches('>')
-                               .trim_start_matches('=')
-                               .trim_start_matches('<');
+        let version = installed
+            .trim_start_matches('^')
+            .trim_start_matches('~')
+            .trim_start_matches('>')
+            .trim_start_matches('=')
+            .trim_start_matches('<');
 
         if let Some(max_ver) = affected.strip_prefix('<') {
             // Compare versions

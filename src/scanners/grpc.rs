@@ -157,9 +157,7 @@ impl GrpcScanner {
             || response.header("www-authenticate").is_some();
 
         // If gRPC but no auth indicators
-        if (body_lower.contains("grpc") || body_lower.contains("protobuf"))
-            && !has_auth
-        {
+        if (body_lower.contains("grpc") || body_lower.contains("protobuf")) && !has_auth {
             vulnerabilities.push(self.create_vulnerability(
                 "gRPC Missing Authentication",
                 url,
@@ -208,16 +206,17 @@ impl GrpcScanner {
 
         // These are SPECIFIC gRPC metadata patterns, not generic words
         let grpc_metadata_patterns = [
-            "grpc-metadata-",           // gRPC metadata header prefix
-            "metadata.get(",            // gRPC metadata API call
-            "metadata.set(",            // gRPC metadata API call
-            "frommetadata",             // gRPC metadata extraction
-            "incomingmetadata",         // gRPC incoming metadata
-            "outgoingmetadata",         // gRPC outgoing metadata
-            "grpc.metadata",            // gRPC metadata object
+            "grpc-metadata-",   // gRPC metadata header prefix
+            "metadata.get(",    // gRPC metadata API call
+            "metadata.set(",    // gRPC metadata API call
+            "frommetadata",     // gRPC metadata extraction
+            "incomingmetadata", // gRPC incoming metadata
+            "outgoingmetadata", // gRPC outgoing metadata
+            "grpc.metadata",    // gRPC metadata object
         ];
 
-        let has_grpc_metadata_code = grpc_metadata_patterns.iter()
+        let has_grpc_metadata_code = grpc_metadata_patterns
+            .iter()
             .any(|p| body_lower.contains(p));
 
         // Only flag if we see actual gRPC metadata handling without validation
@@ -619,7 +618,10 @@ mod tests {
         let scanner = GrpcScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("content-type".to_string(), "application/grpc+proto".to_string());
+        headers.insert(
+            "content-type".to_string(),
+            "application/grpc+proto".to_string(),
+        );
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,

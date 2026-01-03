@@ -7,17 +7,16 @@
  *
  * © 2026 Bountyy Oy
  */
-
 use crate::http_client::HttpClient;
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
-use hickory_resolver::TokioResolver;
 use hickory_resolver::name_server::TokioConnectionProvider;
-use std::collections::{HashSet, HashMap};
+use hickory_resolver::TokioResolver;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use tracing::{info, warn};
-use serde::{Deserialize, Serialize};
 
 /// Subdomain discovery configuration
 #[derive(Debug, Clone)]
@@ -121,7 +120,10 @@ impl SubdomainDiscovery {
 
             if self.config.use_cert_transparency {
                 if let Ok(ct_results) = self.query_cert_transparency(domain).await {
-                    info!("[OK] Certificate Transparency: {} subdomains", ct_results.len());
+                    info!(
+                        "[OK] Certificate Transparency: {} subdomains",
+                        ct_results.len()
+                    );
                     all_results.extend(ct_results);
                 }
             }
@@ -147,8 +149,12 @@ impl SubdomainDiscovery {
         // 4. Reverse DNS lookups
         if self.config.use_reverse_dns {
             info!("Performing reverse DNS lookups...");
-            if let Ok(reverse_results) = self.reverse_dns_discovery(&filtered_results, domain).await {
-                info!("[OK] Reverse DNS: {} additional subdomains", reverse_results.len());
+            if let Ok(reverse_results) = self.reverse_dns_discovery(&filtered_results, domain).await
+            {
+                info!(
+                    "[OK] Reverse DNS: {} additional subdomains",
+                    reverse_results.len()
+                );
                 for (k, v) in reverse_results {
                     filtered_results.entry(k).or_insert(v);
                 }
@@ -171,7 +177,10 @@ impl SubdomainDiscovery {
     }
 
     /// Query Certificate Transparency logs (crt.sh)
-    async fn query_cert_transparency(&self, domain: &str) -> Result<HashMap<String, SubdomainInfo>> {
+    async fn query_cert_transparency(
+        &self,
+        domain: &str,
+    ) -> Result<HashMap<String, SubdomainInfo>> {
         let url = format!("https://crt.sh/?q=%.{}&output=json", domain);
 
         let response = self
@@ -180,8 +189,8 @@ impl SubdomainDiscovery {
             .await
             .context("Failed to query crt.sh")?;
 
-        let entries: Vec<CertTransparencyEntry> = serde_json::from_str(&response.body)
-            .context("Failed to parse crt.sh response")?;
+        let entries: Vec<CertTransparencyEntry> =
+            serde_json::from_str(&response.body).context("Failed to parse crt.sh response")?;
 
         let mut results = HashMap::new();
         let mut unique_domains = HashSet::new();
@@ -195,11 +204,15 @@ impl SubdomainDiscovery {
                     .trim_start_matches('.')
                     .to_string();
 
-                if cleaned.ends_with(domain) && !cleaned.contains('*') && !unique_domains.contains(&cleaned) {
+                if cleaned.ends_with(domain)
+                    && !cleaned.contains('*')
+                    && !unique_domains.contains(&cleaned)
+                {
                     unique_domains.insert(cleaned.clone());
 
                     // Resolve the domain to get full info
-                    if let Some(info) = self.resolve_subdomain(&cleaned, "cert_transparency").await {
+                    if let Some(info) = self.resolve_subdomain(&cleaned, "cert_transparency").await
+                    {
                         results.insert(cleaned, info);
                     }
                 }
@@ -219,7 +232,8 @@ impl SubdomainDiscovery {
             .map(|subdomain| {
                 let full_domain = format!("{}.{}", subdomain, domain);
                 async move {
-                    if let Some(info) = self.resolve_subdomain(&full_domain, "dns_bruteforce").await {
+                    if let Some(info) = self.resolve_subdomain(&full_domain, "dns_bruteforce").await
+                    {
                         Some((full_domain, info))
                     } else {
                         None
@@ -236,7 +250,11 @@ impl SubdomainDiscovery {
     /// Detect wildcard DNS configurations
     async fn detect_wildcards(&mut self, domain: &str) {
         let random_subdomains = vec![
-            format!("nonexistent-{}.{}", uuid::Uuid::new_v4().to_string(), domain),
+            format!(
+                "nonexistent-{}.{}",
+                uuid::Uuid::new_v4().to_string(),
+                domain
+            ),
             format!("random-{}.{}", uuid::Uuid::new_v4().to_string(), domain),
             format!("test-{}.{}", uuid::Uuid::new_v4().to_string(), domain),
         ];
@@ -252,7 +270,10 @@ impl SubdomainDiscovery {
         }
 
         if !wildcard_ips.is_empty() {
-            warn!("[WARNING]  Wildcard DNS detected for {}: {:?}", domain, wildcard_ips);
+            warn!(
+                "[WARNING]  Wildcard DNS detected for {}: {:?}",
+                domain, wildcard_ips
+            );
             self.wildcard_domains.insert(domain.to_string());
 
             // Store wildcard IPs for filtering
@@ -263,7 +284,10 @@ impl SubdomainDiscovery {
     }
 
     /// Filter out wildcard subdomains
-    fn filter_wildcards(&self, mut results: HashMap<String, SubdomainInfo>) -> HashMap<String, SubdomainInfo> {
+    fn filter_wildcards(
+        &self,
+        mut results: HashMap<String, SubdomainInfo>,
+    ) -> HashMap<String, SubdomainInfo> {
         if self.wildcard_domains.is_empty() {
             return results;
         }
@@ -311,7 +335,11 @@ impl SubdomainDiscovery {
     }
 
     /// Perform reverse DNS lookup on single IP
-    async fn reverse_dns_lookup(&self, ip: IpAddr, base_domain: &str) -> Option<(String, SubdomainInfo)> {
+    async fn reverse_dns_lookup(
+        &self,
+        ip: IpAddr,
+        base_domain: &str,
+    ) -> Option<(String, SubdomainInfo)> {
         let resolver = TokioResolver::builder(TokioConnectionProvider::default())
             .ok()?
             .build();
@@ -395,12 +423,7 @@ impl SubdomainDiscovery {
             .lookup(domain, hickory_resolver::proto::rr::RecordType::CNAME)
             .await
             .ok()
-            .map(|cname| {
-                cname
-                    .iter()
-                    .map(|r| format!("{}", r))
-                    .collect()
-            })
+            .map(|cname| cname.iter().map(|r| format!("{}", r)).collect())
             .unwrap_or_default();
 
         Some(SubdomainInfo {
@@ -420,56 +443,166 @@ impl SubdomainDiscovery {
     /// Get subdomain wordlist based on configuration
     fn get_wordlist(&self) -> Vec<&'static str> {
         let common = vec![
-            "www", "api", "admin", "dev", "staging", "test", "qa", "uat",
-            "mail", "smtp", "pop", "imap", "webmail",
-            "ftp", "sftp", "ssh",
-            "vpn", "remote", "access",
-            "blog", "forum", "shop", "store",
-            "cdn", "static", "assets", "media", "images",
-            "m", "mobile", "app",
-            "portal", "dashboard", "panel",
-            "beta", "alpha", "demo",
-            "git", "gitlab", "github", "bitbucket",
-            "jenkins", "ci", "cd",
-            "jira", "confluence", "wiki",
-            "status", "monitor", "metrics",
-            "db", "database", "mysql", "postgres", "mongo",
-            "cache", "redis", "memcache",
-            "backup", "backups",
-            "old", "new", "legacy",
-            "v1", "v2", "api-v1", "api-v2",
-            "ws", "wss", "websocket",
-            "grpc", "graphql", "rest",
-            "docs", "documentation", "help",
-            "support", "helpdesk", "service",
-            "secure", "login", "auth", "oauth",
-            "payment", "pay", "checkout",
-            "internal", "corp", "corporate",
-            "office", "intranet",
+            "www",
+            "api",
+            "admin",
+            "dev",
+            "staging",
+            "test",
+            "qa",
+            "uat",
+            "mail",
+            "smtp",
+            "pop",
+            "imap",
+            "webmail",
+            "ftp",
+            "sftp",
+            "ssh",
+            "vpn",
+            "remote",
+            "access",
+            "blog",
+            "forum",
+            "shop",
+            "store",
+            "cdn",
+            "static",
+            "assets",
+            "media",
+            "images",
+            "m",
+            "mobile",
+            "app",
+            "portal",
+            "dashboard",
+            "panel",
+            "beta",
+            "alpha",
+            "demo",
+            "git",
+            "gitlab",
+            "github",
+            "bitbucket",
+            "jenkins",
+            "ci",
+            "cd",
+            "jira",
+            "confluence",
+            "wiki",
+            "status",
+            "monitor",
+            "metrics",
+            "db",
+            "database",
+            "mysql",
+            "postgres",
+            "mongo",
+            "cache",
+            "redis",
+            "memcache",
+            "backup",
+            "backups",
+            "old",
+            "new",
+            "legacy",
+            "v1",
+            "v2",
+            "api-v1",
+            "api-v2",
+            "ws",
+            "wss",
+            "websocket",
+            "grpc",
+            "graphql",
+            "rest",
+            "docs",
+            "documentation",
+            "help",
+            "support",
+            "helpdesk",
+            "service",
+            "secure",
+            "login",
+            "auth",
+            "oauth",
+            "payment",
+            "pay",
+            "checkout",
+            "internal",
+            "corp",
+            "corporate",
+            "office",
+            "intranet",
         ];
 
         let extended = vec![
-            "autodiscover", "autoconfig", "cpanel", "whm", "plesk",
-            "webdisk", "email", "mx", "ns1", "ns2", "ns3", "ns4",
-            "ftp2", "files", "download", "upload",
-            "ssl", "tls",
-            "test1", "test2", "dev1", "dev2", "dev3",
-            "stage", "staging1", "staging2",
-            "prod", "production",
-            "lb", "loadbalancer",
-            "proxy", "gateway",
-            "cdn1", "cdn2", "static1", "static2",
-            "img", "images1", "images2",
-            "video", "videos", "stream",
-            "chat", "messaging",
-            "crm", "erp", "hr",
-            "finance", "accounting",
-            "warehouse", "inventory",
-            "reports", "analytics", "stats",
-            "logging", "logs", "syslog",
-            "sandbox", "preview", "preprod",
-            "uat1", "uat2", "qa1", "qa2",
-            "build", "release",
+            "autodiscover",
+            "autoconfig",
+            "cpanel",
+            "whm",
+            "plesk",
+            "webdisk",
+            "email",
+            "mx",
+            "ns1",
+            "ns2",
+            "ns3",
+            "ns4",
+            "ftp2",
+            "files",
+            "download",
+            "upload",
+            "ssl",
+            "tls",
+            "test1",
+            "test2",
+            "dev1",
+            "dev2",
+            "dev3",
+            "stage",
+            "staging1",
+            "staging2",
+            "prod",
+            "production",
+            "lb",
+            "loadbalancer",
+            "proxy",
+            "gateway",
+            "cdn1",
+            "cdn2",
+            "static1",
+            "static2",
+            "img",
+            "images1",
+            "images2",
+            "video",
+            "videos",
+            "stream",
+            "chat",
+            "messaging",
+            "crm",
+            "erp",
+            "hr",
+            "finance",
+            "accounting",
+            "warehouse",
+            "inventory",
+            "reports",
+            "analytics",
+            "stats",
+            "logging",
+            "logs",
+            "syslog",
+            "sandbox",
+            "preview",
+            "preprod",
+            "uat1",
+            "uat2",
+            "qa1",
+            "qa2",
+            "build",
+            "release",
         ];
 
         if self.config.thorough {
@@ -481,8 +614,15 @@ impl SubdomainDiscovery {
 
     /// Query VirusTotal API (requires API key)
     #[allow(dead_code)]
-    async fn query_virustotal(&self, domain: &str, api_key: &str) -> Result<HashMap<String, SubdomainInfo>> {
-        let url = format!("https://www.virustotal.com/api/v3/domains/{}/subdomains", domain);
+    async fn query_virustotal(
+        &self,
+        domain: &str,
+        api_key: &str,
+    ) -> Result<HashMap<String, SubdomainInfo>> {
+        let url = format!(
+            "https://www.virustotal.com/api/v3/domains/{}/subdomains",
+            domain
+        );
 
         let response = self
             .http_client
@@ -490,8 +630,8 @@ impl SubdomainDiscovery {
             .await
             .context("Failed to query VirusTotal")?;
 
-        let vt_response: VirusTotalResponse = serde_json::from_str(&response.body)
-            .context("Failed to parse VirusTotal response")?;
+        let vt_response: VirusTotalResponse =
+            serde_json::from_str(&response.body).context("Failed to parse VirusTotal response")?;
 
         let mut results = HashMap::new();
         for item in vt_response.data {
@@ -505,8 +645,15 @@ impl SubdomainDiscovery {
 
     /// Query SecurityTrails API (requires API key)
     #[allow(dead_code)]
-    async fn query_securitytrails(&self, domain: &str, api_key: &str) -> Result<HashMap<String, SubdomainInfo>> {
-        let url = format!("https://api.securitytrails.com/v1/domain/{}/subdomains", domain);
+    async fn query_securitytrails(
+        &self,
+        domain: &str,
+        api_key: &str,
+    ) -> Result<HashMap<String, SubdomainInfo>> {
+        let url = format!(
+            "https://api.securitytrails.com/v1/domain/{}/subdomains",
+            domain
+        );
 
         let response = self
             .http_client

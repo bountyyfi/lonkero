@@ -37,7 +37,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -86,7 +85,7 @@ pub struct DataRetentionPolicy {
 impl Default for DataRetentionPolicy {
     fn default() -> Self {
         Self {
-            max_age_days: 90,  // GDPR recommends minimal retention
+            max_age_days: 90, // GDPR recommends minimal retention
             max_examples: 10000,
             auto_cleanup: true,
         }
@@ -128,8 +127,7 @@ impl PrivacyManager {
 
     /// Get data directory
     fn get_data_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .context("Could not determine home directory")?;
+        let home = dirs::home_dir().context("Could not determine home directory")?;
         Ok(home.join(".lonkero"))
     }
 
@@ -158,9 +156,10 @@ impl PrivacyManager {
         self.compliance.consent_date = Some(Utc::now());
         self.save_settings()?;
 
-        info!("GDPR consent recorded: informed={}, federated={}",
-              self.compliance.informed_consent,
-              self.compliance.federated_opt_in);
+        info!(
+            "GDPR consent recorded: informed={}, federated={}",
+            self.compliance.informed_consent, self.compliance.federated_opt_in
+        );
 
         Ok(())
     }
@@ -198,8 +197,7 @@ impl PrivacyManager {
 
         for path in &paths {
             if path.exists() {
-                fs::remove_dir_all(path)
-                    .context(format!("Failed to delete {}", path.display()))?;
+                fs::remove_dir_all(path).context(format!("Failed to delete {}", path.display()))?;
                 debug!("Deleted: {}", path.display());
             }
         }
@@ -225,7 +223,12 @@ impl PrivacyManager {
         if training_data.exists() {
             for entry in fs::read_dir(&training_data)? {
                 let entry = entry?;
-                if entry.path().extension().map(|e| e == "jsonl").unwrap_or(false) {
+                if entry
+                    .path()
+                    .extension()
+                    .map(|e| e == "jsonl")
+                    .unwrap_or(false)
+                {
                     let content = fs::read_to_string(entry.path())?;
                     for line in content.lines() {
                         if !line.trim().is_empty() {
@@ -307,8 +310,10 @@ impl PrivacyManager {
         self.save_settings()?;
 
         if result.records_deleted > 0 {
-            info!("GDPR cleanup: deleted {} expired records from {} files",
-                  result.records_deleted, result.files_processed);
+            info!(
+                "GDPR cleanup: deleted {} expired records from {} files",
+                result.records_deleted, result.files_processed
+            );
         }
 
         Ok(result)
@@ -327,7 +332,8 @@ impl PrivacyManager {
 
             // Parse to check timestamp
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(timestamp) = json.get("collected_at")
+                if let Some(timestamp) = json
+                    .get("collected_at")
                     .and_then(|v| v.as_str())
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 {
@@ -390,20 +396,24 @@ impl PrivacyManager {
     }
 
     fn looks_like_hostname(value: &str) -> bool {
-        value.contains('.') &&
-        !value.starts_with('/') &&
-        value.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-')
+        value.contains('.')
+            && !value.starts_with('/')
+            && value
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-')
     }
 
     fn is_uuid(value: &str) -> bool {
         let parts: Vec<&str> = value.split('-').collect();
-        parts.len() == 5 &&
-        parts[0].len() == 8 &&
-        parts[1].len() == 4 &&
-        parts[2].len() == 4 &&
-        parts[3].len() == 4 &&
-        parts[4].len() == 12 &&
-        parts.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
+        parts.len() == 5
+            && parts[0].len() == 8
+            && parts[1].len() == 4
+            && parts[2].len() == 4
+            && parts[3].len() == 4
+            && parts[4].len() == 12
+            && parts
+                .iter()
+                .all(|p| p.chars().all(|c| c.is_ascii_hexdigit()))
     }
 
     /// Get privacy status summary
@@ -459,7 +469,10 @@ mod tests {
 
     #[test]
     fn test_anonymize_email() {
-        assert_eq!(PrivacyManager::anonymize_value("user@example.com"), "{email}");
+        assert_eq!(
+            PrivacyManager::anonymize_value("user@example.com"),
+            "{email}"
+        );
     }
 
     #[test]

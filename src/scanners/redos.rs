@@ -16,9 +16,9 @@ pub struct RedosScanner {
 /// ReDoS test payload with escalating lengths
 #[derive(Clone)]
 struct RedosPayload {
-    short: String,   // 10 chars
-    medium: String,  // 30 chars
-    long: String,    // 60 chars
+    short: String,  // 10 chars
+    medium: String, // 30 chars
+    long: String,   // 60 chars
     description: String,
 }
 
@@ -34,7 +34,8 @@ impl RedosScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard)
+            .await
     }
 
     /// Scan a parameter for ReDoS vulnerabilities with specified intensity (intelligent mode)
@@ -52,11 +53,17 @@ impl RedosScanner {
 
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::ReDoS) {
-            debug!("[ReDoS] Skipping framework/internal parameter: {}", parameter);
+            debug!(
+                "[ReDoS] Skipping framework/internal parameter: {}",
+                parameter
+            );
             return Ok((Vec::new(), 0));
         }
 
-        debug!("[ReDoS] Intelligent scanner - parameter: {} (intensity: {:?})", parameter, intensity);
+        debug!(
+            "[ReDoS] Intelligent scanner - parameter: {} (intensity: {:?})",
+            parameter, intensity
+        );
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -69,8 +76,12 @@ impl RedosScanner {
         if payloads.len() > payload_limit {
             let original_count = payloads.len();
             payloads.truncate(payload_limit);
-            info!("[ReDoS] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
-                  original_count, payloads.len(), intensity);
+            info!(
+                "[ReDoS] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
+                original_count,
+                payloads.len(),
+                intensity
+            );
         }
 
         debug!("Testing {} ReDoS payload patterns", payloads.len());
@@ -90,7 +101,11 @@ impl RedosScanner {
             };
 
             let t1 = short_response.duration_ms;
-            debug!("Short payload ({} chars) response time: {}ms", payload.short.len(), t1);
+            debug!(
+                "Short payload ({} chars) response time: {}ms",
+                payload.short.len(),
+                t1
+            );
 
             // Test medium payload
             let medium_url = self.build_test_url(base_url, parameter, &payload.medium);
@@ -103,7 +118,11 @@ impl RedosScanner {
             };
 
             let t2 = medium_response.duration_ms;
-            debug!("Medium payload ({} chars) response time: {}ms", payload.medium.len(), t2);
+            debug!(
+                "Medium payload ({} chars) response time: {}ms",
+                payload.medium.len(),
+                t2
+            );
 
             // Test long payload
             let long_url = self.build_test_url(base_url, parameter, &payload.long);
@@ -113,7 +132,10 @@ impl RedosScanner {
                     debug!("Long payload request failed or timed out: {}", e);
 
                     // Timeout indicates severe ReDoS
-                    info!("ReDoS vulnerability detected (timeout): parameter '{}'", parameter);
+                    info!(
+                        "ReDoS vulnerability detected (timeout): parameter '{}'",
+                        parameter
+                    );
 
                     vulnerabilities.push(self.create_vulnerability(
                         &long_url,
@@ -131,7 +153,11 @@ impl RedosScanner {
             };
 
             let t3 = long_response.duration_ms;
-            debug!("Long payload ({} chars) response time: {}ms", payload.long.len(), t3);
+            debug!(
+                "Long payload ({} chars) response time: {}ms",
+                payload.long.len(),
+                t3
+            );
 
             // Analyze timing pattern for exponential growth
             if self.detect_exponential_timing(t1, t2, t3) {
@@ -161,9 +187,19 @@ impl RedosScanner {
     /// Build test URL with encoded payload
     fn build_test_url(&self, base_url: &str, parameter: &str, payload: &str) -> String {
         if base_url.contains('?') {
-            format!("{}&{}={}", base_url, parameter, urlencoding::encode(payload))
+            format!(
+                "{}&{}={}",
+                base_url,
+                parameter,
+                urlencoding::encode(payload)
+            )
         } else {
-            format!("{}?{}={}", base_url, parameter, urlencoding::encode(payload))
+            format!(
+                "{}?{}={}",
+                base_url,
+                parameter,
+                urlencoding::encode(payload)
+            )
         }
     }
 
@@ -199,7 +235,6 @@ impl RedosScanner {
                 long: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!".to_string(),
                 description: "Repeated characters with special terminator".to_string(),
             },
-
             // Pattern 2: Repeated '0' with special char (triggers digit patterns)
             RedosPayload {
                 short: "0000000000!".to_string(),
@@ -207,7 +242,6 @@ impl RedosScanner {
                 long: "000000000000000000000000000000000000000000000000000000000000!".to_string(),
                 description: "Repeated digits with special terminator".to_string(),
             },
-
             // Pattern 3: Repeated 'x' with backslash (triggers escape patterns)
             RedosPayload {
                 short: "xxxxxxxxxx\\".to_string(),
@@ -215,7 +249,6 @@ impl RedosScanner {
                 long: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\".to_string(),
                 description: "Repeated characters with escape sequence".to_string(),
             },
-
             // Pattern 4: Email-like pattern (triggers email validation regex)
             RedosPayload {
                 short: "a]@a]@a]".to_string(),
@@ -223,7 +256,6 @@ impl RedosScanner {
                 long: "a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]@a]".to_string(),
                 description: "Malformed email pattern".to_string(),
             },
-
             // Pattern 5: URL-like pattern (triggers URL validation regex)
             RedosPayload {
                 short: "http://aaa".to_string(),
@@ -231,7 +263,6 @@ impl RedosScanner {
                 long: "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
                 description: "Long URL pattern".to_string(),
             },
-
             // Pattern 6: Repeated word characters with dot (triggers (\w+\.)+ patterns)
             RedosPayload {
                 short: "aaaa.aaaa.".to_string(),
@@ -239,7 +270,6 @@ impl RedosScanner {
                 long: "aaaa.aaaa.aaaa.aaaa.aaaa.aaaa.aaaa.aaaa.aaaa.aaaa.aaaa.aaaa.".to_string(),
                 description: "Repeated word patterns with dots".to_string(),
             },
-
             // Pattern 7: Numbers with dot (triggers number validation)
             RedosPayload {
                 short: "1111111111.".to_string(),
@@ -247,7 +277,6 @@ impl RedosScanner {
                 long: "111111111111111111111111111111111111111111111111111111111111.".to_string(),
                 description: "Repeated numbers with decimal point".to_string(),
             },
-
             // Pattern 8: Mixed alphanumeric (triggers complex patterns)
             RedosPayload {
                 short: "a1a1a1a1a1!".to_string(),
@@ -422,7 +451,10 @@ mod tests {
             Severity::High,
         );
 
-        assert_eq!(vuln.vuln_type, "Regular Expression Denial of Service (ReDoS)");
+        assert_eq!(
+            vuln.vuln_type,
+            "Regular Expression Denial of Service (ReDoS)"
+        );
         assert_eq!(vuln.severity, Severity::High);
         assert_eq!(vuln.confidence, Confidence::High);
         assert_eq!(vuln.cwe, "CWE-1333");

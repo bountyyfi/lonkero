@@ -62,8 +62,14 @@ impl VulnerabilityDeduplicator {
                 deduplicated.push(group.pop().unwrap());
             } else {
                 group.sort_by(|a, b| {
-                    b.confidence.to_string().cmp(&a.confidence.to_string())
-                        .then(b.cvss.partial_cmp(&a.cvss).unwrap_or(std::cmp::Ordering::Equal))
+                    b.confidence
+                        .to_string()
+                        .cmp(&a.confidence.to_string())
+                        .then(
+                            b.cvss
+                                .partial_cmp(&a.cvss)
+                                .unwrap_or(std::cmp::Ordering::Equal),
+                        )
                 });
                 deduplicated.push(group.into_iter().next().unwrap());
             }
@@ -110,7 +116,10 @@ impl VulnerabilityDeduplicator {
     /// Normalize URL path by replacing dynamic segments with placeholders
     fn normalize_path(&self, path: &str) -> String {
         // UUID pattern (8-4-4-4-12 hex)
-        let uuid_re = Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").unwrap();
+        let uuid_re = Regex::new(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        )
+        .unwrap();
         // Numeric ID pattern (standalone numbers in path segments)
         let numeric_re = Regex::new(r"^[0-9]+$").unwrap();
         // MongoDB ObjectId pattern (24 hex chars)
@@ -144,37 +153,41 @@ impl VulnerabilityDeduplicator {
 
     /// Sort query parameters alphabetically for consistent comparison
     fn normalize_query_params(&self, query: Option<&str>) -> Option<String> {
-        query.map(|q| {
-            let mut params: Vec<(&str, &str)> = q
-                .split('&')
-                .filter_map(|pair| {
-                    let mut parts = pair.splitn(2, '=');
-                    let key = parts.next()?;
-                    let value = parts.next().unwrap_or("");
-                    Some((key, value))
-                })
-                .collect();
+        query
+            .map(|q| {
+                let mut params: Vec<(&str, &str)> = q
+                    .split('&')
+                    .filter_map(|pair| {
+                        let mut parts = pair.splitn(2, '=');
+                        let key = parts.next()?;
+                        let value = parts.next().unwrap_or("");
+                        Some((key, value))
+                    })
+                    .collect();
 
-            // Sort by key name
-            params.sort_by(|a, b| a.0.cmp(b.0));
+                // Sort by key name
+                params.sort_by(|a, b| a.0.cmp(b.0));
 
-            // Rebuild query string
-            params
-                .iter()
-                .map(|(k, v)| {
-                    if v.is_empty() {
-                        k.to_string()
-                    } else {
-                        format!("{}={}", k, v)
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("&")
-        })
-        .filter(|s| !s.is_empty())
+                // Rebuild query string
+                params
+                    .iter()
+                    .map(|(k, v)| {
+                        if v.is_empty() {
+                            k.to_string()
+                        } else {
+                            format!("{}={}", k, v)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("&")
+            })
+            .filter(|s| !s.is_empty())
     }
 
-    pub fn filter_false_positives(&self, vulnerabilities: Vec<Vulnerability>) -> Vec<Vulnerability> {
+    pub fn filter_false_positives(
+        &self,
+        vulnerabilities: Vec<Vulnerability>,
+    ) -> Vec<Vulnerability> {
         vulnerabilities
             .into_iter()
             .filter(|v| !v.false_positive)
@@ -211,7 +224,10 @@ impl VulnerabilityDeduplicator {
         }
     }
 
-    pub fn group_by_type(&self, vulnerabilities: &[Vulnerability]) -> HashMap<String, Vec<Vulnerability>> {
+    pub fn group_by_type(
+        &self,
+        vulnerabilities: &[Vulnerability],
+    ) -> HashMap<String, Vec<Vulnerability>> {
         let mut groups: HashMap<String, Vec<Vulnerability>> = HashMap::new();
 
         for vuln in vulnerabilities {
@@ -224,7 +240,10 @@ impl VulnerabilityDeduplicator {
         groups
     }
 
-    pub fn group_by_severity(&self, vulnerabilities: &[Vulnerability]) -> HashMap<String, Vec<Vulnerability>> {
+    pub fn group_by_severity(
+        &self,
+        vulnerabilities: &[Vulnerability],
+    ) -> HashMap<String, Vec<Vulnerability>> {
         let mut groups: HashMap<String, Vec<Vulnerability>> = HashMap::new();
 
         for vuln in vulnerabilities {
@@ -317,8 +336,10 @@ mod tests {
         assert_eq!(url3, url4, "Query params should be sorted alphabetically");
 
         // Test UUID normalization
-        let url5 = deduplicator.normalize_url("https://example.com/item/550e8400-e29b-41d4-a716-446655440000");
-        let url6 = deduplicator.normalize_url("https://example.com/item/f47ac10b-58cc-4372-a567-0e02b2c3d479");
+        let url5 = deduplicator
+            .normalize_url("https://example.com/item/550e8400-e29b-41d4-a716-446655440000");
+        let url6 = deduplicator
+            .normalize_url("https://example.com/item/f47ac10b-58cc-4372-a567-0e02b2c3d479");
         assert_eq!(url5, url6, "UUIDs should normalize to same pattern");
 
         // Test MongoDB ObjectId normalization
@@ -339,6 +360,10 @@ mod tests {
         ];
 
         let deduplicated = deduplicator.deduplicate(vulns);
-        assert_eq!(deduplicated.len(), 1, "Same vuln on different IDs should deduplicate to 1");
+        assert_eq!(
+            deduplicated.len(),
+            1,
+            "Same vuln on different IDs should deduplicate to 1"
+        );
     }
 }

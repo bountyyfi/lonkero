@@ -14,7 +14,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::types::{Confidence, Severity, Vulnerability};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
@@ -46,7 +45,7 @@ pub struct CorrelationResult {
 pub struct DiscoveredChain {
     pub chain_type: String,
     pub description: String,
-    pub involved_vulns: Vec<usize>,  // Indices into vulnerabilities vec
+    pub involved_vulns: Vec<usize>, // Indices into vulnerabilities vec
     pub escalated_severity: Severity,
     pub impact: String,
 }
@@ -254,9 +253,7 @@ impl CorrelationEngine {
             let matches: Vec<&String> = pattern
                 .required_vuln_types
                 .iter()
-                .filter(|req| {
-                    vuln_types.iter().any(|vt| vt.contains(req.as_str()))
-                })
+                .filter(|req| vuln_types.iter().any(|vt| vt.contains(req.as_str())))
                 .collect();
 
             if matches.len() == pattern.required_vuln_types.len() {
@@ -266,7 +263,10 @@ impl CorrelationEngine {
                     .enumerate()
                     .filter(|(_, v)| {
                         let vt = self.normalize_vuln_type(&v.vuln_type);
-                        pattern.required_vuln_types.iter().any(|req| vt.contains(req.as_str()))
+                        pattern
+                            .required_vuln_types
+                            .iter()
+                            .any(|req| vt.contains(req.as_str()))
                     })
                     .map(|(idx, _)| idx)
                     .collect();
@@ -288,15 +288,20 @@ impl CorrelationEngine {
         // Check for endpoint-specific chains (multiple vulns on same endpoint)
         for (endpoint, indices) in clusters {
             if indices.len() >= 2 {
-                let endpoint_vulns: Vec<&Vulnerability> = indices.iter().map(|&i| &vulns[i]).collect();
+                let endpoint_vulns: Vec<&Vulnerability> =
+                    indices.iter().map(|&i| &vulns[i]).collect();
 
                 // Check for high-value combinations on same endpoint
-                let has_auth_issue = endpoint_vulns.iter().any(|v|
-                    v.vuln_type.contains("Auth") || v.vuln_type.contains("IDOR") || v.vuln_type.contains("JWT")
-                );
-                let has_injection = endpoint_vulns.iter().any(|v|
-                    v.vuln_type.contains("Injection") || v.vuln_type.contains("XSS") || v.vuln_type.contains("SQL")
-                );
+                let has_auth_issue = endpoint_vulns.iter().any(|v| {
+                    v.vuln_type.contains("Auth")
+                        || v.vuln_type.contains("IDOR")
+                        || v.vuln_type.contains("JWT")
+                });
+                let has_injection = endpoint_vulns.iter().any(|v| {
+                    v.vuln_type.contains("Injection")
+                        || v.vuln_type.contains("XSS")
+                        || v.vuln_type.contains("SQL")
+                });
 
                 if has_auth_issue && has_injection {
                     chains.push(DiscoveredChain {
@@ -307,7 +312,8 @@ impl CorrelationEngine {
                         ),
                         involved_vulns: indices.clone(),
                         escalated_severity: Severity::Critical,
-                        impact: "Combined vulnerabilities may allow complete endpoint compromise".to_string(),
+                        impact: "Combined vulnerabilities may allow complete endpoint compromise"
+                            .to_string(),
                     });
                 }
             }
@@ -413,14 +419,24 @@ mod tests {
         let engine = CorrelationEngine::new();
 
         let vulns = vec![
-            create_test_vuln("Cross-Site Scripting (XSS)", "https://example.com/page", Some("input")),
+            create_test_vuln(
+                "Cross-Site Scripting (XSS)",
+                "https://example.com/page",
+                Some("input"),
+            ),
             create_test_vuln("CSRF Missing Token", "https://example.com/action", None),
         ];
 
         let result = engine.correlate(vulns);
 
-        assert!(!result.attack_chains.is_empty(), "Should detect XSS+CSRF chain");
-        assert!(result.attack_chains.iter().any(|c| c.chain_type.contains("Account Takeover")));
+        assert!(
+            !result.attack_chains.is_empty(),
+            "Should detect XSS+CSRF chain"
+        );
+        assert!(result
+            .attack_chains
+            .iter()
+            .any(|c| c.chain_type.contains("Account Takeover")));
     }
 
     #[test]
@@ -435,7 +451,11 @@ mod tests {
 
         let result = engine.correlate(vulns);
 
-        assert_eq!(result.vulnerabilities.len(), 2, "Should deduplicate identical vulns");
+        assert_eq!(
+            result.vulnerabilities.len(),
+            2,
+            "Should deduplicate identical vulns"
+        );
     }
 
     #[test]
@@ -452,6 +472,8 @@ mod tests {
 
         // Should have 2 clusters: /api/users and /api/other
         assert_eq!(result.endpoint_clusters.len(), 2);
-        assert!(result.endpoint_clusters.contains_key("https://example.com/api/users"));
+        assert!(result
+            .endpoint_clusters
+            .contains_key("https://example.com/api/users"));
     }
 }

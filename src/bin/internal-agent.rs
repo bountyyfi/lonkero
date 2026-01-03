@@ -14,7 +14,6 @@
  *
  * (c) 2026 Bountyy Oy
  */
-
 use anyhow::Result;
 use clap::Parser;
 use lonkero_scanner::agent::{AgentConfig, InternalAgent};

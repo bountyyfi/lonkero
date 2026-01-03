@@ -13,7 +13,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::{endpoint_exists, AppCharacteristics};
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -154,7 +153,9 @@ impl AccountTakeoverScanner {
 
         // Test session not invalidated on password change
         tests_run += 1;
-        let session_vulns = self.test_session_fixation_on_password_change(url, &response).await;
+        let session_vulns = self
+            .test_session_fixation_on_password_change(url, &response)
+            .await;
         vulnerabilities.extend(session_vulns);
 
         // Test cookie security (httpOnly, Secure, SameSite)
@@ -173,7 +174,9 @@ impl AccountTakeoverScanner {
         // Test email change without password confirmation
         for email_endpoint in &auth_endpoints.email_change {
             tests_run += 1;
-            let email_vulns = self.test_email_change_without_password(email_endpoint).await;
+            let email_vulns = self
+                .test_email_change_without_password(email_endpoint)
+                .await;
             vulnerabilities.extend(email_vulns);
         }
 
@@ -210,7 +213,9 @@ impl AccountTakeoverScanner {
         // Test phone number change without verification
         for phone_endpoint in &auth_endpoints.phone_change {
             tests_run += 1;
-            let phone_vulns = self.test_phone_change_without_verification(phone_endpoint).await;
+            let phone_vulns = self
+                .test_phone_change_without_verification(phone_endpoint)
+                .await;
             vulnerabilities.extend(phone_vulns);
         }
 
@@ -266,11 +271,7 @@ impl AccountTakeoverScanner {
             Ok(u) => u,
             Err(_) => return endpoints,
         };
-        let base = format!(
-            "{}://{}",
-            parsed.scheme(),
-            parsed.host_str().unwrap_or("")
-        );
+        let base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
         // Common password reset paths
         let reset_paths = vec![
@@ -392,10 +393,7 @@ impl AccountTakeoverScanner {
     // ==================== PASSWORD RESET TESTS ====================
 
     /// Test if password reset token is exposed in URL (leakable via Referer header)
-    async fn test_password_reset_token_in_url(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_password_reset_token_in_url(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
         debug!("[ATO] Testing password reset token in URL: {}", endpoint);
@@ -476,10 +474,7 @@ impl AccountTakeoverScanner {
     }
 
     /// Test if password reset token can be reused after consumption
-    async fn test_password_reset_token_reuse(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_password_reset_token_reuse(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
         debug!("[ATO] Testing password reset token reuse: {}", endpoint);
@@ -523,10 +518,7 @@ impl AccountTakeoverScanner {
     }
 
     /// Test for predictable reset token generation
-    async fn test_predictable_reset_token(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_predictable_reset_token(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
         debug!("[ATO] Testing predictable reset token: {}", endpoint);
@@ -543,10 +535,10 @@ impl AccountTakeoverScanner {
 
         // Look for exposed token patterns in the page
         let weak_token_patterns = vec![
-            r#"token=(\d{4,8})"#,                    // Numeric only tokens
-            r#"token=([0-9a-f]{8})"#,                // Short hex tokens
-            r#"reset_code=(\d{6})"#,                 // 6-digit codes
-            r#"code=(\d+)"#,                         // Numeric codes
+            r#"token=(\d{4,8})"#,     // Numeric only tokens
+            r#"token=([0-9a-f]{8})"#, // Short hex tokens
+            r#"reset_code=(\d{6})"#,  // 6-digit codes
+            r#"code=(\d+)"#,          // Numeric codes
         ];
 
         for pattern in &weak_token_patterns {
@@ -556,8 +548,8 @@ impl AccountTakeoverScanner {
                         let token_str = token.as_str();
 
                         // Check for weak patterns
-                        let is_sequential = token_str.chars().all(|c| c.is_numeric())
-                            && token_str.len() < 10;
+                        let is_sequential =
+                            token_str.chars().all(|c| c.is_numeric()) && token_str.len() < 10;
 
                         let is_short = token_str.len() < 16;
 
@@ -590,10 +582,7 @@ impl AccountTakeoverScanner {
     }
 
     /// Test for host header injection in password reset
-    async fn test_host_header_injection(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_host_header_injection(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
         debug!("[ATO] Testing host header injection: {}", endpoint);
@@ -641,7 +630,10 @@ impl AccountTakeoverScanner {
                 let x_headers = vec![
                     ("X-Forwarded-Host".to_string(), evil_host.to_string()),
                     ("X-Host".to_string(), evil_host.to_string()),
-                    ("X-Original-URL".to_string(), format!("http://{}/reset", evil_host)),
+                    (
+                        "X-Original-URL".to_string(),
+                        format!("http://{}/reset", evil_host),
+                    ),
                 ];
 
                 if let Ok(x_response) = self
@@ -687,9 +679,7 @@ impl AccountTakeoverScanner {
             .get("set-cookie")
             .map(|c| {
                 let c_lower = c.to_lowercase();
-                c_lower.contains("session")
-                    || c_lower.contains("token")
-                    || c_lower.contains("auth")
+                c_lower.contains("session") || c_lower.contains("token") || c_lower.contains("auth")
             })
             .unwrap_or(false);
 
@@ -710,19 +700,22 @@ impl AccountTakeoverScanner {
             || body_lower.contains("force logout");
 
         if has_password_change && !has_session_invalidation {
-            vulnerabilities.push(self.create_vulnerability(
-                "Session Not Invalidated on Password Change",
-                url,
-                Severity::High,
-                Confidence::Low,
-                "When users change their password, existing sessions should be invalidated. \
+            vulnerabilities.push(
+                self.create_vulnerability(
+                    "Session Not Invalidated on Password Change",
+                    url,
+                    Severity::High,
+                    Confidence::Low,
+                    "When users change their password, existing sessions should be invalidated. \
                 If sessions persist, an attacker who has stolen a session token can maintain \
                 access even after the victim changes their password. This enables persistent \
                 account takeover.",
-                "Password change functionality found without session invalidation indicators".to_string(),
-                "CWE-384",
-                7.5,
-            ));
+                    "Password change functionality found without session invalidation indicators"
+                        .to_string(),
+                    "CWE-384",
+                    7.5,
+                ),
+            );
         }
 
         vulnerabilities
@@ -867,10 +860,7 @@ impl AccountTakeoverScanner {
     // ==================== EMAIL-BASED ATO TESTS ====================
 
     /// Test if email change requires password confirmation
-    async fn test_email_change_without_password(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_email_change_without_password(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
         debug!("[ATO] Testing email change without password: {}", endpoint);
@@ -953,11 +943,7 @@ impl AccountTakeoverScanner {
             Ok(u) => u,
             Err(_) => return vulnerabilities,
         };
-        let base = format!(
-            "{}://{}",
-            parsed.scheme(),
-            parsed.host_str().unwrap_or("")
-        );
+        let base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
         let endpoints = vec![
             format!("{}/login", base),
@@ -1051,11 +1037,7 @@ impl AccountTakeoverScanner {
             Ok(u) => u,
             Err(_) => return vulnerabilities,
         };
-        let base = format!(
-            "{}://{}",
-            parsed.scheme(),
-            parsed.host_str().unwrap_or("")
-        );
+        let base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
         // Test registration/login with case variations
         let register_endpoint = format!("{}/register", base);
@@ -1118,10 +1100,7 @@ impl AccountTakeoverScanner {
     // ==================== OAUTH TESTS ====================
 
     /// Test OAuth account linking without email verification
-    async fn test_oauth_account_linking(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_oauth_account_linking(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
         debug!("[ATO] Testing OAuth account linking: {}", endpoint);
@@ -1189,10 +1168,7 @@ impl AccountTakeoverScanner {
     }
 
     /// Test OAuth state parameter validation
-    async fn test_oauth_state_validation(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_oauth_state_validation(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
         debug!("[ATO] Testing OAuth state validation: {}", endpoint);
@@ -1260,13 +1236,13 @@ impl AccountTakeoverScanner {
     // ==================== PHONE-BASED ATO TESTS ====================
 
     /// Test phone number change without verification
-    async fn test_phone_change_without_verification(
-        &self,
-        endpoint: &str,
-    ) -> Vec<Vulnerability> {
+    async fn test_phone_change_without_verification(&self, endpoint: &str) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
 
-        debug!("[ATO] Testing phone change without verification: {}", endpoint);
+        debug!(
+            "[ATO] Testing phone change without verification: {}",
+            endpoint
+        );
 
         let response = match self.http_client.get(endpoint).await {
             Ok(r) => r,
@@ -1281,8 +1257,8 @@ impl AccountTakeoverScanner {
             || body_lower.contains("verify phone")
             || body_lower.contains("confirm phone");
 
-        let has_password_required = body_lower.contains("type=\"password\"")
-            || body_lower.contains("current password");
+        let has_password_required =
+            body_lower.contains("type=\"password\"") || body_lower.contains("current password");
 
         let is_phone_change = body_lower.contains("phone")
             && (body_lower.contains("change") || body_lower.contains("update"));
@@ -1345,11 +1321,7 @@ impl AccountTakeoverScanner {
             Ok(u) => u,
             Err(_) => return vulnerabilities,
         };
-        let base = format!(
-            "{}://{}",
-            parsed.scheme(),
-            parsed.host_str().unwrap_or("")
-        );
+        let base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
         // Common SMS verification endpoints
         let sms_endpoints = vec![
@@ -1531,15 +1503,14 @@ impl AccountTakeoverScanner {
             false_positive: false,
             remediation: self.get_remediation(title),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
     /// Get remediation advice based on vulnerability type
     fn get_remediation(&self, title: &str) -> String {
         match title {
-            t if t.contains("Password Reset Token") => {
-                r#"IMMEDIATE ACTION REQUIRED:
+            t if t.contains("Password Reset Token") => r#"IMMEDIATE ACTION REQUIRED:
 
 1. **Use POST-Only Token Transmission**
    ```python
@@ -1582,11 +1553,10 @@ impl AccountTakeoverScanner {
 References:
 - OWASP Forgot Password Cheat Sheet
 - CWE-598: Use of GET Request Method With Sensitive Query Strings
-"#.to_string()
-            },
+"#
+            .to_string(),
 
-            t if t.contains("Session") || t.contains("Cookie") => {
-                r#"IMMEDIATE ACTION REQUIRED:
+            t if t.contains("Session") || t.contains("Cookie") => r#"IMMEDIATE ACTION REQUIRED:
 
 1. **Set All Cookie Security Flags**
    ```javascript
@@ -1635,11 +1605,10 @@ References:
 References:
 - OWASP Session Management Cheat Sheet
 - CWE-384: Session Fixation
-"#.to_string()
-            },
+"#
+            .to_string(),
 
-            t if t.contains("Email") => {
-                r#"IMMEDIATE ACTION REQUIRED:
+            t if t.contains("Email") => r#"IMMEDIATE ACTION REQUIRED:
 
 1. **Require Password for Email Changes**
    ```python
@@ -1696,11 +1665,10 @@ References:
 References:
 - OWASP Authentication Cheat Sheet
 - CWE-620: Unverified Password Change
-"#.to_string()
-            },
+"#
+            .to_string(),
 
-            t if t.contains("OAuth") => {
-                r#"IMMEDIATE ACTION REQUIRED:
+            t if t.contains("OAuth") => r#"IMMEDIATE ACTION REQUIRED:
 
 1. **Implement State Parameter**
    ```javascript
@@ -1769,11 +1737,10 @@ References:
 References:
 - OAuth 2.0 Security Best Current Practice
 - CWE-287: Improper Authentication
-"#.to_string()
-            },
+"#
+            .to_string(),
 
-            t if t.contains("Phone") || t.contains("SMS") => {
-                r#"IMMEDIATE ACTION REQUIRED:
+            t if t.contains("Phone") || t.contains("SMS") => r#"IMMEDIATE ACTION REQUIRED:
 
 1. **Require Password for Phone Changes**
    ```python
@@ -1838,11 +1805,10 @@ References:
 References:
 - NIST SP 800-63B (SMS discouraged for authentication)
 - CWE-307: Improper Restriction of Excessive Authentication Attempts
-"#.to_string()
-            },
+"#
+            .to_string(),
 
-            t if t.contains("Host Header") => {
-                r#"IMMEDIATE ACTION REQUIRED:
+            t if t.contains("Host Header") => r#"IMMEDIATE ACTION REQUIRED:
 
 1. **Whitelist Allowed Hosts**
    ```python
@@ -1899,11 +1865,10 @@ References:
 References:
 - OWASP HTTP Host Header Attacks
 - CWE-74: Improper Neutralization of Special Elements
-"#.to_string()
-            },
+"#
+            .to_string(),
 
-            _ => {
-                r#"IMMEDIATE ACTION REQUIRED:
+            _ => r#"IMMEDIATE ACTION REQUIRED:
 
 1. **Implement Defense in Depth**
    - Require strong authentication for sensitive operations
@@ -1927,8 +1892,8 @@ References:
 - OWASP Top 10
 - CWE/SANS Top 25
 - NIST Cybersecurity Framework
-"#.to_string()
-            }
+"#
+            .to_string(),
         }
     }
 }
@@ -2013,7 +1978,10 @@ mod tests {
         };
 
         let vulns = scanner.test_cookie_security(&response, "https://example.com");
-        assert!(vulns.is_empty(), "Secure cookie should not trigger vulnerabilities");
+        assert!(
+            vulns.is_empty(),
+            "Secure cookie should not trigger vulnerabilities"
+        );
     }
 
     #[test]

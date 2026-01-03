@@ -9,7 +9,7 @@ use std::time::Duration;
 use tracing::debug;
 
 use crate::analysis::{
-    IntelligenceBus, PatternType, ResponseAnalyzer, SecurityIndicator, ErrorType,
+    ErrorType, IntelligenceBus, PatternType, ResponseAnalyzer, SecurityIndicator,
 };
 use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::rate_limiter::AdaptiveRateLimiter;
@@ -233,9 +233,7 @@ impl HttpClient {
 
         debug!(
             "Response analysis: type={:?}, auth={:?}, confidence={:.2}",
-            semantics.response_type,
-            semantics.auth_state,
-            semantics.confidence
+            semantics.response_type, semantics.auth_state, semantics.confidence
         );
 
         // Get the bus for broadcasting (if available)
@@ -455,7 +453,10 @@ impl HttpClient {
 
                     // Store in cache if enabled
                     if let Some(cache) = &self.cache {
-                        cache.as_ref().insert(url.to_string(), http_response.clone()).await;
+                        cache
+                            .as_ref()
+                            .insert(url.to_string(), http_response.clone())
+                            .await;
                     }
 
                     return Ok(http_response);
@@ -521,10 +522,7 @@ impl HttpClient {
                         headers: headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -590,10 +588,7 @@ impl HttpClient {
                         headers: headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -651,10 +646,7 @@ impl HttpClient {
                         headers: headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -678,7 +670,12 @@ impl HttpClient {
     }
 
     /// Send POST request with custom headers
-    pub async fn post_with_headers(&self, url: &str, body: &str, headers: Vec<(String, String)>) -> Result<HttpResponse> {
+    pub async fn post_with_headers(
+        &self,
+        url: &str,
+        body: &str,
+        headers: Vec<(String, String)>,
+    ) -> Result<HttpResponse> {
         // Wait for rate limiter slot if enabled
         if let Some(limiter) = &self.rate_limiter {
             limiter.wait_for_slot(url).await?;
@@ -720,10 +717,7 @@ impl HttpClient {
                         headers: response_headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -791,10 +785,7 @@ impl HttpClient {
                         headers: headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -861,10 +852,7 @@ impl HttpClient {
                         headers: headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -889,7 +877,11 @@ impl HttpClient {
     }
 
     /// Send GET request with custom headers
-    pub async fn get_with_headers(&self, url: &str, headers: Vec<(String, String)>) -> Result<HttpResponse> {
+    pub async fn get_with_headers(
+        &self,
+        url: &str,
+        headers: Vec<(String, String)>,
+    ) -> Result<HttpResponse> {
         // Wait for rate limiter slot if enabled
         if let Some(limiter) = &self.rate_limiter {
             limiter.wait_for_slot(url).await?;
@@ -931,10 +923,7 @@ impl HttpClient {
                         headers: response_headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -969,8 +958,8 @@ impl HttpClient {
         let mut last_error = None;
 
         while attempts <= self.max_retries {
-            let http_method = reqwest::Method::from_bytes(method.as_bytes())
-                .unwrap_or(reqwest::Method::GET);
+            let http_method =
+                reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
 
             match self.client.request(http_method, url).send().await {
                 Ok(response) => {
@@ -996,10 +985,7 @@ impl HttpClient {
                         headers: response_headers
                             .iter()
                             .map(|(k, v)| {
-                                (
-                                    k.as_str().to_string(),
-                                    v.to_str().unwrap_or("").to_string(),
-                                )
+                                (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())
                             })
                             .collect(),
                         duration_ms: 0,
@@ -1024,12 +1010,21 @@ impl HttpClient {
     }
 
     /// Send authenticated GET request using AuthSession
-    pub async fn get_authenticated(&self, url: &str, auth: &crate::auth_context::AuthSession) -> Result<HttpResponse> {
+    pub async fn get_authenticated(
+        &self,
+        url: &str,
+        auth: &crate::auth_context::AuthSession,
+    ) -> Result<HttpResponse> {
         self.get_with_headers(url, auth.auth_headers()).await
     }
 
     /// Send authenticated POST request using AuthSession
-    pub async fn post_authenticated(&self, url: &str, body: &str, auth: &crate::auth_context::AuthSession) -> Result<HttpResponse> {
+    pub async fn post_authenticated(
+        &self,
+        url: &str,
+        body: &str,
+        auth: &crate::auth_context::AuthSession,
+    ) -> Result<HttpResponse> {
         self.post_with_headers(url, body, auth.auth_headers()).await
     }
 

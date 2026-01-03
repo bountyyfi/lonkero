@@ -512,9 +512,7 @@ impl SubdomainTakeoverScanner {
                     if let Some(result) = dns_result {
                         // Check for NXDOMAIN vulnerabilities
                         if result.is_nxdomain {
-                            if let Some(vuln) =
-                                Self::check_nxdomain_vulnerability(&result).await
-                            {
+                            if let Some(vuln) = Self::check_nxdomain_vulnerability(&result).await {
                                 let mut v = vulns.lock().await;
                                 v.push(vuln);
                                 return;
@@ -524,8 +522,7 @@ impl SubdomainTakeoverScanner {
                         // Check for CNAME-based vulnerabilities
                         if !result.cname_records.is_empty() {
                             for cname in &result.cname_records {
-                                if let Some(fingerprint) = Self::match_cname_to_service(cname)
-                                {
+                                if let Some(fingerprint) = Self::match_cname_to_service(cname) {
                                     // HTTP verification
                                     tests_completed.fetch_add(1, Ordering::Relaxed);
 
@@ -593,23 +590,119 @@ impl SubdomainTakeoverScanner {
 
         // Common subdomain prefixes
         let common_prefixes = vec![
-            "www", "api", "admin", "dev", "staging", "test", "qa", "uat", "mail", "smtp", "ftp",
-            "vpn", "remote", "blog", "shop", "store", "cdn", "static", "assets", "media", "m",
-            "mobile", "app", "portal", "dashboard", "panel", "beta", "alpha", "demo", "git",
-            "gitlab", "jenkins", "ci", "jira", "confluence", "wiki", "status", "monitor", "db",
-            "mysql", "postgres", "redis", "backup", "old", "new", "legacy", "v1", "v2", "ws",
-            "graphql", "docs", "help", "support", "secure", "login", "auth", "oauth", "payment",
-            "internal", "corp", "intranet",
+            "www",
+            "api",
+            "admin",
+            "dev",
+            "staging",
+            "test",
+            "qa",
+            "uat",
+            "mail",
+            "smtp",
+            "ftp",
+            "vpn",
+            "remote",
+            "blog",
+            "shop",
+            "store",
+            "cdn",
+            "static",
+            "assets",
+            "media",
+            "m",
+            "mobile",
+            "app",
+            "portal",
+            "dashboard",
+            "panel",
+            "beta",
+            "alpha",
+            "demo",
+            "git",
+            "gitlab",
+            "jenkins",
+            "ci",
+            "jira",
+            "confluence",
+            "wiki",
+            "status",
+            "monitor",
+            "db",
+            "mysql",
+            "postgres",
+            "redis",
+            "backup",
+            "old",
+            "new",
+            "legacy",
+            "v1",
+            "v2",
+            "ws",
+            "graphql",
+            "docs",
+            "help",
+            "support",
+            "secure",
+            "login",
+            "auth",
+            "oauth",
+            "payment",
+            "internal",
+            "corp",
+            "intranet",
         ];
 
         // Extended prefixes for thorough scanning
         let extended_prefixes = vec![
-            "autodiscover", "autoconfig", "cpanel", "whm", "plesk", "webdisk", "webmail", "email",
-            "mx", "ns1", "ns2", "ftp2", "files", "download", "upload", "ssl", "tls", "test1",
-            "test2", "dev1", "dev2", "stage", "staging1", "staging2", "prod", "production", "lb",
-            "loadbalancer", "proxy", "gateway", "cdn1", "cdn2", "static1", "static2", "img",
-            "images", "video", "stream", "chat", "crm", "erp", "hr", "finance", "reports",
-            "analytics", "stats", "logging", "logs",
+            "autodiscover",
+            "autoconfig",
+            "cpanel",
+            "whm",
+            "plesk",
+            "webdisk",
+            "webmail",
+            "email",
+            "mx",
+            "ns1",
+            "ns2",
+            "ftp2",
+            "files",
+            "download",
+            "upload",
+            "ssl",
+            "tls",
+            "test1",
+            "test2",
+            "dev1",
+            "dev2",
+            "stage",
+            "staging1",
+            "staging2",
+            "prod",
+            "production",
+            "lb",
+            "loadbalancer",
+            "proxy",
+            "gateway",
+            "cdn1",
+            "cdn2",
+            "static1",
+            "static2",
+            "img",
+            "images",
+            "video",
+            "stream",
+            "chat",
+            "crm",
+            "erp",
+            "hr",
+            "finance",
+            "reports",
+            "analytics",
+            "stats",
+            "logging",
+            "logs",
         ];
 
         let prefixes: Vec<&str> = if thorough {
@@ -644,7 +737,10 @@ impl SubdomainTakeoverScanner {
         };
 
         // Query CNAME records
-        match resolver.lookup(subdomain, hickory_resolver::proto::rr::RecordType::CNAME).await {
+        match resolver
+            .lookup(subdomain, hickory_resolver::proto::rr::RecordType::CNAME)
+            .await
+        {
             Ok(response) => {
                 for record in response.iter() {
                     if let Some(cname) = record.as_cname() {
@@ -779,10 +875,7 @@ impl SubdomainTakeoverScanner {
                     }
                 }
                 Err(e) => {
-                    debug!(
-                        "[SubdomainTakeover] HTTP request failed for {}: {}",
-                        url, e
-                    );
+                    debug!("[SubdomainTakeover] HTTP request failed for {}: {}", url, e);
                     // Connection errors to known services might also indicate vulnerability
                     let error_str = e.to_string().to_lowercase();
                     if error_str.contains("connection refused")
@@ -857,7 +950,7 @@ impl SubdomainTakeoverScanner {
             false_positive: false,
             remediation,
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -880,36 +973,29 @@ mod tests {
     #[test]
     fn test_cname_matching() {
         // Test AWS S3
-        assert!(SubdomainTakeoverScanner::match_cname_to_service("mybucket.s3.amazonaws.com")
-            .is_some());
+        assert!(
+            SubdomainTakeoverScanner::match_cname_to_service("mybucket.s3.amazonaws.com").is_some()
+        );
 
         // Test GitHub Pages
-        assert!(
-            SubdomainTakeoverScanner::match_cname_to_service("myorg.github.io").is_some()
-        );
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("myorg.github.io").is_some());
 
         // Test Azure
-        assert!(SubdomainTakeoverScanner::match_cname_to_service(
-            "myapp.azurewebsites.net"
-        )
-        .is_some());
+        assert!(
+            SubdomainTakeoverScanner::match_cname_to_service("myapp.azurewebsites.net").is_some()
+        );
 
         // Test Heroku
-        assert!(
-            SubdomainTakeoverScanner::match_cname_to_service("myapp.herokuapp.com").is_some()
-        );
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("myapp.herokuapp.com").is_some());
 
         // Test unknown service
-        assert!(
-            SubdomainTakeoverScanner::match_cname_to_service("unknown.example.com").is_none()
-        );
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("unknown.example.com").is_none());
     }
 
     #[test]
     fn test_fingerprint_coverage() {
         // Ensure we have all the required services
-        let service_names: Vec<&str> =
-            SERVICE_FINGERPRINTS.iter().map(|f| f.name).collect();
+        let service_names: Vec<&str> = SERVICE_FINGERPRINTS.iter().map(|f| f.name).collect();
 
         assert!(service_names.contains(&"AWS S3"));
         assert!(service_names.contains(&"AWS CloudFront"));
@@ -934,7 +1020,10 @@ mod tests {
         for fingerprint in SERVICE_FINGERPRINTS {
             // All services should have High or Critical severity
             assert!(
-                matches!(fingerprint.severity, Severity::High | Severity::Critical | Severity::Medium),
+                matches!(
+                    fingerprint.severity,
+                    Severity::High | Severity::Critical | Severity::Medium
+                ),
                 "Service {} has unexpected severity",
                 fingerprint.name
             );

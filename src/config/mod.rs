@@ -15,7 +15,7 @@ pub use core::{
     SecretsBackend, SecurityConfig, ServerConfig, SslMode, VaultConfig,
 };
 
-pub use loader::{ConfigFormat, ConfigLoader, HotReloadManager, load_config_with_overrides};
+pub use loader::{load_config_with_overrides, ConfigFormat, ConfigLoader, HotReloadManager};
 
 pub use plugins::{
     FindingSeverity, Plugin, PluginCapability, PluginConfig, PluginDefinition, PluginFinding,
@@ -98,7 +98,12 @@ impl ConfigManager {
     }
 
     pub fn list_profiles(&self) -> Vec<ScanProfile> {
-        self.profile_registry.read().list().iter().map(|p| (*p).clone()).collect()
+        self.profile_registry
+            .read()
+            .list()
+            .iter()
+            .map(|p| (*p).clone())
+            .collect()
     }
 
     pub fn get_target_config(&self) -> TargetConfig {

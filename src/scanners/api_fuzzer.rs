@@ -15,7 +15,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, ScanMode, Severity, Vulnerability};
@@ -117,10 +116,17 @@ impl ApiFuzzerScanner {
 
         // Common API paths
         let api_paths = vec![
-            "/api", "/api/v1", "/api/v2", "/api/v3",
-            "/graphql", "/api/graphql",
-            "/rest", "/rest/v1",
-            "/v1", "/v2", "/v3",
+            "/api",
+            "/api/v1",
+            "/api/v2",
+            "/api/v3",
+            "/graphql",
+            "/api/graphql",
+            "/rest",
+            "/rest/v1",
+            "/v1",
+            "/v2",
+            "/v3",
         ];
 
         for path in api_paths {
@@ -146,7 +152,11 @@ impl ApiFuzzerScanner {
                         // 401/403 - endpoint exists but requires auth
                         let api_type = self.detect_api_type(&response.body, &response.headers);
                         if api_type != ApiType::None {
-                            info!("Detected {} API at: {} (requires authentication)", api_type.as_str(), test_url);
+                            info!(
+                                "Detected {} API at: {} (requires authentication)",
+                                api_type.as_str(),
+                                test_url
+                            );
                             endpoints.push(ApiEndpoint {
                                 url: test_url,
                                 api_type,
@@ -158,7 +168,11 @@ impl ApiFuzzerScanner {
                         // Try to detect API type anyway since endpoint clearly exists
                         let api_type = self.detect_api_type(&response.body, &response.headers);
                         if api_type != ApiType::None {
-                            info!("Detected {} API at: {} (GET not allowed)", api_type.as_str(), test_url);
+                            info!(
+                                "Detected {} API at: {} (GET not allowed)",
+                                api_type.as_str(),
+                                test_url
+                            );
                             endpoints.push(ApiEndpoint {
                                 url: test_url,
                                 api_type,
@@ -240,7 +254,16 @@ impl ApiFuzzerScanner {
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let methods = vec!["GET".to_string(), "POST".to_string(), "PUT".to_string(), "DELETE".to_string(), "PATCH".to_string(), "OPTIONS".to_string(), "HEAD".to_string(), "TRACE".to_string()];
+        let methods = vec![
+            "GET".to_string(),
+            "POST".to_string(),
+            "PUT".to_string(),
+            "DELETE".to_string(),
+            "PATCH".to_string(),
+            "OPTIONS".to_string(),
+            "HEAD".to_string(),
+            "TRACE".to_string(),
+        ];
         let tests_run = methods.len();
 
         debug!("Testing HTTP method fuzzing");
@@ -254,7 +277,10 @@ impl ApiFuzzerScanner {
                             "Unsafe HTTP Method Allowed",
                             url,
                             &format!("HTTP {} method is allowed", method),
-                            &format!("Server accepted {} request with status {}", method, response.status_code),
+                            &format!(
+                                "Server accepted {} request with status {}",
+                                method, response.status_code
+                            ),
                             Severity::Medium,
                             "CWE-650",
                             6.5,
@@ -293,7 +319,10 @@ impl ApiFuzzerScanner {
 
         let content_types = vec![
             ("application/json", r#"{"test":"value"}"#),
-            ("application/xml", r#"<?xml version="1.0"?><test>value</test>"#),
+            (
+                "application/xml",
+                r#"<?xml version="1.0"?><test>value</test>"#,
+            ),
             ("application/x-www-form-urlencoded", "test=value"),
             ("multipart/form-data", "test=value"),
             ("application/msgpack", "test"),
@@ -309,11 +338,17 @@ impl ApiFuzzerScanner {
         for (content_type, payload) in &content_types {
             let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-            match self.http_client.post_with_headers(url, payload, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, payload, headers)
+                .await
+            {
                 Ok(response) => {
                     // Check for unexpected processing
-                    if response.status_code == 200 &&
-                       (*content_type == "application/msgpack" || *content_type == "application/protobuf") {
+                    if response.status_code == 200
+                        && (*content_type == "application/msgpack"
+                            || *content_type == "application/protobuf")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "Unusual Content-Type Accepted",
                             url,
@@ -326,7 +361,8 @@ impl ApiFuzzerScanner {
                     }
 
                     // Check for content type confusion
-                    if response.body.contains("SyntaxError") || response.body.contains("ParseError") {
+                    if response.body.contains("SyntaxError") || response.body.contains("ParseError")
+                    {
                         if response.body.contains("stack") || response.body.contains("trace") {
                             vulnerabilities.push(self.create_vulnerability(
                                 "Content-Type Confusion with Verbose Errors",
@@ -363,7 +399,10 @@ impl ApiFuzzerScanner {
         // Type confusion payloads
         let type_confusion = vec![
             (json!({"id": "string_instead_of_int"}), "String for integer"),
-            (json!({"id": ["array", "instead", "of", "scalar"]}), "Array for scalar"),
+            (
+                json!({"id": ["array", "instead", "of", "scalar"]}),
+                "Array for scalar",
+            ),
             (json!({"id": {"nested": "object"}}), "Object for scalar"),
             (json!({"id": null}), "Null value"),
             (json!({"id": true}), "Boolean for integer"),
@@ -373,7 +412,11 @@ impl ApiFuzzerScanner {
             tests_run += 1;
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, &payload.to_string(), headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &payload.to_string(), headers)
+                .await
+            {
                 Ok(response) => {
                     if response.status_code == 200 {
                         vulnerabilities.push(self.create_vulnerability(
@@ -394,7 +437,10 @@ impl ApiFuzzerScanner {
                             "Information Leakage in Error Messages",
                             url,
                             &format!("{}: {}", description, payload),
-                            &format!("Verbose error: {}", self.extract_evidence(&response.body, 200)),
+                            &format!(
+                                "Verbose error: {}",
+                                self.extract_evidence(&response.body, 200)
+                            ),
                             Severity::Low,
                             "CWE-209",
                             3.7,
@@ -423,9 +469,15 @@ impl ApiFuzzerScanner {
             tests_run += 1;
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, &payload.to_string(), headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &payload.to_string(), headers)
+                .await
+            {
                 Ok(response) => {
-                    if response.status_code == 200 && (description.contains("Negative") || description.contains("Large")) {
+                    if response.status_code == 200
+                        && (description.contains("Negative") || description.contains("Large"))
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "Insufficient Input Validation",
                             url,
@@ -446,7 +498,7 @@ impl ApiFuzzerScanner {
         // Integer overflow testing
         if config.scan_mode == ScanMode::Thorough || config.scan_mode == ScanMode::Insane {
             let overflow_payloads = vec![
-                json!({"id": "9223372036854775807"}), // Max int64
+                json!({"id": "9223372036854775807"}),  // Max int64
                 json!({"id": "18446744073709551615"}), // Max uint64
                 json!({"price": "999999999999999.99"}),
             ];
@@ -455,8 +507,13 @@ impl ApiFuzzerScanner {
                 tests_run += 1;
                 let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                if let Ok(response) = self.http_client.post_with_headers(url, &payload.to_string(), headers).await {
-                    if response.body.contains("overflow") || response.body.contains("out of range") {
+                if let Ok(response) = self
+                    .http_client
+                    .post_with_headers(url, &payload.to_string(), headers)
+                    .await
+                {
+                    if response.body.contains("overflow") || response.body.contains("out of range")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "Integer Overflow Potential",
                             url,
@@ -514,12 +571,24 @@ impl ApiFuzzerScanner {
         for payload in &mass_assignment_payloads {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, &payload.to_string(), headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &payload.to_string(), headers)
+                .await
+            {
                 Ok(response) => {
                     // Check if sensitive fields were accepted
                     let response_json: Result<Value, _> = serde_json::from_str(&response.body);
                     if let Ok(json) = response_json {
-                        let sensitive_fields = vec!["role", "is_admin", "admin", "superuser", "balance", "credits", "permissions"];
+                        let sensitive_fields = vec![
+                            "role",
+                            "is_admin",
+                            "admin",
+                            "superuser",
+                            "balance",
+                            "credits",
+                            "permissions",
+                        ];
 
                         for field in sensitive_fields {
                             if json.get(field).is_some() {
@@ -527,7 +596,10 @@ impl ApiFuzzerScanner {
                                     "Mass Assignment Vulnerability",
                                     url,
                                     &payload.to_string(),
-                                    &format!("API allows modification of sensitive field: {}", field),
+                                    &format!(
+                                        "API allows modification of sensitive field: {}",
+                                        field
+                                    ),
                                     Severity::High,
                                     "CWE-915",
                                     7.5,
@@ -638,10 +710,7 @@ impl ApiFuzzerScanner {
     }
 
     /// Test API rate limiting
-    async fn test_rate_limits(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_rate_limits(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let max_requests = 100;
         let tests_run = max_requests;
@@ -693,10 +762,7 @@ impl ApiFuzzerScanner {
     }
 
     /// Test API versioning issues
-    async fn test_api_versioning(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_api_versioning(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
@@ -822,16 +888,24 @@ impl ApiFuzzerScanner {
 
         let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(url, &introspection_query.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &introspection_query.to_string(), headers)
+            .await
+        {
             Ok(response) => {
-                if response.status_code == 200 &&
-                   (response.body.contains("__schema") || response.body.contains("queryType")) {
+                if response.status_code == 200
+                    && (response.body.contains("__schema") || response.body.contains("queryType"))
+                {
                     let schema_size = response.body.len();
                     vulnerabilities.push(self.create_vulnerability(
                         "GraphQL Introspection Enabled",
                         url,
                         "Full introspection query",
-                        &format!("GraphQL introspection is enabled, exposing {} bytes of schema", schema_size),
+                        &format!(
+                            "GraphQL introspection is enabled, exposing {} bytes of schema",
+                            schema_size
+                        ),
                         Severity::Medium,
                         "CWE-200",
                         5.3,
@@ -866,7 +940,11 @@ impl ApiFuzzerScanner {
 
         let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(url, &serde_json::to_string(&queries)?, headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &serde_json::to_string(&queries)?, headers)
+            .await
+        {
             Ok(response) => {
                 if response.status_code == 200 {
                     vulnerabilities.push(self.create_vulnerability(
@@ -929,9 +1007,16 @@ impl ApiFuzzerScanner {
 
         let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(url, &deep_query.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &deep_query.to_string(), headers)
+            .await
+        {
             Ok(response) => {
-                if response.status_code == 200 && !response.body.contains("depth") && !response.body.contains("too deep") {
+                if response.status_code == 200
+                    && !response.body.contains("depth")
+                    && !response.body.contains("too deep")
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "GraphQL Depth Limit Missing",
                         url,
@@ -980,7 +1065,11 @@ impl ApiFuzzerScanner {
         let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         let start = std::time::Instant::now();
-        match self.http_client.post_with_headers(url, &expensive_query.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &expensive_query.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let duration = start.elapsed();
 
@@ -989,7 +1078,10 @@ impl ApiFuzzerScanner {
                         "GraphQL Query Cost Not Analyzed",
                         url,
                         "Expensive nested list query",
-                        &format!("Server processed expensive query in {} seconds without cost limits", duration.as_secs()),
+                        &format!(
+                            "Server processed expensive query in {} seconds without cost limits",
+                            duration.as_secs()
+                        ),
                         Severity::Medium,
                         "CWE-770",
                         5.3,
@@ -1034,7 +1126,11 @@ impl ApiFuzzerScanner {
 
         let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(url, &circular_query.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &circular_query.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 if response.status_code == 200 && !response.body.contains("circular") {
                     vulnerabilities.push(self.create_vulnerability(
@@ -1072,11 +1168,16 @@ impl ApiFuzzerScanner {
 
         let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(url, &typo_query.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &typo_query.to_string(), headers)
+            .await
+        {
             Ok(response) => {
-                if response.body.contains("Did you mean") ||
-                   response.body.contains("suggestion") ||
-                   (response.body.contains("user") && response.body.contains("name")) {
+                if response.body.contains("Did you mean")
+                    || response.body.contains("suggestion")
+                    || (response.body.contains("user") && response.body.contains("name"))
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "GraphQL Field Suggestions Leak Schema",
                         url,
@@ -1128,10 +1229,7 @@ impl ApiFuzzerScanner {
     }
 
     /// Test gRPC protocol buffer fuzzing
-    async fn test_grpc_protobuf(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_grpc_protobuf(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -1152,7 +1250,11 @@ impl ApiFuzzerScanner {
         for payload in &malformed_payloads {
             let payload_str = String::from_utf8_lossy(payload);
 
-            match self.http_client.post_with_headers(url, &payload_str, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(url, &payload_str, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     if self.detect_error_leakage(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -1177,10 +1279,7 @@ impl ApiFuzzerScanner {
     }
 
     /// Test gRPC metadata manipulation
-    async fn test_grpc_metadata(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_grpc_metadata(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
@@ -1224,10 +1323,7 @@ impl ApiFuzzerScanner {
     }
 
     /// Test gRPC stream handling
-    async fn test_grpc_streams(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_grpc_streams(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -1241,7 +1337,11 @@ impl ApiFuzzerScanner {
         // Test with large payload to check stream handling
         let large_payload = "A".repeat(1024 * 1024); // 1MB
 
-        match self.http_client.post_with_headers(url, &large_payload, headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &large_payload, headers)
+            .await
+        {
             Ok(response) => {
                 if response.status_code == 200 {
                     vulnerabilities.push(self.create_vulnerability(
@@ -1315,10 +1415,12 @@ impl ApiFuzzerScanner {
         let none_jwt = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6OTk5OTk5OTk5OX0.";
 
         // JWT with alg:None (capital N)
-        let none_capital_jwt = "eyJhbGciOiJOb25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.";
+        let none_capital_jwt =
+            "eyJhbGciOiJOb25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.";
 
         // JWT with alg:NONE (all caps)
-        let none_upper_jwt = "eyJhbGciOiJOT05FIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.";
+        let none_upper_jwt =
+            "eyJhbGciOiJOT05FIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.";
 
         let jwt_tests = vec![
             (none_jwt, "alg:none"),
@@ -1353,7 +1455,10 @@ impl ApiFuzzerScanner {
         // Test JWT with modified payload but same signature
         let tampered_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
 
-        let headers = vec![("Authorization".to_string(), format!("Bearer {}", tampered_jwt))];
+        let headers = vec![(
+            "Authorization".to_string(),
+            format!("Bearer {}", tampered_jwt),
+        )];
 
         if let Ok(response) = self.http_client.get_with_headers(url, headers).await {
             if response.status_code < 400 {
@@ -1373,17 +1478,18 @@ impl ApiFuzzerScanner {
     }
 
     /// Test OAuth flow attacks
-    async fn test_oauth_attacks(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_oauth_attacks(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
         debug!("Testing OAuth flow attacks");
 
         // Look for OAuth endpoints
-        let oauth_paths = vec!["/oauth/token".to_string(), "/oauth/authorize".to_string(), "/api/oauth/token".to_string()];
+        let oauth_paths = vec![
+            "/oauth/token".to_string(),
+            "/oauth/authorize".to_string(),
+            "/api/oauth/token".to_string(),
+        ];
 
         for path in &oauth_paths {
             let test_url = self.build_url(url, &path);
@@ -1398,7 +1504,11 @@ impl ApiFuzzerScanner {
 
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(&test_url, &fake_auth.to_string(), headers).await {
+            match self
+                .http_client
+                .post_with_headers(&test_url, &fake_auth.to_string(), headers)
+                .await
+            {
                 Ok(response) => {
                     // Check for verbose error messages
                     if self.detect_error_leakage(&response.body) {
@@ -1482,10 +1592,7 @@ impl ApiFuzzerScanner {
     }
 
     /// Test token replay attacks
-    async fn test_token_replay(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_token_replay(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -1493,10 +1600,16 @@ impl ApiFuzzerScanner {
 
         // Create a test token
         let test_token = format!("test_token_{}", self.test_marker);
-        let headers = vec![("Authorization".to_string(), format!("Bearer {}", test_token))];
+        let headers = vec![(
+            "Authorization".to_string(),
+            format!("Bearer {}", test_token),
+        )];
 
         // First request
-        let first_response = self.http_client.get_with_headers(url, headers.clone()).await;
+        let first_response = self
+            .http_client
+            .get_with_headers(url, headers.clone())
+            .await;
 
         // Small delay
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1511,7 +1624,9 @@ impl ApiFuzzerScanner {
                 && resp1.status_code == resp2.status_code
                 && resp1.body == resp2.body
                 && !resp1.body.to_lowercase().contains("not found")  // Additional check
-                && !resp1.body.to_lowercase().contains("cannot get") {  // NestJS 404 message
+                && !resp1.body.to_lowercase().contains("cannot get")
+            {
+                // NestJS 404 message
                 vulnerabilities.push(self.create_vulnerability(
                     "Token Replay Attack Possible",
                     url,
@@ -1565,7 +1680,11 @@ impl ApiFuzzerScanner {
     ) -> anyhow::Result<crate::http_client::HttpResponse> {
         match method {
             "GET" => self.http_client.get_with_headers(url, headers).await,
-            "POST" => self.http_client.post_with_headers(url, body.unwrap_or(""), headers).await,
+            "POST" => {
+                self.http_client
+                    .post_with_headers(url, body.unwrap_or(""), headers)
+                    .await
+            }
             "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD" | "TRACE" => {
                 // For now, treat these as GET requests
                 // A full implementation would use reqwest directly
@@ -1592,7 +1711,9 @@ impl ApiFuzzerScanner {
             "line ",
         ];
 
-        error_indicators.iter().any(|indicator| body.contains(indicator))
+        error_indicators
+            .iter()
+            .any(|indicator| body.contains(indicator))
     }
 
     /// Check if response contains user data
@@ -1608,7 +1729,9 @@ impl ApiFuzzerScanner {
             "address",
         ];
 
-        user_indicators.iter().any(|indicator| body.contains(indicator))
+        user_indicators
+            .iter()
+            .any(|indicator| body.contains(indicator))
     }
 
     /// Extract base URL from full URL
@@ -1670,88 +1793,81 @@ impl ApiFuzzerScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
     /// Get remediation advice
     fn get_remediation(&self, vuln_type: &str) -> String {
         match vuln_type {
-            "Unsafe HTTP Method Allowed" => {
-                "1. Disable unnecessary HTTP methods (TRACE, DELETE)\n\
+            "Unsafe HTTP Method Allowed" => "1. Disable unnecessary HTTP methods (TRACE, DELETE)\n\
                  2. Implement proper method-based access control\n\
                  3. Configure web server to reject unsafe methods\n\
-                 4. Use method whitelisting instead of blacklisting".to_string()
-            }
-            "Type Confusion Vulnerability" => {
-                "1. Implement strict input type validation\n\
+                 4. Use method whitelisting instead of blacklisting"
+                .to_string(),
+            "Type Confusion Vulnerability" => "1. Implement strict input type validation\n\
                  2. Use schema validation (JSON Schema, OpenAPI)\n\
                  3. Reject unexpected data types\n\
-                 4. Sanitize and validate all inputs".to_string()
-            }
-            "Mass Assignment Vulnerability" => {
-                "1. Use allowlists for updatable fields\n\
+                 4. Sanitize and validate all inputs"
+                .to_string(),
+            "Mass Assignment Vulnerability" => "1. Use allowlists for updatable fields\n\
                  2. Never bind request data directly to models\n\
                  3. Implement role-based field access control\n\
                  4. Use Data Transfer Objects (DTOs)\n\
-                 5. Validate all field modifications".to_string()
-            }
+                 5. Validate all field modifications"
+                .to_string(),
             "IDOR - Insecure Direct Object Reference" => {
                 "1. Implement proper authorization checks\n\
                  2. Use indirect object references (UUIDs)\n\
                  3. Verify user owns requested resource\n\
                  4. Implement access control lists (ACLs)\n\
-                 5. Never expose sequential IDs".to_string()
+                 5. Never expose sequential IDs"
+                    .to_string()
             }
-            "Broken Object Level Authorization" => {
-                "1. Implement authentication on all endpoints\n\
+            "Broken Object Level Authorization" => "1. Implement authentication on all endpoints\n\
                  2. Verify user authorization for each resource\n\
                  3. Use middleware for consistent auth checks\n\
                  4. Implement least privilege principle\n\
-                 5. Log all access attempts".to_string()
-            }
-            "Missing Rate Limiting" => {
-                "1. Implement rate limiting per endpoint\n\
+                 5. Log all access attempts"
+                .to_string(),
+            "Missing Rate Limiting" => "1. Implement rate limiting per endpoint\n\
                  2. Use token bucket or sliding window algorithms\n\
                  3. Return 429 status when limit exceeded\n\
                  4. Implement different limits for authenticated users\n\
-                 5. Monitor for rate limit abuse".to_string()
-            }
-            "GraphQL Introspection Enabled" => {
-                "1. Disable introspection in production\n\
+                 5. Monitor for rate limit abuse"
+                .to_string(),
+            "GraphQL Introspection Enabled" => "1. Disable introspection in production\n\
                  2. Use environment-based configuration\n\
                  3. Implement authentication for introspection\n\
                  4. Use GraphQL security tools\n\
-                 5. Monitor introspection queries".to_string()
-            }
-            "GraphQL Batch Query Attack Possible" => {
-                "1. Limit number of queries per request\n\
+                 5. Monitor introspection queries"
+                .to_string(),
+            "GraphQL Batch Query Attack Possible" => "1. Limit number of queries per request\n\
                  2. Implement query complexity analysis\n\
                  3. Set timeout limits for queries\n\
                  4. Use query cost analysis\n\
-                 5. Monitor for abuse patterns".to_string()
-            }
-            "JWT None Algorithm Vulnerability" => {
-                "1. Never accept 'none' algorithm\n\
+                 5. Monitor for abuse patterns"
+                .to_string(),
+            "JWT None Algorithm Vulnerability" => "1. Never accept 'none' algorithm\n\
                  2. Use strong algorithms (RS256, ES256)\n\
                  3. Validate algorithm in token header\n\
                  4. Implement proper JWT library\n\
                  5. Set token expiration\n\
-                 6. Rotate signing keys regularly".to_string()
-            }
-            "OAuth Redirect URI Not Validated" => {
-                "1. Implement strict redirect_uri validation\n\
+                 6. Rotate signing keys regularly"
+                .to_string(),
+            "OAuth Redirect URI Not Validated" => "1. Implement strict redirect_uri validation\n\
                  2. Use exact match, not partial match\n\
                  3. Maintain allowlist of valid URIs\n\
                  4. Never use wildcards in validation\n\
-                 5. Log all redirect attempts".to_string()
-            }
+                 5. Log all redirect attempts"
+                .to_string(),
             _ => "Follow OWASP API Security Top 10 guidelines:\n\
                   1. Implement proper authentication and authorization\n\
                   2. Validate all inputs\n\
                   3. Use rate limiting\n\
                   4. Implement logging and monitoring\n\
-                  5. Keep security libraries updated".to_string(),
+                  5. Keep security libraries updated"
+                .to_string(),
         }
     }
 }

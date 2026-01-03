@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -61,10 +60,7 @@ impl MetricsCollector {
         );
 
         if status_code >= 400 {
-            debug!(
-                status_code = status_code,
-                "HTTP error response"
-            );
+            debug!(status_code = status_code, "HTTP error response");
         }
     }
 
@@ -106,10 +102,7 @@ impl MetricsCollector {
 
         self.circuit_breaker_opened.fetch_add(1, Ordering::Relaxed);
 
-        info!(
-            host = host,
-            "Circuit breaker opened"
-        );
+        info!(host = host, "Circuit breaker opened");
     }
 
     /// Record rate limit hit
@@ -120,11 +113,7 @@ impl MetricsCollector {
 
         self.rate_limits.fetch_add(1, Ordering::Relaxed);
 
-        debug!(
-            host = host,
-            status_code = status_code,
-            "Rate limit hit"
-        );
+        debug!(host = host, status_code = status_code, "Rate limit hit");
     }
 
     /// Record network error
@@ -189,10 +178,7 @@ impl MetricsCollector {
             return;
         }
 
-        debug!(
-            active_connections = count,
-            "Active connections updated"
-        );
+        debug!(active_connections = count, "Active connections updated");
     }
 
     /// Update memory usage
@@ -201,10 +187,7 @@ impl MetricsCollector {
             return;
         }
 
-        debug!(
-            memory_bytes = bytes,
-            "Memory usage updated"
-        );
+        debug!(memory_bytes = bytes, "Memory usage updated");
     }
 
     /// Update CPU usage
@@ -213,10 +196,7 @@ impl MetricsCollector {
             return;
         }
 
-        debug!(
-            cpu_percent = percent,
-            "CPU usage updated"
-        );
+        debug!(cpu_percent = percent, "CPU usage updated");
     }
 
     /// Get a custom counter value by name
@@ -304,7 +284,8 @@ impl Timer {
     /// Stop the timer and record as database query
     pub fn stop_database_query(self) {
         let duration = self.start.elapsed();
-        self.metrics.record_database_query(&self.operation, duration);
+        self.metrics
+            .record_database_query(&self.operation, duration);
     }
 }
 
@@ -328,8 +309,12 @@ impl ErrorTracker {
             ScannerError::Network(e) => {
                 let error_type = match e {
                     crate::errors::NetworkError::ConnectionTimeout { .. } => "connection_timeout",
-                    crate::errors::NetworkError::DnsResolutionFailed { .. } => "dns_resolution_failed",
-                    crate::errors::NetworkError::TlsHandshakeFailed { .. } => "tls_handshake_failed",
+                    crate::errors::NetworkError::DnsResolutionFailed { .. } => {
+                        "dns_resolution_failed"
+                    }
+                    crate::errors::NetworkError::TlsHandshakeFailed { .. } => {
+                        "tls_handshake_failed"
+                    }
                     crate::errors::NetworkError::ConnectionReset { .. } => "connection_reset",
                     crate::errors::NetworkError::ConnectionRefused { .. } => "connection_refused",
                     crate::errors::NetworkError::ProxyError { .. } => "proxy_error",
@@ -348,8 +333,12 @@ impl ErrorTracker {
                     crate::errors::DatabaseError::ConnectionFailed { .. } => "connection_failed",
                     crate::errors::DatabaseError::PoolExhausted { .. } => "pool_exhausted",
                     crate::errors::DatabaseError::TransactionFailed { .. } => "transaction_failed",
-                    crate::errors::DatabaseError::TransactionRollback { .. } => "transaction_rollback",
-                    crate::errors::DatabaseError::ConstraintViolation { .. } => "constraint_violation",
+                    crate::errors::DatabaseError::TransactionRollback { .. } => {
+                        "transaction_rollback"
+                    }
+                    crate::errors::DatabaseError::ConstraintViolation { .. } => {
+                        "constraint_violation"
+                    }
                     crate::errors::DatabaseError::Deadlock { .. } => "deadlock",
                     crate::errors::DatabaseError::QueryTimeout { .. } => "query_timeout",
                     crate::errors::DatabaseError::Other(_) => "other",

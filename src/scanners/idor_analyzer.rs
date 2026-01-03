@@ -24,25 +24,39 @@ use tracing::info;
 
 /// Common patterns that indicate object IDs in URLs and responses
 const ID_PATTERNS: &[&str] = &[
-    r"/(\d+)(?:/|$|\?)",                    // /123, /123/, /123?
-    r"/([a-f0-9]{24})(?:/|$|\?)",           // MongoDB ObjectId
+    r"/(\d+)(?:/|$|\?)",          // /123, /123/, /123?
+    r"/([a-f0-9]{24})(?:/|$|\?)", // MongoDB ObjectId
     r"/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:/|$|\?)", // UUID
-    r"[?&]id=(\d+)",                         // ?id=123
-    r"[?&]user_id=(\d+)",                    // ?user_id=123
-    r"[?&]userId=(\d+)",                     // ?userId=123
-    r"[?&]account[_-]?id=(\d+)",             // ?account_id=123
-    r"[?&]order[_-]?id=(\d+)",               // ?order_id=123
-    r"[?&]doc[_-]?id=(\d+)",                 // ?doc_id=123
-    r"[?&]file[_-]?id=(\d+)",                // ?file_id=123
+    r"[?&]id=(\d+)",              // ?id=123
+    r"[?&]user_id=(\d+)",         // ?user_id=123
+    r"[?&]userId=(\d+)",          // ?userId=123
+    r"[?&]account[_-]?id=(\d+)",  // ?account_id=123
+    r"[?&]order[_-]?id=(\d+)",    // ?order_id=123
+    r"[?&]doc[_-]?id=(\d+)",      // ?doc_id=123
+    r"[?&]file[_-]?id=(\d+)",     // ?file_id=123
 ];
 
 /// API endpoints commonly vulnerable to IDOR
 const SENSITIVE_ENDPOINTS: &[&str] = &[
-    "/api/users/", "/api/user/", "/api/profile/", "/api/account/",
-    "/api/orders/", "/api/order/", "/api/documents/", "/api/files/",
-    "/api/messages/", "/api/notifications/", "/api/settings/",
-    "/api/invoices/", "/api/payments/", "/api/subscriptions/",
-    "/users/", "/user/", "/profile/", "/account/", "/admin/",
+    "/api/users/",
+    "/api/user/",
+    "/api/profile/",
+    "/api/account/",
+    "/api/orders/",
+    "/api/order/",
+    "/api/documents/",
+    "/api/files/",
+    "/api/messages/",
+    "/api/notifications/",
+    "/api/settings/",
+    "/api/invoices/",
+    "/api/payments/",
+    "/api/subscriptions/",
+    "/users/",
+    "/user/",
+    "/profile/",
+    "/account/",
+    "/admin/",
 ];
 
 /// Extracted object reference from URL or response
@@ -113,24 +127,34 @@ impl IdorAnalyzer {
         let user_a_objects = self.collect_user_objects(url, user_a).await?;
         tests_run += 1;
 
-        info!("[IDOR] Found {} object references for User A", user_a_objects.len());
+        info!(
+            "[IDOR] Found {} object references for User A",
+            user_a_objects.len()
+        );
 
         // Step 2: Crawl as User B and collect object IDs
         info!("[IDOR] Collecting User B's object references...");
         let user_b_objects = self.collect_user_objects(url, user_b).await?;
         tests_run += 1;
 
-        info!("[IDOR] Found {} object references for User B", user_b_objects.len());
+        info!(
+            "[IDOR] Found {} object references for User B",
+            user_b_objects.len()
+        );
 
         // Step 3: Test horizontal privilege escalation
         // Try to access User A's objects as User B
         info!("[IDOR] Testing horizontal privilege escalation...");
-        let horizontal_vulns = self.test_horizontal_access(&user_a_objects, user_b, url).await?;
+        let horizontal_vulns = self
+            .test_horizontal_access(&user_a_objects, user_b, url)
+            .await?;
         tests_run += user_a_objects.len();
         vulnerabilities.extend(horizontal_vulns);
 
         // Also test User B's objects as User A
-        let horizontal_vulns_rev = self.test_horizontal_access(&user_b_objects, user_a, url).await?;
+        let horizontal_vulns_rev = self
+            .test_horizontal_access(&user_b_objects, user_a, url)
+            .await?;
         tests_run += user_b_objects.len();
         vulnerabilities.extend(horizontal_vulns_rev);
 
@@ -146,7 +170,11 @@ impl IdorAnalyzer {
         tests_run += 1;
         vulnerabilities.extend(unauth_vulns);
 
-        info!("[IDOR] Analysis complete: {} tests, {} vulnerabilities", tests_run, vulnerabilities.len());
+        info!(
+            "[IDOR] Analysis complete: {} tests, {} vulnerabilities",
+            tests_run,
+            vulnerabilities.len()
+        );
         Ok((vulnerabilities, tests_run))
     }
 
@@ -176,14 +204,21 @@ impl IdorAnalyzer {
                         let test_id = (id_num + delta).to_string();
                         let test_url = obj_ref.source_url.replace(&obj_ref.id, &test_id);
 
-                        if let Ok(response) = self.http_client.get_authenticated(&test_url, session).await {
+                        if let Ok(response) =
+                            self.http_client.get_authenticated(&test_url, session).await
+                        {
                             tests_run += 1;
 
                             if self.indicates_data_access(&response.body, response.status_code) {
                                 // Check if it's different data than original
-                                let original_response = self.http_client.get_authenticated(&obj_ref.source_url, session).await?;
+                                let original_response = self
+                                    .http_client
+                                    .get_authenticated(&obj_ref.source_url, session)
+                                    .await?;
 
-                                if response.body != original_response.body && response.status_code == 200 {
+                                if response.body != original_response.body
+                                    && response.status_code == 200
+                                {
                                     vulnerabilities.push(Vulnerability {
                                         id: format!("idor-enum-{}", uuid::Uuid::new_v4()),
                                         vuln_type: "IDOR via ID Enumeration".to_string(),
@@ -220,12 +255,20 @@ impl IdorAnalyzer {
         tests_run += SENSITIVE_ENDPOINTS.len();
         vulnerabilities.extend(enum_vulns);
 
-        info!("[IDOR] Analysis complete: {} tests, {} vulnerabilities", tests_run, vulnerabilities.len());
+        info!(
+            "[IDOR] Analysis complete: {} tests, {} vulnerabilities",
+            tests_run,
+            vulnerabilities.len()
+        );
         Ok((vulnerabilities, tests_run))
     }
 
     /// Collect object references for a user
-    async fn collect_user_objects(&self, base_url: &str, session: &AuthSession) -> Result<HashSet<ObjectReference>> {
+    async fn collect_user_objects(
+        &self,
+        base_url: &str,
+        session: &AuthSession,
+    ) -> Result<HashSet<ObjectReference>> {
         let mut objects = HashSet::new();
 
         // Test common API endpoints
@@ -235,7 +278,8 @@ impl IdorAnalyzer {
             if let Ok(response) = self.http_client.get_authenticated(&test_url, session).await {
                 if response.status_code == 200 {
                     // Extract IDs from response body
-                    let body_objects = self.extract_ids_from_text(&response.body, &test_url, "response_body");
+                    let body_objects =
+                        self.extract_ids_from_text(&response.body, &test_url, "response_body");
                     objects.extend(body_objects);
                 }
             }
@@ -251,7 +295,12 @@ impl IdorAnalyzer {
     }
 
     /// Extract object IDs from text
-    fn extract_ids_from_text(&self, text: &str, source_url: &str, context: &str) -> Vec<ObjectReference> {
+    fn extract_ids_from_text(
+        &self,
+        text: &str,
+        source_url: &str,
+        context: &str,
+    ) -> Vec<ObjectReference> {
         let mut refs = Vec::new();
 
         for pattern in &self.id_patterns {
@@ -318,7 +367,11 @@ impl IdorAnalyzer {
             let test_urls = self.construct_test_urls(base_url, &obj_ref.id);
 
             for test_url in test_urls {
-                if let Ok(response) = self.http_client.get_authenticated(&test_url, user_b_session).await {
+                if let Ok(response) = self
+                    .http_client
+                    .get_authenticated(&test_url, user_b_session)
+                    .await
+                {
                     if self.indicates_data_access(&response.body, response.status_code) {
                         vulnerabilities.push(Vulnerability {
                             id: format!("idor-horizontal-{}", uuid::Uuid::new_v4()),
@@ -412,9 +465,16 @@ impl IdorAnalyzer {
 
         // Admin-only endpoints to test
         let admin_endpoints = [
-            "/admin", "/admin/", "/api/admin", "/api/admin/",
-            "/admin/users", "/api/admin/users", "/admin/settings",
-            "/admin/dashboard", "/management", "/api/management",
+            "/admin",
+            "/admin/",
+            "/api/admin",
+            "/api/admin/",
+            "/admin/users",
+            "/api/admin/users",
+            "/admin/settings",
+            "/admin/dashboard",
+            "/management",
+            "/api/management",
         ];
 
         for endpoint in &admin_endpoints {
@@ -423,10 +483,11 @@ impl IdorAnalyzer {
             if let Ok(response) = self.http_client.get_authenticated(&test_url, session).await {
                 if response.status_code == 200 {
                     let body_lower = response.body.to_lowercase();
-                    if body_lower.contains("admin") ||
-                       body_lower.contains("dashboard") ||
-                       body_lower.contains("users") ||
-                       body_lower.contains("settings") {
+                    if body_lower.contains("admin")
+                        || body_lower.contains("dashboard")
+                        || body_lower.contains("users")
+                        || body_lower.contains("settings")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("idor-vertical-{}", uuid::Uuid::new_v4()),
                             vuln_type: "Vertical Privilege Escalation".to_string(),
@@ -484,19 +545,19 @@ impl IdorAnalyzer {
         let body_lower = body.to_lowercase();
 
         // Positive indicators
-        let positive = body_lower.contains("\"id\"") ||
-                      body_lower.contains("\"user\"") ||
-                      body_lower.contains("\"data\"") ||
-                      body_lower.contains("\"email\"") ||
-                      body_lower.contains("\"name\"") ||
-                      body_lower.contains("\"profile\"");
+        let positive = body_lower.contains("\"id\"")
+            || body_lower.contains("\"user\"")
+            || body_lower.contains("\"data\"")
+            || body_lower.contains("\"email\"")
+            || body_lower.contains("\"name\"")
+            || body_lower.contains("\"profile\"");
 
         // Negative indicators (error messages)
-        let negative = body_lower.contains("not found") ||
-                      body_lower.contains("unauthorized") ||
-                      body_lower.contains("forbidden") ||
-                      body_lower.contains("access denied") ||
-                      body_lower.contains("permission");
+        let negative = body_lower.contains("not found")
+            || body_lower.contains("unauthorized")
+            || body_lower.contains("forbidden")
+            || body_lower.contains("access denied")
+            || body_lower.contains("permission");
 
         positive && !negative
     }
@@ -529,8 +590,17 @@ mod tests {
 
     #[test]
     fn test_id_type_detection() {
-        assert!(matches!(ObjectIdType::from_id("12345"), ObjectIdType::Numeric));
-        assert!(matches!(ObjectIdType::from_id("507f1f77bcf86cd799439011"), ObjectIdType::MongoId));
-        assert!(matches!(ObjectIdType::from_id("550e8400-e29b-41d4-a716-446655440000"), ObjectIdType::Uuid));
+        assert!(matches!(
+            ObjectIdType::from_id("12345"),
+            ObjectIdType::Numeric
+        ));
+        assert!(matches!(
+            ObjectIdType::from_id("507f1f77bcf86cd799439011"),
+            ObjectIdType::MongoId
+        ));
+        assert!(matches!(
+            ObjectIdType::from_id("550e8400-e29b-41d4-a716-446655440000"),
+            ObjectIdType::Uuid
+        ));
     }
 }

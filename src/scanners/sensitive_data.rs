@@ -41,7 +41,11 @@ impl SensitiveDataScanner {
             }
         };
 
-        let base_url = format!("{}://{}", url_obj.scheme(), url_obj.host_str().unwrap_or(""));
+        let base_url = format!(
+            "{}://{}",
+            url_obj.scheme(),
+            url_obj.host_str().unwrap_or("")
+        );
 
         // Test sensitive file paths
         let sensitive_paths = self.get_sensitive_paths();
@@ -52,7 +56,12 @@ impl SensitiveDataScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if let Some(vuln) = self.analyze_sensitive_file(&response.body, response.status_code, path, &test_url) {
+                    if let Some(vuln) = self.analyze_sensitive_file(
+                        &response.body,
+                        response.status_code,
+                        path,
+                        &test_url,
+                    ) {
                         all_vulnerabilities.push(vuln);
                     }
                 }
@@ -174,7 +183,13 @@ impl SensitiveDataScanner {
     }
 
     /// Analyze response for sensitive file exposure
-    fn analyze_sensitive_file(&self, body: &str, status_code: u16, path: &str, url: &str) -> Option<Vulnerability> {
+    fn analyze_sensitive_file(
+        &self,
+        body: &str,
+        status_code: u16,
+        path: &str,
+        url: &str,
+    ) -> Option<Vulnerability> {
         if status_code != 200 || body.is_empty() {
             return None;
         }
@@ -199,7 +214,10 @@ impl SensitiveDataScanner {
 
         // Git repository exposure
         if path.contains(".git") {
-            if body.contains("[core]") || body.contains("repositoryformatversion") || body.contains("ref: refs/") {
+            if body.contains("[core]")
+                || body.contains("repositoryformatversion")
+                || body.contains("ref: refs/")
+            {
                 return Some(self.create_vulnerability(
                     "Git Repository Files Exposed",
                     url,
@@ -214,7 +232,14 @@ impl SensitiveDataScanner {
 
         // Configuration files
         if path.contains("config") || path.contains("wp-config") || path.contains("web.config") {
-            let cred_patterns = ["password", "username", "db_name", "db_user", "db_password", "db_host"];
+            let cred_patterns = [
+                "password",
+                "username",
+                "db_name",
+                "db_user",
+                "db_password",
+                "db_host",
+            ];
             if cred_patterns.iter().any(|p| body_lower.contains(p)) {
                 return Some(self.create_vulnerability(
                     "Configuration File with Credentials Exposed",
@@ -230,7 +255,10 @@ impl SensitiveDataScanner {
 
         // SQL dumps
         if path.contains(".sql") {
-            if body.contains("INSERT INTO") || body.contains("CREATE TABLE") || body.contains("DROP TABLE") {
+            if body.contains("INSERT INTO")
+                || body.contains("CREATE TABLE")
+                || body.contains("DROP TABLE")
+            {
                 return Some(self.create_vulnerability(
                     "Database Dump File Exposed",
                     url,
@@ -245,7 +273,10 @@ impl SensitiveDataScanner {
 
         // phpinfo exposure
         if path.contains("phpinfo") || path.contains("info.php") {
-            if body.contains("PHP Version") || body.contains("phpinfo()") || body.contains("php.ini") {
+            if body.contains("PHP Version")
+                || body.contains("phpinfo()")
+                || body.contains("php.ini")
+            {
                 return Some(self.create_vulnerability(
                     "PHPInfo Page Exposed",
                     url,
@@ -260,7 +291,10 @@ impl SensitiveDataScanner {
 
         // API documentation
         if path.contains("swagger") || path.contains("api-docs") || path.contains("openapi") {
-            if body_lower.contains("swagger") || body_lower.contains("openapi") || body_lower.contains("\"paths\"") {
+            if body_lower.contains("swagger")
+                || body_lower.contains("openapi")
+                || body_lower.contains("\"paths\"")
+            {
                 return Some(self.create_vulnerability(
                     "API Documentation Exposed",
                     url,
@@ -275,7 +309,11 @@ impl SensitiveDataScanner {
 
         // Log files
         if path.contains("log") {
-            if body.contains("ERROR") || body.contains("WARNING") || body.contains("Exception") || body.contains("Stack trace") {
+            if body.contains("ERROR")
+                || body.contains("WARNING")
+                || body.contains("Exception")
+                || body.contains("Stack trace")
+            {
                 return Some(self.create_vulnerability(
                     "Log File Exposed",
                     url,
@@ -290,7 +328,10 @@ impl SensitiveDataScanner {
 
         // Server status pages
         if path.contains("server-status") || path.contains("server-info") {
-            if body_lower.contains("apache") || body_lower.contains("server version") || body_lower.contains("uptime") {
+            if body_lower.contains("apache")
+                || body_lower.contains("server version")
+                || body_lower.contains("uptime")
+            {
                 return Some(self.create_vulnerability(
                     "Server Status Page Exposed",
                     url,
@@ -466,7 +507,7 @@ impl SensitiveDataScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -499,7 +540,12 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true";
-        let vuln = scanner.analyze_sensitive_file(body, 200, "/.git/config", "https://example.com/.git/config");
+        let vuln = scanner.analyze_sensitive_file(
+            body,
+            200,
+            "/.git/config",
+            "https://example.com/.git/config",
+        );
 
         assert!(vuln.is_some());
         let v = vuln.unwrap();
@@ -511,7 +557,12 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "CREATE TABLE users (id INT, name VARCHAR(255));\nINSERT INTO users VALUES (1, 'admin');";
-        let vuln = scanner.analyze_sensitive_file(body, 200, "/backup.sql", "https://example.com/backup.sql");
+        let vuln = scanner.analyze_sensitive_file(
+            body,
+            200,
+            "/backup.sql",
+            "https://example.com/backup.sql",
+        );
 
         assert!(vuln.is_some());
         let v = vuln.unwrap();
@@ -524,7 +575,12 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "PHP Version 7.4.3\nSystem => Linux\nphp.ini => /etc/php/7.4/php.ini";
-        let vuln = scanner.analyze_sensitive_file(body, 200, "/phpinfo.php", "https://example.com/phpinfo.php");
+        let vuln = scanner.analyze_sensitive_file(
+            body,
+            200,
+            "/phpinfo.php",
+            "https://example.com/phpinfo.php",
+        );
 
         assert!(vuln.is_some());
         let v = vuln.unwrap();

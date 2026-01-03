@@ -15,7 +15,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -60,14 +59,35 @@ impl ModelWeights {
     fn compute_schema_hash() -> String {
         // Feature names in order - must match between clients
         let features = [
-            "status_code", "response_length", "response_time",
-            "payload_reflected", "has_error_patterns", "differs_from_baseline",
-            "severity", "confidence",
+            "status_code",
+            "response_length",
+            "response_time",
+            "payload_reflected",
+            "has_error_patterns",
+            "differs_from_baseline",
+            "severity",
+            "confidence",
             // Vuln type one-hot (20 types)
-            "sql_injection", "xss", "csrf", "ssrf", "xxe",
-            "command_injection", "path_traversal", "idor", "auth_bypass", "jwt",
-            "nosql_injection", "cors", "open_redirect", "file_upload", "deserialization",
-            "ssti", "prototype_pollution", "race_condition", "bola", "info_disclosure",
+            "sql_injection",
+            "xss",
+            "csrf",
+            "ssrf",
+            "xxe",
+            "command_injection",
+            "path_traversal",
+            "idor",
+            "auth_bypass",
+            "jwt",
+            "nosql_injection",
+            "cors",
+            "open_redirect",
+            "file_upload",
+            "deserialization",
+            "ssti",
+            "prototype_pollution",
+            "race_condition",
+            "bola",
+            "info_disclosure",
         ];
 
         use std::hash::{Hash, Hasher};
@@ -201,8 +221,7 @@ impl FederatedClient {
 
     /// Get data directory
     fn get_data_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .context("Could not determine home directory")?;
+        let home = dirs::home_dir().context("Could not determine home directory")?;
         Ok(home.join(".lonkero").join("federated"))
     }
 
@@ -232,21 +251,27 @@ impl FederatedClient {
 
     /// Contribute local weights to the federated network
     pub async fn contribute_weights(&self) -> Result<bool> {
-        let weights = self.local_weights.as_ref()
+        let weights = self
+            .local_weights
+            .as_ref()
             .context("No local weights to contribute")?;
 
         if weights.training_count < 50 {
-            info!("Not enough training data to contribute (need 50, have {})",
-                  weights.training_count);
+            info!(
+                "Not enough training data to contribute (need 50, have {})",
+                weights.training_count
+            );
             return Ok(false);
         }
 
         let contribution = WeightContribution::new(weights.clone(), &self.client_id);
 
         info!("Contributing weights to federated network...");
-        debug!("Contribution: {} weights, {} training examples",
-               contribution.weights.weights.len(),
-               contribution.weights.training_count);
+        debug!(
+            "Contribution: {} weights, {} training examples",
+            contribution.weights.weights.len(),
+            contribution.weights.training_count
+        );
 
         // Send to server
         let client = reqwest::Client::new();
@@ -268,7 +293,10 @@ impl FederatedClient {
             }
             Err(e) => {
                 // Offline mode - save for later
-                debug!("Could not reach server, saving contribution for later: {}", e);
+                debug!(
+                    "Could not reach server, saving contribution for later: {}",
+                    e
+                );
                 self.save_pending_contribution(&contribution)?;
                 Ok(false)
             }
@@ -289,10 +317,10 @@ impl FederatedClient {
         match response {
             Ok(resp) if resp.status().is_success() => {
                 let model: AggregatedModel = resp.json().await?;
-                info!("Fetched global model v{} ({} contributors, {} examples)",
-                      model.global_version,
-                      model.contributor_count,
-                      model.total_training_examples);
+                info!(
+                    "Fetched global model v{} ({} contributors, {} examples)",
+                    model.global_version, model.contributor_count, model.total_training_examples
+                );
 
                 // Verify compatibility
                 if !model.weights.is_compatible() {
@@ -325,8 +353,10 @@ impl FederatedClient {
 
         match (local, global) {
             (Some(local), Some(global)) => {
-                info!("Merging local model ({} examples) with global model ({} examples)",
-                      local.training_count, global.total_training_examples);
+                info!(
+                    "Merging local model ({} examples) with global model ({} examples)",
+                    local.training_count, global.total_training_examples
+                );
 
                 // Weighted average based on training counts
                 let local_weight = local.training_count as f64;
@@ -338,7 +368,8 @@ impl FederatedClient {
                 // Merge each weight
                 for (key, &local_val) in &local.weights {
                     let global_val = global.weights.weights.get(key).copied().unwrap_or(0.0);
-                    let merged = (local_val * local_weight + global_val * global_weight) / total_weight;
+                    let merged =
+                        (local_val * local_weight + global_val * global_weight) / total_weight;
                     merged_weights.insert(key.clone(), merged);
                 }
 
@@ -351,7 +382,8 @@ impl FederatedClient {
                 }
 
                 // Merge bias
-                let merged_bias = (local.bias * local_weight + global.weights.bias * global_weight) / total_weight;
+                let merged_bias = (local.bias * local_weight + global.weights.bias * global_weight)
+                    / total_weight;
 
                 Ok(ModelWeights::new(
                     merged_weights,
@@ -451,7 +483,11 @@ impl FederatedClient {
         FederatedStats {
             client_id: self.client_id.clone(),
             has_local_model: self.local_weights.is_some(),
-            local_training_count: self.local_weights.as_ref().map(|w| w.training_count).unwrap_or(0),
+            local_training_count: self
+                .local_weights
+                .as_ref()
+                .map(|w| w.training_count)
+                .unwrap_or(0),
             has_global_model: self.global_model.is_some(),
             global_version: self.global_model.as_ref().map(|m| m.global_version),
             global_contributors: self.global_model.as_ref().map(|m| m.contributor_count),
@@ -527,7 +563,8 @@ impl AggregationServer {
         info!("Aggregating {} contributions", self.contributions.len());
 
         // Calculate total training examples
-        let total_examples: usize = self.contributions
+        let total_examples: usize = self
+            .contributions
             .iter()
             .map(|c| c.weights.training_count)
             .sum();
@@ -559,8 +596,10 @@ impl AggregationServer {
         // Clear contributions after aggregation
         self.contributions.clear();
 
-        info!("Created global model v{} from {} contributors",
-              model.global_version, model.contributor_count);
+        info!(
+            "Created global model v{} from {} contributors",
+            model.global_version, model.contributor_count
+        );
 
         Ok(model)
     }
@@ -587,11 +626,8 @@ mod tests {
 
     #[test]
     fn test_weight_contribution_has_dp_noise() {
-        let weights = ModelWeights::new(
-            [("test".to_string(), 0.5)].into_iter().collect(),
-            0.1,
-            100,
-        );
+        let weights =
+            ModelWeights::new([("test".to_string(), 0.5)].into_iter().collect(), 0.1, 100);
 
         let contribution = WeightContribution::new(weights, "test-client");
         assert!(contribution.dp_noise_applied);

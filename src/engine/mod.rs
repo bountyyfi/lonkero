@@ -7,10 +7,9 @@
  *
  * © 2026 Bountyy Oy
  */
-
 pub mod rule_engine;
 
 pub use rule_engine::{
-    RuleEngine, Rule, Condition, LogicalOperator, ComparisonOperator,
-    Asset, EvaluationResult, EngineMetrics, RuleMetadata
+    Asset, ComparisonOperator, Condition, EngineMetrics, EvaluationResult, LogicalOperator, Rule,
+    RuleEngine, RuleMetadata,
 };

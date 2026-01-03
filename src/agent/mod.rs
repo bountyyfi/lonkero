@@ -5,7 +5,6 @@
  * Internal Agent Module
  * © 2026 Bountyy Oy
  */
-
 pub mod internal_agent;
 
-pub use internal_agent::{InternalAgent, AgentConfig, ScanTask, ScanResults, AgentHealth};
+pub use internal_agent::{AgentConfig, AgentHealth, InternalAgent, ScanResults, ScanTask};

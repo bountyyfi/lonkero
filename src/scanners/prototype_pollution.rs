@@ -14,7 +14,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -50,7 +49,9 @@ impl PrototypePollutionScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         info!("[ProtoPollution] Scanning for prototype pollution vulnerabilities");
@@ -110,18 +111,26 @@ impl PrototypePollutionScanner {
             ("__proto__.polluted", marker.as_str(), "proto_dot"),
             ("__proto__[toString]", "polluted", "proto_tostring"),
             ("__proto__[constructor]", "polluted", "proto_constructor"),
-
             // constructor.prototype variants
-            ("constructor[prototype][polluted]", marker.as_str(), "constructor_bracket"),
-            ("constructor.prototype.polluted", marker.as_str(), "constructor_dot"),
-
+            (
+                "constructor[prototype][polluted]",
+                marker.as_str(),
+                "constructor_bracket",
+            ),
+            (
+                "constructor.prototype.polluted",
+                marker.as_str(),
+                "constructor_dot",
+            ),
             // Nested pollution
             ("a].__proto__[polluted", marker.as_str(), "nested_proto"),
             ("a[__proto__][polluted]", marker.as_str(), "array_proto"),
-
             // URL encoded variants
-            ("__proto__%5Bpolluted%5D", marker.as_str(), "encoded_bracket"),
-
+            (
+                "__proto__%5Bpolluted%5D",
+                marker.as_str(),
+                "encoded_bracket",
+            ),
             // Null byte injection
             ("__proto__\x00[polluted]", marker.as_str(), "null_byte"),
         ];
@@ -181,22 +190,34 @@ impl PrototypePollutionScanner {
             ),
             // Nested pollution
             (
-                format!(r#"{{"user": {{"__proto__": {{"isAdmin": true, "marker": "{}"}}}}}}"#, self.test_marker),
+                format!(
+                    r#"{{"user": {{"__proto__": {{"isAdmin": true, "marker": "{}"}}}}}}"#,
+                    self.test_marker
+                ),
                 "json_nested_proto",
             ),
             // Constructor pollution
             (
-                format!(r#"{{"constructor": {{"prototype": {{"polluted": "{}"}}}}}}"#, self.test_marker),
+                format!(
+                    r#"{{"constructor": {{"prototype": {{"polluted": "{}"}}}}}}"#,
+                    self.test_marker
+                ),
                 "json_constructor",
             ),
             // Array prototype pollution
             (
-                format!(r#"[{{"__proto__": {{"polluted": "{}"}}}}]"#, self.test_marker),
+                format!(
+                    r#"[{{"__proto__": {{"polluted": "{}"}}}}]"#,
+                    self.test_marker
+                ),
                 "json_array_proto",
             ),
             // Deep nested pollution (common in lodash merge)
             (
-                format!(r#"{{"a": {{"b": {{"__proto__": {{"polluted": "{}"}}}}}}}}"#, self.test_marker),
+                format!(
+                    r#"{{"a": {{"b": {{"__proto__": {{"polluted": "{}"}}}}}}}}"#,
+                    self.test_marker
+                ),
                 "json_deep_proto",
             ),
         ];
@@ -205,13 +226,18 @@ impl PrototypePollutionScanner {
             for (payload, payload_type) in &json_payloads {
                 tests_run += 1;
 
-                let headers = vec![
-                    ("Content-Type".to_string(), "application/json".to_string()),
-                ];
+                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                debug!("Testing JSON pollution at {} with {}", endpoint, payload_type);
+                debug!(
+                    "Testing JSON pollution at {} with {}",
+                    endpoint, payload_type
+                );
 
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers)
+                    .await
+                {
                     Ok(response) => {
                         if let Some(vuln) = self.analyze_response(
                             &response.body,
@@ -306,13 +332,18 @@ impl PrototypePollutionScanner {
         for (payload, payload_type) in &form_payloads {
             tests_run += 1;
 
-            let headers = vec![
-                ("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string()),
-            ];
+            let headers = vec![(
+                "Content-Type".to_string(),
+                "application/x-www-form-urlencoded".to_string(),
+            )];
 
             debug!("Testing form pollution: {}", payload_type);
 
-            match self.http_client.post_with_headers(url, payload, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, payload, headers)
+                .await
+            {
                 Ok(response) => {
                     if let Some(vuln) = self.analyze_response(
                         &response.body,
@@ -354,7 +385,10 @@ impl PrototypePollutionScanner {
                 payload_type,
                 injection_point,
                 Confidence::High,
-                &format!("Test marker '{}' reflected in response - prototype pollution confirmed", self.test_marker),
+                &format!(
+                    "Test marker '{}' reflected in response - prototype pollution confirmed",
+                    self.test_marker
+                ),
             ));
         }
 
@@ -485,9 +519,10 @@ impl PrototypePollutionScanner {
 
 References:
 - https://portswigger.net/web-security/prototype-pollution
-- https://github.com/nicolo-ribaudo/JSON.parseImmutable"#.to_string(),
+- https://github.com/nicolo-ribaudo/JSON.parseImmutable"#
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }

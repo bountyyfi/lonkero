@@ -16,7 +16,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -247,7 +246,11 @@ pub struct ProgressTracker {
 
 impl ProgressTracker {
     /// Create new progress tracker
-    pub fn new(context: Arc<RealtimeScanContext>, total_scanners: usize, total_urls: usize) -> Self {
+    pub fn new(
+        context: Arc<RealtimeScanContext>,
+        total_scanners: usize,
+        total_urls: usize,
+    ) -> Self {
         Self {
             context,
             total_scanners,

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use ahash::AHashSet;
 /**
  * Bountyy Oy - Optimized Payload Manager
  * Lazy loading, deduplication, and zero-copy sharing with Arc<str>
@@ -8,10 +9,8 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use std::sync::Arc;
 use std::sync::OnceLock;
-use ahash::AHashSet;
 
 /// Thread-safe lazy-initialized payload cache using Arc<str> for zero-copy sharing
 static XSS_PAYLOADS_FAST: OnceLock<Vec<Arc<str>>> = OnceLock::new();
@@ -24,53 +23,57 @@ static COMMAND_INJECTION_PAYLOADS: OnceLock<Vec<Arc<str>>> = OnceLock::new();
 /// Get XSS payloads with lazy initialization and deduplication
 pub fn get_xss_payloads(mode: &str) -> Vec<Arc<str>> {
     match mode {
-        "comprehensive" | "insane" => {
-            XSS_PAYLOADS_COMPREHENSIVE.get_or_init(|| {
+        "comprehensive" | "insane" => XSS_PAYLOADS_COMPREHENSIVE
+            .get_or_init(|| {
                 let raw_payloads = crate::payloads_comprehensive::get_xss_payloads(mode);
                 deduplicate_and_intern(raw_payloads)
-            }).clone()
-        }
-        _ => {
-            XSS_PAYLOADS_FAST.get_or_init(|| {
+            })
+            .clone(),
+        _ => XSS_PAYLOADS_FAST
+            .get_or_init(|| {
                 let raw_payloads = crate::payloads_comprehensive::get_xss_payloads("fast");
                 deduplicate_and_intern(raw_payloads)
-            }).clone()
-        }
+            })
+            .clone(),
     }
 }
 
 /// Get SQLi payloads with lazy initialization and deduplication
 pub fn get_sqli_payloads(mode: &str) -> Vec<Arc<str>> {
     match mode {
-        "comprehensive" | "insane" => {
-            SQLI_PAYLOADS_COMPREHENSIVE.get_or_init(|| {
+        "comprehensive" | "insane" => SQLI_PAYLOADS_COMPREHENSIVE
+            .get_or_init(|| {
                 let raw_payloads = crate::payloads_comprehensive::get_sqli_payloads(mode);
                 deduplicate_and_intern(raw_payloads)
-            }).clone()
-        }
-        _ => {
-            SQLI_PAYLOADS_FAST.get_or_init(|| {
+            })
+            .clone(),
+        _ => SQLI_PAYLOADS_FAST
+            .get_or_init(|| {
                 let raw_payloads = crate::payloads_comprehensive::get_sqli_payloads("fast");
                 deduplicate_and_intern(raw_payloads)
-            }).clone()
-        }
+            })
+            .clone(),
     }
 }
 
 /// Get path traversal payloads with lazy initialization
 pub fn get_path_traversal_payloads() -> Vec<Arc<str>> {
-    PATH_TRAVERSAL_PAYLOADS.get_or_init(|| {
-        let raw_payloads = crate::payloads::get_path_traversal_payloads();
-        deduplicate_and_intern(raw_payloads)
-    }).clone()
+    PATH_TRAVERSAL_PAYLOADS
+        .get_or_init(|| {
+            let raw_payloads = crate::payloads::get_path_traversal_payloads();
+            deduplicate_and_intern(raw_payloads)
+        })
+        .clone()
 }
 
 /// Get command injection payloads with lazy initialization
 pub fn get_command_injection_payloads() -> Vec<Arc<str>> {
-    COMMAND_INJECTION_PAYLOADS.get_or_init(|| {
-        let raw_payloads = crate::payloads::get_command_injection_payloads();
-        deduplicate_and_intern(raw_payloads)
-    }).clone()
+    COMMAND_INJECTION_PAYLOADS
+        .get_or_init(|| {
+            let raw_payloads = crate::payloads::get_command_injection_payloads();
+            deduplicate_and_intern(raw_payloads)
+        })
+        .clone()
 }
 
 /// Deduplicate payloads and intern as Arc<str> for zero-copy sharing
@@ -117,7 +120,8 @@ impl SmartPayloadSelector {
         let mut payloads = get_xss_payloads(mode);
 
         if self.detected_waf {
-            payloads = payloads.into_iter()
+            payloads = payloads
+                .into_iter()
                 .filter(|p| self.is_waf_bypass_payload(p))
                 .collect();
         }
@@ -134,7 +138,8 @@ impl SmartPayloadSelector {
         let mut payloads = get_sqli_payloads(mode);
 
         if self.detected_waf {
-            payloads = payloads.into_iter()
+            payloads = payloads
+                .into_iter()
                 .filter(|p| self.is_sqli_waf_bypass(p))
                 .collect();
         }
@@ -154,24 +159,24 @@ impl SmartPayloadSelector {
     }
 
     fn is_sqli_waf_bypass(&self, payload: &str) -> bool {
-        payload.contains("/**/")
-            || payload.contains("--+")
-            || payload.contains("%0a")
+        payload.contains("/**/") || payload.contains("--+") || payload.contains("%0a")
     }
 
     fn get_framework_specific_xss(&self, framework: &str) -> Vec<Arc<str>> {
         match framework.to_lowercase().as_str() {
             "react" => vec![
                 Arc::<str>::from("javascript:alert(1)"),
-                Arc::<str>::from("dangerouslySetInnerHTML={{__html: '<img src=x onerror=alert(1)>'}}"),
+                Arc::<str>::from(
+                    "dangerouslySetInnerHTML={{__html: '<img src=x onerror=alert(1)>'}}",
+                ),
             ],
             "angular" => vec![
                 Arc::<str>::from("{{constructor.constructor('alert(1)')()}}"),
                 Arc::<str>::from("{{$on.constructor('alert(1)')()}}"),
             ],
-            "vue" => vec![
-                Arc::<str>::from("<div v-html=\"'<img src=x onerror=alert(1)>'\"></div>"),
-            ],
+            "vue" => vec![Arc::<str>::from(
+                "<div v-html=\"'<img src=x onerror=alert(1)>'\"></div>",
+            )],
             _ => Vec::new(),
         }
     }
@@ -190,9 +195,7 @@ impl SmartPayloadSelector {
                 Arc::<str>::from("' WAITFOR DELAY '00:00:05'--"),
                 Arc::<str>::from("'; WAITFOR DELAY '00:00:05'--"),
             ],
-            "oracle" => vec![
-                Arc::<str>::from("' AND DBMS_LOCK.SLEEP(5)--"),
-            ],
+            "oracle" => vec![Arc::<str>::from("' AND DBMS_LOCK.SLEEP(5)--")],
             _ => Vec::new(),
         }
     }

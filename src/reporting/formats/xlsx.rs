@@ -96,7 +96,11 @@ impl XlsxReportGenerator {
         Ok(())
     }
 
-    fn add_vulnerabilities_sheet(&self, workbook: &mut Workbook, report: &EnhancedReport) -> Result<()> {
+    fn add_vulnerabilities_sheet(
+        &self,
+        workbook: &mut Workbook,
+        report: &EnhancedReport,
+    ) -> Result<()> {
         let worksheet = workbook.add_worksheet();
         worksheet.set_name("Vulnerabilities")?;
 

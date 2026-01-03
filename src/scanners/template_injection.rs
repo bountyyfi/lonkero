@@ -3,7 +3,7 @@
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability, ScanContext, EndpointType};
+use crate::types::{Confidence, EndpointType, ScanConfig, ScanContext, Severity, Vulnerability};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -49,13 +49,18 @@ impl TemplateInjectionScanner {
 
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
-            debug!("[SSTI] Skipping framework/internal parameter: {}", param_name);
+            debug!(
+                "[SSTI] Skipping framework/internal parameter: {}",
+                param_name
+            );
             return Ok((vulnerabilities, tests_run));
         }
 
-        debug!("[SSTI] Testing parameter: {} (priority: {})",
-              param_name,
-              ParameterFilter::get_parameter_priority(param_name));
+        debug!(
+            "[SSTI] Testing parameter: {} (priority: {})",
+            param_name,
+            ParameterFilter::get_parameter_priority(param_name)
+        );
 
         debug!("Testing SSTI on parameter: {}", param_name);
 
@@ -138,7 +143,11 @@ impl TemplateInjectionScanner {
                 // Node.js/Express → Pug/EJS/Handlebars payloads
                 if fw_lower.contains("express") || fw_lower.contains("node") {
                     info!("[SSTI] Detected Express/Node.js - using Pug/EJS/Handlebars payloads");
-                    return vec!["pug".to_string(), "ejs".to_string(), "handlebars".to_string()];
+                    return vec![
+                        "pug".to_string(),
+                        "ejs".to_string(),
+                        "handlebars".to_string(),
+                    ];
                 }
 
                 // Vue.js → Client-Side Template Injection (CSTI)
@@ -453,7 +462,9 @@ impl TemplateInjectionScanner {
             }
 
             // Check for "fortynine" or similar
-            if body.to_lowercase().contains("fortynine") || body.to_lowercase().contains("forty-nine") {
+            if body.to_lowercase().contains("fortynine")
+                || body.to_lowercase().contains("forty-nine")
+            {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
@@ -484,67 +495,67 @@ impl TemplateInjectionScanner {
         // Engine-specific detection
         let detected = match engine {
             "jinja2" => {
-                body.contains("jinja") ||
-                body.contains("<class") ||
-                body.contains("__mro__") ||
-                body.contains("__subclasses__") ||
-                body.contains("__builtins__") ||
-                (payload.contains("config") && body.contains("Config"))
-            },
+                body.contains("jinja")
+                    || body.contains("<class")
+                    || body.contains("__mro__")
+                    || body.contains("__subclasses__")
+                    || body.contains("__builtins__")
+                    || (payload.contains("config") && body.contains("Config"))
+            }
 
             "freemarker" => {
-                body.contains("freemarker") ||
-                body.contains("FreeMarker") ||
-                body.contains("TemplateException") ||
-                (payload.contains("Execute") && body.contains("uid="))
-            },
+                body.contains("freemarker")
+                    || body.contains("FreeMarker")
+                    || body.contains("TemplateException")
+                    || (payload.contains("Execute") && body.contains("uid="))
+            }
 
             "twig" => {
-                body.contains("_self") ||
-                body.contains("Twig") ||
-                body.contains("TwigEnvironment") ||
-                (payload.contains("dump(app)") && body.contains("app"))
-            },
+                body.contains("_self")
+                    || body.contains("Twig")
+                    || body.contains("TwigEnvironment")
+                    || (payload.contains("dump(app)") && body.contains("app"))
+            }
 
             "smarty" => {
-                body.contains("Smarty") ||
-                body.contains("{php}") ||
-                body.contains("{/php}") ||
-                body.contains("Smarty_Internal")
-            },
+                body.contains("Smarty")
+                    || body.contains("{php}")
+                    || body.contains("{/php}")
+                    || body.contains("Smarty_Internal")
+            }
 
             "blade" => {
-                body.contains("Blade") ||
-                body.contains("Laravel") ||
-                (payload.contains("@php") && body.contains("49")) ||
-                (payload.contains("$app") && body.contains("Illuminate"))
-            },
+                body.contains("Blade")
+                    || body.contains("Laravel")
+                    || (payload.contains("@php") && body.contains("49"))
+                    || (payload.contains("$app") && body.contains("Illuminate"))
+            }
 
             "erb" => {
-                body.contains("ERB") ||
-                body.contains("Ruby") ||
-                (payload.contains("Dir.entries") && body.contains("[")) ||
-                (payload.contains("File.read") && body.contains("root:"))
-            },
+                body.contains("ERB")
+                    || body.contains("Ruby")
+                    || (payload.contains("Dir.entries") && body.contains("["))
+                    || (payload.contains("File.read") && body.contains("root:"))
+            }
 
             "pug" => {
-                body.contains("Pug") ||
-                body.contains("Jade") ||
-                (payload.contains("process.version") && body.contains("v")) ||
-                (payload.contains("global") && body.contains("Object"))
-            },
+                body.contains("Pug")
+                    || body.contains("Jade")
+                    || (payload.contains("process.version") && body.contains("v"))
+                    || (payload.contains("global") && body.contains("Object"))
+            }
 
             "ejs" => {
-                body.contains("EJS") ||
-                (payload.contains("process.version") && body.contains("v")) ||
-                (payload.contains("global") && body.contains("Object"))
-            },
+                body.contains("EJS")
+                    || (payload.contains("process.version") && body.contains("v"))
+                    || (payload.contains("global") && body.contains("Object"))
+            }
 
             "handlebars" => {
-                body.contains("Handlebars") ||
-                body.contains("prototype") ||
-                (payload.contains("constructor") && body.contains("function"))
-            },
+                body.contains("Handlebars")
+                    || body.contains("prototype")
+                    || (payload.contains("constructor") && body.contains("function"))
+            }
 
             _ => false,
         };
@@ -564,10 +575,14 @@ impl TemplateInjectionScanner {
 
         // Check for command execution output
         let cmd_indicators = vec![
-            "uid=", "gid=",  // Unix id command
-            "root:", "user:",  // User info
-            "/bin/", "/usr/",  // Paths
-            "Administrator", "SYSTEM",  // Windows
+            "uid=",
+            "gid=", // Unix id command
+            "root:",
+            "user:", // User info
+            "/bin/",
+            "/usr/", // Paths
+            "Administrator",
+            "SYSTEM", // Windows
         ];
 
         for indicator in cmd_indicators {
@@ -638,7 +653,7 @@ impl TemplateInjectionScanner {
                 engine
             ),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -668,7 +683,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> TemplateInjectionScanner {
@@ -814,14 +829,8 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
 
         let body = "Normal page content without template injection";
-        let result = scanner.analyze_response(
-            body,
-            "{{7*7}}",
-            "jinja2",
-            "Test",
-            "http://example.com",
-            "q",
-        );
+        let result =
+            scanner.analyze_response(body, "{{7*7}}", "jinja2", "Test", "http://example.com", "q");
 
         assert!(result.is_none());
     }

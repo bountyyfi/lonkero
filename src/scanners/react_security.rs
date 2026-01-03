@@ -122,9 +122,14 @@ impl ReactSecurityScanner {
             return Ok((vec![], tests_run));
         }
 
-        info!("[React] Detected React application{} ({})",
-            version.as_ref().map(|v| format!(" v{}", v)).unwrap_or_default(),
-            framework_type);
+        info!(
+            "[React] Detected React application{} ({})",
+            version
+                .as_ref()
+                .map(|v| format!(" v{}", v))
+                .unwrap_or_default(),
+            framework_type
+        );
 
         // Check for dangerous patterns in source
         let (pattern_vulns, pattern_tests) = self.check_dangerous_patterns(url, config).await?;
@@ -176,8 +181,11 @@ impl ReactSecurityScanner {
         vulnerabilities.extend(cve_vulns);
         tests_run += cve_tests;
 
-        info!("[React] Completed: {} vulnerabilities, {} tests",
-            vulnerabilities.len(), tests_run);
+        info!(
+            "[React] Completed: {} vulnerabilities, {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -197,14 +205,16 @@ impl ReactSecurityScanner {
                resp.body.contains("__NEXT_DATA__") ||  // Next.js uses React
                resp.body.contains("__GATSBY") ||       // Gatsby uses React
                resp.body.contains("__REMIX") ||        // Remix uses React
-               resp.body.contains("react-dom") {
+               resp.body.contains("react-dom")
+            {
                 is_react = true;
             }
 
             // Check for Create React App markers
-            if resp.body.contains("/static/js/main.") ||
-               resp.body.contains("/static/js/bundle.js") ||
-               resp.body.contains("REACT_APP_") {
+            if resp.body.contains("/static/js/main.")
+                || resp.body.contains("/static/js/bundle.js")
+                || resp.body.contains("REACT_APP_")
+            {
                 is_react = true;
                 framework_type = "Create React App".to_string();
             }
@@ -258,21 +268,31 @@ impl ReactSecurityScanner {
         if let Ok(resp) = self.http_client.get(url).await {
             // Check for dangerouslySetInnerHTML with user input patterns
             let dangerous_patterns = [
-                (r#"dangerouslySetInnerHTML\s*=\s*\{\s*\{\s*__html\s*:\s*[^}]*(?:props|state|params|query|input|data)"#,
-                 "dangerouslySetInnerHTML with dynamic data",
-                 "XSS via dangerouslySetInnerHTML"),
-                (r#"innerHTML\s*=\s*[^;]*(?:props|state|params|query|input|data)"#,
-                 "innerHTML with dynamic data",
-                 "XSS via innerHTML"),
-                (r#"eval\s*\([^)]*(?:props|state|params|query|input)"#,
-                 "eval with user input",
-                 "Code injection via eval"),
-                (r#"new\s+Function\s*\([^)]*(?:props|state|params|query|input)"#,
-                 "Function constructor with user input",
-                 "Code injection via Function constructor"),
-                (r#"document\.write\s*\([^)]*(?:props|state|params)"#,
-                 "document.write with dynamic data",
-                 "XSS via document.write"),
+                (
+                    r#"dangerouslySetInnerHTML\s*=\s*\{\s*\{\s*__html\s*:\s*[^}]*(?:props|state|params|query|input|data)"#,
+                    "dangerouslySetInnerHTML with dynamic data",
+                    "XSS via dangerouslySetInnerHTML",
+                ),
+                (
+                    r#"innerHTML\s*=\s*[^;]*(?:props|state|params|query|input|data)"#,
+                    "innerHTML with dynamic data",
+                    "XSS via innerHTML",
+                ),
+                (
+                    r#"eval\s*\([^)]*(?:props|state|params|query|input)"#,
+                    "eval with user input",
+                    "Code injection via eval",
+                ),
+                (
+                    r#"new\s+Function\s*\([^)]*(?:props|state|params|query|input)"#,
+                    "Function constructor with user input",
+                    "Code injection via Function constructor",
+                ),
+                (
+                    r#"document\.write\s*\([^)]*(?:props|state|params)"#,
+                    "document.write with dynamic data",
+                    "XSS via document.write",
+                ),
             ];
 
             let mut found_patterns = Vec::new();
@@ -314,9 +334,10 @@ impl ReactSecurityScanner {
                                       2. Use DOMPurify or similar library to sanitize HTML\n\
                                       3. Prefer React's built-in escaping via JSX\n\
                                       4. Never use eval() or Function() with user data\n\
-                                      5. Use Content Security Policy headers".to_string(),
+                                      5. Use Content Security Policy headers"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -339,35 +360,40 @@ impl ReactSecurityScanner {
             let mut devtools_issues = Vec::new();
 
             // Check for React DevTools
-            if resp.body.contains("__REACT_DEVTOOLS_GLOBAL_HOOK__") &&
-               !resp.body.contains("production") &&
-               (resp.body.contains("development") || resp.body.contains("__DEV__")) {
+            if resp.body.contains("__REACT_DEVTOOLS_GLOBAL_HOOK__")
+                && !resp.body.contains("production")
+                && (resp.body.contains("development") || resp.body.contains("__DEV__"))
+            {
                 devtools_issues.push("React DevTools enabled in development mode");
             }
 
             // Check for Redux DevTools
-            if resp.body.contains("__REDUX_DEVTOOLS_EXTENSION__") ||
-               resp.body.contains("redux-devtools") ||
-               resp.body.contains("composeWithDevTools") {
+            if resp.body.contains("__REDUX_DEVTOOLS_EXTENSION__")
+                || resp.body.contains("redux-devtools")
+                || resp.body.contains("composeWithDevTools")
+            {
                 devtools_issues.push("Redux DevTools Extension enabled");
             }
 
             // Check for React Query DevTools
-            if resp.body.contains("ReactQueryDevtools") ||
-               resp.body.contains("react-query/devtools") {
+            if resp.body.contains("ReactQueryDevtools")
+                || resp.body.contains("react-query/devtools")
+            {
                 devtools_issues.push("React Query DevTools enabled");
             }
 
             // Check for Apollo DevTools
-            if resp.body.contains("__APOLLO_CLIENT__") ||
-               resp.body.contains("apollo-client-devtools") {
+            if resp.body.contains("__APOLLO_CLIENT__")
+                || resp.body.contains("apollo-client-devtools")
+            {
                 devtools_issues.push("Apollo Client DevTools enabled");
             }
 
             // Check for development mode indicators
-            if resp.body.contains("process.env.NODE_ENV !== 'production'") ||
-               resp.body.contains("process.env.NODE_ENV===\"development\"") ||
-               resp.body.contains("__DEV__") {
+            if resp.body.contains("process.env.NODE_ENV !== 'production'")
+                || resp.body.contains("process.env.NODE_ENV===\"development\"")
+                || resp.body.contains("__DEV__")
+            {
                 devtools_issues.push("Development mode checks in bundle");
             }
 
@@ -422,18 +448,39 @@ impl ReactSecurityScanner {
         if let Ok(resp) = self.http_client.get(url).await {
             // Server-side env vars that shouldn't be in client bundles
             let server_env_patterns = [
-                (r#"(?i)DATABASE_URL\s*[=:]\s*["'][^"']+["']"#, "DATABASE_URL"),
-                (r#"(?i)(?:SECRET|PRIVATE)_KEY\s*[=:]\s*["'][^"']+["']"#, "SECRET_KEY"),
+                (
+                    r#"(?i)DATABASE_URL\s*[=:]\s*["'][^"']+["']"#,
+                    "DATABASE_URL",
+                ),
+                (
+                    r#"(?i)(?:SECRET|PRIVATE)_KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "SECRET_KEY",
+                ),
                 (r#"(?i)JWT_SECRET\s*[=:]\s*["'][^"']+["']"#, "JWT_SECRET"),
                 (r#"(?i)API_SECRET\s*[=:]\s*["'][^"']+["']"#, "API_SECRET"),
-                (r#"(?i)AWS_SECRET_ACCESS_KEY\s*[=:]\s*["'][^"']+["']"#, "AWS_SECRET_ACCESS_KEY"),
-                (r#"(?i)STRIPE_SECRET_KEY\s*[=:]\s*["'][^"']+["']"#, "STRIPE_SECRET_KEY"),
-                (r#"(?i)SENDGRID_API_KEY\s*[=:]\s*["'][^"']+["']"#, "SENDGRID_API_KEY"),
+                (
+                    r#"(?i)AWS_SECRET_ACCESS_KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "AWS_SECRET_ACCESS_KEY",
+                ),
+                (
+                    r#"(?i)STRIPE_SECRET_KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "STRIPE_SECRET_KEY",
+                ),
+                (
+                    r#"(?i)SENDGRID_API_KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "SENDGRID_API_KEY",
+                ),
                 (r#"(?i)MONGODB_URI\s*[=:]\s*["'][^"']+["']"#, "MONGODB_URI"),
                 (r#"(?i)REDIS_URL\s*[=:]\s*["'][^"']+["']"#, "REDIS_URL"),
-                (r#"(?i)GITHUB_TOKEN\s*[=:]\s*["'][^"']+["']"#, "GITHUB_TOKEN"),
+                (
+                    r#"(?i)GITHUB_TOKEN\s*[=:]\s*["'][^"']+["']"#,
+                    "GITHUB_TOKEN",
+                ),
                 // CRA non-public env vars (without REACT_APP_ prefix)
-                (r#"process\.env\.(?!REACT_APP_|PUBLIC_|NODE_ENV)[A-Z_]+\s*[=:]"#, "Non-public env var"),
+                (
+                    r#"process\.env\.(?!REACT_APP_|PUBLIC_|NODE_ENV)[A-Z_]+\s*[=:]"#,
+                    "Non-public env var",
+                ),
             ];
 
             let mut exposed_vars = Vec::new();
@@ -576,11 +623,26 @@ impl ReactSecurityScanner {
         if let Ok(resp) = self.http_client.get(url).await {
             // Look for SSR/hydration data that might contain sensitive info
             let ssr_patterns = [
-                (r#"window\.__INITIAL_STATE__\s*=\s*\{[^}]*(?:password|secret|token|api_key|private)"#, "__INITIAL_STATE__"),
-                (r#"window\.__PRELOADED_STATE__\s*=\s*\{[^}]*(?:password|secret|token|api_key)"#, "__PRELOADED_STATE__"),
-                (r#"window\.__APOLLO_STATE__\s*=\s*\{[^}]*(?:password|secret|token)"#, "__APOLLO_STATE__"),
-                (r#"window\.__REDUX_STATE__\s*=\s*\{[^}]*(?:password|secret|token)"#, "__REDUX_STATE__"),
-                (r#"<script[^>]*id="__NEXT_DATA__"[^>]*>[^<]*(?:password|secret|apiKey|token)"#, "__NEXT_DATA__"),
+                (
+                    r#"window\.__INITIAL_STATE__\s*=\s*\{[^}]*(?:password|secret|token|api_key|private)"#,
+                    "__INITIAL_STATE__",
+                ),
+                (
+                    r#"window\.__PRELOADED_STATE__\s*=\s*\{[^}]*(?:password|secret|token|api_key)"#,
+                    "__PRELOADED_STATE__",
+                ),
+                (
+                    r#"window\.__APOLLO_STATE__\s*=\s*\{[^}]*(?:password|secret|token)"#,
+                    "__APOLLO_STATE__",
+                ),
+                (
+                    r#"window\.__REDUX_STATE__\s*=\s*\{[^}]*(?:password|secret|token)"#,
+                    "__REDUX_STATE__",
+                ),
+                (
+                    r#"<script[^>]*id="__NEXT_DATA__"[^>]*>[^<]*(?:password|secret|apiKey|token)"#,
+                    "__NEXT_DATA__",
+                ),
             ];
 
             for (pattern, state_name) in &ssr_patterns {
@@ -651,7 +713,10 @@ impl ReactSecurityScanner {
             ("tsconfig.json", "TypeScript configuration"),
             ("build/asset-manifest.json", "Asset manifest"),
             ("build/precache-manifest.json", "Precache manifest"),
-            ("static/js/main.js.LICENSE.txt", "License file with package info"),
+            (
+                "static/js/main.js.LICENSE.txt",
+                "License file with package info",
+            ),
             (".git/config", "Git configuration"),
             ("src/", "Source directory listing"),
         ];
@@ -667,7 +732,7 @@ impl ReactSecurityScanner {
                         resp.body.contains("DATABASE") ||
                         resp.body.contains("SECRET") ||
                         resp.body.contains("[remote") ||  // git config
-                        resp.body.len() > 10;  // Not empty
+                        resp.body.len() > 10; // Not empty
 
                     if is_sensitive {
                         vulnerabilities.push(Vulnerability {
@@ -747,11 +812,16 @@ impl ReactSecurityScanner {
                     let introspection_query = r#"{"query":"{ __schema { types { name } } }"}"#;
                     let mut headers = HashMap::new();
                     headers.insert("Content-Type".to_string(), "application/json".to_string());
-                    let headers_vec: Vec<(String, String)> = headers.iter()
+                    let headers_vec: Vec<(String, String)> = headers
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
 
-                    if let Ok(gql_resp) = self.http_client.post_with_headers(&api_url, introspection_query, headers_vec).await {
+                    if let Ok(gql_resp) = self
+                        .http_client
+                        .post_with_headers(&api_url, introspection_query, headers_vec)
+                        .await
+                    {
                         if gql_resp.body.contains("__schema") && gql_resp.body.contains("types") {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("react_graphql_introspection_{}", Self::generate_id()),
@@ -780,14 +850,21 @@ impl ReactSecurityScanner {
                 tests_run += 1;
                 let mut cors_headers = HashMap::new();
                 cors_headers.insert("Origin".to_string(), "https://evil.com".to_string());
-                let headers_vec: Vec<(String, String)> = cors_headers.iter()
+                let headers_vec: Vec<(String, String)> = cors_headers
+                    .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
 
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
+                if let Ok(cors_resp) = self
+                    .http_client
+                    .get_with_headers(&api_url, headers_vec)
+                    .await
+                {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "https://evil.com" || acao == "*" {
-                            let has_creds = cors_resp.headers.get("access-control-allow-credentials")
+                            let has_creds = cors_resp
+                                .headers
+                                .get("access-control-allow-credentials")
                                 .map(|v| v == "true")
                                 .unwrap_or(false);
 
@@ -795,7 +872,11 @@ impl ReactSecurityScanner {
                                 vulnerabilities.push(Vulnerability {
                                     id: format!("react_cors_{}", Self::generate_id()),
                                     vuln_type: "React API CORS Misconfiguration".to_string(),
-                                    severity: if has_creds { Severity::High } else { Severity::Medium },
+                                    severity: if has_creds {
+                                        Severity::High
+                                    } else {
+                                        Severity::Medium
+                                    },
                                     confidence: Confidence::High,
                                     category: "Misconfiguration".to_string(),
                                     url: api_url.clone(),
@@ -803,7 +884,8 @@ impl ReactSecurityScanner {
                                     payload: "Origin: https://evil.com".to_string(),
                                     description: format!(
                                         "API endpoint at '{}' has permissive CORS{}.",
-                                        endpoint, if has_creds { " WITH credentials" } else { "" }
+                                        endpoint,
+                                        if has_creds { " WITH credentials" } else { "" }
                                     ),
                                     evidence: Some(format!(
                                         "Access-Control-Allow-Origin: {}\n\
@@ -814,9 +896,11 @@ impl ReactSecurityScanner {
                                     cvss: if has_creds { 8.1 } else { 5.3 },
                                     verified: true,
                                     false_positive: false,
-                                    remediation: "Configure CORS to only allow specific trusted origins.".to_string(),
+                                    remediation:
+                                        "Configure CORS to only allow specific trusted origins."
+                                            .to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                    ml_data: None,
                                 });
                             }
                         }
@@ -923,7 +1007,10 @@ impl ReactSecurityScanner {
         // Prototype pollution payloads
         let payloads = [
             ("__proto__[polluted]=true", "__proto__"),
-            ("constructor[prototype][polluted]=true", "constructor.prototype"),
+            (
+                "constructor[prototype][polluted]=true",
+                "constructor.prototype",
+            ),
             ("__proto__.polluted=true", "__proto__"),
         ];
 
@@ -934,19 +1021,25 @@ impl ReactSecurityScanner {
             if let Ok(resp) = self.http_client.get(&test_url).await {
                 // Check if the response indicates prototype pollution might work
                 // This is a heuristic check - actual exploitation requires more testing
-                if resp.status_code == 200 &&
-                   !resp.body.contains("invalid") &&
-                   !resp.body.contains("error") {
+                if resp.status_code == 200
+                    && !resp.body.contains("invalid")
+                    && !resp.body.contains("error")
+                {
                     // Also test POST with JSON body
                     tests_run += 1;
                     let json_payload = r#"{"__proto__":{"polluted":"true"}}"#;
                     let mut headers = HashMap::new();
                     headers.insert("Content-Type".to_string(), "application/json".to_string());
-                    let headers_vec: Vec<(String, String)> = headers.iter()
+                    let headers_vec: Vec<(String, String)> = headers
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
 
-                    if let Ok(json_resp) = self.http_client.post_with_headers(base, json_payload, headers_vec).await {
+                    if let Ok(json_resp) = self
+                        .http_client
+                        .post_with_headers(base, json_payload, headers_vec)
+                        .await
+                    {
                         if json_resp.status_code == 200 || json_resp.status_code == 201 {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("react_prototype_pollution_{}", Self::generate_id()),
@@ -1080,8 +1173,12 @@ impl ReactSecurityScanner {
         for i in 0..3 {
             let a = p1.get(i).copied().unwrap_or(0);
             let b = p2.get(i).copied().unwrap_or(0);
-            if a < b { return -1; }
-            if a > b { return 1; }
+            if a < b {
+                return -1;
+            }
+            if a > b {
+                return 1;
+            }
         }
         0
     }

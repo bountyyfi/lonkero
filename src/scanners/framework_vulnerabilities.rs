@@ -84,7 +84,11 @@ impl FrameworkVulnerabilitiesScanner {
     }
 
     /// Scan Next.js specific vulnerabilities
-    async fn scan_nextjs(&self, url: &str, html: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn scan_nextjs(
+        &self,
+        url: &str,
+        html: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -140,7 +144,11 @@ impl FrameworkVulnerabilitiesScanner {
     }
 
     /// Scan React specific vulnerabilities
-    async fn scan_react(&self, url: &str, html: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn scan_react(
+        &self,
+        url: &str,
+        html: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -189,9 +197,11 @@ impl FrameworkVulnerabilitiesScanner {
         // Check for SPECIFIC Vue indicators
         // Must have Vue-specific patterns, not just "v-" (which could be any attribute)
         let has_vue_app = html.contains("data-v-") || html.contains("[data-v-");
-        let has_vue_bundle = html.contains("/vue.") || html.contains("/vue@") || html.contains("vue.runtime");
+        let has_vue_bundle =
+            html.contains("/vue.") || html.contains("/vue@") || html.contains("vue.runtime");
         let has_vue_devtools = html.contains("__VUE_DEVTOOLS_GLOBAL_HOOK__");
-        let has_vue_specific = html.contains("v-cloak") || html.contains("v-model") || html.contains("v-bind");
+        let has_vue_specific =
+            html.contains("v-cloak") || html.contains("v-model") || html.contains("v-bind");
 
         if !has_vue_app && !has_vue_bundle && !has_vue_devtools && !has_vue_specific {
             return Ok((vulnerabilities, 0));
@@ -225,14 +235,20 @@ impl FrameworkVulnerabilitiesScanner {
     }
 
     /// Scan Angular specific vulnerabilities
-    async fn scan_angular(&self, url: &str, html: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn scan_angular(
+        &self,
+        url: &str,
+        html: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
         // Check for SPECIFIC Angular indicators
         // Must have Angular-specific patterns, not just "ng-" (which could be other things)
         let has_ng_app = html.contains("ng-app=") || html.contains("ng-controller=");
-        let has_angular_bundle = html.contains("/angular.") || html.contains("angular.min.js") || html.contains("@angular/");
+        let has_angular_bundle = html.contains("/angular.")
+            || html.contains("angular.min.js")
+            || html.contains("@angular/");
         let has_ng_version = html.contains("ng-version=");
         let has_ng_csp = html.contains("ng-csp") || html.contains("ng-strict-di");
 
@@ -257,7 +273,11 @@ impl FrameworkVulnerabilitiesScanner {
     }
 
     /// Scan Django specific vulnerabilities
-    async fn scan_django(&self, url: &str, html: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn scan_django(
+        &self,
+        url: &str,
+        html: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -303,7 +323,11 @@ impl FrameworkVulnerabilitiesScanner {
     }
 
     /// Scan Laravel specific vulnerabilities
-    async fn scan_laravel(&self, url: &str, html: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn scan_laravel(
+        &self,
+        url: &str,
+        html: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -312,9 +336,11 @@ impl FrameworkVulnerabilitiesScanner {
         let has_laravel_csrf = html.contains("csrf_token()") || html.contains("X-CSRF-TOKEN");
         let has_laravel_errors = html.contains("Whoops!") && html.contains("Laravel");
         let has_laravel_session = html.contains("laravel_session");
-        let has_laravel_specific = html.contains("Laravel Mix") || html.contains("@vite") && html.contains("resources/");
+        let has_laravel_specific =
+            html.contains("Laravel Mix") || html.contains("@vite") && html.contains("resources/");
 
-        if !has_laravel_csrf && !has_laravel_errors && !has_laravel_session && !has_laravel_specific {
+        if !has_laravel_csrf && !has_laravel_errors && !has_laravel_session && !has_laravel_specific
+        {
             return Ok((vulnerabilities, 0));
         }
 
@@ -349,7 +375,11 @@ impl FrameworkVulnerabilitiesScanner {
     }
 
     /// Scan WordPress specific vulnerabilities
-    async fn scan_wordpress(&self, url: &str, html: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn scan_wordpress(
+        &self,
+        url: &str,
+        html: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -441,7 +471,8 @@ impl FrameworkVulnerabilitiesScanner {
     /// Extract WordPress version
     fn extract_wordpress_version(&self, html: &str) -> Option<String> {
         if let Some(start) = html.find("wp-content") {
-            let search_area = &html[start.saturating_sub(200)..start.saturating_add(200).min(html.len())];
+            let search_area =
+                &html[start.saturating_sub(200)..start.saturating_add(200).min(html.len())];
             if let Some(version_match) = regex::Regex::new(r"WordPress\s+(\d+\.\d+(?:\.\d+)?)")
                 .ok()
                 .and_then(|re| re.captures(search_area))
@@ -486,7 +517,7 @@ impl FrameworkVulnerabilitiesScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -534,7 +565,8 @@ mod tests {
     fn test_extract_next_data() {
         let scanner = create_test_scanner();
 
-        let html = r#"<script>__NEXT_DATA__ = {"props":{"pageProps":{"secret":"test123"}}};</script>"#;
+        let html =
+            r#"<script>__NEXT_DATA__ = {"props":{"pageProps":{"secret":"test123"}}};</script>"#;
         let result = scanner.extract_next_data(html);
 
         assert!(result.is_some());

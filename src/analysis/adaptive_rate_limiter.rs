@@ -15,7 +15,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -51,9 +50,9 @@ pub struct DomainRateState {
 impl Default for DomainRateState {
     fn default() -> Self {
         Self {
-            current_rps: 10.0,  // Start with 10 RPS
-            min_rps: 0.5,       // Never go below 0.5 RPS
-            max_rps: 50.0,      // Never exceed 50 RPS
+            current_rps: 10.0, // Start with 10 RPS
+            min_rps: 0.5,      // Never go below 0.5 RPS
+            max_rps: 50.0,     // Never exceed 50 RPS
             last_request: Instant::now(),
             rate_limit_hits: 0,
             success_streak: 0,
@@ -106,10 +105,10 @@ impl Default for RateLimiterConfig {
             initial_rps: 10.0,
             min_rps: 0.5,
             max_rps: 50.0,
-            backoff_multiplier: 0.5,      // Halve rate on 429
-            recovery_multiplier: 1.1,      // 10% increase on success streak
-            recovery_threshold: 20,        // 20 successes before recovery
-            slowdown_threshold_ms: 5000,   // Slow down if responses > 5s
+            backoff_multiplier: 0.5,     // Halve rate on 429
+            recovery_multiplier: 1.1,    // 10% increase on success streak
+            recovery_threshold: 20,      // 20 successes before recovery
+            slowdown_threshold_ms: 5000, // Slow down if responses > 5s
         }
     }
 }
@@ -175,14 +174,14 @@ impl AdaptiveRateLimiter {
 
         // Update last request time
         let mut states = self.domain_states.write().await;
-        let state = states.entry(domain.clone()).or_insert_with(|| {
-            DomainRateState {
+        let state = states
+            .entry(domain.clone())
+            .or_insert_with(|| DomainRateState {
                 current_rps: self.config.initial_rps,
                 min_rps: self.config.min_rps,
                 max_rps: self.config.max_rps,
                 ..Default::default()
-            }
-        });
+            });
         state.last_request = Instant::now();
     }
 
@@ -191,14 +190,14 @@ impl AdaptiveRateLimiter {
         let domain = Self::extract_domain(url);
         let mut states = self.domain_states.write().await;
 
-        let state = states.entry(domain.clone()).or_insert_with(|| {
-            DomainRateState {
+        let state = states
+            .entry(domain.clone())
+            .or_insert_with(|| DomainRateState {
                 current_rps: self.config.initial_rps,
                 min_rps: self.config.min_rps,
                 max_rps: self.config.max_rps,
                 ..Default::default()
-            }
-        });
+            });
 
         // Update response time moving average
         if state.avg_response_time_ms == 0.0 {
@@ -217,8 +216,7 @@ impl AdaptiveRateLimiter {
             state.rate_limiting_detected = true;
 
             // Apply exponential backoff
-            let new_rps = (state.current_rps * self.config.backoff_multiplier)
-                .max(state.min_rps);
+            let new_rps = (state.current_rps * self.config.backoff_multiplier).max(state.min_rps);
 
             warn!(
                 "Rate limit detected for {} ({}): reducing RPS from {:.2} to {:.2}",
@@ -229,7 +227,10 @@ impl AdaptiveRateLimiter {
             // Handle Retry-After header
             if let Some(retry_secs) = response.retry_after_secs {
                 state.retry_after = Some(Duration::from_secs(retry_secs));
-                info!("Retry-After header detected: waiting {} seconds", retry_secs);
+                info!(
+                    "Retry-After header detected: waiting {} seconds",
+                    retry_secs
+                );
             }
         } else if response.status_code >= 200 && response.status_code < 400 {
             // Successful response
@@ -237,9 +238,11 @@ impl AdaptiveRateLimiter {
             state.retry_after = None;
 
             // Recovery: increase rate after success streak
-            if state.success_streak >= self.config.recovery_threshold && state.rate_limiting_detected {
-                let new_rps = (state.current_rps * self.config.recovery_multiplier)
-                    .min(state.max_rps);
+            if state.success_streak >= self.config.recovery_threshold
+                && state.rate_limiting_detected
+            {
+                let new_rps =
+                    (state.current_rps * self.config.recovery_multiplier).min(state.max_rps);
 
                 if new_rps > state.current_rps {
                     debug!(
@@ -314,9 +317,14 @@ mod tests {
             has_rate_limit_headers: true,
         };
 
-        limiter.update_from_response("https://example.com/api", &response).await;
+        limiter
+            .update_from_response("https://example.com/api", &response)
+            .await;
 
-        let state = limiter.get_domain_state("https://example.com/api").await.unwrap();
+        let state = limiter
+            .get_domain_state("https://example.com/api")
+            .await
+            .unwrap();
         assert!(state.current_rps < 10.0, "RPS should decrease after 429");
         assert!(state.rate_limiting_detected);
         assert_eq!(state.retry_after, Some(Duration::from_secs(5)));
@@ -325,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn test_rate_recovery() {
         let config = RateLimiterConfig {
-            recovery_threshold: 3,  // Low threshold for testing
+            recovery_threshold: 3, // Low threshold for testing
             ..Default::default()
         };
         let limiter = AdaptiveRateLimiter::with_config(config);
@@ -337,9 +345,14 @@ mod tests {
             retry_after_secs: None,
             has_rate_limit_headers: true,
         };
-        limiter.update_from_response("https://example.com", &rate_limit_response).await;
+        limiter
+            .update_from_response("https://example.com", &rate_limit_response)
+            .await;
 
-        let state_after_limit = limiter.get_domain_state("https://example.com").await.unwrap();
+        let state_after_limit = limiter
+            .get_domain_state("https://example.com")
+            .await
+            .unwrap();
         let limited_rps = state_after_limit.current_rps;
 
         // Simulate successful responses
@@ -351,10 +364,15 @@ mod tests {
         };
 
         for _ in 0..5 {
-            limiter.update_from_response("https://example.com", &success_response).await;
+            limiter
+                .update_from_response("https://example.com", &success_response)
+                .await;
         }
 
-        let state_after_recovery = limiter.get_domain_state("https://example.com").await.unwrap();
+        let state_after_recovery = limiter
+            .get_domain_state("https://example.com")
+            .await
+            .unwrap();
         assert!(
             state_after_recovery.current_rps >= limited_rps,
             "RPS should recover after success streak"
@@ -373,7 +391,9 @@ mod tests {
         };
 
         // Rate limit one domain
-        limiter.update_from_response("https://example.com/api", &response).await;
+        limiter
+            .update_from_response("https://example.com/api", &response)
+            .await;
 
         // Other domain should be unaffected
         let other_state = limiter.get_domain_state("https://other.com/api").await;

@@ -19,7 +19,10 @@ pub struct NosqlInjectionScanner {
 
 impl NosqlInjectionScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        let test_marker = format!("nosql-{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        let test_marker = format!(
+            "nosql-{}",
+            uuid::Uuid::new_v4().to_string().replace("-", "")
+        );
         Self {
             http_client,
             test_marker,
@@ -76,7 +79,10 @@ impl NosqlInjectionScanner {
     }
 
     /// Test MongoDB operators in GET requests
-    async fn test_mongodb_operators_get(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_mongodb_operators_get(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -100,7 +106,10 @@ impl NosqlInjectionScanner {
                         vulnerabilities.push(self.create_vulnerability(
                             "NoSQL Injection (GET)",
                             &test_url,
-                            &format!("NoSQL injection via {} in GET parameter: {}={}", description, param, value),
+                            &format!(
+                                "NoSQL injection via {} in GET parameter: {}={}",
+                                description, param, value
+                            ),
                             Severity::Critical,
                             "CWE-943",
                         ));
@@ -117,7 +126,10 @@ impl NosqlInjectionScanner {
     }
 
     /// Test MongoDB operators in POST requests
-    async fn test_mongodb_operators_post(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_mongodb_operators_post(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
@@ -125,8 +137,14 @@ impl NosqlInjectionScanner {
 
         // NoSQL injection payloads for POST (JSON)
         let payloads = vec![
-            (r#"{"username":{"$ne":null},"password":{"$ne":null}}"#, "Authentication bypass with $ne"),
-            (r#"{"username":{"$gt":""},"password":{"$gt":""}}"#, "Authentication bypass with $gt"),
+            (
+                r#"{"username":{"$ne":null},"password":{"$ne":null}}"#,
+                "Authentication bypass with $ne",
+            ),
+            (
+                r#"{"username":{"$gt":""},"password":{"$gt":""}}"#,
+                "Authentication bypass with $gt",
+            ),
             (r#"{"id":{"$regex":".*"}}"#, "Data extraction with $regex"),
             (r#"{"price":{"$lt":0}}"#, "Price manipulation with $lt"),
         ];
@@ -134,7 +152,11 @@ impl NosqlInjectionScanner {
         for (payload, description) in payloads {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, payload, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, payload, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_nosql_injection(&response.body, response.status_code) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -157,7 +179,10 @@ impl NosqlInjectionScanner {
     }
 
     /// Test JavaScript injection in NoSQL queries
-    async fn test_javascript_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_javascript_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -165,15 +190,28 @@ impl NosqlInjectionScanner {
 
         // JavaScript injection payloads
         let payloads = vec![
-            (r#"{"username":"admin","password":{"$where":"this.password.length > 0"}}"#, "$where with JavaScript"),
-            (r#"{"$where":"this.username == 'admin' || '1'=='1'"}"#, "JavaScript logic injection"),
-            (r#"{"username":"admin'; return true; var a='","password":"test"}"#, "JavaScript code injection"),
+            (
+                r#"{"username":"admin","password":{"$where":"this.password.length > 0"}}"#,
+                "$where with JavaScript",
+            ),
+            (
+                r#"{"$where":"this.username == 'admin' || '1'=='1'"}"#,
+                "JavaScript logic injection",
+            ),
+            (
+                r#"{"username":"admin'; return true; var a='","password":"test"}"#,
+                "JavaScript code injection",
+            ),
         ];
 
         for (payload, description) in payloads {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, payload, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, payload, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_javascript_injection(&response.body, response.status_code) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -215,13 +253,20 @@ impl NosqlInjectionScanner {
         for endpoint in login_endpoints {
             let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(&endpoint, bypass_payload, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&endpoint, bypass_payload, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_auth_bypass(&response.body, response.status_code) {
                         vulnerabilities.push(self.create_vulnerability(
                             "NoSQL Authentication Bypass",
                             &endpoint,
-                            &format!("Authentication bypass via NoSQL injection: {}", bypass_payload),
+                            &format!(
+                                "Authentication bypass via NoSQL injection: {}",
+                                bypass_payload
+                            ),
                             Severity::Critical,
                             "CWE-943",
                         ));
@@ -245,20 +290,20 @@ impl NosqlInjectionScanner {
         // Check for SPECIFIC MongoDB/NoSQL error patterns only
         // These are actual error messages that indicate NoSQL injection worked
         let nosql_specific_errors = vec![
-            "mongoerror",                          // MongoDB error class
-            "mongoose validation",                 // Mongoose ORM errors
-            "bsonerror",                           // BSON parsing errors
-            "cast to objectid failed",             // MongoDB casting error
-            "illegal $operator",                   // MongoDB operator error
-            "$ne requires",                        // MongoDB operator validation
-            "$gt requires",                        // MongoDB operator validation
-            "$regex",                              // MongoDB regex operator in error
-            "invalid operator",                    // MongoDB invalid operator
-            "unknown query operator",              // MongoDB unknown operator
-            "cannot apply $where",                 // MongoDB $where restriction
-            "failed to parse",                     // MongoDB parsing failure
-            "not a valid json document",           // MongoDB JSON error
-            "invalid bson",                        // BSON validation error
+            "mongoerror",                // MongoDB error class
+            "mongoose validation",       // Mongoose ORM errors
+            "bsonerror",                 // BSON parsing errors
+            "cast to objectid failed",   // MongoDB casting error
+            "illegal $operator",         // MongoDB operator error
+            "$ne requires",              // MongoDB operator validation
+            "$gt requires",              // MongoDB operator validation
+            "$regex",                    // MongoDB regex operator in error
+            "invalid operator",          // MongoDB invalid operator
+            "unknown query operator",    // MongoDB unknown operator
+            "cannot apply $where",       // MongoDB $where restriction
+            "failed to parse",           // MongoDB parsing failure
+            "not a valid json document", // MongoDB JSON error
+            "invalid bson",              // BSON validation error
         ];
 
         for error in nosql_specific_errors {
@@ -280,13 +325,13 @@ impl NosqlInjectionScanner {
 
         // Check for SPECIFIC JavaScript execution errors in MongoDB context
         let js_specific_errors = vec![
-            "referenceerror:",                    // JavaScript runtime error
-            "syntaxerror:",                       // JavaScript syntax error
-            "$where not allowed",                 // MongoDB $where restriction
-            "cannot apply $where",                // MongoDB $where error
-            "illegal $where",                     // MongoDB $where error
-            "javascript execution",               // MongoDB JS execution context
-            "server-side javascript",             // MongoDB SSJS context
+            "referenceerror:",        // JavaScript runtime error
+            "syntaxerror:",           // JavaScript syntax error
+            "$where not allowed",     // MongoDB $where restriction
+            "cannot apply $where",    // MongoDB $where error
+            "illegal $where",         // MongoDB $where error
+            "javascript execution",   // MongoDB JS execution context
+            "server-side javascript", // MongoDB SSJS context
         ];
 
         for error in js_specific_errors {
@@ -316,13 +361,13 @@ impl NosqlInjectionScanner {
         // Check for SPECIFIC auth success patterns (not just generic words)
         // These indicate authentication actually succeeded
         let strong_auth_indicators = vec![
-            "\"access_token\":",      // OAuth/JWT token
-            "\"refresh_token\":",     // OAuth refresh token
-            "\"jwt\":",               // JWT token
-            "\"sessionid\":",         // Session ID
-            "set-cookie: session",    // Session cookie being set
+            "\"access_token\":",         // OAuth/JWT token
+            "\"refresh_token\":",        // OAuth refresh token
+            "\"jwt\":",                  // JWT token
+            "\"sessionid\":",            // Session ID
+            "set-cookie: session",       // Session cookie being set
             "authentication successful", // Explicit success message
-            "login succeeded",        // Explicit success message
+            "login succeeded",           // Explicit success message
         ];
 
         for indicator in strong_auth_indicators {
@@ -371,7 +416,7 @@ impl NosqlInjectionScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 

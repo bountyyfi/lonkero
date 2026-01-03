@@ -65,7 +65,10 @@ impl ApiGatewayScanner {
 
     /// Test rate limit bypass via header manipulation
     /// Only reports if we can demonstrate rate limiting exists AND can be bypassed
-    async fn test_rate_limit_bypass(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_rate_limit_bypass(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 25;
 
@@ -88,8 +91,11 @@ impl ApiGatewayScanner {
                     // Check for rate limit headers (X-RateLimit-*, RateLimit-*, Retry-After)
                     for (key, value) in &response.headers {
                         let key_lower = key.to_lowercase();
-                        if key_lower.contains("ratelimit") || key_lower.contains("rate-limit") ||
-                           key_lower == "retry-after" || key_lower.contains("x-rate") {
+                        if key_lower.contains("ratelimit")
+                            || key_lower.contains("rate-limit")
+                            || key_lower == "retry-after"
+                            || key_lower.contains("x-rate")
+                        {
                             rate_limit_header = format!("{}: {}", key, value);
                             rate_limit_detected = true;
                         }
@@ -102,12 +108,21 @@ impl ApiGatewayScanner {
 
         // If no rate limiting detected, don't report false positive
         if !rate_limit_detected {
-            debug!("No rate limiting detected on {} - skipping bypass test", url);
+            debug!(
+                "No rate limiting detected on {} - skipping bypass test",
+                url
+            );
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("Rate limiting detected ({}), testing header bypass",
-              if rate_limit_header.is_empty() { "429 response" } else { &rate_limit_header });
+        info!(
+            "Rate limiting detected ({}), testing header bypass",
+            if rate_limit_header.is_empty() {
+                "429 response"
+            } else {
+                &rate_limit_header
+            }
+        );
 
         // Step 2: Now test if headers can bypass the rate limit
         let bypass_headers = vec![
@@ -123,7 +138,11 @@ impl ApiGatewayScanner {
 
             // Make multiple requests with bypass header
             for i in 0..5 {
-                match self.http_client.get_with_headers(url, headers.clone()).await {
+                match self
+                    .http_client
+                    .get_with_headers(url, headers.clone())
+                    .await
+                {
                     Ok(response) => {
                         if response.status_code == 200 || response.status_code == 304 {
                             success_count += 1;
@@ -202,10 +221,11 @@ impl ApiGatewayScanner {
                     }
 
                     if response.headers.iter().any(|(k, v)| {
-                        k.to_lowercase().contains("api") && (
-                            v.len() > 20 &&
-                            (v.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'))
-                        )
+                        k.to_lowercase().contains("api")
+                            && (v.len() > 20
+                                && (v
+                                    .chars()
+                                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_')))
                     }) {
                         info!("API key leaked in response headers at {}", path);
                         vulnerabilities.push(self.create_vulnerability(
@@ -231,7 +251,10 @@ impl ApiGatewayScanner {
     }
 
     /// Test API versioning issues
-    async fn test_api_versioning_issues(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_api_versioning_issues(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -275,7 +298,14 @@ impl ApiGatewayScanner {
             }
         }
 
-        let test_versions = vec!["v0".to_string(), "v1".to_string(), "v2".to_string(), "v3".to_string(), "v4".to_string(), "v5".to_string()];
+        let test_versions = vec![
+            "v0".to_string(),
+            "v1".to_string(),
+            "v2".to_string(),
+            "v3".to_string(),
+            "v4".to_string(),
+            "v5".to_string(),
+        ];
         for version in test_versions {
             let version_url = format!("{}/api/{}/users", self.extract_base_url(url), &version);
 
@@ -283,7 +313,9 @@ impl ApiGatewayScanner {
                 Ok(response) => {
                     // Check if this is actually an API response, not an SPA fallback
                     // SPAs return HTML for all non-existent routes
-                    let content_type = response.headers.get("content-type")
+                    let content_type = response
+                        .headers
+                        .get("content-type")
                         .or_else(|| response.headers.get("Content-Type"))
                         .map(|s| s.to_lowercase())
                         .unwrap_or_default();
@@ -307,7 +339,10 @@ impl ApiGatewayScanner {
                             url,
                             "Undocumented API Version Exposed",
                             "",
-                            &format!("Undocumented API version {} is publicly accessible", version),
+                            &format!(
+                                "Undocumented API version {} is publicly accessible",
+                                version
+                            ),
                             &format!("Found accessible endpoint: {}", version_url),
                             Severity::Low,
                             "CWE-200",
@@ -326,7 +361,10 @@ impl ApiGatewayScanner {
     }
 
     /// Test gateway authentication bypass
-    async fn test_gateway_auth_bypass(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_gateway_auth_bypass(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
@@ -353,7 +391,10 @@ impl ApiGatewayScanner {
                             "API Gateway Authentication Bypass",
                             bypass_path,
                             &format!("Gateway authentication can be bypassed using {}", technique),
-                            &format!("Successfully accessed protected endpoint using {}", technique),
+                            &format!(
+                                "Successfully accessed protected endpoint using {}",
+                                technique
+                            ),
                             Severity::Critical,
                             "CWE-287",
                             9.8,
@@ -371,13 +412,20 @@ impl ApiGatewayScanner {
             vec![("X-Original-URL".to_string(), "/api/admin".to_string())],
             vec![("X-Rewrite-URL".to_string(), "/api/admin".to_string())],
             vec![("X-Forwarded-Path".to_string(), "/api/admin".to_string())],
-            vec![("X-Custom-IP-Authorization".to_string(), "127.0.0.1".to_string())],
+            vec![(
+                "X-Custom-IP-Authorization".to_string(),
+                "127.0.0.1".to_string(),
+            )],
             vec![("X-ProxyUser-Ip".to_string(), "127.0.0.1".to_string())],
             vec![("Authorization".to_string(), "Bearer null".to_string())],
         ];
 
         for headers in header_bypasses {
-            match self.http_client.get_with_headers(url, headers.clone()).await {
+            match self
+                .http_client
+                .get_with_headers(url, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     if response.status_code == 200 && self.looks_like_admin_panel(&response.body) {
                         let header_name = &headers[0].0;
@@ -386,7 +434,10 @@ impl ApiGatewayScanner {
                             url,
                             "API Gateway Authentication Bypass via Headers",
                             &format!("{}: {}", headers[0].0, headers[0].1),
-                            &format!("Gateway authentication bypassed using {} header", header_name),
+                            &format!(
+                                "Gateway authentication bypassed using {} header",
+                                header_name
+                            ),
                             &format!("Successfully bypassed auth using {} header", header_name),
                             Severity::Critical,
                             "CWE-287",
@@ -405,7 +456,10 @@ impl ApiGatewayScanner {
     }
 
     /// Test for API schema disclosure
-    async fn test_schema_disclosure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_schema_disclosure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -455,7 +509,10 @@ impl ApiGatewayScanner {
 
     /// Test for BFF (Backend-For-Frontend) and internal gateway exposure
     /// Detects: internal API URLs in redirects, BFF config endpoints, gatewayInternal exposure
-    async fn test_bff_internal_discovery(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_bff_internal_discovery(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
         let base_url = self.extract_base_url(url);
@@ -493,16 +550,7 @@ impl ApiGatewayScanner {
 
         // Fuzz suffixes to append for path-based discovery
         let fuzz_suffixes = vec![
-            "",
-            "FUZZ",
-            "test",
-            "../",
-            "..;/",
-            "..",
-            "config",
-            "internal",
-            "admin",
-            "debug",
+            "", "FUZZ", "test", "../", "..;/", "..", "config", "internal", "admin", "debug",
         ];
 
         for path in &bff_paths {
@@ -520,8 +568,11 @@ impl ApiGatewayScanner {
                     Ok(response) => {
                         // Check for 302 redirect to internal URLs
                         if response.status_code == 302 || response.status_code == 301 {
-                            if let Some(location) = response.headers.get("location")
-                                .or_else(|| response.headers.get("Location")) {
+                            if let Some(location) = response
+                                .headers
+                                .get("location")
+                                .or_else(|| response.headers.get("Location"))
+                            {
                                 // Check if redirect reveals internal endpoints
                                 if self.is_internal_url(location) {
                                     info!("Found internal URL in redirect: {}", location);
@@ -567,7 +618,10 @@ impl ApiGatewayScanner {
 
                                 // Avoid duplicates
                                 let vuln_exists = vulnerabilities.iter().any(|v| {
-                                    v.evidence.as_ref().map(|e| e.contains(indicator)).unwrap_or(false)
+                                    v.evidence
+                                        .as_ref()
+                                        .map(|e| e.contains(indicator))
+                                        .unwrap_or(false)
                                 });
 
                                 if !vuln_exists {
@@ -645,24 +699,24 @@ impl ApiGatewayScanner {
         let url_lower = url.to_lowercase();
 
         // Internal domain patterns
-        url_lower.contains("internal") ||
-        url_lower.contains("backstage") ||
-        url_lower.contains("localhost") ||
-        url_lower.contains("127.0.0.1") ||
-        url_lower.contains("10.0.") ||
-        url_lower.contains("10.1.") ||
-        url_lower.contains("172.16.") ||
-        url_lower.contains("172.17.") ||
-        url_lower.contains("192.168.") ||
-        url_lower.contains(".local") ||
-        url_lower.contains(".corp") ||
-        url_lower.contains(".internal") ||
-        url_lower.contains(":8080") ||
-        url_lower.contains(":3000") ||
-        url_lower.contains(":5000") ||
-        url_lower.contains(":9000") ||
-        url_lower.contains("gateway-internal") ||
-        url_lower.contains("api-internal")
+        url_lower.contains("internal")
+            || url_lower.contains("backstage")
+            || url_lower.contains("localhost")
+            || url_lower.contains("127.0.0.1")
+            || url_lower.contains("10.0.")
+            || url_lower.contains("10.1.")
+            || url_lower.contains("172.16.")
+            || url_lower.contains("172.17.")
+            || url_lower.contains("192.168.")
+            || url_lower.contains(".local")
+            || url_lower.contains(".corp")
+            || url_lower.contains(".internal")
+            || url_lower.contains(":8080")
+            || url_lower.contains(":3000")
+            || url_lower.contains(":5000")
+            || url_lower.contains(":9000")
+            || url_lower.contains("gateway-internal")
+            || url_lower.contains("api-internal")
     }
 
     /// Extract context around a match
@@ -707,7 +761,11 @@ impl ApiGatewayScanner {
         None
     }
 
-    fn has_deprecation_warning(&self, body: &str, headers: &std::collections::HashMap<String, String>) -> bool {
+    fn has_deprecation_warning(
+        &self,
+        body: &str,
+        headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let deprecation_indicators = vec![
             "deprecated",
@@ -725,9 +783,10 @@ impl ApiGatewayScanner {
         }
 
         for (key, value) in headers {
-            if key.to_lowercase() == "deprecation" ||
-               key.to_lowercase() == "sunset" ||
-               value.to_lowercase().contains("deprecated") {
+            if key.to_lowercase() == "deprecation"
+                || key.to_lowercase() == "sunset"
+                || value.to_lowercase().contains("deprecated")
+            {
                 return true;
             }
         }
@@ -759,10 +818,10 @@ impl ApiGatewayScanner {
     fn is_api_schema(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        (body_lower.contains("swagger") && body_lower.contains("\"paths\"")) ||
-        (body_lower.contains("openapi") && body_lower.contains("\"paths\"")) ||
-        (body_lower.contains("\"definitions\"") && body_lower.contains("\"parameters\"")) ||
-        body_lower.contains("\"x-swagger-router-controller\"")
+        (body_lower.contains("swagger") && body_lower.contains("\"paths\""))
+            || (body_lower.contains("openapi") && body_lower.contains("\"paths\""))
+            || (body_lower.contains("\"definitions\"") && body_lower.contains("\"parameters\""))
+            || body_lower.contains("\"x-swagger-router-controller\"")
     }
 
     fn build_url(&self, base: &str, path: &str) -> String {
@@ -811,7 +870,7 @@ impl ApiGatewayScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -825,7 +884,8 @@ impl ApiGatewayScanner {
                  5. Configure gateway to strip untrusted headers\n\
                  6. Use composite rate limiting (IP + session + API key)\n\
                  7. Implement distributed rate limiting with Redis/Memcached\n\
-                 8. Log and alert on rate limit bypass attempts".to_string()
+                 8. Log and alert on rate limit bypass attempts"
+                    .to_string()
             }
             "API Key Leakage" | "API Key Leakage in Headers" => {
                 "1. Never expose API keys in responses, headers, or error messages\n\
@@ -835,7 +895,8 @@ impl ApiGatewayScanner {
                  5. Use short-lived tokens instead of long-lived API keys\n\
                  6. Implement API key hashing for storage\n\
                  7. Remove debug/config endpoints from production\n\
-                 8. Use secrets management services (AWS Secrets Manager, Vault)".to_string()
+                 8. Use secrets management services (AWS Secrets Manager, Vault)"
+                    .to_string()
             }
             "Deprecated API Version Accessible" | "Undocumented API Version Exposed" => {
                 "1. Implement sunset headers for deprecated API versions\n\
@@ -845,9 +906,11 @@ impl ApiGatewayScanner {
                  5. Implement version negotiation in API gateway\n\
                  6. Log usage of deprecated endpoints for monitoring\n\
                  7. Redirect old versions to new versions when possible\n\
-                 8. Document all supported API versions publicly".to_string()
+                 8. Document all supported API versions publicly"
+                    .to_string()
             }
-            "API Gateway Authentication Bypass" | "API Gateway Authentication Bypass via Headers" => {
+            "API Gateway Authentication Bypass"
+            | "API Gateway Authentication Bypass via Headers" => {
                 "1. Implement strict path normalization before authentication\n\
                  2. Do not trust client-provided routing headers (X-Original-URL, etc.)\n\
                  3. Use allowlist-based routing instead of blocklists\n\
@@ -855,7 +918,8 @@ impl ApiGatewayScanner {
                  5. Configure gateway to reject path traversal attempts\n\
                  6. Implement defense in depth (gateway + app authentication)\n\
                  7. Log and alert on authentication bypass attempts\n\
-                 8. Regular security testing of gateway configuration".to_string()
+                 8. Regular security testing of gateway configuration"
+                    .to_string()
             }
             "API Schema Disclosure" => {
                 "1. Restrict access to API documentation endpoints in production\n\
@@ -865,7 +929,8 @@ impl ApiGatewayScanner {
                  5. Use API gateway policies to block doc endpoints\n\
                  6. Implement IP allowlisting for documentation access\n\
                  7. Consider removing schema endpoints entirely in production\n\
-                 8. Use different configurations for dev vs production".to_string()
+                 8. Use different configurations for dev vs production"
+                    .to_string()
             }
             "Internal API URL Exposed via Redirect" => {
                 "1. Remove or restrict BFF config endpoints in production\n\
@@ -875,7 +940,8 @@ impl ApiGatewayScanner {
                  5. Configure gateway to rewrite internal URLs before response\n\
                  6. Use API gateway URL transformation rules\n\
                  7. Audit all redirect responses for internal URL leakage\n\
-                 8. Implement allowlist-based redirect validation".to_string()
+                 8. Implement allowlist-based redirect validation"
+                    .to_string()
             }
             "Internal Infrastructure Exposure" | "BFF Path Reflection in Error Response" => {
                 "1. Sanitize error responses to remove internal references\n\
@@ -885,9 +951,11 @@ impl ApiGatewayScanner {
                  5. Use environment-specific error handling (dev vs prod)\n\
                  6. Audit response bodies for internal IP/domain leakage\n\
                  7. Disable debug mode and verbose errors in production\n\
-                 8. Use centralized error handling with sanitization".to_string()
+                 8. Use centralized error handling with sanitization"
+                    .to_string()
             }
-            _ => "Follow OWASP API Security Top 10 guidelines and implement defense in depth".to_string(),
+            _ => "Follow OWASP API Security Top 10 guidelines and implement defense in depth"
+                .to_string(),
         }
     }
 }
@@ -920,7 +988,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> ApiGatewayScanner {
@@ -977,16 +1045,31 @@ use crate::http_client::HttpClient;
     fn test_build_url() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.build_url("http://example.com", "/api"), "http://example.com/api");
-        assert_eq!(scanner.build_url("http://example.com/", "/api"), "http://example.com/api");
-        assert_eq!(scanner.build_url("http://example.com", "api"), "http://example.com/api");
+        assert_eq!(
+            scanner.build_url("http://example.com", "/api"),
+            "http://example.com/api"
+        );
+        assert_eq!(
+            scanner.build_url("http://example.com/", "/api"),
+            "http://example.com/api"
+        );
+        assert_eq!(
+            scanner.build_url("http://example.com", "api"),
+            "http://example.com/api"
+        );
     }
 
     #[test]
     fn test_extract_base_url() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.extract_base_url("https://api.example.com/v1/users"), "https://api.example.com");
-        assert_eq!(scanner.extract_base_url("http://localhost:8080/api"), "http://localhost:8080");
+        assert_eq!(
+            scanner.extract_base_url("https://api.example.com/v1/users"),
+            "https://api.example.com"
+        );
+        assert_eq!(
+            scanner.extract_base_url("http://localhost:8080/api"),
+            "http://localhost:8080"
+        );
     }
 }

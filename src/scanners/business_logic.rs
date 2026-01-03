@@ -1,9 +1,8 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
-use crate::http_client::{HttpClient, HttpResponse};
+use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use crate::detection_helpers::did_payload_have_effect;
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -136,7 +135,7 @@ impl BusinessLogicScanner {
             ("quantity", "-10"),
             ("price", "-1.00"),
             ("amount", "-100"),
-            ("discount", "200"),  // Over 100%
+            ("discount", "200"), // Over 100%
             ("balance", "-1000"),
         ];
 
@@ -150,7 +149,12 @@ impl BusinessLogicScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     // CRITICAL: Pass baseline body to avoid false positives
-                    if self.detect_negative_value_accepted(&response.body, &baseline_response.body, param, value) {
+                    if self.detect_negative_value_accepted(
+                        &response.body,
+                        &baseline_response.body,
+                        param,
+                        value,
+                    ) {
                         info!("Negative/invalid value accepted: {}={}", param, value);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -187,7 +191,7 @@ impl BusinessLogicScanner {
         };
 
         let workflow_tests = vec![
-            ("step", "10"),  // Skip to final step
+            ("step", "10"), // Skip to final step
             ("status", "completed"),
             ("state", "paid"),
             ("verified", "true"),
@@ -203,7 +207,11 @@ impl BusinessLogicScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     // CRITICAL: Pass baseline body to avoid false positives
-                    if self.detect_workflow_bypass_with_baseline(&response.body, &baseline_response.body, value) {
+                    if self.detect_workflow_bypass_with_baseline(
+                        &response.body,
+                        &baseline_response.body,
+                        value,
+                    ) {
                         info!("Workflow bypass detected: {}={}", param, value);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -227,7 +235,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test parameter tampering
-    async fn test_parameter_tampering(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_parameter_tampering(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -301,8 +312,13 @@ impl BusinessLogicScanner {
                 let params_clone = params.to_string();
 
                 let handle = tokio::spawn(async move {
-                    let headers = vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())];
-                    client.post_with_headers(&url_clone, &params_clone, headers).await
+                    let headers = vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )];
+                    client
+                        .post_with_headers(&url_clone, &params_clone, headers)
+                        .await
                 });
                 handles.push(handle);
             }
@@ -346,7 +362,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test for price manipulation
-    async fn test_price_manipulation(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_price_manipulation(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
@@ -380,7 +399,12 @@ impl BusinessLogicScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     // CRITICAL: Pass baseline for comparison to avoid false positives
-                    if self.detect_price_manipulation_with_baseline(&response.body, &baseline.body, param, value) {
+                    if self.detect_price_manipulation_with_baseline(
+                        &response.body,
+                        &baseline.body,
+                        param,
+                        value,
+                    ) {
                         info!("Price manipulation successful: {}={}", param, value);
                         vulnerabilities.push(self.create_vulnerability(
                             url,
@@ -406,20 +430,42 @@ impl BusinessLogicScanner {
             let post_data = format!("{}={}&product_id=1", param, value);
 
             // Get baseline for POST endpoint too
-            let post_baseline = self.http_client.post_with_headers(
-                &checkout_url,
-                "product_id=1",
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await.ok();
+            let post_baseline = self
+                .http_client
+                .post_with_headers(
+                    &checkout_url,
+                    "product_id=1",
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+                .ok();
 
-            match self.http_client.post_with_headers(
-                &checkout_url,
-                &post_data,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    &checkout_url,
+                    &post_data,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
-                    let baseline_body = post_baseline.as_ref().map(|r| r.body.as_str()).unwrap_or("");
-                    if self.detect_price_manipulation_with_baseline(&response.body, baseline_body, param, value) {
+                    let baseline_body = post_baseline
+                        .as_ref()
+                        .map(|r| r.body.as_str())
+                        .unwrap_or("");
+                    if self.detect_price_manipulation_with_baseline(
+                        &response.body,
+                        baseline_body,
+                        param,
+                        value,
+                    ) {
                         vulnerabilities.push(self.create_vulnerability(
                             &checkout_url,
                             "Price Manipulation (POST)",
@@ -440,7 +486,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test for quantity tampering
-    async fn test_quantity_tampering(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_quantity_tampering(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
@@ -452,7 +501,7 @@ impl BusinessLogicScanner {
             ("count", "999999"),
             ("amount", "0.0001"),
             ("items", "-10"),
-            ("num", "2147483647"),  // Max int
+            ("num", "2147483647"), // Max int
         ];
 
         for (param, value) in &quantity_tests {
@@ -510,21 +559,28 @@ impl BusinessLogicScanner {
 
         let coupon_tests = vec![
             ("code", "TEST100"),
-            ("coupon", "' OR '1'='1"),  // SQL injection in coupon
-            ("discount_code", "%00"),    // Null byte injection
-            ("promo_code", "../../etc/passwd"),  // Path traversal
-            ("voucher", "-1"),           // Negative value
+            ("coupon", "' OR '1'='1"),          // SQL injection in coupon
+            ("discount_code", "%00"),           // Null byte injection
+            ("promo_code", "../../etc/passwd"), // Path traversal
+            ("voucher", "-1"),                  // Negative value
         ];
 
         for endpoint in &coupon_endpoints {
             for (param, value) in &coupon_tests {
                 let post_data = format!("{}={}", param, value);
 
-                match self.http_client.post_with_headers(
-                    endpoint,
-                    &post_data,
-                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                ).await {
+                match self
+                    .http_client
+                    .post_with_headers(
+                        endpoint,
+                        &post_data,
+                        vec![(
+                            "Content-Type".to_string(),
+                            "application/x-www-form-urlencoded".to_string(),
+                        )],
+                    )
+                    .await
+                {
                     Ok(response) => {
                         // Check for coupon bypass
                         if self.detect_coupon_bypass(&response.body, value) {
@@ -541,11 +597,17 @@ impl BusinessLogicScanner {
                         }
 
                         // Check if same coupon can be applied multiple times
-                        let second_response = self.http_client.post_with_headers(
-                            endpoint,
-                            &post_data,
-                            vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                        ).await;
+                        let second_response = self
+                            .http_client
+                            .post_with_headers(
+                                endpoint,
+                                &post_data,
+                                vec![(
+                                    "Content-Type".to_string(),
+                                    "application/x-www-form-urlencoded".to_string(),
+                                )],
+                            )
+                            .await;
 
                         if let Ok(second_resp) = second_response {
                             if self.detect_coupon_reuse(&response.body, &second_resp.body) {
@@ -586,22 +648,23 @@ impl BusinessLogicScanner {
         let transaction_data = "amount=100&to=attacker&transaction_id=TX123456";
 
         for endpoint in &transaction_endpoints {
-            let headers = vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())];
+            let headers = vec![(
+                "Content-Type".to_string(),
+                "application/x-www-form-urlencoded".to_string(),
+            )];
 
             // First request
-            let first_response = self.http_client.post_with_headers(
-                &endpoint,
-                transaction_data,
-                headers.clone()
-            ).await;
+            let first_response = self
+                .http_client
+                .post_with_headers(&endpoint, transaction_data, headers.clone())
+                .await;
 
             if let Ok(first_resp) = first_response {
                 // Replay the same request
-                let second_response = self.http_client.post_with_headers(
-                    &endpoint,
-                    transaction_data,
-                    headers.clone()
-                ).await;
+                let second_response = self
+                    .http_client
+                    .post_with_headers(&endpoint, transaction_data, headers.clone())
+                    .await;
 
                 if let Ok(second_resp) = second_response {
                     // Check if both transactions succeeded
@@ -632,7 +695,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test for integer overflow/underflow
-    async fn test_integer_overflow(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_integer_overflow(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -645,11 +711,11 @@ impl BusinessLogicScanner {
         };
 
         let overflow_tests = vec![
-            ("amount", "2147483647"),   // Max int32
-            ("amount", "2147483648"),   // Max int32 + 1
-            ("quantity", "9223372036854775807"),  // Max int64
+            ("amount", "2147483647"),            // Max int32
+            ("amount", "2147483648"),            // Max int32 + 1
+            ("quantity", "9223372036854775807"), // Max int64
             ("price", "999999999999999.99"),
-            ("balance", "-9223372036854775808"),  // Min int64
+            ("balance", "-9223372036854775808"), // Min int64
         ];
 
         for (param, value) in &overflow_tests {
@@ -662,7 +728,12 @@ impl BusinessLogicScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     // CRITICAL: Pass baseline for comparison to avoid false positives
-                    if self.detect_integer_overflow_with_baseline(&response.body, &baseline.body, param, value) {
+                    if self.detect_integer_overflow_with_baseline(
+                        &response.body,
+                        &baseline.body,
+                        param,
+                        value,
+                    ) {
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "Integer Overflow/Underflow",
@@ -690,7 +761,10 @@ impl BusinessLogicScanner {
     /// Test for time-based attacks
     /// NOTE: This test requires actual API endpoints with timestamp parameters.
     /// Running against arbitrary URLs (especially SPAs) produces false positives.
-    async fn test_time_based_attacks(&self, _url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_time_based_attacks(
+        &self,
+        _url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let vulnerabilities = Vec::new();
         let tests_run = 0;
 
@@ -710,7 +784,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test enhanced price manipulation with advanced techniques
-    async fn test_enhanced_price_manipulation(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_enhanced_price_manipulation(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
@@ -721,27 +798,70 @@ impl BusinessLogicScanner {
 
         let advanced_price_tests = vec![
             // Negative quantities (refund instead of charge)
-            ("quantity", "-1", "price", "100", "Negative quantity refund abuse"),
-            ("qty", "-10", "unit_price", "50", "Negative quantity bulk refund"),
-
+            (
+                "quantity",
+                "-1",
+                "price",
+                "100",
+                "Negative quantity refund abuse",
+            ),
+            (
+                "qty",
+                "-10",
+                "unit_price",
+                "50",
+                "Negative quantity bulk refund",
+            ),
             // Decimal abuse
-            ("price", "0.01", "quantity", "1", "Decimal price manipulation"),
-            ("price", "-99.99", "quantity", "1", "Negative price manipulation"),
-
+            (
+                "price",
+                "0.01",
+                "quantity",
+                "1",
+                "Decimal price manipulation",
+            ),
+            (
+                "price",
+                "-99.99",
+                "quantity",
+                "1",
+                "Negative price manipulation",
+            ),
             // Integer overflow
-            ("quantity", "2147483647", "price", "1", "Integer overflow quantity"),
+            (
+                "quantity",
+                "2147483647",
+                "price",
+                "1",
+                "Integer overflow quantity",
+            ),
             ("amount", "2147483647", "", "", "Integer overflow amount"),
-
             // Float precision abuse
-            ("price", "0.0000001", "quantity", "1", "Float precision rounds to zero"),
-            ("unit_price", "0.000000001", "qty", "100", "Precision loss exploitation"),
-
+            (
+                "price",
+                "0.0000001",
+                "quantity",
+                "1",
+                "Float precision rounds to zero",
+            ),
+            (
+                "unit_price",
+                "0.000000001",
+                "qty",
+                "100",
+                "Precision loss exploitation",
+            ),
             // Currency manipulation (VND = Vietnamese Dong, 1/1000 of USD)
             ("amount", "100", "currency", "VND", "Currency arbitrage VND"),
             ("price", "1000", "currency", "IDR", "Currency arbitrage IDR"),
-
             // Combined attacks
-            ("price", "-0.01", "quantity", "-1", "Double negative becomes positive"),
+            (
+                "price",
+                "-0.01",
+                "quantity",
+                "-1",
+                "Double negative becomes positive",
+            ),
             ("amount", "0", "shipping", "0", "Zero-dollar order"),
         ];
 
@@ -751,22 +871,32 @@ impl BusinessLogicScanner {
             let post_data = if param2.is_empty() {
                 format!("{}={}&product_id=1&order_id={}", param1, value1, order_id)
             } else {
-                format!("{}={}&{}={}&product_id=1&order_id={}",
-                    param1, value1, param2, value2, order_id)
+                format!(
+                    "{}={}&{}={}&product_id=1&order_id={}",
+                    param1, value1, param2, value2, order_id
+                )
             };
 
-            match self.http_client.post_with_headers(
-                &checkout_url,
-                &post_data,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    &checkout_url,
+                    &post_data,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
                     if self.detect_enhanced_price_manipulation(&response.body, value1, value2) {
                         info!("Enhanced price manipulation successful: {}", attack_type);
 
-                        let severity = if attack_type.contains("negative") ||
-                                         attack_type.contains("zero") ||
-                                         attack_type.contains("currency") {
+                        let severity = if attack_type.contains("negative")
+                            || attack_type.contains("zero")
+                            || attack_type.contains("currency")
+                        {
                             Severity::Critical
                         } else {
                             Severity::High
@@ -782,8 +912,10 @@ impl BusinessLogicScanner {
                                  refunds, zero-cost orders, or currency arbitrage.",
                                 attack_type, post_data
                             ),
-                            &format!("Order created with suspicious pricing: {} (Order ID: {})",
-                                attack_type, order_id),
+                            &format!(
+                                "Order created with suspicious pricing: {} (Order ID: {})",
+                                attack_type, order_id
+                            ),
                             severity,
                             "CWE-682",
                         ));
@@ -806,11 +938,18 @@ impl BusinessLogicScanner {
                 order_id
             );
 
-            match self.http_client.post_with_headers(
-                endpoint,
-                &currency_test,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    endpoint,
+                    &currency_test,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
                     if self.detect_currency_manipulation(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -835,7 +974,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test multi-step workflow bypass
-    async fn test_multi_step_workflow_bypass(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_multi_step_workflow_bypass(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -846,37 +988,76 @@ impl BusinessLogicScanner {
         // Multi-step checkout bypass scenarios
         let workflow_bypasses = vec![
             // Skip to final step
-            (vec![("step", "5"), ("order_id", &order_id)], "Skip to checkout completion"),
-            (vec![("step", "final"), ("order_id", &order_id)], "Skip to final step"),
-
+            (
+                vec![("step", "5"), ("order_id", &order_id)],
+                "Skip to checkout completion",
+            ),
+            (
+                vec![("step", "final"), ("order_id", &order_id)],
+                "Skip to final step",
+            ),
             // Skip payment step
-            (vec![("skip_payment", "true"), ("order_id", &order_id)], "Skip payment validation"),
-            (vec![("payment_verified", "true"), ("order_id", &order_id)], "Fake payment verification"),
-
+            (
+                vec![("skip_payment", "true"), ("order_id", &order_id)],
+                "Skip payment validation",
+            ),
+            (
+                vec![("payment_verified", "true"), ("order_id", &order_id)],
+                "Fake payment verification",
+            ),
             // State manipulation
-            (vec![("status", "shipped"), ("order_id", &order_id)], "Change to shipped status"),
-            (vec![("order_status", "completed"), ("order_id", &order_id)], "Mark order completed"),
-            (vec![("payment_status", "paid"), ("order_id", &order_id)], "Mark payment as paid"),
-
+            (
+                vec![("status", "shipped"), ("order_id", &order_id)],
+                "Change to shipped status",
+            ),
+            (
+                vec![("order_status", "completed"), ("order_id", &order_id)],
+                "Mark order completed",
+            ),
+            (
+                vec![("payment_status", "paid"), ("order_id", &order_id)],
+                "Mark payment as paid",
+            ),
             // Cookie/session tampering simulation
-            (vec![("checkout_step", "complete"), ("order_id", &order_id)], "Cookie step tampering"),
-            (vec![("workflow_state", "confirmed"), ("order_id", &order_id)], "Workflow state bypass"),
-            (vec![("validated", "1"), ("payment_done", "1"), ("order_id", &order_id)], "Multi-flag bypass"),
+            (
+                vec![("checkout_step", "complete"), ("order_id", &order_id)],
+                "Cookie step tampering",
+            ),
+            (
+                vec![("workflow_state", "confirmed"), ("order_id", &order_id)],
+                "Workflow state bypass",
+            ),
+            (
+                vec![
+                    ("validated", "1"),
+                    ("payment_done", "1"),
+                    ("order_id", &order_id),
+                ],
+                "Multi-flag bypass",
+            ),
         ];
 
         for (params, attack_type) in &workflow_bypasses {
             // Test POST to order complete endpoint
             let complete_url = format!("{}/order/complete", url.trim_end_matches('/'));
-            let post_data: String = params.iter()
+            let post_data: String = params
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, v))
                 .collect::<Vec<_>>()
                 .join("&");
 
-            match self.http_client.post_with_headers(
-                &complete_url,
-                &post_data,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    &complete_url,
+                    &post_data,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
                     if self.detect_workflow_bypass_success(&response.body) {
                         info!("Workflow bypass successful: {}", attack_type);
@@ -890,8 +1071,10 @@ impl BusinessLogicScanner {
                                  allowing attackers to skip payment or verification steps.",
                                 attack_type
                             ),
-                            &format!("Order completed without payment: {} (Order ID: {})",
-                                attack_type, order_id),
+                            &format!(
+                                "Order completed without payment: {} (Order ID: {})",
+                                attack_type, order_id
+                            ),
                             Severity::Critical,
                             "CWE-841",
                         ));
@@ -904,11 +1087,18 @@ impl BusinessLogicScanner {
             // Also test direct POST to payment endpoint
             let payment_url = format!("{}/payment/process", url.trim_end_matches('/'));
 
-            match self.http_client.post_with_headers(
-                &payment_url,
-                &post_data,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    &payment_url,
+                    &post_data,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
                     if self.detect_payment_bypass(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -932,7 +1122,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test multi-step form bypass
-    async fn test_multi_step_form_bypass(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_multi_step_form_bypass(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
@@ -955,28 +1148,60 @@ impl BusinessLogicScanner {
 
         let form_bypass_tests = vec![
             // CAPTCHA bypass
-            (vec![("email", &test_email), ("captcha", &empty_captcha)],
-             "Submit without CAPTCHA", "CAPTCHA Bypass"),
-            (vec![("email", &test_email), ("captcha_verified", &false_str)],
-             "Submit with false CAPTCHA flag", "CAPTCHA Validation Bypass"),
-
+            (
+                vec![("email", &test_email), ("captcha", &empty_captcha)],
+                "Submit without CAPTCHA",
+                "CAPTCHA Bypass",
+            ),
+            (
+                vec![("email", &test_email), ("captcha_verified", &false_str)],
+                "Submit with false CAPTCHA flag",
+                "CAPTCHA Validation Bypass",
+            ),
             // Email verification bypass
-            (vec![("email", &test_email), ("email_verified", &false_str2), ("action", &purchase_action)],
-             "Action with unverified email", "Email Verification Bypass"),
-            (vec![("email", &unverified_email), ("skip_verification", &true_str)],
-             "Skip email verification flag", "Verification Skip"),
-
+            (
+                vec![
+                    ("email", &test_email),
+                    ("email_verified", &false_str2),
+                    ("action", &purchase_action),
+                ],
+                "Action with unverified email",
+                "Email Verification Bypass",
+            ),
+            (
+                vec![
+                    ("email", &unverified_email),
+                    ("skip_verification", &true_str),
+                ],
+                "Skip email verification flag",
+                "Verification Skip",
+            ),
             // Terms acceptance bypass
-            (vec![("email", &test_email), ("agreed_to_terms", &false_terms), ("submit", &submit_one)],
-             "Submit without agreeing to terms", "Terms Acceptance Bypass"),
-            (vec![("email", &test_email), ("terms", &zero), ("privacy", &zero)],
-             "Submit with declined terms", "Terms Validation Bypass"),
-
+            (
+                vec![
+                    ("email", &test_email),
+                    ("agreed_to_terms", &false_terms),
+                    ("submit", &submit_one),
+                ],
+                "Submit without agreeing to terms",
+                "Terms Acceptance Bypass",
+            ),
+            (
+                vec![("email", &test_email), ("terms", &zero), ("privacy", &zero)],
+                "Submit with declined terms",
+                "Terms Validation Bypass",
+            ),
             // Required field bypass
-            (vec![("email", &test_email)],
-             "Submit with missing required fields", "Required Field Bypass"),
-            (vec![("action", &complete), ("validation", &skip)],
-             "Skip field validation", "Validation Skip"),
+            (
+                vec![("email", &test_email)],
+                "Submit with missing required fields",
+                "Required Field Bypass",
+            ),
+            (
+                vec![("action", &complete), ("validation", &skip)],
+                "Skip field validation",
+                "Validation Skip",
+            ),
         ];
 
         for (params, attack_type, vuln_name) in &form_bypass_tests {
@@ -987,16 +1212,24 @@ impl BusinessLogicScanner {
             ];
 
             for endpoint in &form_endpoints {
-                let post_data: String = params.iter()
+                let post_data: String = params
+                    .iter()
                     .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
                     .collect::<Vec<_>>()
                     .join("&");
 
-                match self.http_client.post_with_headers(
-                    endpoint,
-                    &post_data,
-                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                ).await {
+                match self
+                    .http_client
+                    .post_with_headers(
+                        endpoint,
+                        &post_data,
+                        vec![(
+                            "Content-Type".to_string(),
+                            "application/x-www-form-urlencoded".to_string(),
+                        )],
+                    )
+                    .await
+                {
                     Ok(response) => {
                         if self.detect_form_bypass_success(&response.body, attack_type) {
                             info!("Form bypass successful: {}", attack_type);
@@ -1026,19 +1259,34 @@ impl BusinessLogicScanner {
     }
 
     /// Test account enumeration via timing attacks
-    async fn test_account_enumeration_timing(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_account_enumeration_timing(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 30; // 10 requests × 3 scenarios
 
         debug!("Testing account enumeration timing vulnerabilities");
 
         let timing_scenarios = vec![
-            (format!("{}/login", url.trim_end_matches('/')),
-             "username", "password", "Login timing"),
-            (format!("{}/reset-password", url.trim_end_matches('/')),
-             "email", "", "Password reset timing"),
-            (format!("{}/register", url.trim_end_matches('/')),
-             "username", "password", "Registration timing"),
+            (
+                format!("{}/login", url.trim_end_matches('/')),
+                "username",
+                "password",
+                "Login timing",
+            ),
+            (
+                format!("{}/reset-password", url.trim_end_matches('/')),
+                "email",
+                "",
+                "Password reset timing",
+            ),
+            (
+                format!("{}/register", url.trim_end_matches('/')),
+                "username",
+                "password",
+                "Registration timing",
+            ),
         ];
 
         for (endpoint, user_param, pass_param, scenario) in &timing_scenarios {
@@ -1050,15 +1298,24 @@ impl BusinessLogicScanner {
                 let post_data = if pass_param.is_empty() {
                     format!("{}={}", user_param, existing_user)
                 } else {
-                    format!("{}={}&{}=wrong_password_{}", user_param, existing_user, pass_param, i)
+                    format!(
+                        "{}={}&{}=wrong_password_{}",
+                        user_param, existing_user, pass_param, i
+                    )
                 };
 
                 let start = std::time::Instant::now();
-                let _ = self.http_client.post_with_headers(
-                    endpoint,
-                    &post_data,
-                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                ).await;
+                let _ = self
+                    .http_client
+                    .post_with_headers(
+                        endpoint,
+                        &post_data,
+                        vec![(
+                            "Content-Type".to_string(),
+                            "application/x-www-form-urlencoded".to_string(),
+                        )],
+                    )
+                    .await;
                 let duration = start.elapsed().as_millis() as f64;
                 existing_times.push(duration);
 
@@ -1074,15 +1331,24 @@ impl BusinessLogicScanner {
                 let post_data = if pass_param.is_empty() {
                     format!("{}={}", user_param, nonexistent_user)
                 } else {
-                    format!("{}={}&{}=wrong_password_{}", user_param, nonexistent_user, pass_param, i)
+                    format!(
+                        "{}={}&{}=wrong_password_{}",
+                        user_param, nonexistent_user, pass_param, i
+                    )
                 };
 
                 let start = std::time::Instant::now();
-                let _ = self.http_client.post_with_headers(
-                    endpoint,
-                    &post_data,
-                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                ).await;
+                let _ = self
+                    .http_client
+                    .post_with_headers(
+                        endpoint,
+                        &post_data,
+                        vec![(
+                            "Content-Type".to_string(),
+                            "application/x-www-form-urlencoded".to_string(),
+                        )],
+                    )
+                    .await;
                 let duration = start.elapsed().as_millis() as f64;
                 nonexistent_times.push(duration);
 
@@ -1091,23 +1357,31 @@ impl BusinessLogicScanner {
 
             // Statistical analysis
             let existing_avg = existing_times.iter().sum::<f64>() / existing_times.len() as f64;
-            let nonexistent_avg = nonexistent_times.iter().sum::<f64>() / nonexistent_times.len() as f64;
+            let nonexistent_avg =
+                nonexistent_times.iter().sum::<f64>() / nonexistent_times.len() as f64;
 
-            let existing_variance = existing_times.iter()
+            let existing_variance = existing_times
+                .iter()
                 .map(|x| (x - existing_avg).powi(2))
-                .sum::<f64>() / existing_times.len() as f64;
+                .sum::<f64>()
+                / existing_times.len() as f64;
             let existing_stddev = existing_variance.sqrt();
 
-            let nonexistent_variance = nonexistent_times.iter()
+            let nonexistent_variance = nonexistent_times
+                .iter()
                 .map(|x| (x - nonexistent_avg).powi(2))
-                .sum::<f64>() / nonexistent_times.len() as f64;
+                .sum::<f64>()
+                / nonexistent_times.len() as f64;
             let nonexistent_stddev = nonexistent_variance.sqrt();
 
             let time_diff = (existing_avg - nonexistent_avg).abs();
 
             // Report if difference > 100ms consistently (stddev < 50ms for both)
             if time_diff > 100.0 && existing_stddev < 50.0 && nonexistent_stddev < 50.0 {
-                info!("Timing-based enumeration detected: {} (diff: {}ms)", scenario, time_diff);
+                info!(
+                    "Timing-based enumeration detected: {} (diff: {}ms)",
+                    scenario, time_diff
+                );
 
                 let evidence = format!(
                     "Existing user avg: {:.2}ms (σ={:.2}ms), \
@@ -1138,7 +1412,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test password reset token prediction
-    async fn test_password_reset_token_prediction(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_password_reset_token_prediction(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -1158,11 +1435,18 @@ impl BusinessLogicScanner {
             for i in 0..5 {
                 let post_data = format!("email={}_{}", test_email, i);
 
-                match self.http_client.post_with_headers(
-                    endpoint,
-                    &post_data,
-                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                ).await {
+                match self
+                    .http_client
+                    .post_with_headers(
+                        endpoint,
+                        &post_data,
+                        vec![(
+                            "Content-Type".to_string(),
+                            "application/x-www-form-urlencoded".to_string(),
+                        )],
+                    )
+                    .await
+                {
                     Ok(response) => {
                         if let Some(token) = self.extract_token_from_response(&response.body) {
                             tokens.push(token);
@@ -1214,7 +1498,10 @@ impl BusinessLogicScanner {
     }
 
     /// Test enhanced coupon/discount abuse
-    async fn test_enhanced_coupon_abuse(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_enhanced_coupon_abuse(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -1233,19 +1520,31 @@ impl BusinessLogicScanner {
             let coupon_code = "SAVE10";
             let post_data = format!("code={}&order_id={}", coupon_code, order_id);
 
-            let first_result = self.http_client.post_with_headers(
-                endpoint,
-                &post_data,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await;
+            let first_result = self
+                .http_client
+                .post_with_headers(
+                    endpoint,
+                    &post_data,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await;
 
             if let Ok(first_resp) = first_result {
                 // Try to reuse the same coupon
-                let second_result = self.http_client.post_with_headers(
-                    endpoint,
-                    &post_data,
-                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                ).await;
+                let second_result = self
+                    .http_client
+                    .post_with_headers(
+                        endpoint,
+                        &post_data,
+                        vec![(
+                            "Content-Type".to_string(),
+                            "application/x-www-form-urlencoded".to_string(),
+                        )],
+                    )
+                    .await;
 
                 if let Ok(second_resp) = second_result {
                     if self.detect_coupon_reuse(&first_resp.body, &second_resp.body) {
@@ -1255,8 +1554,10 @@ impl BusinessLogicScanner {
                             &post_data,
                             "Single-use coupon can be applied multiple times to the same order, \
                              allowing discount stacking and financial loss.",
-                            &format!("Coupon '{}' applied multiple times (Order: {})",
-                                coupon_code, order_id),
+                            &format!(
+                                "Coupon '{}' applied multiple times (Order: {})",
+                                coupon_code, order_id
+                            ),
                             Severity::High,
                             "CWE-837",
                         ));
@@ -1265,16 +1566,21 @@ impl BusinessLogicScanner {
             }
 
             // Test 2: Stack incompatible coupons
-            let stacked_coupons = format!(
-                "code=SAVE10&code=SAVE20&code=SAVE30&order_id={}",
-                order_id
-            );
+            let stacked_coupons =
+                format!("code=SAVE10&code=SAVE20&code=SAVE30&order_id={}", order_id);
 
-            match self.http_client.post_with_headers(
-                endpoint,
-                &stacked_coupons,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    endpoint,
+                    &stacked_coupons,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
                     if self.detect_coupon_stacking(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -1295,15 +1601,25 @@ impl BusinessLogicScanner {
             // Test 3: Expired coupon acceptance
             let expired_tests = vec![
                 format!("code=EXPIRED2020&order_id={}", order_id),
-                format!("code=OLD_PROMO&valid_until=2000-01-01&order_id={}", order_id),
+                format!(
+                    "code=OLD_PROMO&valid_until=2000-01-01&order_id={}",
+                    order_id
+                ),
             ];
 
             for expired_test in &expired_tests {
-                match self.http_client.post_with_headers(
-                    endpoint,
-                    expired_test,
-                    vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-                ).await {
+                match self
+                    .http_client
+                    .post_with_headers(
+                        endpoint,
+                        expired_test,
+                        vec![(
+                            "Content-Type".to_string(),
+                            "application/x-www-form-urlencoded".to_string(),
+                        )],
+                    )
+                    .await
+                {
                     Ok(response) => {
                         if self.detect_coupon_applied(&response.body) {
                             vulnerabilities.push(self.create_vulnerability(
@@ -1326,11 +1642,18 @@ impl BusinessLogicScanner {
             // Test 4: Negative discount
             let negative_discount = format!("discount=-50&order_id={}", order_id);
 
-            match self.http_client.post_with_headers(
-                endpoint,
-                &negative_discount,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    endpoint,
+                    &negative_discount,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
                     if self.detect_negative_discount(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -1351,11 +1674,18 @@ impl BusinessLogicScanner {
             // Test 5: Percentage over 100
             let over_discount = format!("discount_percent=200&order_id={}", order_id);
 
-            match self.http_client.post_with_headers(
-                endpoint,
-                &over_discount,
-                vec![("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())]
-            ).await {
+            match self
+                .http_client
+                .post_with_headers(
+                    endpoint,
+                    &over_discount,
+                    vec![(
+                        "Content-Type".to_string(),
+                        "application/x-www-form-urlencoded".to_string(),
+                    )],
+                )
+                .await
+            {
                 Ok(response) => {
                     if self.detect_excessive_discount(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
@@ -1383,10 +1713,17 @@ impl BusinessLogicScanner {
 
         // Check for order creation success
         let success_indicators = vec![
-            "order created", "order placed", "order confirmed",
-            "checkout complete", "purchase successful",
-            "total: 0", "total\":0", "total\": 0",
-            "amount: -", "amount\":-", "negative total",
+            "order created",
+            "order placed",
+            "order confirmed",
+            "checkout complete",
+            "purchase successful",
+            "total: 0",
+            "total\":0",
+            "total\": 0",
+            "amount: -",
+            "amount\":-",
+            "negative total",
         ];
 
         for indicator in success_indicators {
@@ -1396,8 +1733,9 @@ impl BusinessLogicScanner {
         }
 
         // Check if suspicious values appear in response
-        if (value1.starts_with('-') || value1.contains("0.00") || value1 == "0") &&
-           (body_lower.contains("success") || body_lower.contains("confirmed")) {
+        if (value1.starts_with('-') || value1.contains("0.00") || value1 == "0")
+            && (body_lower.contains("success") || body_lower.contains("confirmed"))
+        {
             return true;
         }
 
@@ -1416,13 +1754,15 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         // Check if VND/IDR currency was accepted
-        let currency_accepted = (body_lower.contains("vnd") || body_lower.contains("idr")) &&
-                                (body_lower.contains("success") || body_lower.contains("confirmed"));
+        let currency_accepted = (body_lower.contains("vnd") || body_lower.contains("idr"))
+            && (body_lower.contains("success") || body_lower.contains("confirmed"));
 
         // Check for suspiciously low converted amounts
-        let low_amount = body_lower.contains("total") &&
-                        (body_lower.contains("$0") || body_lower.contains("$1") ||
-                         body_lower.contains("usd 0") || body_lower.contains("usd 1"));
+        let low_amount = body_lower.contains("total")
+            && (body_lower.contains("$0")
+                || body_lower.contains("$1")
+                || body_lower.contains("usd 0")
+                || body_lower.contains("usd 1"));
 
         currency_accepted || low_amount
     }
@@ -1433,9 +1773,13 @@ impl BusinessLogicScanner {
 
         // Order completed without payment
         let bypass_indicators = vec![
-            "order completed", "order confirmed", "order shipped",
-            "payment status: paid", "status\": \"completed\"",
-            "checkout complete", "order successful",
+            "order completed",
+            "order confirmed",
+            "order shipped",
+            "payment status: paid",
+            "status\": \"completed\"",
+            "checkout complete",
+            "order successful",
         ];
 
         for indicator in bypass_indicators {
@@ -1455,8 +1799,12 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         let bypass_indicators = vec![
-            "payment successful", "payment confirmed", "payment processed",
-            "transaction complete", "paid\": true", "payment_status\": \"paid\"",
+            "payment successful",
+            "payment confirmed",
+            "payment processed",
+            "transaction complete",
+            "paid\": true",
+            "payment_status\": \"paid\"",
         ];
 
         for indicator in bypass_indicators {
@@ -1474,16 +1822,16 @@ impl BusinessLogicScanner {
     fn detect_form_bypass_success(&self, body: &str, attack_type: &str) -> bool {
         // First check if this is a SPA/single-page-app fallback response
         // SPAs return the same HTML for all routes - this is NOT a real form success
-        let is_spa_response = body.contains("<app-root>") ||
-            body.contains("<div id=\"root\">") ||
-            body.contains("<div id=\"app\">") ||
-            body.contains("__NEXT_DATA__") ||
-            body.contains("__NUXT__") ||
-            body.contains("ng-version=") ||
-            body.contains("polyfills.js") ||
-            body.contains("data-reactroot") ||
-            body.contains("/_next/static/") ||
-            (body.contains("<!DOCTYPE html>") && body.contains("<script") && body.len() > 5000);
+        let is_spa_response = body.contains("<app-root>")
+            || body.contains("<div id=\"root\">")
+            || body.contains("<div id=\"app\">")
+            || body.contains("__NEXT_DATA__")
+            || body.contains("__NUXT__")
+            || body.contains("ng-version=")
+            || body.contains("polyfills.js")
+            || body.contains("data-reactroot")
+            || body.contains("/_next/static/")
+            || (body.contains("<!DOCTYPE html>") && body.contains("<script") && body.len() > 5000);
 
         if is_spa_response {
             return false;
@@ -1497,25 +1845,27 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         // General success indicators - must be in API-like response, not HTML
-        let success = body_lower.contains("success") ||
-                     body_lower.contains("submitted") ||
-                     body_lower.contains("registered") ||
-                     body_lower.contains("complete") ||
-                     body_lower.contains("thank you");
+        let success = body_lower.contains("success")
+            || body_lower.contains("submitted")
+            || body_lower.contains("registered")
+            || body_lower.contains("complete")
+            || body_lower.contains("thank you");
 
         // Specific checks based on attack type
         let bypass_detected = if attack_type.contains("CAPTCHA") {
-            success && !body_lower.contains("captcha required") &&
-                      !body_lower.contains("invalid captcha")
+            success
+                && !body_lower.contains("captcha required")
+                && !body_lower.contains("invalid captcha")
         } else if attack_type.contains("email") {
-            success && !body_lower.contains("verify your email") &&
-                      !body_lower.contains("email not verified")
+            success
+                && !body_lower.contains("verify your email")
+                && !body_lower.contains("email not verified")
         } else if attack_type.contains("terms") {
-            success && !body_lower.contains("must agree") &&
-                      !body_lower.contains("accept terms")
+            success && !body_lower.contains("must agree") && !body_lower.contains("accept terms")
         } else {
-            success && !body_lower.contains("required field") &&
-                      !body_lower.contains("validation error")
+            success
+                && !body_lower.contains("required field")
+                && !body_lower.contains("validation error")
         };
 
         bypass_detected
@@ -1571,7 +1921,10 @@ impl BusinessLogicScanner {
             return TokenAnalysis {
                 is_weak: true,
                 critically_weak: true,
-                reason: format!("Token length too short: {} characters (minimum: 20)", first_token.len()),
+                reason: format!(
+                    "Token length too short: {} characters (minimum: 20)",
+                    first_token.len()
+                ),
                 evidence: format!("Sample: {}", first_token),
             };
         }
@@ -1615,7 +1968,10 @@ impl BusinessLogicScanner {
             return TokenAnalysis {
                 is_weak: true,
                 critically_weak: false,
-                reason: format!("Token has low entropy: {:.2} bits/char (minimum: 3.0)", entropy),
+                reason: format!(
+                    "Token has low entropy: {:.2} bits/char (minimum: 3.0)",
+                    entropy
+                ),
                 evidence: format!("Sample: {}", first_token),
             };
         }
@@ -1640,11 +1996,12 @@ impl BusinessLogicScanner {
         }
 
         // Check if hex values are sequential
-        if tokens[0].chars().all(|c| c.is_ascii_hexdigit()) &&
-           tokens[1].chars().all(|c| c.is_ascii_hexdigit()) {
+        if tokens[0].chars().all(|c| c.is_ascii_hexdigit())
+            && tokens[1].chars().all(|c| c.is_ascii_hexdigit())
+        {
             if let (Ok(num1), Ok(num2)) = (
                 i64::from_str_radix(&tokens[0], 16),
-                i64::from_str_radix(&tokens[1], 16)
+                i64::from_str_radix(&tokens[1], 16),
             ) {
                 return (num1 - num2).abs() < 10;
             }
@@ -1704,9 +2061,13 @@ impl BusinessLogicScanner {
 
         // Look for multiple discounts applied
         let stacking_indicators = vec![
-            "discount applied", "discounts applied",
-            "total savings", "multiple coupons",
-            "save10", "save20", "save30",
+            "discount applied",
+            "discounts applied",
+            "total savings",
+            "multiple coupons",
+            "save10",
+            "save20",
+            "save30",
         ];
 
         let mut discount_count = 0;
@@ -1731,8 +2092,12 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         let applied_indicators = vec![
-            "coupon applied", "discount applied", "promo applied",
-            "code accepted", "savings", "discounted",
+            "coupon applied",
+            "discount applied",
+            "promo applied",
+            "code accepted",
+            "savings",
+            "discounted",
         ];
 
         for indicator in applied_indicators {
@@ -1752,8 +2117,11 @@ impl BusinessLogicScanner {
 
         // Look for negative discount amounts
         let negative_indicators = vec![
-            "discount: -", "discount\":-", "discount\": -",
-            "savings: -", "total increased",
+            "discount: -",
+            "discount\":-",
+            "discount\": -",
+            "savings: -",
+            "total increased",
         ];
 
         for indicator in negative_indicators {
@@ -1776,9 +2144,15 @@ impl BusinessLogicScanner {
 
         // Look for over 100% discount
         let excessive_indicators = vec![
-            "discount: 100%", "discount: 200%", "discount\": 100",
-            "discount\": 200", "total: -", "total\": -",
-            "negative total", "amount: $-", "amount\": -",
+            "discount: 100%",
+            "discount: 200%",
+            "discount\": 100",
+            "discount\": 200",
+            "total: -",
+            "total\": -",
+            "negative total",
+            "amount: $-",
+            "amount\": -",
         ];
 
         for indicator in excessive_indicators {
@@ -1820,7 +2194,10 @@ impl BusinessLogicScanner {
         ];
 
         for indicator in success_indicators {
-            if body_lower.contains(indicator) && !body_lower.contains("error") && !body_lower.contains("failed") {
+            if body_lower.contains(indicator)
+                && !body_lower.contains("error")
+                && !body_lower.contains("failed")
+            {
                 return true;
             }
         }
@@ -1829,33 +2206,41 @@ impl BusinessLogicScanner {
     }
 
     /// Detect price manipulation success - REQUIRES baseline comparison
-    fn detect_price_manipulation_with_baseline(&self, body: &str, baseline_body: &str, param: &str, value: &str) -> bool {
+    fn detect_price_manipulation_with_baseline(
+        &self,
+        body: &str,
+        baseline_body: &str,
+        param: &str,
+        value: &str,
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let baseline_lower = baseline_body.to_lowercase();
 
         // CRITICAL: Check if manipulated price appears in response AND is NEW (not in baseline)
         // This is the strongest evidence that the price was actually modified
-        if (body_lower.contains(&format!("\"{}\":{}", param, value)) ||
-            body_lower.contains(&format!("\"{}\":\"{}\"", param, value))) &&
-           (!baseline_lower.contains(&format!("\"{}\":{}", param, value)) &&
-            !baseline_lower.contains(&format!("\"{}\":\"{}\"", param, value))) {
+        if (body_lower.contains(&format!("\"{}\":{}", param, value))
+            || body_lower.contains(&format!("\"{}\":\"{}\"", param, value)))
+            && (!baseline_lower.contains(&format!("\"{}\":{}", param, value))
+                && !baseline_lower.contains(&format!("\"{}\":\"{}\"", param, value)))
+        {
             return true;
         }
 
         // Check for NEW order confirmation with suspicious pricing
         // Must show order created AND price appears to be the manipulated value
-        let order_created = body_lower.contains("order created") ||
-                           body_lower.contains("order confirmed") ||
-                           body_lower.contains("purchase complete");
-        let order_was_created_before = baseline_lower.contains("order created") ||
-                                       baseline_lower.contains("order confirmed") ||
-                                       baseline_lower.contains("purchase complete");
+        let order_created = body_lower.contains("order created")
+            || body_lower.contains("order confirmed")
+            || body_lower.contains("purchase complete");
+        let order_was_created_before = baseline_lower.contains("order created")
+            || baseline_lower.contains("order confirmed")
+            || baseline_lower.contains("purchase complete");
 
         if order_created && !order_was_created_before {
             // Check if the response shows our manipulated value
-            if body_lower.contains(&format!("\"total\":{}", value)) ||
-               body_lower.contains(&format!("\"price\":{}", value)) ||
-               body_lower.contains(&format!("\"amount\":{}", value)) {
+            if body_lower.contains(&format!("\"total\":{}", value))
+                || body_lower.contains(&format!("\"price\":{}", value))
+                || body_lower.contains(&format!("\"amount\":{}", value))
+            {
                 return true;
             }
         }
@@ -1870,20 +2255,21 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         // Check if manipulated price appears in response
-        if body_lower.contains(&format!("\"{}\":{}", param, value)) ||
-           body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) ||
-           body_lower.contains(&format!("{}={}", param, value)) {
+        if body_lower.contains(&format!("\"{}\":{}", param, value))
+            || body_lower.contains(&format!("\"{}\":\"{}\"", param, value))
+            || body_lower.contains(&format!("{}={}", param, value))
+        {
             return true;
         }
 
         // Check for success without price validation error
-        let no_error = !body_lower.contains("invalid price") &&
-            !body_lower.contains("price error") &&
-            !body_lower.contains("validation failed");
+        let no_error = !body_lower.contains("invalid price")
+            && !body_lower.contains("price error")
+            && !body_lower.contains("validation failed");
 
-        let success = body_lower.contains("success") ||
-            body_lower.contains("confirmed") ||
-            body_lower.contains("order placed");
+        let success = body_lower.contains("success")
+            || body_lower.contains("confirmed")
+            || body_lower.contains("order placed");
 
         no_error && success
     }
@@ -1893,19 +2279,20 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         // Check if tampered quantity appears in response
-        if body_lower.contains(&format!("\"{}\":{}", param, value)) ||
-           body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) {
+        if body_lower.contains(&format!("\"{}\":{}", param, value))
+            || body_lower.contains(&format!("\"{}\":\"{}\"", param, value))
+        {
             return true;
         }
 
         // Check for acceptance without validation error
-        let no_error = !body_lower.contains("invalid quantity") &&
-            !body_lower.contains("quantity error") &&
-            !body_lower.contains("out of range");
+        let no_error = !body_lower.contains("invalid quantity")
+            && !body_lower.contains("quantity error")
+            && !body_lower.contains("out of range");
 
-        let success = body_lower.contains("added") ||
-            body_lower.contains("updated") ||
-            body_lower.contains("success");
+        let success = body_lower.contains("added")
+            || body_lower.contains("updated")
+            || body_lower.contains("success");
 
         no_error && success
     }
@@ -1920,16 +2307,18 @@ impl BusinessLogicScanner {
         }
 
         // Check for path traversal success
-        if value.contains("../") && (body_lower.contains("root:") || body_lower.contains("etc/passwd")) {
+        if value.contains("../")
+            && (body_lower.contains("root:") || body_lower.contains("etc/passwd"))
+        {
             return true;
         }
 
         // Check for coupon applied successfully
-        (body_lower.contains("discount applied") ||
-         body_lower.contains("coupon valid") ||
-         body_lower.contains("savings")) &&
-        !body_lower.contains("invalid") &&
-        !body_lower.contains("expired")
+        (body_lower.contains("discount applied")
+            || body_lower.contains("coupon valid")
+            || body_lower.contains("savings"))
+            && !body_lower.contains("invalid")
+            && !body_lower.contains("expired")
     }
 
     /// Detect coupon reuse vulnerability
@@ -1942,23 +2331,29 @@ impl BusinessLogicScanner {
         let second_success = second_lower.contains("applied") || second_lower.contains("discount");
 
         // Second doesn't show "already used" error
-        let no_reuse_error = !second_lower.contains("already used") &&
-            !second_lower.contains("already applied") &&
-            !second_lower.contains("one time only");
+        let no_reuse_error = !second_lower.contains("already used")
+            && !second_lower.contains("already applied")
+            && !second_lower.contains("one time only");
 
         first_success && second_success && no_reuse_error
     }
 
     /// Detect integer overflow - REQUIRES baseline comparison to avoid false positives
-    fn detect_integer_overflow_with_baseline(&self, body: &str, baseline_body: &str, param: &str, value: &str) -> bool {
+    fn detect_integer_overflow_with_baseline(
+        &self,
+        body: &str,
+        baseline_body: &str,
+        param: &str,
+        value: &str,
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let baseline_lower = baseline_body.to_lowercase();
 
         // CRITICAL: Check for NEW overflow indicators (not present in baseline)
         // These are strong evidence of actual overflow behavior
         let overflow_indicators = vec![
-            "-2147483648",  // Wrapped to min int32
-            "-9223372036854775808",  // Wrapped to min int64
+            "-2147483648",          // Wrapped to min int32
+            "-9223372036854775808", // Wrapped to min int64
             "infinity",
             "nan",
             "overflow",
@@ -1977,10 +2372,16 @@ impl BusinessLogicScanner {
         // This is a real indicator - large positive becomes negative
         if value.parse::<i64>().is_ok() && value.parse::<i64>().unwrap() > 0 {
             // We sent a large positive value, check if response shows negative
-            if body_lower.contains("\"amount\":-") || body_lower.contains("\"total\":-") ||
-               body_lower.contains("\"balance\":-") || body_lower.contains("\"quantity\":-") {
-                if !baseline_lower.contains("\"amount\":-") && !baseline_lower.contains("\"total\":-") &&
-                   !baseline_lower.contains("\"balance\":-") && !baseline_lower.contains("\"quantity\":-") {
+            if body_lower.contains("\"amount\":-")
+                || body_lower.contains("\"total\":-")
+                || body_lower.contains("\"balance\":-")
+                || body_lower.contains("\"quantity\":-")
+            {
+                if !baseline_lower.contains("\"amount\":-")
+                    && !baseline_lower.contains("\"total\":-")
+                    && !baseline_lower.contains("\"balance\":-")
+                    && !baseline_lower.contains("\"quantity\":-")
+                {
                     return true;
                 }
             }
@@ -1988,12 +2389,16 @@ impl BusinessLogicScanner {
 
         // Check if the response contains our exact overflow value being echoed back
         // in a way that suggests it was processed (not just rejected)
-        if body_lower.contains(&format!("\"{}\":{}", param, value)) ||
-           body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) {
+        if body_lower.contains(&format!("\"{}\":{}", param, value))
+            || body_lower.contains(&format!("\"{}\":\"{}\"", param, value))
+        {
             // Value was accepted - but is this actually dangerous?
             // Only report if there's also evidence of a calculation happening
-            if body_lower.contains("total") || body_lower.contains("calculated") ||
-               body_lower.contains("result") || body_lower.contains("processed") {
+            if body_lower.contains("total")
+                || body_lower.contains("calculated")
+                || body_lower.contains("result")
+                || body_lower.contains("processed")
+            {
                 if !baseline_lower.contains(&format!("\"{}\":{}", param, value)) {
                     return true;
                 }
@@ -2010,13 +2415,13 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         // Check if timestamp was accepted
-        let no_error = !body_lower.contains("invalid date") &&
-            !body_lower.contains("timestamp error") &&
-            !body_lower.contains("date format");
+        let no_error = !body_lower.contains("invalid date")
+            && !body_lower.contains("timestamp error")
+            && !body_lower.contains("date format");
 
-        let accepted = body_lower.contains("success") ||
-            body_lower.contains(&format!("\"{}\":", param)) ||
-            body_lower.contains("valid");
+        let accepted = body_lower.contains("success")
+            || body_lower.contains(&format!("\"{}\":", param))
+            || body_lower.contains("valid");
 
         no_error && accepted
     }
@@ -2025,28 +2430,33 @@ impl BusinessLogicScanner {
     fn detect_token_accepted(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        let accepted = body_lower.contains("valid") ||
-            body_lower.contains("success") ||
-            body_lower.contains("authenticated");
+        let accepted = body_lower.contains("valid")
+            || body_lower.contains("success")
+            || body_lower.contains("authenticated");
 
-        let no_error = !body_lower.contains("expired") &&
-            !body_lower.contains("invalid token") &&
-            !body_lower.contains("token error");
+        let no_error = !body_lower.contains("expired")
+            && !body_lower.contains("invalid token")
+            && !body_lower.contains("token error");
 
         accepted && no_error
     }
 
     /// Detect if negative value was accepted - REQUIRES baseline comparison
-    fn detect_negative_value_accepted(&self, body: &str, baseline_body: &str, param: &str, value: &str) -> bool {
+    fn detect_negative_value_accepted(
+        &self,
+        body: &str,
+        baseline_body: &str,
+        param: &str,
+        value: &str,
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let baseline_lower = baseline_body.to_lowercase();
 
         // Check if value appears in response as accepted (only if NEW, not in baseline)
-        let value_in_response =
-            (body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) &&
-             !baseline_lower.contains(&format!("\"{}\":\"{}\"", param, value))) ||
-            (body_lower.contains(&format!("\"{}\":{}", param, value)) &&
-             !baseline_lower.contains(&format!("\"{}\":{}", param, value)));
+        let value_in_response = (body_lower.contains(&format!("\"{}\":\"{}\"", param, value))
+            && !baseline_lower.contains(&format!("\"{}\":\"{}\"", param, value)))
+            || (body_lower.contains(&format!("\"{}\":{}", param, value))
+                && !baseline_lower.contains(&format!("\"{}\":{}", param, value)));
 
         if value_in_response {
             return true;
@@ -2072,7 +2482,12 @@ impl BusinessLogicScanner {
     }
 
     /// Detect workflow bypass - REQUIRES baseline comparison
-    fn detect_workflow_bypass_with_baseline(&self, body: &str, baseline_body: &str, target_state: &str) -> bool {
+    fn detect_workflow_bypass_with_baseline(
+        &self,
+        body: &str,
+        baseline_body: &str,
+        target_state: &str,
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let baseline_lower = baseline_body.to_lowercase();
         let target_lower = target_state.to_lowercase();
@@ -2102,9 +2517,10 @@ impl BusinessLogicScanner {
         let body_lower = body.to_lowercase();
 
         // Check if tampered value was accepted
-        if body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) ||
-           body_lower.contains(&format!("\"{}\":{}", param, value)) ||
-           body_lower.contains(&format!("{}={}", param, value)) {
+        if body_lower.contains(&format!("\"{}\":\"{}\"", param, value))
+            || body_lower.contains(&format!("\"{}\":{}", param, value))
+            || body_lower.contains(&format!("{}={}", param, value))
+        {
             return true;
         }
 
@@ -2114,8 +2530,9 @@ impl BusinessLogicScanner {
         }
 
         if (param == "shipping" || param == "tax") && value == "0" {
-            if body_lower.contains(&format!("{}:0", param)) ||
-               body_lower.contains(&format!("{}\":0", param)) {
+            if body_lower.contains(&format!("{}:0", param))
+                || body_lower.contains(&format!("{}\":0", param))
+            {
                 return true;
             }
         }
@@ -2167,9 +2584,10 @@ impl BusinessLogicScanner {
                          9. Log and monitor unusual parameter values\n\
                          10. Use database constraints for data integrity\n\
                          11. Implement authorization checks for each workflow step\n\
-                         12. Test edge cases and boundary values".to_string(),
+                         12. Test edge cases and boundary values"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -2203,7 +2621,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> BusinessLogicScanner {
@@ -2216,11 +2634,26 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
 
         // With baseline comparison - value must be NEW (not in baseline)
-        assert!(scanner.detect_negative_value_accepted(r#"{"quantity":"-1"}"#, r#"{"quantity":"5"}"#, "quantity", "-1"));
-        assert!(scanner.detect_negative_value_accepted(r#"{"transaction":"complete","price":"-10"}"#, r#"{}"#, "price", "-10"));
+        assert!(scanner.detect_negative_value_accepted(
+            r#"{"quantity":"-1"}"#,
+            r#"{"quantity":"5"}"#,
+            "quantity",
+            "-1"
+        ));
+        assert!(scanner.detect_negative_value_accepted(
+            r#"{"transaction":"complete","price":"-10"}"#,
+            r#"{}"#,
+            "price",
+            "-10"
+        ));
 
         // Should NOT detect if value is already in baseline
-        assert!(!scanner.detect_negative_value_accepted(r#"{"quantity":"-1"}"#, r#"{"quantity":"-1"}"#, "quantity", "-1"));
+        assert!(!scanner.detect_negative_value_accepted(
+            r#"{"quantity":"-1"}"#,
+            r#"{"quantity":"-1"}"#,
+            "quantity",
+            "-1"
+        ));
     }
 
     #[test]
@@ -2228,11 +2661,23 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
 
         // With baseline comparison - indicators must be NEW
-        assert!(scanner.detect_workflow_bypass_with_baseline("Order completed step completed", "", "completed"));
-        assert!(scanner.detect_workflow_bypass_with_baseline("Payment verified process finished", "", "verified"));
+        assert!(scanner.detect_workflow_bypass_with_baseline(
+            "Order completed step completed",
+            "",
+            "completed"
+        ));
+        assert!(scanner.detect_workflow_bypass_with_baseline(
+            "Payment verified process finished",
+            "",
+            "verified"
+        ));
 
         // Should NOT detect if already in baseline
-        assert!(!scanner.detect_workflow_bypass_with_baseline("Order completed", "Order completed", "completed"));
+        assert!(!scanner.detect_workflow_bypass_with_baseline(
+            "Order completed",
+            "Order completed",
+            "completed"
+        ));
     }
 
     #[test]

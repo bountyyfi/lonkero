@@ -55,7 +55,7 @@ impl AuthSession {
                     .iter()
                     .map(|(k, v)| format!("{}={}", k, v))
                     .collect::<Vec<_>>()
-                    .join("; ")
+                    .join("; "),
             )
         }
     }
@@ -83,15 +83,21 @@ impl AuthSession {
 
     /// Check if we have any auth credentials
     pub fn has_credentials(&self) -> bool {
-        !self.cookies.is_empty()
-            || self.auth_header.is_some()
-            || !self.local_storage.is_empty()
+        !self.cookies.is_empty() || self.auth_header.is_some() || !self.local_storage.is_empty()
     }
 
     /// Try to find JWT token in storage or cookies
     pub fn find_jwt(&self) -> Option<String> {
         // Check local storage for common JWT keys
-        for key in &["token", "jwt", "access_token", "accessToken", "auth_token", "authToken", "id_token"] {
+        for key in &[
+            "token",
+            "jwt",
+            "access_token",
+            "accessToken",
+            "auth_token",
+            "authToken",
+            "id_token",
+        ] {
             if let Some(token) = self.local_storage.get(*key) {
                 if token.contains('.') && token.split('.').count() == 3 {
                     return Some(token.clone());
@@ -169,23 +175,29 @@ impl Authenticator {
     }
 
     /// Perform login and extract authentication session
-    pub async fn login(&self, base_url: &str, credentials: &LoginCredentials) -> Result<AuthSession> {
+    pub async fn login(
+        &self,
+        base_url: &str,
+        credentials: &LoginCredentials,
+    ) -> Result<AuthSession> {
         info!("[Auth] Starting authentication for: {}", base_url);
 
-        let login_url = credentials.login_url.clone()
+        let login_url = credentials
+            .login_url
+            .clone()
             .unwrap_or_else(|| self.find_login_url(base_url));
 
         let creds = credentials.clone();
         let timeout = self.timeout;
 
-        let session = tokio::task::spawn_blocking(move || {
-            Self::login_sync(&login_url, &creds, timeout)
-        })
-        .await
-        .context("Login task panicked")??;
+        let session =
+            tokio::task::spawn_blocking(move || Self::login_sync(&login_url, &creds, timeout))
+                .await
+                .context("Login task panicked")??;
 
         if session.is_authenticated {
-            info!("[Auth] Login successful! Extracted {} cookies, {} storage items",
+            info!(
+                "[Auth] Login successful! Extracted {} cookies, {} storage items",
                 session.cookies.len(),
                 session.local_storage.len() + session.session_storage.len()
             );
@@ -202,53 +214,73 @@ impl Authenticator {
     /// Find login URL from base URL
     fn find_login_url(&self, base_url: &str) -> String {
         // Common login paths
-        let _login_paths = ["/login", "/signin", "/auth/login", "/user/login", "/account/login", "/api/auth/login"];
+        let _login_paths = [
+            "/login",
+            "/signin",
+            "/auth/login",
+            "/user/login",
+            "/account/login",
+            "/api/auth/login",
+        ];
 
         // For now, just try /login - in production would probe each
         format!("{}/login", base_url.trim_end_matches('/'))
     }
 
     /// Synchronous login implementation
-    fn login_sync(login_url: &str, credentials: &LoginCredentials, timeout: Duration) -> Result<AuthSession> {
+    fn login_sync(
+        login_url: &str,
+        credentials: &LoginCredentials,
+        timeout: Duration,
+    ) -> Result<AuthSession> {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch Chrome/Chromium")?;
 
         let tab = browser.new_tab().context("Failed to create tab")?;
 
         // Navigate to login page
-        tab.navigate_to(login_url).context("Failed to navigate to login page")?;
+        tab.navigate_to(login_url)
+            .context("Failed to navigate to login page")?;
         tab.wait_until_navigated().context("Navigation timeout")?;
         std::thread::sleep(Duration::from_secs(2));
 
         // Find and fill login form
-        let username_selectors = credentials.username_field.clone()
+        let username_selectors = credentials
+            .username_field
+            .clone()
             .map(|f| vec![f])
-            .unwrap_or_else(|| vec![
-                "[name='username']".to_string(),
-                "[name='email']".to_string(),
-                "[name='user']".to_string(),
-                "[name='login']".to_string(),
-                "[type='email']".to_string(),
-                "#username".to_string(),
-                "#email".to_string(),
-                "[autocomplete='username']".to_string(),
-            ]);
+            .unwrap_or_else(|| {
+                vec![
+                    "[name='username']".to_string(),
+                    "[name='email']".to_string(),
+                    "[name='user']".to_string(),
+                    "[name='login']".to_string(),
+                    "[type='email']".to_string(),
+                    "#username".to_string(),
+                    "#email".to_string(),
+                    "[autocomplete='username']".to_string(),
+                ]
+            });
 
-        let password_selectors = credentials.password_field.clone()
+        let password_selectors = credentials
+            .password_field
+            .clone()
             .map(|f| vec![f])
-            .unwrap_or_else(|| vec![
-                "[name='password']".to_string(),
-                "[name='pass']".to_string(),
-                "[type='password']".to_string(),
-                "#password".to_string(),
-                "[autocomplete='current-password']".to_string(),
-            ]);
+            .unwrap_or_else(|| {
+                vec![
+                    "[name='password']".to_string(),
+                    "[name='pass']".to_string(),
+                    "[type='password']".to_string(),
+                    "#password".to_string(),
+                    "[autocomplete='current-password']".to_string(),
+                ]
+            });
 
         // Fill username
         let js_fill_username = format!(
@@ -411,7 +443,9 @@ impl Authenticator {
             })()
         "#;
 
-        let result = tab.evaluate(js_extract, true).context("Failed to extract auth data")?;
+        let result = tab
+            .evaluate(js_extract, true)
+            .context("Failed to extract auth data")?;
 
         let mut session = AuthSession::empty();
         session.authenticated_url = original_url.to_string();
@@ -459,7 +493,10 @@ impl Authenticator {
                     // Check current URL to see if we redirected (sign of successful login)
                     if let Some(current_url) = data.get("currentUrl").and_then(|v| v.as_str()) {
                         // If URL changed from login page, likely logged in
-                        if current_url != original_url && !current_url.contains("login") && !current_url.contains("error") {
+                        if current_url != original_url
+                            && !current_url.contains("login")
+                            && !current_url.contains("error")
+                        {
                             session.is_authenticated = true;
                         }
                     }
@@ -468,9 +505,21 @@ impl Authenticator {
         }
 
         // Also check if we have session cookies (another sign of auth)
-        let session_cookie_names = ["session", "sess", "PHPSESSID", "JSESSIONID", "connect.sid", "auth", "token"];
+        let session_cookie_names = [
+            "session",
+            "sess",
+            "PHPSESSID",
+            "JSESSIONID",
+            "connect.sid",
+            "auth",
+            "token",
+        ];
         for name in &session_cookie_names {
-            if session.cookies.keys().any(|k| k.to_lowercase().contains(name)) {
+            if session
+                .cookies
+                .keys()
+                .any(|k| k.to_lowercase().contains(name))
+            {
                 session.is_authenticated = true;
                 break;
             }
@@ -524,8 +573,12 @@ mod tests {
     #[test]
     fn test_auth_session_cookie_header() {
         let mut session = AuthSession::empty();
-        session.cookies.insert("session".to_string(), "abc123".to_string());
-        session.cookies.insert("user".to_string(), "test".to_string());
+        session
+            .cookies
+            .insert("session".to_string(), "abc123".to_string());
+        session
+            .cookies
+            .insert("user".to_string(), "test".to_string());
 
         let header = session.cookie_header().unwrap();
         assert!(header.contains("session=abc123"));

@@ -17,8 +17,7 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
-use crate::analysis::{IntelligenceBus, AuthType};
+use crate::analysis::{AuthType, IntelligenceBus};
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -50,7 +49,9 @@ impl OidcProvider {
             OidcProvider::Okta
         } else if issuer_lower.contains("auth0.com") {
             OidcProvider::Auth0
-        } else if issuer_lower.contains("login.microsoftonline.com") || issuer_lower.contains("sts.windows.net") {
+        } else if issuer_lower.contains("login.microsoftonline.com")
+            || issuer_lower.contains("sts.windows.net")
+        {
             OidcProvider::AzureAd
         } else if issuer_lower.contains("keycloak") {
             OidcProvider::Keycloak
@@ -115,29 +116,63 @@ impl OidcConfiguration {
         let mut config = Self::default();
         config.raw_config = json_str.to_string();
 
-        config.issuer = json.get("issuer").and_then(|v| v.as_str()).map(String::from);
-        config.authorization_endpoint = json.get("authorization_endpoint").and_then(|v| v.as_str()).map(String::from);
-        config.token_endpoint = json.get("token_endpoint").and_then(|v| v.as_str()).map(String::from);
-        config.userinfo_endpoint = json.get("userinfo_endpoint").and_then(|v| v.as_str()).map(String::from);
-        config.jwks_uri = json.get("jwks_uri").and_then(|v| v.as_str()).map(String::from);
-        config.end_session_endpoint = json.get("end_session_endpoint").and_then(|v| v.as_str()).map(String::from);
-        config.revocation_endpoint = json.get("revocation_endpoint").and_then(|v| v.as_str()).map(String::from);
-        config.introspection_endpoint = json.get("introspection_endpoint").and_then(|v| v.as_str()).map(String::from);
+        config.issuer = json
+            .get("issuer")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        config.authorization_endpoint = json
+            .get("authorization_endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        config.token_endpoint = json
+            .get("token_endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        config.userinfo_endpoint = json
+            .get("userinfo_endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        config.jwks_uri = json
+            .get("jwks_uri")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        config.end_session_endpoint = json
+            .get("end_session_endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        config.revocation_endpoint = json
+            .get("revocation_endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        config.introspection_endpoint = json
+            .get("introspection_endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
-        config.response_types_supported = Self::extract_string_array(&json, "response_types_supported");
-        config.response_modes_supported = Self::extract_string_array(&json, "response_modes_supported");
+        config.response_types_supported =
+            Self::extract_string_array(&json, "response_types_supported");
+        config.response_modes_supported =
+            Self::extract_string_array(&json, "response_modes_supported");
         config.grant_types_supported = Self::extract_string_array(&json, "grant_types_supported");
-        config.subject_types_supported = Self::extract_string_array(&json, "subject_types_supported");
-        config.id_token_signing_alg_values_supported = Self::extract_string_array(&json, "id_token_signing_alg_values_supported");
+        config.subject_types_supported =
+            Self::extract_string_array(&json, "subject_types_supported");
+        config.id_token_signing_alg_values_supported =
+            Self::extract_string_array(&json, "id_token_signing_alg_values_supported");
         config.scopes_supported = Self::extract_string_array(&json, "scopes_supported");
         config.claims_supported = Self::extract_string_array(&json, "claims_supported");
-        config.token_endpoint_auth_methods_supported = Self::extract_string_array(&json, "token_endpoint_auth_methods_supported");
-        config.code_challenge_methods_supported = Self::extract_string_array(&json, "code_challenge_methods_supported");
+        config.token_endpoint_auth_methods_supported =
+            Self::extract_string_array(&json, "token_endpoint_auth_methods_supported");
+        config.code_challenge_methods_supported =
+            Self::extract_string_array(&json, "code_challenge_methods_supported");
 
-        config.frontchannel_logout_supported = json.get("frontchannel_logout_supported")
-            .and_then(|v| v.as_bool()).unwrap_or(false);
-        config.backchannel_logout_supported = json.get("backchannel_logout_supported")
-            .and_then(|v| v.as_bool()).unwrap_or(false);
+        config.frontchannel_logout_supported = json
+            .get("frontchannel_logout_supported")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        config.backchannel_logout_supported = json
+            .get("backchannel_logout_supported")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         if let Some(issuer) = &config.issuer {
             config.provider = OidcProvider::from_issuer(issuer);
@@ -149,7 +184,11 @@ impl OidcConfiguration {
     fn extract_string_array(json: &serde_json::Value, key: &str) -> Vec<String> {
         json.get(key)
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }
@@ -219,7 +258,9 @@ impl OidcScanner {
         let characteristics = AppCharacteristics::from_response(&baseline_response, url);
 
         // Skip if no OAuth/OIDC indicators detected
-        if characteristics.should_skip_oauth_tests() && !self.has_oidc_indicators(&baseline_response, url) {
+        if characteristics.should_skip_oauth_tests()
+            && !self.has_oidc_indicators(&baseline_response, url)
+        {
             info!("[OIDC] No OIDC implementation detected - skipping OIDC tests");
             return Ok((vulnerabilities, tests_run));
         }
@@ -233,7 +274,10 @@ impl OidcScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[OIDC] OIDC implementation detected: {:?}", detection.evidence);
+        info!(
+            "[OIDC] OIDC implementation detected: {:?}",
+            detection.evidence
+        );
 
         // Broadcast OIDC detection to Intelligence Bus
         // Higher confidence if we have a valid discovery configuration
@@ -290,7 +334,10 @@ impl OidcScanner {
         // Test 10: Test nonce validation
         tests_run += 1;
         if let Some(ref config) = detection.configuration {
-            if let Err(e) = self.test_nonce_validation(config, url, &mut vulnerabilities).await {
+            if let Err(e) = self
+                .test_nonce_validation(config, url, &mut vulnerabilities)
+                .await
+            {
                 debug!("[OIDC] Nonce validation test error: {}", e);
             }
         }
@@ -298,7 +345,10 @@ impl OidcScanner {
         // Test 11: Test issuer validation
         tests_run += 1;
         if let Some(ref config) = detection.configuration {
-            if let Err(e) = self.test_issuer_validation(config, url, &mut vulnerabilities).await {
+            if let Err(e) = self
+                .test_issuer_validation(config, url, &mut vulnerabilities)
+                .await
+            {
                 debug!("[OIDC] Issuer validation test error: {}", e);
             }
         }
@@ -312,7 +362,10 @@ impl OidcScanner {
         // Test 13: Check authorization code flow security
         tests_run += 1;
         if let Some(ref config) = detection.configuration {
-            if let Err(e) = self.test_authorization_code_security(config, url, &mut vulnerabilities).await {
+            if let Err(e) = self
+                .test_authorization_code_security(config, url, &mut vulnerabilities)
+                .await
+            {
                 debug!("[OIDC] Auth code security test error: {}", e);
             }
         }
@@ -328,7 +381,10 @@ impl OidcScanner {
         // Test 16: Test userinfo endpoint security
         tests_run += 1;
         if let Some(ref config) = detection.configuration {
-            if let Err(e) = self.test_userinfo_endpoint(config, url, &mut vulnerabilities).await {
+            if let Err(e) = self
+                .test_userinfo_endpoint(config, url, &mut vulnerabilities)
+                .await
+            {
                 debug!("[OIDC] UserInfo endpoint test error: {}", e);
             }
         }
@@ -393,7 +449,10 @@ impl OidcScanner {
             format!("{}/.well-known/openid-configuration", base_url),
             format!("{}/oauth2/.well-known/openid-configuration", base_url),
             format!("{}/.well-known/oauth-authorization-server", base_url),
-            format!("{}/realms/master/.well-known/openid-configuration", base_url), // Keycloak
+            format!(
+                "{}/realms/master/.well-known/openid-configuration",
+                base_url
+            ), // Keycloak
             format!("{}/.well-known/openid-configuration/", base_url), // Trailing slash variant
         ];
 
@@ -402,7 +461,9 @@ impl OidcScanner {
                 if response.status_code == 200 && response.body.contains("\"issuer\"") {
                     detection.has_oidc = true;
                     detection.discovery_url = Some(endpoint.clone());
-                    detection.evidence.push(format!("Discovery endpoint: {}", endpoint));
+                    detection
+                        .evidence
+                        .push(format!("Discovery endpoint: {}", endpoint));
 
                     if let Some(config) = OidcConfiguration::from_json(&response.body) {
                         detection.configuration = Some(config);
@@ -416,7 +477,9 @@ impl OidcScanner {
         let url_lower = url.to_lowercase();
         if url_lower.contains("scope=openid") || url_lower.contains("id_token") {
             detection.has_oidc = true;
-            detection.evidence.push("OIDC parameters in URL".to_string());
+            detection
+                .evidence
+                .push("OIDC parameters in URL".to_string());
         }
 
         // Check response for OIDC indicators
@@ -434,7 +497,9 @@ impl OidcScanner {
             for pattern in &oidc_patterns {
                 if body_lower.contains(pattern) {
                     detection.has_oidc = true;
-                    detection.evidence.push(format!("Pattern found: {}", pattern));
+                    detection
+                        .evidence
+                        .push(format!("Pattern found: {}", pattern));
                 }
             }
         }
@@ -496,13 +561,19 @@ impl OidcScanner {
 
         for (endpoint, name) in &endpoints_to_check {
             if let Some(ep) = endpoint {
-                if ep.starts_with("http://") && !ep.contains("localhost") && !ep.contains("127.0.0.1") {
+                if ep.starts_with("http://")
+                    && !ep.contains("localhost")
+                    && !ep.contains("127.0.0.1")
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "OIDC Endpoint Using HTTP",
                         url,
                         Severity::Critical,
                         Confidence::High,
-                        &format!("OIDC {} uses insecure HTTP - tokens can be intercepted", name),
+                        &format!(
+                            "OIDC {} uses insecure HTTP - tokens can be intercepted",
+                            name
+                        ),
                         format!("{}: {}", name, ep),
                         9.0,
                         "CWE-319",
@@ -538,14 +609,16 @@ impl OidcScanner {
         }
 
         // Check for weak algorithms (HS256 with public keys can be vulnerable)
-        let weak_algs: Vec<&String> = algorithms.iter()
+        let weak_algs: Vec<&String> = algorithms
+            .iter()
             .filter(|a| {
                 let lower = a.to_lowercase();
                 lower == "hs256" || lower == "hs384" || lower == "hs512"
             })
             .collect();
 
-        let asymmetric_algs: Vec<&String> = algorithms.iter()
+        let asymmetric_algs: Vec<&String> = algorithms
+            .iter()
             .filter(|a| {
                 let lower = a.to_lowercase();
                 lower.starts_with("rs") || lower.starts_with("es") || lower.starts_with("ps")
@@ -568,7 +641,8 @@ impl OidcScanner {
         }
 
         // Check for deprecated algorithms
-        let deprecated_algs: Vec<&str> = algorithms.iter()
+        let deprecated_algs: Vec<&str> = algorithms
+            .iter()
             .filter(|a| {
                 let lower = a.to_lowercase();
                 lower == "rs256" || lower == "ps256" // SHA-256 still ok, but check for SHA-1
@@ -684,11 +758,15 @@ impl OidcScanner {
         let scopes = &config.scopes_supported;
 
         // Check for sensitive scopes
-        let sensitive_scopes: Vec<&String> = scopes.iter()
+        let sensitive_scopes: Vec<&String> = scopes
+            .iter()
             .filter(|s| {
                 let lower = s.to_lowercase();
-                lower.contains("admin") || lower.contains("write") || lower.contains("delete")
-                    || lower.contains("full") || lower.contains("all")
+                lower.contains("admin")
+                    || lower.contains("write")
+                    || lower.contains("delete")
+                    || lower.contains("full")
+                    || lower.contains("all")
             })
             .collect();
 
@@ -722,12 +800,18 @@ impl OidcScanner {
         let claims = &config.claims_supported;
 
         // Sensitive claims that might expose PII
-        let sensitive_claims: Vec<&String> = claims.iter()
+        let sensitive_claims: Vec<&String> = claims
+            .iter()
             .filter(|c| {
                 let lower = c.to_lowercase();
-                lower.contains("phone") || lower.contains("address") || lower.contains("birthdate")
-                    || lower.contains("gender") || lower.contains("ssn") || lower.contains("national")
-                    || lower.contains("passport") || lower.contains("license")
+                lower.contains("phone")
+                    || lower.contains("address")
+                    || lower.contains("birthdate")
+                    || lower.contains("gender")
+                    || lower.contains("ssn")
+                    || lower.contains("national")
+                    || lower.contains("passport")
+                    || lower.contains("license")
             })
             .collect();
 
@@ -794,8 +878,11 @@ impl OidcScanner {
         let auth_methods = &config.token_endpoint_auth_methods_supported;
 
         // Check for client_secret_post (less secure than basic)
-        if auth_methods.iter().any(|m| m == "client_secret_post") &&
-           !auth_methods.iter().any(|m| m == "private_key_jwt" || m == "client_secret_jwt") {
+        if auth_methods.iter().any(|m| m == "client_secret_post")
+            && !auth_methods
+                .iter()
+                .any(|m| m == "private_key_jwt" || m == "client_secret_jwt")
+        {
             vulnerabilities.push(self.create_vulnerability(
                 "OIDC Weak Token Endpoint Auth",
                 url,
@@ -852,8 +939,10 @@ impl OidcScanner {
                 let body_lower = response.body.to_lowercase();
 
                 // If no error about missing nonce, it might be optional
-                if response.status_code != 400 && !body_lower.contains("nonce")
-                    && !body_lower.contains("required") {
+                if response.status_code != 400
+                    && !body_lower.contains("nonce")
+                    && !body_lower.contains("required")
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "OIDC Nonce Not Enforced",
                         url,
@@ -883,7 +972,9 @@ impl OidcScanner {
         if let Some(issuer) = &config.issuer {
             let base_url = self.extract_base_url(url);
 
-            if !issuer.starts_with(&base_url) && !base_url.contains(issuer.split('/').nth(2).unwrap_or("")) {
+            if !issuer.starts_with(&base_url)
+                && !base_url.contains(issuer.split('/').nth(2).unwrap_or(""))
+            {
                 vulnerabilities.push(self.create_vulnerability(
                     "OIDC Issuer Mismatch",
                     url,
@@ -909,9 +1000,13 @@ impl OidcScanner {
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
         // If JWKS URI is available and both HS and RS algorithms are supported
-        let has_hs = config.id_token_signing_alg_values_supported.iter()
+        let has_hs = config
+            .id_token_signing_alg_values_supported
+            .iter()
             .any(|a| a.starts_with("HS"));
-        let has_rs = config.id_token_signing_alg_values_supported.iter()
+        let has_rs = config
+            .id_token_signing_alg_values_supported
+            .iter()
             .any(|a| a.starts_with("RS") || a.starts_with("ES") || a.starts_with("PS"));
 
         if config.jwks_uri.is_some() && has_hs && has_rs {
@@ -948,8 +1043,11 @@ impl OidcScanner {
                 let body_lower = response.body.to_lowercase();
 
                 // Check if state is required
-                if response.status_code != 400 && !body_lower.contains("state")
-                    && !body_lower.contains("required") && !body_lower.contains("missing") {
+                if response.status_code != 400
+                    && !body_lower.contains("state")
+                    && !body_lower.contains("required")
+                    && !body_lower.contains("missing")
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "OIDC State Parameter Not Enforced",
                         url,
@@ -985,7 +1083,10 @@ impl OidcScanner {
             "cognito",
             "accounts.google.com",
             "keycloak",
-        ].iter().filter(|idp| body_lower.contains(*idp)).count();
+        ]
+        .iter()
+        .filter(|idp| body_lower.contains(*idp))
+        .count();
 
         if idp_count > 1 {
             vulnerabilities.push(self.create_vulnerability(
@@ -1003,7 +1104,8 @@ impl OidcScanner {
 
         // Check for mixed OAuth/OIDC flows
         if (body_lower.contains("oauth") || body_lower.contains("oauth2"))
-            && body_lower.contains("openid") {
+            && body_lower.contains("openid")
+        {
             // This is normal, but check for inconsistent configurations
             if body_lower.contains("response_type=token") && body_lower.contains("scope=openid") {
                 debug!("[OIDC] Mixed OAuth/OIDC implicit flow detected");
@@ -1026,8 +1128,10 @@ impl OidcScanner {
             && (body.contains("=") || body.contains(":") || body.contains("\""))
         {
             // Additional check to avoid false positives on documentation
-            if !body_lower.contains("example") && !body_lower.contains("documentation")
-                && !body_lower.contains("tutorial") && !body_lower.contains("placeholder")
+            if !body_lower.contains("example")
+                && !body_lower.contains("documentation")
+                && !body_lower.contains("tutorial")
+                && !body_lower.contains("placeholder")
             {
                 vulnerabilities.push(self.create_vulnerability(
                     "OIDC Client Secret Exposed",
@@ -1105,7 +1209,7 @@ impl OidcScanner {
             false_positive: false,
             remediation,
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1114,7 +1218,8 @@ impl OidcScanner {
         let provider_docs = provider.get_remediation_docs();
 
         let base_remediation = match vuln_type {
-            "OIDC None Algorithm Supported" => r#"CRITICAL: Disable 'none' algorithm immediately.
+            "OIDC None Algorithm Supported" => {
+                r#"CRITICAL: Disable 'none' algorithm immediately.
 
 1. **Remove 'none' from supported algorithms**
    Configure your IdP to only allow secure signing algorithms:
@@ -1131,9 +1236,11 @@ impl OidcScanner {
    }
    ```
 
-3. **Reject tokens without signatures**"#,
+3. **Reject tokens without signatures**"#
+            }
 
-            "OIDC Algorithm Confusion Risk" | "OIDC Algorithm Confusion Vulnerability Risk" => r#"HIGH: Prevent algorithm confusion attacks.
+            "OIDC Algorithm Confusion Risk" | "OIDC Algorithm Confusion Vulnerability Risk" => {
+                r#"HIGH: Prevent algorithm confusion attacks.
 
 1. **Use asymmetric algorithms only**
    Remove HS256/HS384/HS512 from supported algorithms if using public keys.
@@ -1150,9 +1257,11 @@ impl OidcScanner {
 
 3. **Never use the public key as a symmetric secret**
 
-4. **Configure strict algorithm validation in your JWT library**"#,
+4. **Configure strict algorithm validation in your JWT library**"#
+            }
 
-            "OIDC Missing PKCE Support" => r#"MEDIUM: Implement PKCE for authorization code flow.
+            "OIDC Missing PKCE Support" => {
+                r#"MEDIUM: Implement PKCE for authorization code flow.
 
 1. **Enable PKCE in your OIDC provider**
    - Most modern IdPs support PKCE by default
@@ -1180,9 +1289,11 @@ impl OidcScanner {
    });
    ```
 
-3. **Use S256 method (not plain)**"#,
+3. **Use S256 method (not plain)**"#
+            }
 
-            "OIDC Implicit Flow Enabled" => r#"MEDIUM: Migrate from implicit flow to authorization code flow with PKCE.
+            "OIDC Implicit Flow Enabled" => {
+                r#"MEDIUM: Migrate from implicit flow to authorization code flow with PKCE.
 
 1. **Deprecate implicit flow**
    Remove 'token' and 'id_token token' from response_types_supported.
@@ -1197,9 +1308,11 @@ impl OidcScanner {
 
 3. **Implement PKCE for SPAs and mobile apps**
 
-4. **Enable refresh token rotation**"#,
+4. **Enable refresh token rotation**"#
+            }
 
-            "OIDC Missing Logout Endpoint" => r#"MEDIUM: Implement proper logout functionality.
+            "OIDC Missing Logout Endpoint" => {
+                r#"MEDIUM: Implement proper logout functionality.
 
 1. **Configure end_session_endpoint in your IdP**
 
@@ -1214,9 +1327,11 @@ impl OidcScanner {
 
 3. **Clear local session on logout**
 
-4. **Consider implementing back-channel logout for federated scenarios**"#,
+4. **Consider implementing back-channel logout for federated scenarios**"#
+            }
 
-            "OIDC Client Secret Exposed" => r#"CRITICAL: Remove client secret from client-side code immediately.
+            "OIDC Client Secret Exposed" => {
+                r#"CRITICAL: Remove client secret from client-side code immediately.
 
 1. **Never include client_secret in frontend code**
 
@@ -1236,9 +1351,11 @@ impl OidcScanner {
 
 4. **Rotate compromised secrets immediately**
 
-5. **Consider using private_key_jwt authentication**"#,
+5. **Consider using private_key_jwt authentication**"#
+            }
 
-            "OIDC Nonce Not Enforced" => r#"MEDIUM: Enforce nonce validation for implicit/hybrid flows.
+            "OIDC Nonce Not Enforced" => {
+                r#"MEDIUM: Enforce nonce validation for implicit/hybrid flows.
 
 1. **Generate cryptographically random nonce**
    ```javascript
@@ -1259,9 +1376,11 @@ impl OidcScanner {
    }
    ```
 
-3. **Configure IdP to require nonce for implicit flows**"#,
+3. **Configure IdP to require nonce for implicit flows**"#
+            }
 
-            "OIDC UserInfo Endpoint Unprotected" => r#"CRITICAL: Protect userinfo endpoint with access token validation.
+            "OIDC UserInfo Endpoint Unprotected" => {
+                r#"CRITICAL: Protect userinfo endpoint with access token validation.
 
 1. **Require valid access token**
    ```
@@ -1273,9 +1392,11 @@ impl OidcScanner {
 
 3. **Implement proper token introspection if needed**
 
-4. **Review IdP access token validation settings**"#,
+4. **Review IdP access token validation settings**"#
+            }
 
-            _ => r#"General OIDC Security Recommendations:
+            _ => {
+                r#"General OIDC Security Recommendations:
 
 1. **Use authorization code flow with PKCE**
 2. **Validate all tokens thoroughly (issuer, audience, expiry, signature)**
@@ -1285,7 +1406,8 @@ impl OidcScanner {
 6. **Implement proper logout functionality**
 7. **Store tokens securely (HttpOnly cookies or encrypted storage)**
 8. **Implement token rotation for refresh tokens**
-9. **Monitor for suspicious token usage patterns**"#,
+9. **Monitor for suspicious token usage patterns**"#
+            }
         };
 
         format!(
@@ -1340,12 +1462,30 @@ mod tests {
 
     #[test]
     fn test_provider_detection() {
-        assert_eq!(OidcProvider::from_issuer("https://dev-123456.okta.com"), OidcProvider::Okta);
-        assert_eq!(OidcProvider::from_issuer("https://tenant.auth0.com"), OidcProvider::Auth0);
-        assert_eq!(OidcProvider::from_issuer("https://login.microsoftonline.com/tenant"), OidcProvider::AzureAd);
-        assert_eq!(OidcProvider::from_issuer("https://keycloak.example.com/realms/master"), OidcProvider::Keycloak);
-        assert_eq!(OidcProvider::from_issuer("https://cognito-idp.us-east-1.amazonaws.com/pool"), OidcProvider::Cognito);
-        assert_eq!(OidcProvider::from_issuer("https://accounts.google.com"), OidcProvider::Google);
+        assert_eq!(
+            OidcProvider::from_issuer("https://dev-123456.okta.com"),
+            OidcProvider::Okta
+        );
+        assert_eq!(
+            OidcProvider::from_issuer("https://tenant.auth0.com"),
+            OidcProvider::Auth0
+        );
+        assert_eq!(
+            OidcProvider::from_issuer("https://login.microsoftonline.com/tenant"),
+            OidcProvider::AzureAd
+        );
+        assert_eq!(
+            OidcProvider::from_issuer("https://keycloak.example.com/realms/master"),
+            OidcProvider::Keycloak
+        );
+        assert_eq!(
+            OidcProvider::from_issuer("https://cognito-idp.us-east-1.amazonaws.com/pool"),
+            OidcProvider::Cognito
+        );
+        assert_eq!(
+            OidcProvider::from_issuer("https://accounts.google.com"),
+            OidcProvider::Google
+        );
     }
 
     #[test]
@@ -1365,9 +1505,15 @@ mod tests {
 
         let config = OidcConfiguration::from_json(json).unwrap();
         assert_eq!(config.issuer, Some("https://auth.example.com".to_string()));
-        assert!(config.response_types_supported.contains(&"code".to_string()));
-        assert!(config.id_token_signing_alg_values_supported.contains(&"RS256".to_string()));
-        assert!(config.code_challenge_methods_supported.contains(&"S256".to_string()));
+        assert!(config
+            .response_types_supported
+            .contains(&"code".to_string()));
+        assert!(config
+            .id_token_signing_alg_values_supported
+            .contains(&"RS256".to_string()));
+        assert!(config
+            .code_challenge_methods_supported
+            .contains(&"S256".to_string()));
         assert!(config.frontchannel_logout_supported);
     }
 
@@ -1389,7 +1535,8 @@ mod tests {
     fn test_algorithm_confusion_detection() {
         let scanner = OidcScanner::new(create_mock_http_client());
         let mut config = OidcConfiguration::default();
-        config.id_token_signing_alg_values_supported = vec!["RS256".to_string(), "HS256".to_string()];
+        config.id_token_signing_alg_values_supported =
+            vec!["RS256".to_string(), "HS256".to_string()];
         config.jwks_uri = Some("https://example.com/.well-known/jwks.json".to_string());
         config.provider = OidcProvider::Generic;
 
@@ -1397,7 +1544,9 @@ mod tests {
         scanner.check_algorithm_confusion_risk(&config, "https://example.com", &mut vulns);
 
         assert!(!vulns.is_empty());
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("Algorithm Confusion")));
+        assert!(vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("Algorithm Confusion")));
     }
 
     #[test]
@@ -1433,10 +1582,15 @@ mod tests {
         let scanner = OidcScanner::new(create_mock_http_client());
 
         let mut vulns = Vec::new();
-        scanner.check_id_token_in_url("https://app.example.com/callback#id_token=eyJhbGc...", &mut vulns);
+        scanner.check_id_token_in_url(
+            "https://app.example.com/callback#id_token=eyJhbGc...",
+            &mut vulns,
+        );
 
         assert!(!vulns.is_empty());
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("ID Token in URL")));
+        assert!(vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("ID Token in URL")));
     }
 
     #[test]

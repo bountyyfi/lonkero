@@ -372,8 +372,9 @@ pub fn generate_nonce() -> String {
 ///
 /// Returns a 64 character lowercase hex string
 pub fn hash_results<T: Serialize>(results: &T) -> Result<String, SigningError> {
-    let json = serde_json::to_string(results)
-        .map_err(|e| SigningError::InvalidResponse(format!("Failed to serialize results: {}", e)))?;
+    let json = serde_json::to_string(results).map_err(|e| {
+        SigningError::InvalidResponse(format!("Failed to serialize results: {}", e))
+    })?;
 
     let mut hasher = Hasher::new();
     hasher.update(json.as_bytes());
@@ -480,7 +481,11 @@ pub async fn authorize_scan(
     scanner_version: Option<&str>,
     modules: Vec<String>,
 ) -> Result<ScanToken, SigningError> {
-    debug!("Authorizing scan for {} targets with {} modules", targets_count, modules.len());
+    debug!(
+        "Authorizing scan for {} targets with {} modules",
+        targets_count,
+        modules.len()
+    );
 
     let request = ScanAuthorizeRequest {
         targets_count,
@@ -521,7 +526,10 @@ pub async fn authorize_scan(
     // Log denied modules summary (individual denials logged at debug level)
     if let Some(ref denied) = auth_response.denied_modules {
         if denied.len() > 0 {
-            debug!("[Auth] {} modules denied (requires license upgrade)", denied.len());
+            debug!(
+                "[Auth] {} modules denied (requires license upgrade)",
+                denied.len()
+            );
             for d in denied {
                 debug!("[Auth] Module '{}' denied: {}", d.module, d.reason);
             }
@@ -541,13 +549,13 @@ pub async fn authorize_scan(
     }
 
     // Extract token from response
-    let token_str = auth_response
-        .scan_token
-        .ok_or_else(|| SigningError::InvalidResponse("Missing scan_token in response".to_string()))?;
+    let token_str = auth_response.scan_token.ok_or_else(|| {
+        SigningError::InvalidResponse("Missing scan_token in response".to_string())
+    })?;
 
-    let expires_at = auth_response
-        .token_expires_at
-        .ok_or_else(|| SigningError::InvalidResponse("Missing token_expires_at in response".to_string()))?;
+    let expires_at = auth_response.token_expires_at.ok_or_else(|| {
+        SigningError::InvalidResponse("Missing token_expires_at in response".to_string())
+    })?;
 
     let max_targets = auth_response.max_targets.unwrap_or(100);
     let license_type = auth_response
@@ -557,7 +565,9 @@ pub async fn authorize_scan(
 
     info!(
         "[Auth] Authorized: {} license, max {} targets, {} modules",
-        license_type, max_targets, authorized_modules.len()
+        license_type,
+        max_targets,
+        authorized_modules.len()
     );
 
     let token = ScanToken {
@@ -678,13 +688,13 @@ pub async fn sign_results(
     }
 
     // Extract signature from response
-    let signature = sign_response
-        .signature
-        .ok_or_else(|| SigningError::InvalidResponse("Missing signature in response".to_string()))?;
+    let signature = sign_response.signature.ok_or_else(|| {
+        SigningError::InvalidResponse("Missing signature in response".to_string())
+    })?;
 
-    let signed_at = sign_response
-        .signed_at
-        .ok_or_else(|| SigningError::InvalidResponse("Missing signed_at in response".to_string()))?;
+    let signed_at = sign_response.signed_at.ok_or_else(|| {
+        SigningError::InvalidResponse("Missing signed_at in response".to_string())
+    })?;
 
     let algorithm = sign_response
         .algorithm
@@ -712,7 +722,8 @@ fn is_valid_blake3_hash(hash: &str) -> bool {
     if hash.len() != 64 {
         return false;
     }
-    hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    hash.chars()
+        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 // ============ TESTS ============
@@ -756,7 +767,9 @@ mod tests {
         assert_eq!(hash.len(), 64);
 
         // Should be lowercase hex
-        assert!(hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(hash
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
 
         // Same input should produce same hash
         let hash2 = hash_results(&data).unwrap();

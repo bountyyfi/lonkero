@@ -188,16 +188,16 @@ impl PluginManager {
         plugin_name: &str,
         input: PluginInput,
     ) -> anyhow::Result<PluginOutput> {
-        let plugin = self.plugins.get(plugin_name)
+        let plugin = self
+            .plugins
+            .get(plugin_name)
             .ok_or_else(|| anyhow::anyhow!("Plugin '{}' not found", plugin_name))?;
 
         plugin.execute(input)
     }
 
     pub fn list_plugins(&self) -> Vec<&PluginMetadata> {
-        self.plugins.values()
-            .map(|p| p.metadata())
-            .collect()
+        self.plugins.values().map(|p| p.metadata()).collect()
     }
 
     pub fn get_plugin(&self, name: &str) -> Option<&Box<dyn Plugin>> {

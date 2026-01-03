@@ -71,7 +71,10 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Test arbitrary origin reflection
-    async fn test_arbitrary_origin(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_arbitrary_origin(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -138,7 +141,10 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Test wildcard origin with credentials
-    async fn test_wildcard_credentials(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_wildcard_credentials(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
@@ -167,7 +173,10 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Test subdomain reflection vulnerability
-    async fn test_subdomain_reflection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_subdomain_reflection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -210,7 +219,10 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Test insecure HTTP origins
-    async fn test_insecure_origins(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_insecure_origins(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 1;
 
@@ -241,7 +253,11 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Detect arbitrary origin reflection
-    fn detect_arbitrary_origin_reflected(&self, headers: &std::collections::HashMap<String, String>, origin: &str) -> bool {
+    fn detect_arbitrary_origin_reflected(
+        &self,
+        headers: &std::collections::HashMap<String, String>,
+        origin: &str,
+    ) -> bool {
         for (key, value) in headers {
             let key_lower = key.to_lowercase();
 
@@ -250,8 +266,9 @@ impl CorsMisconfigurationScanner {
                 if value == origin || value == "*" {
                     // Check if credentials are also allowed (critical)
                     for (cred_key, cred_value) in headers {
-                        if cred_key.to_lowercase() == "access-control-allow-credentials" &&
-                           cred_value.to_lowercase() == "true" {
+                        if cred_key.to_lowercase() == "access-control-allow-credentials"
+                            && cred_value.to_lowercase() == "true"
+                        {
                             return true;
                         }
                     }
@@ -267,7 +284,10 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Detect null origin allowed
-    fn detect_null_origin_allowed(&self, headers: &std::collections::HashMap<String, String>) -> bool {
+    fn detect_null_origin_allowed(
+        &self,
+        headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
         let mut null_origin_allowed = false;
         let mut credentials_allowed = false;
 
@@ -287,7 +307,10 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Detect wildcard with credentials (actually invalid but some servers try)
-    fn detect_wildcard_with_credentials(&self, headers: &std::collections::HashMap<String, String>) -> bool {
+    fn detect_wildcard_with_credentials(
+        &self,
+        headers: &std::collections::HashMap<String, String>,
+    ) -> bool {
         let mut wildcard_origin = false;
         let mut credentials_allowed = false;
 
@@ -340,7 +363,7 @@ impl CorsMisconfigurationScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -385,14 +408,23 @@ mod tests {
         let scanner = create_test_scanner();
 
         let mut headers = HashMap::new();
-        headers.insert("Access-Control-Allow-Origin".to_string(), "https://evil.com".to_string());
-        headers.insert("Access-Control-Allow-Credentials".to_string(), "true".to_string());
+        headers.insert(
+            "Access-Control-Allow-Origin".to_string(),
+            "https://evil.com".to_string(),
+        );
+        headers.insert(
+            "Access-Control-Allow-Credentials".to_string(),
+            "true".to_string(),
+        );
 
         assert!(scanner.detect_arbitrary_origin_reflected(&headers, "https://evil.com"));
 
         // Without credentials
         let mut headers2 = HashMap::new();
-        headers2.insert("Access-Control-Allow-Origin".to_string(), "https://evil.com".to_string());
+        headers2.insert(
+            "Access-Control-Allow-Origin".to_string(),
+            "https://evil.com".to_string(),
+        );
 
         assert!(scanner.detect_arbitrary_origin_reflected(&headers2, "https://evil.com"));
     }
@@ -402,14 +434,23 @@ mod tests {
         let scanner = create_test_scanner();
 
         let mut headers = HashMap::new();
-        headers.insert("Access-Control-Allow-Origin".to_string(), "null".to_string());
-        headers.insert("Access-Control-Allow-Credentials".to_string(), "true".to_string());
+        headers.insert(
+            "Access-Control-Allow-Origin".to_string(),
+            "null".to_string(),
+        );
+        headers.insert(
+            "Access-Control-Allow-Credentials".to_string(),
+            "true".to_string(),
+        );
 
         assert!(scanner.detect_null_origin_allowed(&headers));
 
         // Without credentials should not trigger
         let mut headers2 = HashMap::new();
-        headers2.insert("Access-Control-Allow-Origin".to_string(), "null".to_string());
+        headers2.insert(
+            "Access-Control-Allow-Origin".to_string(),
+            "null".to_string(),
+        );
 
         assert!(!scanner.detect_null_origin_allowed(&headers2));
     }
@@ -420,7 +461,10 @@ mod tests {
 
         let mut headers = HashMap::new();
         headers.insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
-        headers.insert("Access-Control-Allow-Credentials".to_string(), "true".to_string());
+        headers.insert(
+            "Access-Control-Allow-Credentials".to_string(),
+            "true".to_string(),
+        );
 
         assert!(scanner.detect_wildcard_with_credentials(&headers));
 

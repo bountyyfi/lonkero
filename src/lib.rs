@@ -8,19 +8,18 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 pub mod adaptive_concurrency;
+pub mod auth_context;
 pub mod cdn_detector;
 pub mod circuit_breaker;
 pub mod config;
 pub mod crawler;
-pub mod headless_crawler;
-pub mod auth_context;
-pub mod multi_role;
 pub mod database;
 pub mod detection_helpers;
 pub mod dns_cache;
 pub mod framework_detector;
+pub mod headless_crawler;
+pub mod multi_role;
 pub mod oob_detector;
 pub mod payloads;
 pub mod payloads_comprehensive;
@@ -37,13 +36,13 @@ pub mod vulnerability;
 pub mod cloud;
 
 // Scanner modules
-pub mod scanners;
 pub mod http_client;
+pub mod scanners;
 
 // Production error handling and resilience modules
 pub mod errors;
-pub mod retry;
 pub mod metrics;
+pub mod retry;
 
 // Validation modules
 pub mod validation;

