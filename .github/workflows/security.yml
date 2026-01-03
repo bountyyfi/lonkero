@@ -35,15 +35,13 @@ jobs:
           if [ ! -f deny.toml ]; then
             cat > deny.toml << 'EOF'
           [advisories]
+          version = 2
           db-path = "~/.cargo/advisory-db"
           db-urls = ["https://github.com/rustsec/advisory-db"]
-          vulnerability = "warn"
-          unmaintained = "warn"
-          yanked = "warn"
-          notice = "warn"
+          ignore = []
 
           [licenses]
-          unlicensed = "warn"
+          version = 2
           allow = [
             "MIT",
             "Apache-2.0",
@@ -56,6 +54,7 @@ jobs:
             "Unicode-DFS-2016",
             "CC0-1.0",
             "BSL-1.0",
+            "Unlicense",
           ]
           confidence-threshold = 0.8
 
@@ -204,6 +203,21 @@ jobs:
         run: |
           cargo sbom --output-format spdx_json_2_3 > sbom-spdx.json
 
+      - name: Scan SBOM with Grype
+        uses: anchore/scan-action@2c901ab7378897c01b8efaa2d0c9bf519cc64b9e # v4.1.2
+        with:
+          sbom: sbom-cyclonedx.json
+          fail-build: false
+          output-format: sarif
+          output-file: grype-results.sarif
+
+      - name: Upload Grype SARIF
+        uses: github/codeql-action/upload-sarif@f09c1c0a94de965c15400f5634aa42fac8fb8f88 # v3.28.1
+        if: always()
+        with:
+          sarif_file: grype-results.sarif
+          category: grype
+
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -211,6 +225,7 @@ jobs:
           path: |
             sbom-cyclonedx.json
             sbom-spdx.json
+            grype-results.sarif
 
   # Dependency freshness check
   dependency-freshness:

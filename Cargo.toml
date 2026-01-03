@@ -20,11 +20,6 @@ crate-type = ["rlib"]
 name = "lonkero"
 path = "src/cli/main.rs"
 
-# Internal network agent
-[[bin]]
-name = "lonkero-agent"
-path = "src/bin/internal-agent.rs"
-
 [dependencies]
 # Async runtime
 tokio = { version = "1.48", features = ["full", "tracing"] }

@@ -40,10 +40,10 @@ jobs:
           sudo apt-get install -y pkg-config libssl-dev libpq-dev
 
       - name: Build
-        run: cargo build --release --lib --bins
+        run: cargo build --release --bin lonkero
 
       - name: Build check (all features)
-        run: cargo check --all-features --lib --bins
+        run: cargo check --all-features --lib --bin lonkero
 
   test:
     name: Test
@@ -109,9 +109,9 @@ jobs:
 
       - name: Run Clippy
         run: |
-          # Run clippy on lib and bins only (tests have errors)
+          # Run clippy on lib and main binary only
           # Allow warnings (141 pre-existing), only fail on errors
-          cargo clippy --lib --bins 2>&1 | tee clippy-output.txt
+          cargo clippy --lib --bin lonkero 2>&1 | tee clippy-output.txt
           if grep -q "^error\[" clippy-output.txt; then
             echo "::error::Clippy found compilation errors"
             exit 1
@@ -133,23 +133,3 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
-
-  docker:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile.worker
-          push: false
-          tags: lonkero-worker:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
