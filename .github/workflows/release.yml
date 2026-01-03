@@ -39,10 +39,10 @@ jobs:
             artifact: lonkero-linux-arm64
             cross: true
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-13
             artifact: lonkero-macos-x64
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-14
             artifact: lonkero-macos-arm64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -58,19 +58,26 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.cross != true
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev libpq-dev
 
-      - name: Install cross-compilation tools (Linux ARM)
-        if: matrix.cross
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install openssl@3 postgresql
+
+      - name: Install cross (for ARM builds)
+        if: matrix.cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build release binary
+        if: matrix.cross != true
         run: cargo build --release --bin lonkero --target ${{ matrix.target }}
+
+      - name: Build release binary (cross)
+        if: matrix.cross == true
+        run: cross build --release --bin lonkero --target ${{ matrix.target }}
 
       - name: Prepare artifact (Unix)
         if: runner.os != 'Windows'
