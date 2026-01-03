@@ -17,9 +17,6 @@ jobs:
       security-events: write
       contents: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
 
@@ -33,12 +30,12 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Build lonkero
-        run: cargo build --release --bin lonkero
+      - name: Install lonkero
+        run: cargo install lonkero
 
       - name: Scan training endpoint
         run: |
-          ./target/release/lonkero scan \
+          lonkero scan \
             --format sarif \
             --output lonkero-results.sarif \
             https://training-data-lonkero.bountyy-fi-clients.workers.dev/
