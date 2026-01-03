@@ -1,0 +1,19 @@
+# Semgrep configuration for Lonkero Security Scanner
+#
+# NOTE: This is a security scanner that contains intentional test payloads,
+# example JWT tokens, and API keys used for vulnerability detection.
+# These are NOT real secrets - they are test data for scanning targets.
+
+rules: []
+
+# Exclude rules that flag our test payloads as secrets
+# The scanner needs these patterns to detect vulnerabilities in target systems
+exclude:
+  # JWT tokens in scanner files are test payloads, not real tokens
+  - generic.secrets.security.detected-jwt-token.detected-jwt-token
+  # API keys in scanner files are example patterns for detection
+  - generic.secrets.security.detected-generic-api-key.detected-generic-api-key
+  # PGP key block patterns are for detecting exposed keys in targets
+  - generic.secrets.security.detected-pgp-private-key-block.detected-pgp-private-key-block
+  # WebSocket ws:// patterns are test cases for the scanner
+  - javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket

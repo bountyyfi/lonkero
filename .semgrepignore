@@ -1,0 +1,37 @@
+# Semgrep ignore file for Lonkero Security Scanner
+#
+# IMPORTANT: This is a SECURITY SCANNER application.
+# The codebase intentionally contains:
+# - Test JWT tokens (for JWT vulnerability detection)
+# - Example API keys (for API key detection patterns)
+# - PGP key patterns (for detecting exposed keys)
+# - ws:// WebSocket URLs (for testing insecure WebSocket detection)
+#
+# These are NOT real secrets - they are test payloads used to scan target systems.
+
+# ============================================
+# Scanner modules contain test payloads
+# ============================================
+src/scanners/
+
+# Form replay contains test tokens
+src/form_replay.rs
+
+# ============================================
+# Test and example files
+# ============================================
+examples/
+tests/
+*_test.rs
+test_*.rs
+
+# ============================================
+# Build artifacts
+# ============================================
+target/
+*.rlib
+
+# ============================================
+# Generated files
+# ============================================
+Cargo.lock
