@@ -22,6 +22,11 @@ description = "Security scanner test payloads - not real secrets"
 paths = [
     '''src/scanners/.*''',
     '''src/form_replay\.rs''',
+    '''src/payloads\.rs''',
+    '''src/payloads_comprehensive\.rs''',
+    '''src/payload_cache\.rs''',
+    '''src/config/secrets\.rs''',
+    '''src/detection_helpers\.rs''',
     '''examples/.*''',
     '''tests/.*''',
     '''.*_test\.rs''',

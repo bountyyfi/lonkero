@@ -15,6 +15,13 @@ src/scanners/
 # Ignore secret detection in form replay (contains test tokens)
 src/form_replay.rs
 
+# Payload files contain test data for vulnerability detection
+src/payloads.rs
+src/payloads_comprehensive.rs
+src/payload_cache.rs
+src/config/secrets.rs
+src/detection_helpers.rs
+
 # Ignore test and example files
 examples/
 tests/
