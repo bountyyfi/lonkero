@@ -5,6 +5,10 @@ on:
     - cron: '0 3 * * 1'  # Monday 3am UTC
   workflow_dispatch:  # Manual trigger
 
+# Restrict default permissions (OpenSSF Scorecard requirement)
+permissions:
+  contents: read
+
 jobs:
   dogfood-scan:
     name: Lonkero Self-Test
