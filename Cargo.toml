@@ -1,6 +1,7 @@
 [package]
 name = "lonkero"
 version = "3.0.0"
+rust-version = "1.85.1"
 edition = "2021"
 authors = ["Bountyy Oy <info@bountyy.fi>"]
 description = "Web scanner built for actual pentests. Fast, modular, Rust."
