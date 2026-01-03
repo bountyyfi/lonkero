@@ -156,6 +156,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-fs-results.sarif'
           severity: 'CRITICAL,HIGH'
+          # Skip scanner directories - they contain intentional test payloads (not real secrets)
+          skip-dirs: 'src/scanners,examples,tests,target'
+          # Skip secret scanning - this is a security scanner with test payloads
+          scanners: 'vuln,misconfig'
 
       - name: Upload Trivy SARIF (filesystem)
         uses: github/codeql-action/upload-sarif@v3
@@ -171,6 +175,7 @@ jobs:
           scan-ref: '.'
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          skip-dirs: 'src/scanners,examples,tests,target'
 
   # Generate SBOM (Software Bill of Materials)
   sbom:
