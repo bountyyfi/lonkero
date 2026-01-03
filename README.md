@@ -437,7 +437,20 @@ Full session capture for vulnerability reproduction and debugging:
 
 ## Installation
 
-### From Source (Recommended)
+### From crates.io
+
+```bash
+cargo install lonkero
+```
+
+### From GitHub Releases
+
+Download pre-built binaries from [Releases](https://github.com/bountyyfi/lonkero/releases):
+- Linux (x64, ARM64)
+- macOS (x64, Apple Silicon)
+- Windows (x64)
+
+### From Source
 
 ```bash
 # Clone repository
