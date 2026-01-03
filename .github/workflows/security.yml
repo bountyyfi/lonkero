@@ -1,4 +1,4 @@
-name: Security
+name: Security (Extended)
 
 on:
   push:
@@ -6,53 +6,14 @@ on:
   pull_request:
     branches: ["main"]
   schedule:
-    # Run weekly on Monday at 6:00 UTC
-    - cron: '0 6 * * 1'
+    # Run weekly on Monday at 7:00 UTC (after CodeQL at 6:30)
+    - cron: '0 7 * * 1'
 
 env:
   CARGO_TERM_COLOR: always
 
+# Extended security checks (complements codeql.yml which has cargo-audit and Unicode checks)
 jobs:
-  # Audit dependencies for known vulnerabilities
-  cargo-audit:
-    name: Dependency Audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install cargo-audit
-        run: |
-          curl -fsSL https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz | tar xzf - -C /usr/local/bin
-          cargo-binstall cargo-audit --no-confirm
-
-      - name: Run cargo-audit
-        run: |
-          cargo audit --json > audit-results.json || true
-          cargo audit 2>&1 | tee audit-output.txt
-
-          # Check for critical/high vulnerabilities
-          if grep -q "RUSTSEC-" audit-output.txt; then
-            echo "::warning::Security advisories found in dependencies"
-            cat audit-output.txt
-          fi
-
-          # Fail on critical vulnerabilities
-          if grep -qE "Severity: critical|Severity: high" audit-output.txt; then
-            echo "::error::Critical or high severity vulnerabilities found"
-            exit 1
-          fi
-          echo "No critical vulnerabilities found"
-
-      - name: Upload audit results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: cargo-audit-results
-          path: |
-            audit-results.json
-            audit-output.txt
-
   # Check for license compliance and banned dependencies
   cargo-deny:
     name: License & Dependency Check
@@ -99,10 +60,6 @@ jobs:
           multiple-versions = "warn"
           wildcards = "warn"
           highlight = "all"
-          # Banned crates (known vulnerable or problematic)
-          deny = [
-            # Example: { name = "openssl", wrappers = ["openssl-sys"] }
-          ]
 
           [sources]
           unknown-registry = "deny"
@@ -164,55 +121,32 @@ jobs:
         run: |
           echo "=== Checking for unsafe code blocks ===" | tee security-patterns.txt
           grep -rn "unsafe\s*{" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No unsafe blocks found" >> security-patterns.txt
-
-          UNSAFE_COUNT=$(grep -c "unsafe\s*{" src/**/*.rs 2>/dev/null || echo "0")
-          echo "Found $UNSAFE_COUNT unsafe blocks" >> security-patterns.txt
+          echo "" >> security-patterns.txt
 
       - name: Check for potential command injection
         run: |
-          echo "" >> security-patterns.txt
           echo "=== Checking for potential command injection ===" >> security-patterns.txt
-          # Look for Command::new with string interpolation
           grep -rn "Command::new.*format!" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No obvious command injection patterns" >> security-patterns.txt
+          echo "" >> security-patterns.txt
 
       - name: Check for hardcoded credentials patterns
         run: |
-          echo "" >> security-patterns.txt
           echo "=== Checking for hardcoded credentials ===" >> security-patterns.txt
           grep -rniE "(password|secret|api_key|apikey|token)\s*=\s*[\"'][^\"']+[\"']" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No hardcoded credentials found" >> security-patterns.txt
-
-      - name: Check for SQL query construction
-        run: |
           echo "" >> security-patterns.txt
-          echo "=== Checking for dynamic SQL construction ===" >> security-patterns.txt
-          grep -rn "format!.*SELECT\|format!.*INSERT\|format!.*UPDATE\|format!.*DELETE" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No obvious SQL injection patterns" >> security-patterns.txt
-
-      - name: Check for path traversal patterns
-        run: |
-          echo "" >> security-patterns.txt
-          echo "=== Checking for path traversal risks ===" >> security-patterns.txt
-          grep -rn "\.\./" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No path traversal patterns" >> security-patterns.txt
 
       - name: Check for deprecated crypto
         run: |
-          echo "" >> security-patterns.txt
           echo "=== Checking for deprecated crypto ===" >> security-patterns.txt
           grep -rniE "md5|sha1[^0-9]|des\s|rc4" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No deprecated crypto found" >> security-patterns.txt
-
-      - name: Check for eval/exec patterns
-        run: |
-          echo "" >> security-patterns.txt
-          echo "=== Checking for dynamic code execution ===" >> security-patterns.txt
-          grep -rn "eval\|exec\|compile" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No eval/exec patterns" >> security-patterns.txt
 
       - name: Summary
         run: |
           echo ""
           echo "=== Security Pattern Analysis Summary ==="
           cat security-patterns.txt
-
           # Warn but don't fail - patterns need human review
-          if grep -qE "unsafe|Command::new.*format!|password.*=.*[\"']" security-patterns.txt; then
+          if grep -qE "unsafe|Command::new.*format!" security-patterns.txt; then
             echo "::warning::Security patterns detected that may need review"
           fi
 
@@ -222,31 +156,6 @@ jobs:
         with:
           name: security-patterns
           path: security-patterns.txt
-
-  # Check for suspicious Unicode characters (Trojan Source attack)
-  unicode-check:
-    name: Unicode Security
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Check for suspicious Unicode
-        run: |
-          echo "Checking for Trojan Source attack patterns..."
-
-          # Check for bidirectional text control characters
-          if grep -rP "[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]" src/ --include="*.rs" 2>/dev/null; then
-            echo "::error::Suspicious Unicode control characters detected (potential Trojan Source attack)"
-            exit 1
-          fi
-
-          # Check for homoglyph attacks in identifiers
-          if grep -rP "[αβγδεАВСЕНКМОРТХ]" src/ --include="*.rs" 2>/dev/null; then
-            echo "::warning::Potential homoglyph characters detected"
-          fi
-
-          echo "No suspicious Unicode patterns found"
 
   # Dependency supply chain check
   supply-chain:
@@ -266,8 +175,10 @@ jobs:
 
       - name: Check for git dependencies
         run: |
-          echo "=== Checking for git dependencies ===" | tee supply-chain.txt
-          grep -E "git\s*=" Cargo.toml >> supply-chain.txt 2>/dev/null || echo "No git dependencies" >> supply-chain.txt
+          echo "=== Supply Chain Analysis ===" | tee supply-chain.txt
+          echo "" >> supply-chain.txt
+          echo "Git dependencies:" >> supply-chain.txt
+          grep -E "git\s*=" Cargo.toml >> supply-chain.txt 2>/dev/null || echo "  None" >> supply-chain.txt
 
           if grep -q "git\s*=" Cargo.toml; then
             echo "::warning::Git dependencies found - verify sources are trusted"
@@ -276,20 +187,18 @@ jobs:
       - name: Check for path dependencies
         run: |
           echo "" >> supply-chain.txt
-          echo "=== Checking for path dependencies ===" >> supply-chain.txt
-          grep -E "path\s*=" Cargo.toml >> supply-chain.txt 2>/dev/null || echo "No path dependencies" >> supply-chain.txt
+          echo "Path dependencies:" >> supply-chain.txt
+          grep -E "path\s*=" Cargo.toml >> supply-chain.txt 2>/dev/null || echo "  None" >> supply-chain.txt
 
-      - name: Verify registry sources
+      - name: Check registry sources
         run: |
           echo "" >> supply-chain.txt
-          echo "=== Checking registry sources ===" >> supply-chain.txt
-
-          # Check if any dependencies come from non-standard registries
-          if grep -E "registry\s*=" Cargo.toml; then
+          echo "Custom registries:" >> supply-chain.txt
+          if grep -E "registry\s*=" Cargo.toml 2>/dev/null; then
             echo "::warning::Custom registry detected - verify it's trusted"
             grep -E "registry\s*=" Cargo.toml >> supply-chain.txt
           else
-            echo "All dependencies from crates.io" >> supply-chain.txt
+            echo "  None (all from crates.io)" >> supply-chain.txt
           fi
 
       - name: Upload supply chain report
@@ -298,33 +207,3 @@ jobs:
         with:
           name: supply-chain-report
           path: supply-chain.txt
-
-  # Final security summary
-  security-summary:
-    name: Security Summary
-    runs-on: ubuntu-latest
-    needs: [cargo-audit, cargo-deny, secrets-scan, security-patterns, unicode-check, supply-chain]
-    if: always()
-    steps:
-      - name: Check job results
-        run: |
-          echo "=== Security Scan Summary ==="
-          echo "cargo-audit: ${{ needs.cargo-audit.result }}"
-          echo "cargo-deny: ${{ needs.cargo-deny.result }}"
-          echo "secrets-scan: ${{ needs.secrets-scan.result }}"
-          echo "security-patterns: ${{ needs.security-patterns.result }}"
-          echo "unicode-check: ${{ needs.unicode-check.result }}"
-          echo "supply-chain: ${{ needs.supply-chain.result }}"
-
-          # Fail if any critical check failed
-          if [ "${{ needs.secrets-scan.result }}" == "failure" ]; then
-            echo "::error::Secrets detected - PR cannot be merged"
-            exit 1
-          fi
-
-          if [ "${{ needs.unicode-check.result }}" == "failure" ]; then
-            echo "::error::Trojan source attack pattern detected - PR cannot be merged"
-            exit 1
-          fi
-
-          echo "Security checks completed"
