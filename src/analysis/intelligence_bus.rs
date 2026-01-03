@@ -323,9 +323,7 @@ pub enum IntelligenceEvent {
     },
 
     /// Technology stack update
-    TechStackUpdate {
-        technologies: Vec<String>,
-    },
+    TechStackUpdate { technologies: Vec<String> },
 
     /// Scanner-specific insight
     ScannerInsight {
@@ -335,10 +333,7 @@ pub enum IntelligenceEvent {
     },
 
     /// Custom event for extensibility
-    Custom {
-        event_type: String,
-        data: String,
-    },
+    Custom { event_type: String, data: String },
 }
 
 impl fmt::Display for IntelligenceEvent {
@@ -408,7 +403,12 @@ impl fmt::Display for IntelligenceEvent {
                 )
             }
             IntelligenceEvent::EndpointPattern { pattern, examples } => {
-                write!(f, "Endpoint Pattern: {} ({} examples)", pattern, examples.len())
+                write!(
+                    f,
+                    "Endpoint Pattern: {} ({} examples)",
+                    pattern,
+                    examples.len()
+                )
             }
             IntelligenceEvent::TechStackUpdate { technologies } => {
                 write!(f, "Tech Stack: {}", technologies.join(", "))
@@ -418,7 +418,11 @@ impl fmt::Display for IntelligenceEvent {
                 insight_type,
                 data,
             } => {
-                write!(f, "Insight from {}: {} - {}", scanner_name, insight_type, data)
+                write!(
+                    f,
+                    "Insight from {}: {} - {}",
+                    scanner_name, insight_type, data
+                )
             }
             IntelligenceEvent::Custom { event_type, data } => {
                 write!(f, "Custom Event: {} - {}", event_type, data)
@@ -588,7 +592,10 @@ impl IntelligenceBus {
         if receiver_count > 0 {
             match self.sender.send(event.clone()) {
                 Ok(count) => {
-                    debug!("Broadcast intelligence event to {} receivers: {}", count, event);
+                    debug!(
+                        "Broadcast intelligence event to {} receivers: {}",
+                        count, event
+                    );
                 }
                 Err(e) => {
                     warn!("Failed to broadcast intelligence event: {}", e);
@@ -620,7 +627,11 @@ impl IntelligenceBus {
                         *confidence,
                         source_url.clone(),
                     ));
-                    info!("Intelligence: {} detected with {:.0}% confidence", auth_type, confidence * 100.0);
+                    info!(
+                        "Intelligence: {} detected with {:.0}% confidence",
+                        auth_type,
+                        confidence * 100.0
+                    );
                 }
             }
             IntelligenceEvent::FrameworkDetected {
@@ -833,12 +844,7 @@ impl IntelligenceBus {
     }
 
     /// Report scanner insight
-    pub async fn report_insight(
-        &self,
-        scanner_name: &str,
-        insight_type: InsightType,
-        data: &str,
-    ) {
+    pub async fn report_insight(&self, scanner_name: &str, insight_type: InsightType, data: &str) {
         self.broadcast(IntelligenceEvent::ScannerInsight {
             scanner_name: scanner_name.to_string(),
             insight_type,
@@ -970,11 +976,8 @@ mod tests {
         bus.report_auth_type(AuthType::JWT, 0.95, "https://api.example.com")
             .await;
         bus.report_framework("Django", Some("4.2"), 0.9).await;
-        bus.report_waf(
-            "Cloudflare",
-            vec!["Use case variation".to_string()],
-        )
-        .await;
+        bus.report_waf("Cloudflare", vec!["Use case variation".to_string()])
+            .await;
 
         // Check accumulated intelligence
         let accumulated = bus.get_accumulated().await;
@@ -1031,16 +1034,16 @@ mod tests {
 
         bus.report_endpoint_pattern(
             EndpointPatternType::RestCrud,
-            vec![
-                "/api/users".to_string(),
-                "/api/products".to_string(),
-            ],
+            vec!["/api/users".to_string(), "/api/products".to_string()],
         )
         .await;
 
         let accumulated = bus.get_accumulated().await;
         assert_eq!(accumulated.endpoint_patterns.len(), 1);
-        assert_eq!(accumulated.endpoint_patterns[0].0, EndpointPatternType::RestCrud);
+        assert_eq!(
+            accumulated.endpoint_patterns[0].0,
+            EndpointPatternType::RestCrud
+        );
     }
 
     #[tokio::test]
@@ -1260,7 +1263,10 @@ mod tests {
     fn test_auth_type_display() {
         assert_eq!(format!("{}", AuthType::JWT), "JWT");
         assert_eq!(format!("{}", AuthType::OAuth2), "OAuth2");
-        assert_eq!(format!("{}", AuthType::Custom("HMAC".to_string())), "Custom(HMAC)");
+        assert_eq!(
+            format!("{}", AuthType::Custom("HMAC".to_string())),
+            "Custom(HMAC)"
+        );
     }
 
     #[test]
@@ -1284,6 +1290,9 @@ mod tests {
     #[test]
     fn test_insight_type_display() {
         assert_eq!(format!("{}", InsightType::BypassFound), "Bypass Found");
-        assert_eq!(format!("{}", InsightType::WeakValidation), "Weak Validation");
+        assert_eq!(
+            format!("{}", InsightType::WeakValidation),
+            "Weak Validation"
+        );
     }
 }

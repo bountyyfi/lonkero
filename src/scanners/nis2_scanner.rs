@@ -188,7 +188,11 @@ impl Nis2Scanner {
                         }
                     }
                     if *header == "X-Frame-Options" && value.to_uppercase() == "ALLOWALL" {
-                        weak_headers.push((header, "Set to ALLOWALL which provides no protection".to_string(), nis2_reason));
+                        weak_headers.push((
+                            header,
+                            "Set to ALLOWALL which provides no protection".to_string(),
+                            nis2_reason,
+                        ));
                     }
                 }
             }
@@ -298,10 +302,7 @@ impl Nis2Scanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        let security_txt_paths = vec![
-            "/.well-known/security.txt",
-            "/security.txt",
-        ];
+        let security_txt_paths = vec!["/.well-known/security.txt", "/security.txt"];
 
         let mut security_txt_found = false;
         let mut security_txt_issues: Vec<String> = Vec::new();
@@ -318,26 +319,46 @@ impl Nis2Scanner {
                     let has_contact = response.body.to_lowercase().contains("contact:");
                     let has_expires = response.body.to_lowercase().contains("expires:");
                     let has_encryption = response.body.to_lowercase().contains("encryption:");
-                    let has_preferred_languages = response.body.to_lowercase().contains("preferred-languages:");
+                    let has_preferred_languages = response
+                        .body
+                        .to_lowercase()
+                        .contains("preferred-languages:");
 
                     if !has_contact {
                         security_txt_issues.push("Missing required 'Contact:' field".to_string());
                     }
                     if !has_expires {
-                        security_txt_issues.push("Missing required 'Expires:' field (RFC 9116)".to_string());
+                        security_txt_issues
+                            .push("Missing required 'Expires:' field (RFC 9116)".to_string());
                     }
                     if !has_encryption {
-                        security_txt_issues.push("Missing recommended 'Encryption:' field for secure communication".to_string());
+                        security_txt_issues.push(
+                            "Missing recommended 'Encryption:' field for secure communication"
+                                .to_string(),
+                        );
                     }
                     if !has_preferred_languages {
-                        security_txt_issues.push("Missing 'Preferred-Languages:' field".to_string());
+                        security_txt_issues
+                            .push("Missing 'Preferred-Languages:' field".to_string());
                     }
 
-                    if let Some(expires_line) = response.body.lines().find(|l| l.to_lowercase().starts_with("expires:")) {
-                        let expires_value = expires_line.split(':').skip(1).collect::<String>().trim().to_string();
-                        if let Ok(expires_date) = chrono::DateTime::parse_from_rfc3339(&expires_value) {
+                    if let Some(expires_line) = response
+                        .body
+                        .lines()
+                        .find(|l| l.to_lowercase().starts_with("expires:"))
+                    {
+                        let expires_value = expires_line
+                            .split(':')
+                            .skip(1)
+                            .collect::<String>()
+                            .trim()
+                            .to_string();
+                        if let Ok(expires_date) =
+                            chrono::DateTime::parse_from_rfc3339(&expires_value)
+                        {
                             if expires_date < chrono::Utc::now() {
-                                security_txt_issues.push(format!("security.txt has expired: {}", expires_value));
+                                security_txt_issues
+                                    .push(format!("security.txt has expired: {}", expires_value));
                             }
                         }
                     }
@@ -425,8 +446,11 @@ impl Nis2Scanner {
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
                     let body_lower = response.body.to_lowercase();
-                    if body_lower.contains("security") || body_lower.contains("contact") ||
-                       body_lower.contains("email") || body_lower.contains("report") {
+                    if body_lower.contains("security")
+                        || body_lower.contains("contact")
+                        || body_lower.contains("email")
+                        || body_lower.contains("report")
+                    {
                         has_contact_page = true;
                         break;
                     }
@@ -565,20 +589,18 @@ impl Nis2Scanner {
         }
 
         tests_run += 1;
-        let status_pages = vec![
-            "/status",
-            "/_status",
-            "/system-status",
-            "/service-status",
-        ];
+        let status_pages = vec!["/status", "/_status", "/system-status", "/service-status"];
 
         for page in status_pages {
             let test_url = format!("{}{}", url, page);
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
                     let body_lower = response.body.to_lowercase();
-                    if body_lower.contains("incident") || body_lower.contains("outage") ||
-                       body_lower.contains("degraded") || body_lower.contains("maintenance") {
+                    if body_lower.contains("incident")
+                        || body_lower.contains("outage")
+                        || body_lower.contains("degraded")
+                        || body_lower.contains("maintenance")
+                    {
                         debug!("[NIS2] Status page found at {}", test_url);
                         break;
                     }
@@ -633,7 +655,8 @@ impl Nis2Scanner {
             }
         }
 
-        let total_without_sri = external_scripts_without_sri.len() + external_styles_without_sri.len();
+        let total_without_sri =
+            external_scripts_without_sri.len() + external_styles_without_sri.len();
 
         if total_without_sri > 0 {
             let severity = if external_scripts_without_sri.len() >= 3 {
@@ -650,7 +673,12 @@ impl Nis2Scanner {
                     "Scripts without SRI ({}/{}):\n{}",
                     external_scripts_without_sri.len(),
                     total_external_scripts,
-                    external_scripts_without_sri.iter().take(5).map(|s| format!("  - {}", s)).collect::<Vec<_>>().join("\n")
+                    external_scripts_without_sri
+                        .iter()
+                        .take(5)
+                        .map(|s| format!("  - {}", s))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 ));
             }
             if !external_styles_without_sri.is_empty() {
@@ -658,7 +686,12 @@ impl Nis2Scanner {
                     "Stylesheets without SRI ({}/{}):\n{}",
                     external_styles_without_sri.len(),
                     total_external_styles,
-                    external_styles_without_sri.iter().take(5).map(|s| format!("  - {}", s)).collect::<Vec<_>>().join("\n")
+                    external_styles_without_sri
+                        .iter()
+                        .take(5)
+                        .map(|s| format!("  - {}", s))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 ));
             }
 
@@ -795,7 +828,10 @@ impl Nis2Scanner {
             Some(value) => {
                 let mut hsts_issues: Vec<String> = Vec::new();
 
-                if let Some(max_age_match) = Regex::new(r"max-age=(\d+)").ok().and_then(|re| re.captures(&value)) {
+                if let Some(max_age_match) = Regex::new(r"max-age=(\d+)")
+                    .ok()
+                    .and_then(|re| re.captures(&value))
+                {
                     if let Some(max_age_str) = max_age_match.get(1) {
                         if let Ok(max_age) = max_age_str.as_str().parse::<u64>() {
                             if max_age < 15768000 {
@@ -910,25 +946,38 @@ impl Nis2Scanner {
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 || response.status_code == 302 {
                     let body_lower = response.body.to_lowercase();
-                    if body_lower.contains("password") || body_lower.contains("login") ||
-                       body_lower.contains("sign in") || body_lower.contains("username") {
+                    if body_lower.contains("password")
+                        || body_lower.contains("login")
+                        || body_lower.contains("sign in")
+                        || body_lower.contains("username")
+                    {
                         login_found = true;
                         login_url = test_url.clone();
 
-                        if !body_lower.contains("csrf") && !body_lower.contains("_token") &&
-                           !body_lower.contains("authenticity_token") {
-                            login_issues.push("No CSRF protection detected on login form".to_string());
+                        if !body_lower.contains("csrf")
+                            && !body_lower.contains("_token")
+                            && !body_lower.contains("authenticity_token")
+                        {
+                            login_issues
+                                .push("No CSRF protection detected on login form".to_string());
                         }
 
-                        if body_lower.contains("autocomplete=\"on\"") ||
-                           (!body_lower.contains("autocomplete=\"off\"") &&
-                            !body_lower.contains("autocomplete=\"new-password\"")) {
+                        if body_lower.contains("autocomplete=\"on\"")
+                            || (!body_lower.contains("autocomplete=\"off\"")
+                                && !body_lower.contains("autocomplete=\"new-password\""))
+                        {
                             login_issues.push("Password field may allow autocomplete".to_string());
                         }
 
-                        if response.headers.iter().any(|(k, _)| k.to_lowercase() == "x-frame-options") {
+                        if response
+                            .headers
+                            .iter()
+                            .any(|(k, _)| k.to_lowercase() == "x-frame-options")
+                        {
                         } else {
-                            login_issues.push("Login page lacks X-Frame-Options (clickjacking risk)".to_string());
+                            login_issues.push(
+                                "Login page lacks X-Frame-Options (clickjacking risk)".to_string(),
+                            );
                         }
 
                         break;
@@ -1030,9 +1079,12 @@ impl Nis2Scanner {
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
                     let body_lower = response.body.to_lowercase();
-                    if body_lower.contains("vulnerability") || body_lower.contains("disclosure") ||
-                       body_lower.contains("security researcher") || body_lower.contains("bug bounty") ||
-                       body_lower.contains("responsible") {
+                    if body_lower.contains("vulnerability")
+                        || body_lower.contains("disclosure")
+                        || body_lower.contains("security researcher")
+                        || body_lower.contains("bug bounty")
+                        || body_lower.contains("responsible")
+                    {
                         disclosure_policy_found = true;
                         break;
                     }
@@ -1105,16 +1157,28 @@ impl Nis2Scanner {
         for cookie in &set_cookie_headers {
             let cookie_lower = cookie.to_lowercase();
 
-            if cookie_lower.contains("session") || cookie_lower.contains("auth") ||
-               cookie_lower.contains("token") || cookie_lower.contains("jwt") {
+            if cookie_lower.contains("session")
+                || cookie_lower.contains("auth")
+                || cookie_lower.contains("token")
+                || cookie_lower.contains("jwt")
+            {
                 if !cookie_lower.contains("httponly") {
-                    cookie_issues.push(format!("Session cookie missing HttpOnly flag: {}", cookie.split(';').next().unwrap_or("")));
+                    cookie_issues.push(format!(
+                        "Session cookie missing HttpOnly flag: {}",
+                        cookie.split(';').next().unwrap_or("")
+                    ));
                 }
                 if !cookie_lower.contains("secure") {
-                    cookie_issues.push(format!("Session cookie missing Secure flag: {}", cookie.split(';').next().unwrap_or("")));
+                    cookie_issues.push(format!(
+                        "Session cookie missing Secure flag: {}",
+                        cookie.split(';').next().unwrap_or("")
+                    ));
                 }
                 if !cookie_lower.contains("samesite") {
-                    cookie_issues.push(format!("Session cookie missing SameSite attribute: {}", cookie.split(';').next().unwrap_or("")));
+                    cookie_issues.push(format!(
+                        "Session cookie missing SameSite attribute: {}",
+                        cookie.split(';').next().unwrap_or("")
+                    ));
                 }
             }
         }
@@ -1177,7 +1241,10 @@ impl Nis2Scanner {
         }
 
         if let Some(powered_by) = x_powered_by {
-            info_disclosure_issues.push(format!("X-Powered-By header exposes technology: {}", powered_by));
+            info_disclosure_issues.push(format!(
+                "X-Powered-By header exposes technology: {}",
+                powered_by
+            ));
         }
 
         if !info_disclosure_issues.is_empty() {
@@ -1233,10 +1300,19 @@ impl Nis2Scanner {
     }
 
     fn is_external_resource(&self, resource_url: &str, page_url: &str) -> bool {
-        if resource_url.starts_with("//") || resource_url.starts_with("http://") ||
-           resource_url.starts_with("https://") {
-            if let (Ok(resource), Ok(page)) = (url::Url::parse(&format!("https:{}", resource_url.trim_start_matches("https:").trim_start_matches("http:"))),
-                                                url::Url::parse(page_url)) {
+        if resource_url.starts_with("//")
+            || resource_url.starts_with("http://")
+            || resource_url.starts_with("https://")
+        {
+            if let (Ok(resource), Ok(page)) = (
+                url::Url::parse(&format!(
+                    "https:{}",
+                    resource_url
+                        .trim_start_matches("https:")
+                        .trim_start_matches("http:")
+                )),
+                url::Url::parse(page_url),
+            ) {
                 return resource.host_str() != page.host_str();
             }
             return true;
@@ -1272,7 +1348,9 @@ mod tests {
             http_client: Arc::new(HttpClient::new(30, 3).unwrap()),
         };
 
-        assert!(scanner.is_external_resource("https://cdn.example.com/lib.js", "https://mysite.com"));
+        assert!(
+            scanner.is_external_resource("https://cdn.example.com/lib.js", "https://mysite.com")
+        );
         assert!(scanner.is_external_resource("//cdn.example.com/lib.js", "https://mysite.com"));
         assert!(!scanner.is_external_resource("/static/lib.js", "https://mysite.com"));
         assert!(!scanner.is_external_resource("lib.js", "https://mysite.com"));

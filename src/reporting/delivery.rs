@@ -63,8 +63,8 @@ impl ReportDeliveryService {
             .subject(subject);
 
         let email = if let Some(report_output) = report {
-            let content_type = ContentType::parse(&report_output.mime_type)
-                .unwrap_or(ContentType::TEXT_PLAIN);
+            let content_type =
+                ContentType::parse(&report_output.mime_type).unwrap_or(ContentType::TEXT_PLAIN);
 
             let attachment = Attachment::new(report_output.filename.clone())
                 .body(report_output.data, content_type);
@@ -82,10 +82,7 @@ impl ReportDeliveryService {
                 .context("Failed to build email body")?
         };
 
-        let creds = Credentials::new(
-            config.smtp_username.clone(),
-            config.smtp_password.clone(),
-        );
+        let creds = Credentials::new(config.smtp_username.clone(), config.smtp_password.clone());
 
         let mailer = SmtpTransport::relay(&config.smtp_server)
             .context("Failed to create SMTP transport")?
@@ -93,9 +90,7 @@ impl ReportDeliveryService {
             .port(config.smtp_port)
             .build();
 
-        mailer
-            .send(&email)
-            .context("Failed to send email")?;
+        mailer.send(&email).context("Failed to send email")?;
 
         Ok(())
     }
@@ -177,10 +172,7 @@ impl ReportDeliveryService {
             .context("Failed to send Slack webhook")?;
 
         if !response.status().is_success() {
-            anyhow::bail!(
-                "Slack webhook returned error status: {}",
-                response.status()
-            );
+            anyhow::bail!("Slack webhook returned error status: {}", response.status());
         }
 
         Ok(())
@@ -247,10 +239,7 @@ impl ReportDeliveryService {
             .context("Failed to send Teams webhook")?;
 
         if !response.status().is_success() {
-            anyhow::bail!(
-                "Teams webhook returned error status: {}",
-                response.status()
-            );
+            anyhow::bail!("Teams webhook returned error status: {}", response.status());
         }
 
         Ok(())

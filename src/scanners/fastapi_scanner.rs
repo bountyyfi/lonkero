@@ -117,8 +117,7 @@ impl FastApiScanner {
                 }
 
                 // Extract version from info section
-                let version_re =
-                    Regex::new(r#""version"\s*:\s*"([^"]+)""#).ok();
+                let version_re = Regex::new(r#""version"\s*:\s*"([^"]+)""#).ok();
                 if let Some(re) = version_re {
                     if let Some(caps) = re.captures(&resp.body) {
                         version = caps.get(1).map(|m| m.as_str().to_string());
@@ -185,8 +184,7 @@ impl FastApiScanner {
         let error_url = format!("{}/?invalid_param=<script>", base);
         if let Ok(resp) = self.http_client.get(&error_url).await {
             if resp.body.contains("HTTPValidationError")
-                || resp.body.contains("\"detail\":")
-                    && resp.body.contains("\"type\":")
+                || resp.body.contains("\"detail\":") && resp.body.contains("\"type\":")
             {
                 is_fastapi = true;
             }
@@ -210,9 +208,21 @@ impl FastApiScanner {
         let doc_endpoints = [
             ("/docs", "Swagger UI", "Interactive API documentation"),
             ("/redoc", "ReDoc", "API reference documentation"),
-            ("/openapi.json", "OpenAPI Schema", "Raw OpenAPI specification"),
-            ("/openapi.yaml", "OpenAPI YAML", "YAML OpenAPI specification"),
-            ("/docs/oauth2-redirect", "OAuth2 Redirect", "OAuth2 callback handler"),
+            (
+                "/openapi.json",
+                "OpenAPI Schema",
+                "Raw OpenAPI specification",
+            ),
+            (
+                "/openapi.yaml",
+                "OpenAPI YAML",
+                "YAML OpenAPI specification",
+            ),
+            (
+                "/docs/oauth2-redirect",
+                "OAuth2 Redirect",
+                "OAuth2 callback handler",
+            ),
         ];
 
         let mut exposed_endpoints = Vec::new();
@@ -232,7 +242,9 @@ impl FastApiScanner {
                         "/openapi.yaml" => {
                             resp.body.contains("openapi:") || resp.body.contains("paths:")
                         }
-                        "/docs/oauth2-redirect" => resp.body.contains("oauth2") || resp.status_code == 200,
+                        "/docs/oauth2-redirect" => {
+                            resp.body.contains("oauth2") || resp.status_code == 200
+                        }
                         _ => false,
                     };
 
@@ -405,7 +417,10 @@ impl FastApiScanner {
 
             let headers = vec![
                 ("Origin".to_string(), origin.to_string()),
-                ("Access-Control-Request-Method".to_string(), "GET".to_string()),
+                (
+                    "Access-Control-Request-Method".to_string(),
+                    "GET".to_string(),
+                ),
             ];
 
             if let Ok(resp) = self.http_client.get_with_headers(base, headers).await {
@@ -416,9 +431,8 @@ impl FastApiScanner {
                         .map(|v| v == "true")
                         .unwrap_or(false);
 
-                    let is_vulnerable = acao == "*"
-                        || acao == *origin
-                        || (acao == "null" && *origin == "null");
+                    let is_vulnerable =
+                        acao == "*" || acao == *origin || (acao == "null" && *origin == "null");
 
                     if is_vulnerable {
                         let severity = if has_credentials && acao != "*" {
@@ -469,7 +483,7 @@ impl FastApiScanner {
                                 4. Review and restrict `allow_methods` and `allow_headers`"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -594,7 +608,7 @@ impl FastApiScanner {
                                 5. Implement account lockout after failed attempts"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                     break;
@@ -642,7 +656,8 @@ impl FastApiScanner {
                 if resp.status_code == 200 {
                     // Verify it's not a generic 200 response
                     let is_valid_endpoint = !resp.body.is_empty()
-                        && (resp.body.len() < 10000 || resp.body.contains("status")
+                        && (resp.body.len() < 10000
+                            || resp.body.contains("status")
                             || resp.body.contains("health")
                             || resp.body.contains("version")
                             || resp.body.contains("{"));
@@ -729,11 +744,10 @@ impl FastApiScanner {
                 url: format!("{}/metrics", base),
                 parameter: Some("metrics".to_string()),
                 payload: "/metrics".to_string(),
-                description:
-                    "Prometheus metrics endpoint is publicly accessible. This may expose \
+                description: "Prometheus metrics endpoint is publicly accessible. This may expose \
                     internal application metrics, performance data, and potentially sensitive \
                     business metrics."
-                        .to_string(),
+                    .to_string(),
                 evidence: Some("Metrics endpoint returns 200 OK".to_string()),
                 cwe: "CWE-200".to_string(),
                 cvss: 5.3,
@@ -797,10 +811,8 @@ impl FastApiScanner {
                         ];
 
                         for (payload, desc) in &bypass_payloads {
-                            let headers = vec![(
-                                "Content-Type".to_string(),
-                                "application/json".to_string(),
-                            )];
+                            let headers =
+                                vec![("Content-Type".to_string(), "application/json".to_string())];
 
                             if let Ok(bypass_resp) = self
                                 .http_client
@@ -917,7 +929,8 @@ impl FastApiScanner {
                         let headers = vec![(header.to_string(), value.to_string())];
 
                         // Find a protected endpoint
-                        let protected_endpoints = ["/users/me", "/api/users/me", "/profile", "/admin"];
+                        let protected_endpoints =
+                            ["/users/me", "/api/users/me", "/profile", "/admin"];
 
                         for endpoint in &protected_endpoints {
                             let test_url = format!("{}{}", base, endpoint);
@@ -967,7 +980,7 @@ impl FastApiScanner {
                                             4. Implement proper token validation in dependencies"
                                             .to_string(),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                        ml_data: None,
                                     });
                                     return Ok((vulnerabilities, tests_run));
                                 }
@@ -1039,10 +1052,7 @@ impl FastApiScanner {
                             "Starlette SessionMiddleware has security issues: {}",
                             session_issues.join("; ")
                         ),
-                        evidence: Some(format!(
-                            "Issues found:\n- {}",
-                            session_issues.join("\n- ")
-                        )),
+                        evidence: Some(format!("Issues found:\n- {}", session_issues.join("\n- "))),
                         cwe: "CWE-614".to_string(),
                         cvss: 5.3,
                         verified: true,
@@ -1054,7 +1064,7 @@ impl FastApiScanner {
                             4. Consider using signed cookies or JWT with proper validation"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -1089,7 +1099,7 @@ impl FastApiScanner {
                     remediation: "Remove Server-Timing header in production if not required."
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }

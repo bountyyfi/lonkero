@@ -8,12 +8,11 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use anyhow::{Context, Result};
 use deadpool_postgres::{Config, ManagerConfig, Pool, RecyclingMethod, Runtime};
+use std::time::Instant;
 use tokio_postgres::NoTls;
 use tracing::{debug, info};
-use std::time::Instant;
 
 use crate::types::ScanResults;
 
@@ -71,10 +70,7 @@ impl DatabaseClient {
                 .create_pool(Some(Runtime::Tokio1), NoTls)
                 .context("Failed to create PostgreSQL pool")?;
 
-            return Ok(Self {
-                pool,
-                config,
-            });
+            return Ok(Self { pool, config });
         }
 
         // Parse connection URL
@@ -109,10 +105,7 @@ impl DatabaseClient {
             config.pool_size, config.batch_size
         );
 
-        Ok(Self {
-            pool,
-            config,
-        })
+        Ok(Self { pool, config })
     }
 
     /// Initialize database schema
@@ -291,10 +284,11 @@ impl DatabaseClient {
                         vuln_id, scan_id, vuln_type, severity, confidence, category,
                         url, parameter, payload, description, evidence, cwe, cvss,
                         verified, false_positive, remediation, discovered_at
-                    ) VALUES "#
+                    ) VALUES "#,
                 );
 
-                let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::with_capacity(chunk.len() * 17);
+                let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+                    Vec::with_capacity(chunk.len() * 17);
                 let mut severity_strs = Vec::with_capacity(chunk.len());
                 let mut confidence_strs = Vec::with_capacity(chunk.len());
 

@@ -14,7 +14,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -171,7 +170,10 @@ impl FirebaseScanner {
 
         // Step 2: Test Realtime Database (doesn't need API key)
         if let Some(ref project_id_val) = project_id {
-            debug!("Testing Firebase Realtime Database for project: {}", project_id_val);
+            debug!(
+                "Testing Firebase Realtime Database for project: {}",
+                project_id_val
+            );
 
             let (rtdb_vulns, rtdb_tests) = self.test_realtime_database(project_id_val, url).await;
             vulnerabilities.extend(rtdb_vulns);
@@ -200,14 +202,16 @@ impl FirebaseScanner {
         if let Some(ref project_id_val) = project_id {
             debug!("Testing Firebase config discovery");
 
-            let (config_vulns, config_tests) = self.test_config_discovery(project_id_val, url).await;
+            let (config_vulns, config_tests) =
+                self.test_config_discovery(project_id_val, url).await;
             vulnerabilities.extend(config_vulns);
             tests_run += config_tests;
         }
 
         // Step 6: Test Remote Config
         if let Some(ref project_id_val) = project_id {
-            let (remote_config_vulns, remote_config_tests) = self.test_remote_config(project_id_val, url).await;
+            let (remote_config_vulns, remote_config_tests) =
+                self.test_remote_config(project_id_val, url).await;
             vulnerabilities.extend(remote_config_vulns);
             tests_run += remote_config_tests;
         }
@@ -216,7 +220,8 @@ impl FirebaseScanner {
         if let Some(ref project_id_val) = project_id {
             debug!("Testing Cloud Functions for project: {}", project_id_val);
 
-            let (functions_vulns, functions_tests) = self.test_cloud_functions(project_id_val, url).await;
+            let (functions_vulns, functions_tests) =
+                self.test_cloud_functions(project_id_val, url).await;
             vulnerabilities.extend(functions_vulns);
             tests_run += functions_tests;
         }
@@ -225,7 +230,10 @@ impl FirebaseScanner {
         for firebase_config in &firebase_configs {
             // Validate API key first
             if !self.validate_api_key(&firebase_config.api_key).await {
-                debug!("API key {}... is invalid, skipping API key tests", &firebase_config.api_key[..15]);
+                debug!(
+                    "API key {}... is invalid, skipping API key tests",
+                    &firebase_config.api_key[..15]
+                );
                 continue;
             }
 
@@ -287,14 +295,12 @@ impl FirebaseScanner {
         let api_key_pattern = Regex::new(r#"AIza[0-9A-Za-z\-_]{35}"#).unwrap();
 
         // Pattern 2: Firebase config object
-        let config_pattern = Regex::new(
-            r#"(?i)apiKey["']?\s*:\s*["']?(AIza[0-9A-Za-z\-_]{35})["']?"#
-        ).unwrap();
+        let config_pattern =
+            Regex::new(r#"(?i)apiKey["']?\s*:\s*["']?(AIza[0-9A-Za-z\-_]{35})["']?"#).unwrap();
 
         // Pattern 3: Project ID
-        let project_pattern = Regex::new(
-            r#"(?i)projectId["']?\s*:\s*["']?([a-z0-9\-]+)["']?"#
-        ).unwrap();
+        let project_pattern =
+            Regex::new(r#"(?i)projectId["']?\s*:\s*["']?([a-z0-9\-]+)["']?"#).unwrap();
 
         let body = &response.body;
 
@@ -367,7 +373,10 @@ impl FirebaseScanner {
                                         .and_then(|c| c.get(1))
                                         .map(|m| m.as_str().to_string());
 
-                                    debug!("Found Firebase API key in JavaScript file: {}", script_url_str);
+                                    debug!(
+                                        "Found Firebase API key in JavaScript file: {}",
+                                        script_url_str
+                                    );
 
                                     configs.push(FirebaseConfig {
                                         api_key,
@@ -437,13 +446,20 @@ impl FirebaseScanner {
     }
 
     /// Test Firebase config discovery endpoints
-    async fn test_config_discovery(&self, project_id: &str, url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn test_config_discovery(
+        &self,
+        project_id: &str,
+        url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
         let config_urls = vec![
             format!("https://{}.web.app/__/firebase/init.json", project_id),
-            format!("https://{}.firebaseapp.com/__/firebase/init.json", project_id),
+            format!(
+                "https://{}.firebaseapp.com/__/firebase/init.json",
+                project_id
+            ),
             format!("https://{}.firebaseio.com/.settings/rules.json", project_id),
         ];
 
@@ -451,9 +467,9 @@ impl FirebaseScanner {
             tests_run += 1;
             if let Ok(response) = self.http_client.get(&config_url).await {
                 if response.status_code == 200 && !response.body.is_empty() {
-                    let is_config = response.body.contains("\"apiKey\"") ||
-                                   response.body.contains("\"projectId\"") ||
-                                   response.body.contains("\"rules\"");
+                    let is_config = response.body.contains("\"apiKey\"")
+                        || response.body.contains("\"projectId\"")
+                        || response.body.contains("\"rules\"");
 
                     if is_config {
                         info!("Firebase configuration exposed at: {}", config_url);
@@ -483,9 +499,10 @@ impl FirebaseScanner {
                             remediation: "1. Remove publicly accessible configuration files\n\
                                           2. Use environment variables for sensitive config\n\
                                           3. Implement authentication for config endpoints\n\
-                                          4. Review Firebase security rules".to_string(),
+                                          4. Review Firebase security rules"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -534,9 +551,10 @@ impl FirebaseScanner {
                     remediation: "1. Restrict Remote Config API access\n\
                                   2. Require authentication for config retrieval\n\
                                   3. Review Remote Config permissions\n\
-                                  4. Use IAM policies to limit access".to_string(),
+                                  4. Use IAM policies to limit access"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -545,14 +563,20 @@ impl FirebaseScanner {
     }
 
     /// Test password reset for email enumeration
-    async fn test_password_reset_enum(&self, config: &FirebaseConfig, url: &str) -> Option<Vulnerability> {
+    async fn test_password_reset_enum(
+        &self,
+        config: &FirebaseConfig,
+        url: &str,
+    ) -> Option<Vulnerability> {
         let endpoint = format!(
             "https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key={}",
             config.api_key
         );
 
-        let test_email = format!("nonexistent-test-{}@example.invalid",
-            uuid::Uuid::new_v4().to_string());
+        let test_email = format!(
+            "nonexistent-test-{}@example.invalid",
+            uuid::Uuid::new_v4().to_string()
+        );
 
         let payload = json!({
             "requestType": "PASSWORD_RESET",
@@ -564,9 +588,10 @@ impl FirebaseScanner {
                 let body_lower = response.body.to_lowercase();
 
                 // Check if response reveals whether email exists
-                if body_lower.contains("user_not_found") ||
-                   body_lower.contains("email not found") ||
-                   (response.status_code == 400 && body_lower.contains("\"error\"")) {
+                if body_lower.contains("user_not_found")
+                    || body_lower.contains("email not found")
+                    || (response.status_code == 400 && body_lower.contains("\"error\""))
+                {
                     info!("Password reset endpoint allows email enumeration");
 
                     return Some(Vulnerability {
@@ -604,7 +629,11 @@ impl FirebaseScanner {
     }
 
     /// Test if Google API key works with Maps/Translation APIs
-    async fn test_google_api_key(&self, config: &FirebaseConfig, url: &str) -> Option<Vulnerability> {
+    async fn test_google_api_key(
+        &self,
+        config: &FirebaseConfig,
+        url: &str,
+    ) -> Option<Vulnerability> {
         let mut exposed_apis = Vec::new();
 
         // Test Maps API
@@ -662,7 +691,8 @@ impl FirebaseScanner {
                               3. Add IP address restrictions for server keys\n\
                               4. Regenerate compromised keys\n\
                               5. Monitor API usage for abuse\n\
-                              6. Set usage quotas to prevent billing surprises".to_string(),
+                              6. Set usage quotas to prevent billing surprises"
+                    .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_data: None,
             });
@@ -677,7 +707,10 @@ impl FirebaseScanner {
         config: &FirebaseConfig,
         url: &str,
     ) -> Option<Vulnerability> {
-        debug!("Testing Firebase email enumeration with API key: {}...", &config.api_key[..20]);
+        debug!(
+            "Testing Firebase email enumeration with API key: {}...",
+            &config.api_key[..20]
+        );
 
         // Firebase Identity Toolkit endpoint
         let endpoint = format!(
@@ -686,8 +719,10 @@ impl FirebaseScanner {
         );
 
         // Test with a non-existent email (highly unlikely to exist)
-        let test_email_nonexistent = format!("nonexistent-test-{}@example.invalid",
-            uuid::Uuid::new_v4().to_string());
+        let test_email_nonexistent = format!(
+            "nonexistent-test-{}@example.invalid",
+            uuid::Uuid::new_v4().to_string()
+        );
 
         let payload = json!({
             "identifier": test_email_nonexistent,
@@ -747,7 +782,8 @@ impl FirebaseScanner {
                         "Firebase Authentication API allows email enumeration. \
                         The createAuthUri endpoint returns a 'registered' boolean field that \
                         reveals whether an email address is registered with the service. \
-                        This enables attackers to enumerate valid user accounts.".to_string()
+                        This enables attackers to enumerate valid user accounts."
+                            .to_string()
                     };
 
                     return Some(Vulnerability {
@@ -788,7 +824,8 @@ impl FirebaseScanner {
         if response_nonexistent.status_code == 400 {
             // API key works but might have different response format
             debug!("Firebase API key is valid but response format differs");
-        } else if response_nonexistent.status_code == 401 || response_nonexistent.status_code == 403 {
+        } else if response_nonexistent.status_code == 401 || response_nonexistent.status_code == 403
+        {
             debug!("Firebase API key appears to be invalid or restricted");
         }
 
@@ -837,14 +874,19 @@ impl FirebaseScanner {
             Ok(response) => {
                 // 200 = valid key, 400 with JSON = valid key with error
                 // 401/403 = invalid key
-                response.status_code == 200 || (response.status_code == 400 && response.body.contains("\"error\""))
+                response.status_code == 200
+                    || (response.status_code == 400 && response.body.contains("\"error\""))
             }
             Err(_) => false,
         }
     }
 
     /// Test Firebase Realtime Database for open access
-    async fn test_realtime_database(&self, project_id: &str, url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn test_realtime_database(
+        &self,
+        project_id: &str,
+        url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -886,7 +928,8 @@ impl FirebaseScanner {
                     cvss: 9.1,
                     verified: true,
                     false_positive: false,
-                    remediation: "1. CRITICAL: Fix Firebase Realtime Database security rules immediately\n\
+                    remediation:
+                        "1. CRITICAL: Fix Firebase Realtime Database security rules immediately\n\
                                   2. Go to Firebase Console → Realtime Database → Rules\n\
                                   3. Replace permissive rules with:\n\
                                   {\n\
@@ -897,9 +940,10 @@ impl FirebaseScanner {
                                   }\n\
                                   4. Test rules before deploying\n\
                                   5. Implement granular path-based rules\n\
-                                  6. Audit existing data for exposed sensitive information".to_string(),
+                                  6. Audit existing data for exposed sensitive information"
+                            .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -949,12 +993,16 @@ impl FirebaseScanner {
         }
 
         // Test 3: Common sensitive paths
-        for path in COMMON_PATHS.iter().take(15) {  // Test 15 paths
+        for path in COMMON_PATHS.iter().take(15) {
+            // Test 15 paths
             tests_run += 1;
             let test_url = format!("{}{}", rtdb_url, path);
 
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 && !response.body.is_empty() && response.body != "null" {
+                if response.status_code == 200
+                    && !response.body.is_empty()
+                    && response.body != "null"
+                {
                     info!("Firebase RTDB path accessible: {}", path);
 
                     vulnerabilities.push(Vulnerability {
@@ -1003,7 +1051,8 @@ impl FirebaseScanner {
         );
 
         // Test common collections
-        for collection in FIRESTORE_COLLECTIONS.iter().take(5) {  // Limit requests
+        for collection in FIRESTORE_COLLECTIONS.iter().take(5) {
+            // Limit requests
             tests_run += 1;
             let collection_url = format!("{}/{}", firestore_base, collection);
 
@@ -1035,9 +1084,10 @@ impl FirebaseScanner {
                         remediation: "1. Fix Firestore security rules\n\
                                       2. Go to Firebase Console → Firestore → Rules\n\
                                       3. Implement authentication-based rules\n\
-                                      4. Never use 'allow read, write: if true;'".to_string(),
+                                      4. Never use 'allow read, write: if true;'"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
 
                     // Only report first accessible collection
@@ -1090,9 +1140,10 @@ impl FirebaseScanner {
                     remediation: "1. Fix Firebase Storage security rules\n\
                                   2. Go to Firebase Console → Storage → Rules\n\
                                   3. Restrict read access to authenticated users\n\
-                                  4. Never use 'allow read: if true;'".to_string(),
+                                  4. Never use 'allow read: if true;'"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -1101,7 +1152,11 @@ impl FirebaseScanner {
     }
 
     /// Test Cloud Functions discovery
-    async fn test_cloud_functions(&self, project_id: &str, _url: &str) -> (Vec<Vulnerability>, usize) {
+    async fn test_cloud_functions(
+        &self,
+        project_id: &str,
+        _url: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -1109,10 +1164,7 @@ impl FirebaseScanner {
 
         for region in regions {
             tests_run += 1;
-            let functions_url = format!(
-                "https://{}-{}.cloudfunctions.net/",
-                region, project_id
-            );
+            let functions_url = format!("https://{}-{}.cloudfunctions.net/", region, project_id);
 
             if let Ok(response) = self.http_client.get(&functions_url).await {
                 if response.status_code != 404 {
@@ -1129,7 +1181,11 @@ impl FirebaseScanner {
 
     /// Test if email/password signup is enabled when app only shows login UI
     /// This is a common misconfiguration where developers disable signup in UI but forget Firebase backend
-    async fn test_signup_when_login_only(&self, config: &FirebaseConfig, url: &str) -> Option<Vulnerability> {
+    async fn test_signup_when_login_only(
+        &self,
+        config: &FirebaseConfig,
+        url: &str,
+    ) -> Option<Vulnerability> {
         // First, fetch the page and check if it appears to be login-only
         let page_response = self.http_client.get(url).await.ok()?;
         let body_lower = page_response.body.to_lowercase();
@@ -1139,7 +1195,7 @@ impl FirebaseScanner {
                             body_lower.contains("sign in") ||
                             body_lower.contains("signin") ||
                             body_lower.contains("kirjaudu") ||  // Finnish
-                            body_lower.contains("anmelden");    // German
+                            body_lower.contains("anmelden"); // German
 
         // Check if signup is intentionally hidden/disabled in UI
         let signup_hidden = !body_lower.contains("sign up") &&
@@ -1147,7 +1203,7 @@ impl FirebaseScanner {
                            !body_lower.contains("register") &&
                            !body_lower.contains("create account") &&
                            !body_lower.contains("rekisteröidy") &&  // Finnish
-                           !body_lower.contains("registrieren");    // German
+                           !body_lower.contains("registrieren"); // German
 
         // Only test if this looks like a login-only page
         if !has_login_form || !signup_hidden {
@@ -1181,7 +1237,9 @@ impl FirebaseScanner {
             Ok(response) => {
                 // Check if signup succeeded (returns idToken) or specific errors
                 if response.status_code == 200 && response.body.contains("\"idToken\"") {
-                    info!("CRITICAL: Firebase email/password signup enabled despite login-only UI!");
+                    info!(
+                        "CRITICAL: Firebase email/password signup enabled despite login-only UI!"
+                    );
 
                     // Try to immediately delete the test account we created
                     // (best effort - don't fail if this doesn't work)
@@ -1192,7 +1250,9 @@ impl FirebaseScanner {
                                 config.api_key
                             );
                             let delete_payload = json!({ "idToken": id_token });
-                            let _ = self.make_firebase_request(&delete_endpoint, &delete_payload).await;
+                            let _ = self
+                                .make_firebase_request(&delete_endpoint, &delete_payload)
+                                .await;
                             debug!("Cleaned up test account");
                         }
                     }
@@ -1301,9 +1361,10 @@ impl FirebaseScanner {
                     });
                 }
 
-                if body_lower.contains("operation_not_allowed") ||
-                   body_lower.contains("sign_up_disabled") ||
-                   body_lower.contains("admin_only_operation") {
+                if body_lower.contains("operation_not_allowed")
+                    || body_lower.contains("sign_up_disabled")
+                    || body_lower.contains("admin_only_operation")
+                {
                     debug!("Firebase signup is properly disabled");
                 }
             }
@@ -1316,7 +1377,11 @@ impl FirebaseScanner {
     }
 
     /// Test anonymous signup capability
-    async fn test_anonymous_signup(&self, config: &FirebaseConfig, url: &str) -> Option<Vulnerability> {
+    async fn test_anonymous_signup(
+        &self,
+        config: &FirebaseConfig,
+        url: &str,
+    ) -> Option<Vulnerability> {
         let endpoint = format!(
             "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={}",
             config.api_key
@@ -1436,7 +1501,8 @@ mod tests {
         let api_key_pattern = Regex::new(r#"AIza[0-9A-Za-z\-_]{35}"#).unwrap();
         assert!(api_key_pattern.is_match(html));
 
-        let project_pattern = Regex::new(r#"(?i)projectId["']?\s*:\s*["']?([a-z0-9\-]+)["']?"#).unwrap();
+        let project_pattern =
+            Regex::new(r#"(?i)projectId["']?\s*:\s*["']?([a-z0-9\-]+)["']?"#).unwrap();
         let cap = project_pattern.captures(html).unwrap();
         assert_eq!(cap.get(1).unwrap().as_str(), "example-project");
     }

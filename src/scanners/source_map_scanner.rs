@@ -45,7 +45,9 @@ impl SourceMapScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         info!("Scanning for JavaScript source maps");
@@ -62,10 +64,17 @@ impl SourceMapScanner {
 
         // Extract JS file URLs
         let js_urls = self.extract_js_urls(&response.body, url);
-        info!("Found {} JavaScript files to check for source maps", js_urls.len());
+        info!(
+            "Found {} JavaScript files to check for source maps",
+            js_urls.len()
+        );
 
         // Limit in fast mode
-        let limit = if config.scan_mode.as_str() == "fast" { 10 } else { 50 };
+        let limit = if config.scan_mode.as_str() == "fast" {
+            10
+        } else {
+            50
+        };
 
         for js_url in js_urls.iter().take(limit) {
             // Try common source map URL patterns
@@ -77,13 +86,17 @@ impl SourceMapScanner {
                 if let Ok(map_response) = self.http_client.get(&map_url).await {
                     if map_response.status_code == 200 {
                         // Verify it's actually a source map
-                        if let Some(source_map_info) = self.parse_source_map(&map_response.body, &map_url) {
+                        if let Some(source_map_info) =
+                            self.parse_source_map(&map_response.body, &map_url)
+                        {
                             let vuln = self.create_vulnerability(&source_map_info, js_url);
                             vulnerabilities.push(vuln);
 
                             // Check for secrets in source content
                             if source_map_info.has_source_content {
-                                if let Some(secret_vulns) = self.scan_source_content(&map_response.body, &map_url) {
+                                if let Some(secret_vulns) =
+                                    self.scan_source_content(&map_response.body, &map_url)
+                                {
                                     vulnerabilities.extend(secret_vulns);
                                 }
                             }
@@ -98,12 +111,16 @@ impl SourceMapScanner {
             // Also check for sourceMappingURL comment in the JS file itself
             tests_run += 1;
             if let Ok(js_response) = self.http_client.get(js_url).await {
-                if let Some(embedded_map_url) = self.extract_source_mapping_url(&js_response.body, js_url) {
+                if let Some(embedded_map_url) =
+                    self.extract_source_mapping_url(&js_response.body, js_url)
+                {
                     if !vulnerabilities.iter().any(|v| v.url == embedded_map_url) {
                         tests_run += 1;
                         if let Ok(map_response) = self.http_client.get(&embedded_map_url).await {
                             if map_response.status_code == 200 {
-                                if let Some(source_map_info) = self.parse_source_map(&map_response.body, &embedded_map_url) {
+                                if let Some(source_map_info) =
+                                    self.parse_source_map(&map_response.body, &embedded_map_url)
+                                {
                                     let vuln = self.create_vulnerability(&source_map_info, js_url);
                                     vulnerabilities.push(vuln);
                                 }
@@ -118,13 +135,21 @@ impl SourceMapScanner {
         let common_paths = self.get_common_source_map_paths();
         let base_url = self.get_base_url(url);
 
-        for path in common_paths.iter().take(if config.scan_mode.as_str() == "fast" { 10 } else { 30 }) {
+        for path in common_paths
+            .iter()
+            .take(if config.scan_mode.as_str() == "fast" {
+                10
+            } else {
+                30
+            })
+        {
             let test_url = format!("{}{}", base_url, path);
             tests_run += 1;
 
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
-                    if let Some(source_map_info) = self.parse_source_map(&response.body, &test_url) {
+                    if let Some(source_map_info) = self.parse_source_map(&response.body, &test_url)
+                    {
                         let vuln = self.create_vulnerability(&source_map_info, &test_url);
                         if !vulnerabilities.iter().any(|v| v.url == test_url) {
                             vulnerabilities.push(vuln);
@@ -216,16 +241,20 @@ impl SourceMapScanner {
             && !content.contains("\"sourcesContent\":[]");
 
         // Detect webpack
-        let webpack_detected = content.contains("webpack://")
-            || sources.iter().any(|s| s.contains("webpack"));
+        let webpack_detected =
+            content.contains("webpack://") || sources.iter().any(|s| s.contains("webpack"));
 
         // Extract internal paths
         let internal_paths: Vec<String> = sources
             .iter()
             .filter(|s| {
-                s.contains("/src/") || s.contains("/app/") || s.contains("/lib/")
-                    || s.contains("/components/") || s.contains("/utils/")
-                    || s.contains("/services/") || s.contains("/api/")
+                s.contains("/src/")
+                    || s.contains("/app/")
+                    || s.contains("/lib/")
+                    || s.contains("/components/")
+                    || s.contains("/utils/")
+                    || s.contains("/services/")
+                    || s.contains("/api/")
             })
             .cloned()
             .collect();
@@ -269,10 +298,22 @@ impl SourceMapScanner {
 
         // API key patterns
         let patterns = [
-            (r#"["\']?api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#, "API Key"),
-            (r#"["\']?secret["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#, "Secret"),
-            (r#"["\']?password["\']?\s*[:=]\s*["\']([^"\']{4,})["\']"#, "Password"),
-            (r#"["\']?token["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#, "Token"),
+            (
+                r#"["\']?api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
+                "API Key",
+            ),
+            (
+                r#"["\']?secret["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
+                "Secret",
+            ),
+            (
+                r#"["\']?password["\']?\s*[:=]\s*["\']([^"\']{4,})["\']"#,
+                "Password",
+            ),
+            (
+                r#"["\']?token["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
+                "Token",
+            ),
             (r#"AKIA[0-9A-Z]{16}"#, "AWS Key"),
             (r#"sk_live_[a-zA-Z0-9]{24,}"#, "Stripe Key"),
         ];
@@ -281,7 +322,8 @@ impl SourceMapScanner {
             if let Ok(re) = Regex::new(pattern) {
                 for cap in re.captures_iter(content) {
                     let matched = cap.get(0).map(|m| m.as_str()).unwrap_or("");
-                    if matched.len() < 200 { // Avoid huge matches
+                    if matched.len() < 200 {
+                        // Avoid huge matches
                         secrets.push(format!("{}: {}", name, Self::truncate(matched, 50)));
                     }
                 }
@@ -323,9 +365,10 @@ impl SourceMapScanner {
             remediation: "1. Remove source maps from production servers\n\
                 2. If source maps are needed for error tracking, restrict access\n\
                 3. Never include secrets in source code\n\
-                4. Use environment variables for sensitive configuration".to_string(),
+                4. Use environment variables for sensitive configuration"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         };
 
         Some(vec![vuln])
@@ -391,7 +434,12 @@ impl SourceMapScanner {
         if !info.internal_paths.is_empty() {
             evidence_parts.push(format!(
                 "\nInternal paths exposed:\n- {}",
-                info.internal_paths.iter().take(10).cloned().collect::<Vec<_>>().join("\n- ")
+                info.internal_paths
+                    .iter()
+                    .take(10)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n- ")
             ));
         }
 
@@ -430,17 +478,24 @@ impl SourceMapScanner {
                 2. Configure web server to deny access to .map files\n\
                 3. Use devtool: 'hidden-source-map' in webpack for private maps\n\
                 4. If maps are needed, restrict access via authentication\n\
-                5. Never include sensitive data in source code".to_string(),
+                5. Never include sensitive data in source code"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
     /// Check if URL is third-party
     fn is_third_party(&self, url: &str) -> bool {
         let third_party = [
-            "cdn", "googleapis.com", "gstatic.com", "cloudflare",
-            "jsdelivr", "unpkg.com", "jquery.com", "bootstrapcdn",
+            "cdn",
+            "googleapis.com",
+            "gstatic.com",
+            "cloudflare",
+            "jsdelivr",
+            "unpkg.com",
+            "jquery.com",
+            "bootstrapcdn",
         ];
         let url_lower = url.to_lowercase();
         third_party.iter().any(|tp| url_lower.contains(tp))
@@ -505,7 +560,7 @@ mod tests {
         }"#;
 
         let scanner = SourceMapScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(5000, 3).unwrap()
+            crate::http_client::HttpClient::new(5000, 3).unwrap(),
         ));
 
         let info = scanner.parse_source_map(source_map, "https://example.com/main.js.map");
@@ -525,7 +580,7 @@ mod tests {
         "#;
 
         let scanner = SourceMapScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(5000, 3).unwrap()
+            crate::http_client::HttpClient::new(5000, 3).unwrap(),
         ));
 
         let url = scanner.extract_source_mapping_url(js_content, "https://example.com/js/app.js");

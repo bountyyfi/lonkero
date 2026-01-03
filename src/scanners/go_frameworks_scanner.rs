@@ -37,7 +37,11 @@ impl GoFrameworksScanner {
         Self { http_client }
     }
 
-    pub async fn scan(&self, target: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(
+        &self,
+        target: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         if !crate::license::has_feature("cms_security") {
             debug!("Go frameworks scanner requires Personal+ license");
             return Ok((vec![], 0));
@@ -54,7 +58,10 @@ impl GoFrameworksScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[Go] Detected {} application at {}", detected_framework, target);
+        info!(
+            "[Go] Detected {} application at {}",
+            detected_framework, target
+        );
 
         let (debug_vulns, debug_tests) = self.check_debug_mode(target, &detected_framework).await;
         vulnerabilities.extend(debug_vulns);
@@ -72,7 +79,8 @@ impl GoFrameworksScanner {
         vulnerabilities.extend(swagger_vulns);
         tests_run += swagger_tests;
 
-        let (error_vulns, error_tests) = self.check_error_handling(target, &detected_framework).await;
+        let (error_vulns, error_tests) =
+            self.check_error_handling(target, &detected_framework).await;
         vulnerabilities.extend(error_vulns);
         tests_run += error_tests;
 
@@ -80,7 +88,9 @@ impl GoFrameworksScanner {
         vulnerabilities.extend(cors_vulns);
         tests_run += cors_tests;
 
-        let (middleware_vulns, middleware_tests) = self.check_middleware_bypass(target, &detected_framework).await;
+        let (middleware_vulns, middleware_tests) = self
+            .check_middleware_bypass(target, &detected_framework)
+            .await;
         vulnerabilities.extend(middleware_vulns);
         tests_run += middleware_tests;
 
@@ -92,8 +102,11 @@ impl GoFrameworksScanner {
         vulnerabilities.extend(template_vulns);
         tests_run += template_tests;
 
-        info!("[Go] Completed: {} vulnerabilities found in {} tests",
-              vulnerabilities.len(), tests_run);
+        info!(
+            "[Go] Completed: {} vulnerabilities found in {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -125,18 +138,26 @@ impl GoFrameworksScanner {
             }
 
             let body = &response.body;
-            if body.contains("runtime error:") || body.contains("goroutine") ||
-               body.contains("panic:") || body.contains(".go:") {
+            if body.contains("runtime error:")
+                || body.contains("goroutine")
+                || body.contains("panic:")
+                || body.contains(".go:")
+            {
                 is_go_app = true;
             }
         }
 
-        let error_url = format!("{}/this-path-does-not-exist-go-test-12345", target.trim_end_matches('/'));
+        let error_url = format!(
+            "{}/this-path-does-not-exist-go-test-12345",
+            target.trim_end_matches('/')
+        );
         if let Ok(response) = self.http_client.get(&error_url).await {
             let body = &response.body;
 
-            if body.contains("gin-gonic") || body.contains("Gin Framework") ||
-               (body.contains("404") && body.contains("gin")) {
+            if body.contains("gin-gonic")
+                || body.contains("Gin Framework")
+                || (body.contains("404") && body.contains("gin"))
+            {
                 detected_framework = GoFramework::Gin;
                 is_go_app = true;
             } else if body.contains("Echo") && body.contains("message") {
@@ -150,8 +171,11 @@ impl GoFrameworksScanner {
                 is_go_app = true;
             }
 
-            if body.contains("runtime/") || body.contains("goroutine ") ||
-               body.contains("net/http") || body.contains(".go:") {
+            if body.contains("runtime/")
+                || body.contains("goroutine ")
+                || body.contains("net/http")
+                || body.contains(".go:")
+            {
                 is_go_app = true;
             }
         }
@@ -171,9 +195,12 @@ impl GoFrameworksScanner {
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
                     let body = &response.body;
-                    if body.contains("goroutine") || body.contains("heap") ||
-                       body.contains("cmdline") || body.contains("memstats") ||
-                       body.contains("go_") {
+                    if body.contains("goroutine")
+                        || body.contains("heap")
+                        || body.contains("cmdline")
+                        || body.contains("memstats")
+                        || body.contains("go_")
+                    {
                         is_go_app = true;
                         break;
                     }
@@ -184,7 +211,11 @@ impl GoFrameworksScanner {
         (detected_framework, is_go_app)
     }
 
-    async fn check_debug_mode(&self, target: &str, framework: &GoFramework) -> (Vec<Vulnerability>, usize) {
+    async fn check_debug_mode(
+        &self,
+        target: &str,
+        framework: &GoFramework,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -201,9 +232,7 @@ impl GoFrameworksScanner {
                 ("/fiber/debug", "Fiber debug endpoint"),
                 ("/.fiber", "Fiber internal endpoint"),
             ],
-            GoFramework::Chi => vec![
-                ("/debug", "Chi debug endpoint"),
-            ],
+            GoFramework::Chi => vec![("/debug", "Chi debug endpoint")],
             GoFramework::Unknown => vec![
                 ("/debug", "Debug endpoint"),
                 ("/_debug", "Internal debug endpoint"),
@@ -218,11 +247,19 @@ impl GoFrameworksScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
                     let debug_patterns = [
-                        "debug", "goroutine", "stack", "heap", "runtime",
-                        "env", "config", "settings", "internal",
+                        "debug",
+                        "goroutine",
+                        "stack",
+                        "heap",
+                        "runtime",
+                        "env",
+                        "config",
+                        "settings",
+                        "internal",
                     ];
 
-                    let found_patterns: Vec<&str> = debug_patterns.iter()
+                    let found_patterns: Vec<&str> = debug_patterns
+                        .iter()
                         .filter(|p| body.to_lowercase().contains(*p))
                         .copied()
                         .collect();
@@ -247,7 +284,10 @@ impl GoFrameworksScanner {
                                 Patterns found: {:?}",
                                 description, framework, found_patterns
                             ),
-                            evidence: Some(format!("Endpoint: {}, Patterns: {:?}", path, found_patterns)),
+                            evidence: Some(format!(
+                                "Endpoint: {}, Patterns: {:?}",
+                                path, found_patterns
+                            )),
                             cwe: "CWE-489".to_string(),
                             cvss: 7.5,
                             verified: true,
@@ -260,7 +300,7 @@ impl GoFrameworksScanner {
                                 - Remove or protect all debug endpoints with authentication"
                             ),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -277,16 +317,36 @@ impl GoFrameworksScanner {
 
         let pprof_endpoints = [
             ("/debug/pprof/", "pprof index", Severity::Critical),
-            ("/debug/pprof/cmdline", "Command line arguments", Severity::High),
+            (
+                "/debug/pprof/cmdline",
+                "Command line arguments",
+                Severity::High,
+            ),
             ("/debug/pprof/profile", "CPU profile", Severity::Critical),
             ("/debug/pprof/symbol", "Symbol lookup", Severity::Medium),
             ("/debug/pprof/trace", "Execution trace", Severity::Critical),
             ("/debug/pprof/heap", "Heap profile", Severity::Critical),
-            ("/debug/pprof/goroutine", "Goroutine stack traces", Severity::High),
-            ("/debug/pprof/threadcreate", "Thread creation profile", Severity::Medium),
+            (
+                "/debug/pprof/goroutine",
+                "Goroutine stack traces",
+                Severity::High,
+            ),
+            (
+                "/debug/pprof/threadcreate",
+                "Thread creation profile",
+                Severity::Medium,
+            ),
             ("/debug/pprof/block", "Block profile", Severity::Medium),
-            ("/debug/pprof/mutex", "Mutex contention profile", Severity::Medium),
-            ("/debug/pprof/allocs", "Memory allocation profile", Severity::High),
+            (
+                "/debug/pprof/mutex",
+                "Mutex contention profile",
+                Severity::Medium,
+            ),
+            (
+                "/debug/pprof/allocs",
+                "Memory allocation profile",
+                Severity::High,
+            ),
         ];
 
         let mut found_pprof = false;
@@ -299,12 +359,12 @@ impl GoFrameworksScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
 
-                    let is_pprof = body.contains("goroutine") ||
-                                   body.contains("heap") ||
-                                   body.contains("profile") ||
-                                   body.contains("pprof") ||
-                                   body.contains("Types of profiles") ||
-                                   body.len() > 100;
+                    let is_pprof = body.contains("goroutine")
+                        || body.contains("heap")
+                        || body.contains("profile")
+                        || body.contains("pprof")
+                        || body.contains("Types of profiles")
+                        || body.len() > 100;
 
                     if is_pprof {
                         found_pprof = true;
@@ -354,9 +414,10 @@ impl GoFrameworksScanner {
                                              pprofMux.HandleFunc(\"/debug/pprof/\", pprof.Index)\n\
                                              // Add auth middleware\n\
                                              ```\n\
-                                          4. Bind pprof to localhost only in development".to_string(),
+                                          4. Bind pprof to localhost only in development"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -385,18 +446,29 @@ impl GoFrameworksScanner {
                     let body = &response.body;
 
                     let expvar_indicators = [
-                        "cmdline", "memstats", "Alloc", "TotalAlloc",
-                        "Sys", "NumGC", "HeapAlloc", "HeapSys",
+                        "cmdline",
+                        "memstats",
+                        "Alloc",
+                        "TotalAlloc",
+                        "Sys",
+                        "NumGC",
+                        "HeapAlloc",
+                        "HeapSys",
                     ];
 
-                    let found_indicators: Vec<&str> = expvar_indicators.iter()
+                    let found_indicators: Vec<&str> = expvar_indicators
+                        .iter()
                         .filter(|i| body.contains(*i))
                         .copied()
                         .collect();
 
                     if !found_indicators.is_empty() {
                         let has_cmdline = body.contains("cmdline");
-                        let severity = if has_cmdline { Severity::High } else { Severity::Medium };
+                        let severity = if has_cmdline {
+                            Severity::High
+                        } else {
+                            Severity::Medium
+                        };
 
                         vulnerabilities.push(Vulnerability {
                             id: generate_vuln_id("GO_EXPVAR"),
@@ -466,11 +538,11 @@ impl GoFrameworksScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
 
-                    let is_swagger = body.contains("swagger") ||
-                                    body.contains("openapi") ||
-                                    body.contains("\"paths\"") ||
-                                    body.contains("\"info\"") ||
-                                    body.contains("Swagger UI");
+                    let is_swagger = body.contains("swagger")
+                        || body.contains("openapi")
+                        || body.contains("\"paths\"")
+                        || body.contains("\"info\"")
+                        || body.contains("Swagger UI");
 
                     if is_swagger {
                         vulnerabilities.push(Vulnerability {
@@ -518,7 +590,11 @@ impl GoFrameworksScanner {
         (vulnerabilities, tests_run)
     }
 
-    async fn check_error_handling(&self, target: &str, framework: &GoFramework) -> (Vec<Vulnerability>, usize) {
+    async fn check_error_handling(
+        &self,
+        target: &str,
+        framework: &GoFramework,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -550,14 +626,19 @@ impl GoFrameworksScanner {
                     "handler.go",
                 ];
 
-                let found_traces: Vec<&str> = stack_trace_indicators.iter()
+                let found_traces: Vec<&str> = stack_trace_indicators
+                    .iter()
                     .filter(|i| body.contains(*i))
                     .copied()
                     .collect();
 
                 if found_traces.len() >= 2 {
                     let has_file_paths = body.contains(".go:");
-                    let severity = if has_file_paths { Severity::High } else { Severity::Medium };
+                    let severity = if has_file_paths {
+                        Severity::High
+                    } else {
+                        Severity::Medium
+                    };
 
                     vulnerabilities.push(Vulnerability {
                         id: generate_vuln_id("GO_STACK_TRACE"),
@@ -601,7 +682,7 @@ impl GoFrameworksScanner {
                             framework
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -618,7 +699,18 @@ impl GoFrameworksScanner {
         let test_origins = [
             ("https://evil.com", "arbitrary origin"),
             ("null", "null origin"),
-            (&format!("{}.evil.com", target.replace("https://", "").replace("http://", "").split('.').next().unwrap_or("test")), "subdomain variant"),
+            (
+                &format!(
+                    "{}.evil.com",
+                    target
+                        .replace("https://", "")
+                        .replace("http://", "")
+                        .split('.')
+                        .next()
+                        .unwrap_or("test")
+                ),
+                "subdomain variant",
+            ),
         ];
 
         for (origin, origin_type) in &test_origins {
@@ -629,7 +721,8 @@ impl GoFrameworksScanner {
             if let Ok(response) = self.http_client.get_with_headers(target, headers).await {
                 if let Some(acao) = response.headers.get("access-control-allow-origin") {
                     let acao_value = acao.as_str();
-                    let allows_credentials = response.headers
+                    let allows_credentials = response
+                        .headers
                         .get("access-control-allow-credentials")
                         .map(|v| v.as_str() == "true")
                         .unwrap_or(false);
@@ -695,11 +788,21 @@ impl GoFrameworksScanner {
         (vulnerabilities, tests_run)
     }
 
-    async fn check_middleware_bypass(&self, target: &str, framework: &GoFramework) -> (Vec<Vulnerability>, usize) {
+    async fn check_middleware_bypass(
+        &self,
+        target: &str,
+        framework: &GoFramework,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        let protected_paths = ["/admin", "/api/admin", "/internal", "/private", "/dashboard"];
+        let protected_paths = [
+            "/admin",
+            "/api/admin",
+            "/internal",
+            "/private",
+            "/dashboard",
+        ];
 
         for path in &protected_paths {
             let base_url = format!("{}{}", target.trim_end_matches('/'), path);
@@ -709,7 +812,10 @@ impl GoFrameworksScanner {
                     let bypass_attempts = [
                         (format!("{}//", base_url), "double slash"),
                         (format!("{}/./", base_url), "dot segment"),
-                        (format!("{}/../{}", base_url, path.trim_start_matches('/')), "path traversal"),
+                        (
+                            format!("{}/../{}", base_url, path.trim_start_matches('/')),
+                            "path traversal",
+                        ),
                         (format!("{}%2f", base_url), "URL encoded slash"),
                         (format!("{};", base_url), "semicolon"),
                         (format!("{}..;/", base_url), "dotdot semicolon"),
@@ -721,8 +827,9 @@ impl GoFrameworksScanner {
                         tests_run += 1;
 
                         if let Ok(bypass_response) = self.http_client.get(bypass_url).await {
-                            if bypass_response.status_code == 200 &&
-                               bypass_response.body.len() > base_response.body.len() + 50 {
+                            if bypass_response.status_code == 200
+                                && bypass_response.body.len() > base_response.body.len() + 50
+                            {
                                 vulnerabilities.push(Vulnerability {
                                     id: generate_vuln_id("GO_MIDDLEWARE_BYPASS"),
                                     vuln_type: "Middleware/Auth Bypass".to_string(),
@@ -806,26 +913,37 @@ impl GoFrameworksScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
 
-                    if body.len() > 10 && (
-                        body.contains("status") ||
-                        body.contains("health") ||
-                        body.contains("version") ||
-                        body.contains("go_") ||
-                        body.contains("process_") ||
-                        body.contains("http_") ||
-                        body.contains("{")
-                    ) {
-                        found_endpoints.push((path.to_string(), name.to_string(), severity.clone()));
+                    if body.len() > 10
+                        && (body.contains("status")
+                            || body.contains("health")
+                            || body.contains("version")
+                            || body.contains("go_")
+                            || body.contains("process_")
+                            || body.contains("http_")
+                            || body.contains("{"))
+                    {
+                        found_endpoints.push((
+                            path.to_string(),
+                            name.to_string(),
+                            severity.clone(),
+                        ));
                     }
                 }
             }
         }
 
         if !found_endpoints.is_empty() {
-            let has_metrics = found_endpoints.iter().any(|(p, _, _)| p.contains("metrics") || p.contains("prometheus"));
-            let severity = if has_metrics { Severity::Medium } else { Severity::Low };
+            let has_metrics = found_endpoints
+                .iter()
+                .any(|(p, _, _)| p.contains("metrics") || p.contains("prometheus"));
+            let severity = if has_metrics {
+                Severity::Medium
+            } else {
+                Severity::Low
+            };
 
-            let endpoint_list: Vec<String> = found_endpoints.iter()
+            let endpoint_list: Vec<String> = found_endpoints
+                .iter()
                 .map(|(p, n, _)| format!("{} ({})", p, n))
                 .collect();
 
@@ -848,7 +966,11 @@ impl GoFrameworksScanner {
                     - Request latencies and error rates\n\
                     - Version and build information\n\
                     - Infrastructure details",
-                    endpoint_list.iter().map(|e| format!("- {}", e)).collect::<Vec<_>>().join("\n")
+                    endpoint_list
+                        .iter()
+                        .map(|e| format!("- {}", e))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 ),
                 evidence: Some(format!("Found {} exposed endpoints", found_endpoints.len())),
                 cwe: "CWE-200".to_string(),
@@ -866,7 +988,8 @@ impl GoFrameworksScanner {
                                  }()\n\
                                  ```\n\
                               3. Add authentication for metrics endpoint\n\
-                              4. Use Kubernetes network policies to restrict access".to_string(),
+                              4. Use Kubernetes network policies to restrict access"
+                    .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_data: None,
             });
@@ -882,9 +1005,21 @@ impl GoFrameworksScanner {
         let template_payloads = [
             ("{{.}}", "Go template dot", "object dump"),
             ("{{printf \"%s\" .}}", "Printf injection", "format string"),
-            ("{{range .}}{{.}}{{end}}", "Range iteration", "data iteration"),
-            ("{{template \"name\"}}", "Template include", "template loading"),
-            ("{{define \"x\"}}{{end}}", "Template define", "template definition"),
+            (
+                "{{range .}}{{.}}{{end}}",
+                "Range iteration",
+                "data iteration",
+            ),
+            (
+                "{{template \"name\"}}",
+                "Template include",
+                "template loading",
+            ),
+            (
+                "{{define \"x\"}}{{end}}",
+                "Template define",
+                "template definition",
+            ),
             ("{{$x := .}}", "Variable assignment", "variable access"),
         ];
 
@@ -897,7 +1032,9 @@ impl GoFrameworksScanner {
             "/",
         ];
 
-        let test_params = ["q", "query", "search", "name", "template", "text", "message", "title"];
+        let test_params = [
+            "q", "query", "search", "name", "template", "text", "message", "title",
+        ];
 
         for endpoint in &test_endpoints {
             let base_url = format!("{}{}", target.trim_end_matches('/'), endpoint);
@@ -906,7 +1043,8 @@ impl GoFrameworksScanner {
                 for (payload, name, category) in &template_payloads {
                     tests_run += 1;
 
-                    let test_url = format!("{}?{}={}", base_url, param, urlencoding::encode(payload));
+                    let test_url =
+                        format!("{}?{}={}", base_url, param, urlencoding::encode(payload));
 
                     if let Ok(response) = self.http_client.get(&test_url).await {
                         let body = &response.body;
@@ -922,11 +1060,11 @@ impl GoFrameworksScanner {
                             "invalid",
                         ];
 
-                        let rendered_cleanly = !body.contains("{{") &&
-                                              !body.contains(payload) &&
-                                              body.len() > 50;
+                        let rendered_cleanly =
+                            !body.contains("{{") && !body.contains(payload) && body.len() > 50;
 
-                        let has_error = injection_indicators.iter()
+                        let has_error = injection_indicators
+                            .iter()
                             .any(|i| body.to_lowercase().contains(&i.to_lowercase()));
 
                         if (rendered_cleanly && body.contains("[")) || has_error {

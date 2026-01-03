@@ -51,7 +51,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -112,7 +111,9 @@ impl MassAssignmentScanner {
         }
 
         // Phase 2-6: Advanced mass assignment techniques (PREMIUM FEATURE)
-        if vulnerabilities.is_empty() && crate::license::is_feature_available("mass_assignment_advanced") {
+        if vulnerabilities.is_empty()
+            && crate::license::is_feature_available("mass_assignment_advanced")
+        {
             // Phase 2: Advanced nested object injection (URL-encoded)
             if vulnerabilities.is_empty() {
                 let (vulns, tests) = self.test_nested_object_injection(url).await?;
@@ -180,7 +181,10 @@ impl MassAssignmentScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     if self.detect_privilege_escalation(&response.body, param, value) {
-                        info!("Mass assignment privilege escalation detected: {}={}", param, value);
+                        info!(
+                            "Mass assignment privilege escalation detected: {}={}",
+                            param, value
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "Privilege Escalation via Mass Assignment",
@@ -203,7 +207,10 @@ impl MassAssignmentScanner {
     }
 
     /// Test price/amount manipulation
-    async fn test_price_manipulation(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_price_manipulation(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -227,7 +234,10 @@ impl MassAssignmentScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     if self.detect_price_manipulation(&response.body, value) {
-                        info!("Mass assignment price manipulation detected: {}={}", param, value);
+                        info!(
+                            "Mass assignment price manipulation detected: {}={}",
+                            param, value
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "Price Manipulation via Mass Assignment",
@@ -250,7 +260,10 @@ impl MassAssignmentScanner {
     }
 
     /// Test hidden field injection
-    async fn test_hidden_field_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_hidden_field_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 6;
 
@@ -299,7 +312,10 @@ impl MassAssignmentScanner {
 
     /// Test nested object injection (2-4 levels deep)
     /// Tests both bracket notation and dot notation
-    async fn test_nested_object_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_nested_object_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
@@ -311,25 +327,41 @@ impl MassAssignmentScanner {
             ("user[role]=admin", "2-level bracket: user[role]"),
             ("user[isAdmin]=true", "2-level bracket: user[isAdmin]"),
             ("profile[admin]=true", "2-level bracket: profile[admin]"),
-
             // 3-level nesting - bracket notation
-            ("user[role][admin]=true", "3-level bracket: user[role][admin]"),
-            ("profile[permissions][admin]=true", "3-level bracket: profile[permissions][admin]"),
-            ("account[settings][role]=admin", "3-level bracket: account[settings][role]"),
-
+            (
+                "user[role][admin]=true",
+                "3-level bracket: user[role][admin]",
+            ),
+            (
+                "profile[permissions][admin]=true",
+                "3-level bracket: profile[permissions][admin]",
+            ),
+            (
+                "account[settings][role]=admin",
+                "3-level bracket: account[settings][role]",
+            ),
             // 4-level nesting - bracket notation
-            ("user[profile][role][admin]=true", "4-level bracket: user[profile][role][admin]"),
-            ("account[data][permissions][admin]=1", "4-level bracket: account[data][permissions][admin]"),
-
+            (
+                "user[profile][role][admin]=true",
+                "4-level bracket: user[profile][role][admin]",
+            ),
+            (
+                "account[data][permissions][admin]=1",
+                "4-level bracket: account[data][permissions][admin]",
+            ),
             // Dot notation
             ("user.role=admin", "dot notation: user.role"),
             ("user.isAdmin=true", "dot notation: user.isAdmin"),
-            ("profile.permissions.admin=1", "dot notation: profile.permissions.admin"),
-
+            (
+                "profile.permissions.admin=1",
+                "dot notation: profile.permissions.admin",
+            ),
             // Mixed notation
             ("user[profile].role=admin", "mixed: user[profile].role"),
-            ("profile.settings[admin]=true", "mixed: profile.settings[admin]"),
-
+            (
+                "profile.settings[admin]=true",
+                "mixed: profile.settings[admin]",
+            ),
         ];
 
         // Add marker-based payloads separately to avoid lifetime issues
@@ -368,7 +400,10 @@ impl MassAssignmentScanner {
 
         // Test marker-based payloads
         if vulnerabilities.is_empty() {
-            for (payload, technique) in &[(marker_payload_1.as_str(), "marker-based verification"), (marker_payload_2.as_str(), "marker-based dot notation")] {
+            for (payload, technique) in &[
+                (marker_payload_1.as_str(), "marker-based verification"),
+                (marker_payload_2.as_str(), "marker-based dot notation"),
+            ] {
                 let test_url = if url.contains('?') {
                     format!("{}&{}", url, payload)
                 } else {
@@ -384,7 +419,10 @@ impl MassAssignmentScanner {
                                 "Nested Object Injection via Mass Assignment",
                                 payload,
                                 "Deep nested object properties can be injected via mass assignment",
-                                &format!("Successfully injected nested property using {}", technique),
+                                &format!(
+                                    "Successfully injected nested property using {}",
+                                    technique
+                                ),
                                 Severity::Critical,
                                 "CWE-915",
                             ));
@@ -422,7 +460,6 @@ impl MassAssignmentScanner {
                     "isAdmin": true
                 }
             }),
-
             // Deep nested merge (3 levels)
             json!({
                 "user": {
@@ -438,7 +475,6 @@ impl MassAssignmentScanner {
                     }
                 }
             }),
-
             // Deep nested merge (4 levels)
             json!({
                 "account": {
@@ -449,14 +485,12 @@ impl MassAssignmentScanner {
                     }
                 }
             }),
-
             // Merge with arrays
             json!({
                 "user": {
                     "roles": ["admin", "superuser"]
                 }
             }),
-
             // Merge with mixed types
             json!({
                 "settings": {
@@ -466,7 +500,6 @@ impl MassAssignmentScanner {
                     }
                 }
             }),
-
             // Merge with unique marker for verification
             json!({
                 "user": {
@@ -480,14 +513,12 @@ impl MassAssignmentScanner {
                     }
                 }
             }),
-
             // Property override attempts
             json!({
                 "id": 1,
                 "user_id": 1,
                 "admin": true
             }),
-
             // Nested property with price manipulation
             json!({
                 "order": {
@@ -495,7 +526,6 @@ impl MassAssignmentScanner {
                     "amount": 0
                 }
             }),
-
             // Nested with verification marker
             json!({
                 "data": {
@@ -507,11 +537,13 @@ impl MassAssignmentScanner {
         ];
 
         for payload in merge_payloads {
-            let headers = vec![
-                ("Content-Type".to_string(), "application/json".to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, &payload.to_string(), headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &payload.to_string(), headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_deep_merge_injection(&response.body, &payload) {
                         info!("JSON deep merge attack successful");
@@ -538,7 +570,10 @@ impl MassAssignmentScanner {
 
     /// Test prototype pollution via mass assignment
     /// Tests __proto__, constructor.prototype, and prototype injection
-    async fn test_prototype_pollution_mass_assignment(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_prototype_pollution_mass_assignment(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 18;
 
@@ -553,14 +588,24 @@ impl MassAssignmentScanner {
         let url_payloads = vec![
             (marker_proto_1.as_str(), "URL __proto__ with marker"),
             (marker_proto_2.as_str(), "URL __proto__ dot notation"),
-            ("__proto__[isAdmin]=true", "URL __proto__ privilege escalation"),
+            (
+                "__proto__[isAdmin]=true",
+                "URL __proto__ privilege escalation",
+            ),
             ("__proto__[admin]=true", "URL __proto__ admin flag"),
             ("__proto__[role]=admin", "URL __proto__ role injection"),
-
-            (marker_constructor.as_str(), "URL constructor.prototype with marker"),
-            ("constructor[prototype][isAdmin]=true", "URL constructor.prototype privilege"),
-            ("constructor[prototype][admin]=true", "URL constructor.prototype admin"),
-
+            (
+                marker_constructor.as_str(),
+                "URL constructor.prototype with marker",
+            ),
+            (
+                "constructor[prototype][isAdmin]=true",
+                "URL constructor.prototype privilege",
+            ),
+            (
+                "constructor[prototype][admin]=true",
+                "URL constructor.prototype admin",
+            ),
             (marker_prototype.as_str(), "URL prototype with marker"),
             ("prototype[isAdmin]=true", "URL prototype privilege"),
         ];
@@ -576,7 +621,10 @@ impl MassAssignmentScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     if self.detect_prototype_pollution(&response.body, &payload) {
-                        info!("Prototype pollution via mass assignment detected: {}", technique);
+                        info!(
+                            "Prototype pollution via mass assignment detected: {}",
+                            technique
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "Prototype Pollution via Mass Assignment",
@@ -651,11 +699,13 @@ impl MassAssignmentScanner {
         ];
 
         for payload in json_payloads {
-            let headers = vec![
-                ("Content-Type".to_string(), "application/json".to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, &payload.to_string(), headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &payload.to_string(), headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_prototype_pollution(&response.body, &payload.to_string()) {
                         info!("JSON prototype pollution via mass assignment detected");
@@ -682,7 +732,10 @@ impl MassAssignmentScanner {
 
     /// Test array parameter pollution
     /// Tests array index manipulation and injection
-    async fn test_array_parameter_pollution(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_array_parameter_pollution(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 12;
 
@@ -696,24 +749,31 @@ impl MassAssignmentScanner {
             // Simple array injection
             ("users[0][admin]=true", "array injection: users[0][admin]"),
             ("users[0][role]=admin", "array injection: users[0][role]"),
-            ("users[0][isAdmin]=true", "array injection: users[0][isAdmin]"),
-
+            (
+                "users[0][isAdmin]=true",
+                "array injection: users[0][isAdmin]",
+            ),
             // Multi-index array injection
             ("items[0][price]=0", "array injection: items[0][price]"),
             ("orders[0][amount]=0", "array injection: orders[0][amount]"),
-
             // Array with nested objects
-            ("users[0][profile][admin]=true", "nested array: users[0][profile][admin]"),
-            ("accounts[0][permissions][role]=admin", "nested array: accounts[0][permissions][role]"),
-
+            (
+                "users[0][profile][admin]=true",
+                "nested array: users[0][profile][admin]",
+            ),
+            (
+                "accounts[0][permissions][role]=admin",
+                "nested array: accounts[0][permissions][role]",
+            ),
             // Array with marker
             (marker_array_1.as_str(), "array with marker"),
             (marker_array_2.as_str(), "nested array with marker"),
-
             // Multiple indices
-            ("users[0][admin]=true&users[1][admin]=true", "multi-index injection"),
+            (
+                "users[0][admin]=true&users[1][admin]=true",
+                "multi-index injection",
+            ),
             ("items[0][price]=0&items[1][price]=0", "multi-index price"),
-
             // Negative indices
             ("users[-1][admin]=true", "negative index injection"),
         ];
@@ -752,7 +812,10 @@ impl MassAssignmentScanner {
 
     /// Test constructor property injection
     /// Tests constructor[name], constructor[prototype], etc.
-    async fn test_constructor_property_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_constructor_property_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -765,9 +828,18 @@ impl MassAssignmentScanner {
         let constructor_payloads = vec![
             (marker_constructor_1.as_str(), "constructor with marker"),
             ("constructor[name]=admin", "constructor name injection"),
-            (marker_constructor_2.as_str(), "constructor.prototype with marker"),
-            ("constructor[prototype][isAdmin]=true", "constructor.prototype privilege"),
-            ("constructor[prototype][role]=admin", "constructor.prototype role"),
+            (
+                marker_constructor_2.as_str(),
+                "constructor.prototype with marker",
+            ),
+            (
+                "constructor[prototype][isAdmin]=true",
+                "constructor.prototype privilege",
+            ),
+            (
+                "constructor[prototype][role]=admin",
+                "constructor.prototype role",
+            ),
         ];
 
         // Test URL-encoded
@@ -787,7 +859,10 @@ impl MassAssignmentScanner {
                             "Constructor Property Injection",
                             payload,
                             "Constructor properties can be modified through mass assignment",
-                            &format!("Successfully injected constructor property using {}", technique),
+                            &format!(
+                                "Successfully injected constructor property using {}",
+                                technique
+                            ),
                             Severity::High,
                             "CWE-915",
                         ));
@@ -836,11 +911,13 @@ impl MassAssignmentScanner {
         ];
 
         for payload in json_payloads {
-            let headers = vec![
-                ("Content-Type".to_string(), "application/json".to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            match self.http_client.post_with_headers(url, &payload.to_string(), headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &payload.to_string(), headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_constructor_injection(&response.body, &payload.to_string()) {
                         info!("JSON constructor property injection detected");
@@ -883,31 +960,39 @@ impl MassAssignmentScanner {
         // Extract the injected property/value from payload
         if payload.contains("role]=admin") || payload.contains(".role=admin") {
             // Look for role being set to admin in JSON response
-            if (body_lower.contains("\"role\":\"admin\"") ||
-                body_lower.contains("\"role\": \"admin\"") ||
-                body_lower.contains("'role':'admin'")) &&
-                (body_lower.contains("user") || body_lower.contains("profile")) {
+            if (body_lower.contains("\"role\":\"admin\"")
+                || body_lower.contains("\"role\": \"admin\"")
+                || body_lower.contains("'role':'admin'"))
+                && (body_lower.contains("user") || body_lower.contains("profile"))
+            {
                 return true;
             }
         }
 
         if payload.contains("isadmin]=true") || payload.contains(".isadmin=true") {
             // Look for isAdmin being true in structured response
-            if body_lower.contains("\"isadmin\":true") ||
-                body_lower.contains("\"isadmin\": true") ||
-                body_lower.contains("'isadmin':true") {
+            if body_lower.contains("\"isadmin\":true")
+                || body_lower.contains("\"isadmin\": true")
+                || body_lower.contains("'isadmin':true")
+            {
                 return true;
             }
         }
 
-        if payload.contains("admin]=true") || payload.contains(".admin=true") ||
-           payload.contains("admin]=1") || payload.contains(".admin=1") {
+        if payload.contains("admin]=true")
+            || payload.contains(".admin=true")
+            || payload.contains("admin]=1")
+            || payload.contains(".admin=1")
+        {
             // Look for admin property in nested context
-            if (body_lower.contains("\"admin\":true") ||
-                body_lower.contains("\"admin\": true") ||
-                body_lower.contains("\"admin\":1") ||
-                body_lower.contains("'admin':true")) &&
-                (body_lower.contains("permissions") || body_lower.contains("settings") || body_lower.contains("profile")) {
+            if (body_lower.contains("\"admin\":true")
+                || body_lower.contains("\"admin\": true")
+                || body_lower.contains("\"admin\":1")
+                || body_lower.contains("'admin':true"))
+                && (body_lower.contains("permissions")
+                    || body_lower.contains("settings")
+                    || body_lower.contains("profile"))
+            {
                 return true;
             }
         }
@@ -933,31 +1018,39 @@ impl MassAssignmentScanner {
         // Parse the payload to extract injected properties
         if let Some(obj) = payload.as_object() {
             // Check for user/profile/account properties
-            if obj.contains_key("user") || obj.contains_key("profile") || obj.contains_key("account") {
+            if obj.contains_key("user")
+                || obj.contains_key("profile")
+                || obj.contains_key("account")
+            {
                 // Look for role: admin pattern
-                if body_lower.contains("\"role\":\"admin\"") ||
-                   body_lower.contains("\"role\": \"admin\"") {
+                if body_lower.contains("\"role\":\"admin\"")
+                    || body_lower.contains("\"role\": \"admin\"")
+                {
                     return true;
                 }
 
                 // Look for isAdmin: true pattern
-                if body_lower.contains("\"isadmin\":true") ||
-                   body_lower.contains("\"isadmin\": true") {
+                if body_lower.contains("\"isadmin\":true")
+                    || body_lower.contains("\"isadmin\": true")
+                {
                     return true;
                 }
 
                 // Look for admin: true in permissions context
-                if (body_lower.contains("\"admin\":true") || body_lower.contains("\"admin\": true")) &&
-                   (body_lower.contains("permissions") || body_lower.contains("settings")) {
+                if (body_lower.contains("\"admin\":true") || body_lower.contains("\"admin\": true"))
+                    && (body_lower.contains("permissions") || body_lower.contains("settings"))
+                {
                     return true;
                 }
             }
 
             // Check for price/amount manipulation
-            if obj.contains_key("order") || obj.contains_key("price") || obj.contains_key("amount") {
-                if body_lower.contains("\"price\":0") ||
-                   body_lower.contains("\"price\": 0") ||
-                   body_lower.contains("\"amount\":0") {
+            if obj.contains_key("order") || obj.contains_key("price") || obj.contains_key("amount")
+            {
+                if body_lower.contains("\"price\":0")
+                    || body_lower.contains("\"price\": 0")
+                    || body_lower.contains("\"amount\":0")
+                {
                     return true;
                 }
             }
@@ -983,9 +1076,10 @@ impl MassAssignmentScanner {
             // Look for __proto__ object in response
             if body_lower.contains("\"__proto__\"") || body_lower.contains("'__proto__'") {
                 // Check if it contains our injected properties
-                if body_lower.contains("\"isadmin\":true") ||
-                   body_lower.contains("\"admin\":true") ||
-                   body_lower.contains("\"role\":\"admin\"") {
+                if body_lower.contains("\"isadmin\":true")
+                    || body_lower.contains("\"admin\":true")
+                    || body_lower.contains("\"role\":\"admin\"")
+                {
                     return true;
                 }
             }
@@ -993,18 +1087,21 @@ impl MassAssignmentScanner {
 
         if payload.contains("constructor") && payload.contains("prototype") && is_json {
             // Look for constructor.prototype in response
-            if (body_lower.contains("\"constructor\"") || body_lower.contains("'constructor'")) &&
-               (body_lower.contains("\"prototype\"") || body_lower.contains("'prototype'")) {
-                if body_lower.contains("\"isadmin\":true") ||
-                   body_lower.contains("\"admin\":true") {
+            if (body_lower.contains("\"constructor\"") || body_lower.contains("'constructor'"))
+                && (body_lower.contains("\"prototype\"") || body_lower.contains("'prototype'"))
+            {
+                if body_lower.contains("\"isadmin\":true") || body_lower.contains("\"admin\":true")
+                {
                     return true;
                 }
             }
         }
 
         // TERTIARY: Look for pollution-related errors or warnings
-        if body_lower.contains("prototype pollution") ||
-           (body_lower.contains("proto__") && (body_lower.contains("error") || body_lower.contains("warning"))) {
+        if body_lower.contains("prototype pollution")
+            || (body_lower.contains("proto__")
+                && (body_lower.contains("error") || body_lower.contains("warning")))
+        {
             return true;
         }
 
@@ -1030,8 +1127,9 @@ impl MassAssignmentScanner {
         if payload.contains("[0]") || payload.contains("[-1]") {
             // Check for admin/role injection in array context
             if payload.contains("admin]=true") || payload.contains("role]=admin") {
-                if body_lower.contains("\"admin\":true") ||
-                   body_lower.contains("\"role\":\"admin\"") {
+                if body_lower.contains("\"admin\":true")
+                    || body_lower.contains("\"role\":\"admin\"")
+                {
                     // Verify it's in an array context
                     if body.contains('[') && body.contains(']') {
                         return true;
@@ -1041,8 +1139,9 @@ impl MassAssignmentScanner {
 
             // Check for price manipulation in array
             if payload.contains("price]=0") || payload.contains("amount]=0") {
-                if (body_lower.contains("\"price\":0") || body_lower.contains("\"amount\":0")) &&
-                   body.contains('[') {
+                if (body_lower.contains("\"price\":0") || body_lower.contains("\"amount\":0"))
+                    && body.contains('[')
+                {
                     return true;
                 }
             }
@@ -1070,17 +1169,22 @@ impl MassAssignmentScanner {
         if payload.contains("constructor") {
             if body_lower.contains("\"constructor\"") || body_lower.contains("'constructor'") {
                 // Check for injected properties
-                if body_lower.contains("\"name\":\"admin\"") ||
-                   body_lower.contains("\"isadmin\":true") ||
-                   (body_lower.contains("\"prototype\"") && body_lower.contains("\"admin\":true")) {
+                if body_lower.contains("\"name\":\"admin\"")
+                    || body_lower.contains("\"isadmin\":true")
+                    || (body_lower.contains("\"prototype\"")
+                        && body_lower.contains("\"admin\":true"))
+                {
                     return true;
                 }
             }
         }
 
         // Look for constructor-related errors or modifications
-        if body_lower.contains("constructor") &&
-           (body_lower.contains("modified") || body_lower.contains("changed") || body_lower.contains("updated")) {
+        if body_lower.contains("constructor")
+            && (body_lower.contains("modified")
+                || body_lower.contains("changed")
+                || body_lower.contains("updated"))
+        {
             return true;
         }
 
@@ -1099,9 +1203,10 @@ impl MassAssignmentScanner {
 
         // Check if parameter was accepted - this is the strongest evidence
         // Must be in a JSON-like structure to be considered valid
-        if body_lower.contains(&format!("\"{}\":\"{}\"", param, value)) ||
-           body_lower.contains(&format!("{}\":{}", param, value)) ||
-           body_lower.contains(&format!("'{}':'{}'", param, value)) {
+        if body_lower.contains(&format!("\"{}\":\"{}\"", param, value))
+            || body_lower.contains(&format!("{}\":{}", param, value))
+            || body_lower.contains(&format!("'{}':'{}'", param, value))
+        {
             return true;
         }
 
@@ -1157,7 +1262,9 @@ impl MassAssignmentScanner {
 
         // Check for common SPA HTML structure with no actual API content
         if body.contains("<!DOCTYPE html>") || body.contains("<!doctype html>") {
-            if body.contains("<script") && (body.contains("angular") || body.contains("react") || body.contains("vue")) {
+            if body.contains("<script")
+                && (body.contains("angular") || body.contains("react") || body.contains("vue"))
+            {
                 return true;
             }
         }
@@ -1170,10 +1277,11 @@ impl MassAssignmentScanner {
         let body_lower = body.to_lowercase();
 
         // Check if price was set to manipulated value
-        if body_lower.contains(&format!("\"price\":\"{}\"", value)) ||
-           body_lower.contains(&format!("\"price\":{}", value)) ||
-           body_lower.contains(&format!("\"amount\":\"{}\"", value)) ||
-           body_lower.contains(&format!("\"total\":\"{}\"", value)) {
+        if body_lower.contains(&format!("\"price\":\"{}\"", value))
+            || body_lower.contains(&format!("\"price\":{}", value))
+            || body_lower.contains(&format!("\"amount\":\"{}\"", value))
+            || body_lower.contains(&format!("\"total\":\"{}\"", value))
+        {
             return true;
         }
 
@@ -1187,8 +1295,9 @@ impl MassAssignmentScanner {
         let param_lower = param.to_lowercase();
 
         // Check if hidden parameter appears in response
-        if body_lower.contains(&format!("\"{}\":", param_lower)) ||
-           body_lower.contains(&format!("'{}':", param_lower)) {
+        if body_lower.contains(&format!("\"{}\":", param_lower))
+            || body_lower.contains(&format!("'{}':", param_lower))
+        {
             return true;
         }
 
@@ -1243,9 +1352,10 @@ impl MassAssignmentScanner {
                          12. Prevent prototype pollution (__proto__, constructor, prototype)\n\
                          13. Sanitize array parameter indices\n\
                          14. Use Object.create(null) for objects without prototype\n\
-                         15. Implement strict JSON schema validation for deep merges".to_string(),
+                         15. Implement strict JSON schema validation for deep merges"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -1345,20 +1455,22 @@ mod tests {
         let scanner = create_test_scanner();
 
         // Test marker-based detection (strongest evidence)
-        let body_with_marker = format!(r#"{{"user":{{"role":{{"{}":"injected"}}}}}}"#, scanner.test_marker);
-        assert!(scanner.detect_nested_injection(&body_with_marker, &format!("user[role][{}]=injected", scanner.test_marker)));
+        let body_with_marker = format!(
+            r#"{{"user":{{"role":{{"{}":"injected"}}}}}}"#,
+            scanner.test_marker
+        );
+        assert!(scanner.detect_nested_injection(
+            &body_with_marker,
+            &format!("user[role][{}]=injected", scanner.test_marker)
+        ));
 
         // Test nested role injection
-        assert!(scanner.detect_nested_injection(
-            r#"{"user":{"role":"admin"}}"#,
-            "user[role]=admin"
-        ));
+        assert!(scanner.detect_nested_injection(r#"{"user":{"role":"admin"}}"#, "user[role]=admin"));
 
         // Test nested isAdmin injection
-        assert!(scanner.detect_nested_injection(
-            r#"{"user":{"isAdmin":true}}"#,
-            "user[isAdmin]=true"
-        ));
+        assert!(
+            scanner.detect_nested_injection(r#"{"user":{"isAdmin":true}}"#, "user[isAdmin]=true")
+        );
 
         // Test deep nested admin property
         assert!(scanner.detect_nested_injection(
@@ -1367,10 +1479,7 @@ mod tests {
         ));
 
         // Test dot notation
-        assert!(scanner.detect_nested_injection(
-            r#"{"user":{"role":"admin"}}"#,
-            "user.role=admin"
-        ));
+        assert!(scanner.detect_nested_injection(r#"{"user":{"role":"admin"}}"#, "user.role=admin"));
     }
 
     #[test]
@@ -1378,22 +1487,13 @@ mod tests {
         let scanner = create_test_scanner();
 
         // HTML response should not trigger
-        assert!(!scanner.detect_nested_injection(
-            "<html>Welcome admin</html>",
-            "user[role]=admin"
-        ));
+        assert!(!scanner.detect_nested_injection("<html>Welcome admin</html>", "user[role]=admin"));
 
         // Generic JSON without nested structure
-        assert!(!scanner.detect_nested_injection(
-            r#"{"message":"success"}"#,
-            "user[role]=admin"
-        ));
+        assert!(!scanner.detect_nested_injection(r#"{"message":"success"}"#, "user[role]=admin"));
 
         // Admin in wrong context
-        assert!(!scanner.detect_nested_injection(
-            r#"{"admin":"John Doe"}"#,
-            "user[role]=admin"
-        ));
+        assert!(!scanner.detect_nested_injection(r#"{"admin":"John Doe"}"#, "user[role]=admin"));
     }
 
     #[test]
@@ -1411,17 +1511,11 @@ mod tests {
 
         // Test role injection
         let payload = json!({"user": {"role": "admin"}});
-        assert!(scanner.detect_deep_merge_injection(
-            r#"{"user":{"role":"admin"}}"#,
-            &payload
-        ));
+        assert!(scanner.detect_deep_merge_injection(r#"{"user":{"role":"admin"}}"#, &payload));
 
         // Test isAdmin injection
         let payload = json!({"user": {"isAdmin": true}});
-        assert!(scanner.detect_deep_merge_injection(
-            r#"{"user":{"isAdmin":true}}"#,
-            &payload
-        ));
+        assert!(scanner.detect_deep_merge_injection(r#"{"user":{"isAdmin":true}}"#, &payload));
 
         // Test nested permissions
         let payload = json!({"profile": {"permissions": {"admin": true}}});
@@ -1432,10 +1526,7 @@ mod tests {
 
         // Test price manipulation
         let payload = json!({"order": {"price": 0}});
-        assert!(scanner.detect_deep_merge_injection(
-            r#"{"order":{"price":0}}"#,
-            &payload
-        ));
+        assert!(scanner.detect_deep_merge_injection(r#"{"order":{"price":0}}"#, &payload));
     }
 
     #[test]
@@ -1477,16 +1568,12 @@ mod tests {
         ));
 
         // HTML response
-        assert!(!scanner.detect_prototype_pollution(
-            "<html>Admin panel</html>",
-            "__proto__[admin]=true"
-        ));
+        assert!(!scanner
+            .detect_prototype_pollution("<html>Admin panel</html>", "__proto__[admin]=true"));
 
         // Generic JSON without pollution evidence
-        assert!(!scanner.detect_prototype_pollution(
-            r#"{"message":"success"}"#,
-            "__proto__[test]=value"
-        ));
+        assert!(!scanner
+            .detect_prototype_pollution(r#"{"message":"success"}"#, "__proto__[test]=value"));
     }
 
     #[test]
@@ -1499,22 +1586,13 @@ mod tests {
         assert!(scanner.detect_array_pollution(&body_with_marker, &payload_with_marker));
 
         // Test array admin injection
-        assert!(scanner.detect_array_pollution(
-            r#"[{"admin":true}]"#,
-            "users[0][admin]=true"
-        ));
+        assert!(scanner.detect_array_pollution(r#"[{"admin":true}]"#, "users[0][admin]=true"));
 
         // Test array role injection
-        assert!(scanner.detect_array_pollution(
-            r#"[{"role":"admin"}]"#,
-            "users[0][role]=admin"
-        ));
+        assert!(scanner.detect_array_pollution(r#"[{"role":"admin"}]"#, "users[0][role]=admin"));
 
         // Test array price manipulation
-        assert!(scanner.detect_array_pollution(
-            r#"[{"price":0}]"#,
-            "items[0][price]=0"
-        ));
+        assert!(scanner.detect_array_pollution(r#"[{"price":0}]"#, "items[0][price]=0"));
     }
 
     #[test]
@@ -1522,16 +1600,10 @@ mod tests {
         let scanner = create_test_scanner();
 
         // HTML response
-        assert!(!scanner.detect_array_pollution(
-            "<html>Users list</html>",
-            "users[0][admin]=true"
-        ));
+        assert!(!scanner.detect_array_pollution("<html>Users list</html>", "users[0][admin]=true"));
 
         // Non-array JSON
-        assert!(!scanner.detect_array_pollution(
-            r#"{"message":"success"}"#,
-            "users[0][admin]=true"
-        ));
+        assert!(!scanner.detect_array_pollution(r#"{"message":"success"}"#, "users[0][admin]=true"));
     }
 
     #[test]
@@ -1540,7 +1612,10 @@ mod tests {
 
         // Test with marker
         let payload_with_marker = format!("constructor[{}]=injected", scanner.test_marker);
-        let body_with_marker = format!(r#"{{"constructor":{{"{}":"injected"}}}}"#, scanner.test_marker);
+        let body_with_marker = format!(
+            r#"{{"constructor":{{"{}":"injected"}}}}"#,
+            scanner.test_marker
+        );
         assert!(scanner.detect_constructor_injection(&body_with_marker, &payload_with_marker));
 
         // Test constructor name injection
@@ -1573,10 +1648,8 @@ mod tests {
         ));
 
         // Generic JSON
-        assert!(!scanner.detect_constructor_injection(
-            r#"{"message":"success"}"#,
-            "constructor[test]=value"
-        ));
+        assert!(!scanner
+            .detect_constructor_injection(r#"{"message":"success"}"#, "constructor[test]=value"));
     }
 
     #[test]

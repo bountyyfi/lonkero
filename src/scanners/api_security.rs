@@ -17,11 +17,10 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -87,7 +86,11 @@ impl APISecurityScanner {
     async fn detect_api_endpoint(&self, url: &str) -> bool {
         // Check if URL contains API path indicators
         let url_lower = url.to_lowercase();
-        if url_lower.contains("/api/") || url_lower.contains("/graphql") || url_lower.contains("/v1/") || url_lower.contains("/v2/") {
+        if url_lower.contains("/api/")
+            || url_lower.contains("/graphql")
+            || url_lower.contains("/v1/")
+            || url_lower.contains("/v2/")
+        {
             debug!("API detected in URL path: {}", url);
             return true;
         }
@@ -98,7 +101,8 @@ impl APISecurityScanner {
                 let content_type_lower = content_type.to_lowercase();
                 if content_type_lower.contains("application/json")
                     || content_type_lower.contains("application/xml")
-                    || content_type_lower.contains("application/graphql") {
+                    || content_type_lower.contains("application/graphql")
+                {
                     debug!("API detected via Content-Type: {}", content_type);
                     return true;
                 }
@@ -115,13 +119,21 @@ impl APISecurityScanner {
     }
 
     /// Test GraphQL security
-    async fn test_graphql_security(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_graphql_security(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
         debug!("Testing GraphQL security");
 
-        let graphql_paths = vec!["/graphql".to_string(), "/graphiql".to_string(), "/playground".to_string(), "/api/graphql".to_string()];
+        let graphql_paths = vec![
+            "/graphql".to_string(),
+            "/graphiql".to_string(),
+            "/playground".to_string(),
+            "/api/graphql".to_string(),
+        ];
 
         for path in graphql_paths {
             let test_url = self.build_url(url, &path);
@@ -170,16 +182,18 @@ impl APISecurityScanner {
     async fn test_graphql_introspection(&self, url: &str) -> anyhow::Result<bool> {
         let introspection_query = r#"{"query":"{ __schema { types { name } } }"}"#;
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(url, introspection_query, headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, introspection_query, headers)
+            .await
+        {
             Ok(response) => {
                 // Check if response contains schema data
-                Ok(response.body.contains("__schema") &&
-                   response.body.contains("types") &&
-                   response.status_code == 200)
+                Ok(response.body.contains("__schema")
+                    && response.body.contains("types")
+                    && response.status_code == 200)
             }
             Err(_) => Ok(false),
         }
@@ -197,18 +211,16 @@ impl APISecurityScanner {
     }
 
     /// Test REST API security
-    async fn test_rest_api_security(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_rest_api_security(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 8;
 
         debug!("Testing REST API security");
 
-        let test_paths = vec![
-            "/api/users",
-            "/api/admin",
-            "/api/config",
-            "/api/debug",
-        ];
+        let test_paths = vec!["/api/users", "/api/admin", "/api/config", "/api/debug"];
 
         for path in test_paths {
             let test_url = self.build_url(url, path);
@@ -263,8 +275,8 @@ impl APISecurityScanner {
                 if response.status_code == 200 && !response.body.is_empty() {
                     // Check if it looks like JSON
                     let trimmed = response.body.trim();
-                    Ok((trimmed.starts_with('{') && trimmed.ends_with('}')) ||
-                       (trimmed.starts_with('[') && trimmed.ends_with(']')))
+                    Ok((trimmed.starts_with('{') && trimmed.ends_with('}'))
+                        || (trimmed.starts_with('[') && trimmed.ends_with(']')))
                 } else {
                     Ok(false)
                 }
@@ -282,13 +294,14 @@ impl APISecurityScanner {
                 let body = &response.body;
 
                 // Check for stack traces
-                let has_stack_trace = body.contains(" at ") && body.contains("(") && body.contains(":");
+                let has_stack_trace =
+                    body.contains(" at ") && body.contains("(") && body.contains(":");
 
                 // Check for internal paths
-                let has_internal_path = body.contains("/home/") ||
-                                       body.contains("/var/") ||
-                                       body.contains("C:\\") ||
-                                       body.contains("/usr/");
+                let has_internal_path = body.contains("/home/")
+                    || body.contains("/var/")
+                    || body.contains("C:\\")
+                    || body.contains("/usr/");
 
                 Ok(has_stack_trace || has_internal_path)
             }
@@ -303,7 +316,11 @@ impl APISecurityScanner {
 
         debug!("Testing JWT security");
 
-        let endpoints = vec!["/api/login".to_string(), "/api/auth".to_string(), "/api/token".to_string()];
+        let endpoints = vec![
+            "/api/login".to_string(),
+            "/api/auth".to_string(),
+            "/api/token".to_string(),
+        ];
 
         for path in endpoints {
             let test_url = self.build_url(url, &path);
@@ -355,9 +372,10 @@ impl APISecurityScanner {
                 let header_lower = header_str.to_lowercase();
 
                 // Check for weak algorithms
-                if header_lower.contains(r#""alg":"none""#) ||
-                   header_lower.contains(r#""alg": "none""#) ||
-                   header_lower.contains(r#"'alg':'none'"#) {
+                if header_lower.contains(r#""alg":"none""#)
+                    || header_lower.contains(r#""alg": "none""#)
+                    || header_lower.contains(r#"'alg':'none'"#)
+                {
                     return true;
                 }
             }
@@ -452,7 +470,7 @@ impl APISecurityScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -464,46 +482,44 @@ impl APISecurityScanner {
                  2. Use environment variables to control introspection\n\
                  3. Implement proper authentication before allowing introspection\n\
                  4. Use GraphQL security tools like graphql-shield\n\
-                 5. Monitor and log introspection queries".to_string()
+                 5. Monitor and log introspection queries"
+                    .to_string()
             }
-            "GraphQL IDE Exposed" => {
-                "1. Disable GraphQL IDE (GraphiQL/Playground) in production\n\
+            "GraphQL IDE Exposed" => "1. Disable GraphQL IDE (GraphiQL/Playground) in production\n\
                  2. Use environment-specific configurations\n\
                  3. Require authentication for development tools\n\
-                 4. Use separate development and production endpoints".to_string()
-            }
+                 4. Use separate development and production endpoints"
+                .to_string(),
             "API No Authentication" => {
                 "1. Implement proper authentication (OAuth 2.0, JWT, API keys)\n\
                  2. Enforce authentication on all sensitive endpoints\n\
                  3. Use role-based access control (RBAC)\n\
                  4. Implement proper authorization checks\n\
                  5. Never expose admin endpoints without authentication\n\
-                 6. Use API gateways for centralized authentication".to_string()
+                 6. Use API gateways for centralized authentication"
+                    .to_string()
             }
-            "API Verbose Errors" => {
-                "1. Implement generic error messages for production\n\
+            "API Verbose Errors" => "1. Implement generic error messages for production\n\
                  2. Log detailed errors server-side only\n\
                  3. Disable stack traces in production\n\
                  4. Use error tracking services (Sentry, Rollbar)\n\
-                 5. Never expose internal paths or system information".to_string()
-            }
-            "Weak JWT Algorithm" => {
-                "1. Never use 'none' algorithm in production\n\
+                 5. Never expose internal paths or system information"
+                .to_string(),
+            "Weak JWT Algorithm" => "1. Never use 'none' algorithm in production\n\
                  2. Use strong algorithms (RS256, ES256) instead of HS256\n\
                  3. Use strong, random secrets for HS256 if required\n\
                  4. Implement proper JWT validation\n\
                  5. Set appropriate expiration times\n\
                  6. Rotate signing keys regularly\n\
-                 7. Validate algorithm in token verification".to_string()
-            }
-            "API No Rate Limiting" => {
-                "1. Implement rate limiting to prevent abuse\n\
+                 7. Validate algorithm in token verification"
+                .to_string(),
+            "API No Rate Limiting" => "1. Implement rate limiting to prevent abuse\n\
                  2. Use tools like express-rate-limit, nginx rate limiting\n\
                  3. Set appropriate limits based on endpoint sensitivity\n\
                  4. Return 429 status code when rate limit exceeded\n\
                  5. Implement IP-based and user-based rate limiting\n\
-                 6. Monitor for unusual traffic patterns".to_string()
-            }
+                 6. Monitor for unusual traffic patterns"
+                .to_string(),
             _ => "Follow OWASP API Security Top 10 guidelines".to_string(),
         }
     }
@@ -569,10 +585,22 @@ mod tests {
     fn test_build_url() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.build_url("http://example.com", "/api"), "http://example.com/api");
-        assert_eq!(scanner.build_url("http://example.com/", "/api"), "http://example.com/api");
-        assert_eq!(scanner.build_url("http://example.com", "api"), "http://example.com/api");
-        assert_eq!(scanner.build_url("http://example.com/", "api"), "http://example.com/api");
+        assert_eq!(
+            scanner.build_url("http://example.com", "/api"),
+            "http://example.com/api"
+        );
+        assert_eq!(
+            scanner.build_url("http://example.com/", "/api"),
+            "http://example.com/api"
+        );
+        assert_eq!(
+            scanner.build_url("http://example.com", "api"),
+            "http://example.com/api"
+        );
+        assert_eq!(
+            scanner.build_url("http://example.com/", "api"),
+            "http://example.com/api"
+        );
     }
 
     #[test]
@@ -581,7 +609,11 @@ mod tests {
 
         let error_with_stack = "Error at processRequest (/home/user/app.js:123)";
         // This would be tested in the async function, but we can verify the logic
-        assert!(error_with_stack.contains(" at ") && error_with_stack.contains("(") && error_with_stack.contains(":"));
+        assert!(
+            error_with_stack.contains(" at ")
+                && error_with_stack.contains("(")
+                && error_with_stack.contains(":")
+        );
     }
 
     #[test]

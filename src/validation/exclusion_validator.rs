@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use chrono::{Datelike, NaiveTime, Utc, Weekday};
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 /**
  * Lonkero Security Scanner - Exclusion Validator
  * Fast Rust-based exclusion checking for targets and assets
@@ -14,12 +17,8 @@
  *
  * Copyright 2025 Bountyy Oy
  */
-
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use regex::Regex;
-use chrono::{Utc, Datelike, Weekday, NaiveTime};
-use serde::{Deserialize, Serialize};
 
 /// Exclusion rule definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,9 +36,9 @@ pub struct ExclusionRule {
 /// Time window for time-based exclusions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeWindow {
-    pub start: String,  // HH:MM format
-    pub end: String,    // HH:MM format
-    pub days: Vec<String>, // ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    pub start: String,            // HH:MM format
+    pub end: String,              // HH:MM format
+    pub days: Vec<String>,        // ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
     pub timezone: Option<String>, // Default: UTC
 }
 
@@ -90,7 +89,9 @@ impl ExclusionValidator {
 
             // Check scanner type filter
             if let Some(scanner) = scanner_type {
-                if !rule.scanner_types.is_empty() && !rule.scanner_types.contains(&scanner.to_string()) {
+                if !rule.scanner_types.is_empty()
+                    && !rule.scanner_types.contains(&scanner.to_string())
+                {
                     continue;
                 }
             }
@@ -177,15 +178,22 @@ impl ExclusionValidator {
         // Wildcard matching
         if pattern.starts_with("*.") {
             let suffix = &pattern[2..];
-            if target_domain.eq_ignore_ascii_case(suffix) ||
-               target_domain.ends_with(&format!(".{}", suffix)) {
-                return Some(format!("Domain {} matches pattern {}", target_domain, pattern));
+            if target_domain.eq_ignore_ascii_case(suffix)
+                || target_domain.ends_with(&format!(".{}", suffix))
+            {
+                return Some(format!(
+                    "Domain {} matches pattern {}",
+                    target_domain, pattern
+                ));
             }
         }
 
         // Subdomain matching
         if pattern.starts_with('.') && target_domain.ends_with(pattern) {
-            return Some(format!("Domain {} matches subdomain pattern {}", target_domain, pattern));
+            return Some(format!(
+                "Domain {} matches subdomain pattern {}",
+                target_domain, pattern
+            ));
         }
 
         None
@@ -194,9 +202,7 @@ impl ExclusionValidator {
     /// Match using simple pattern (supports * wildcard)
     fn match_pattern(&self, target: &str, pattern: &str) -> Option<String> {
         // Convert wildcard pattern to regex
-        let regex_pattern = pattern
-            .replace(".", r"\.")
-            .replace("*", ".*");
+        let regex_pattern = pattern.replace(".", r"\.").replace("*", ".*");
 
         if let Ok(re) = Regex::new(&format!("^{}$", regex_pattern)) {
             if re.is_match(target) {
@@ -289,12 +295,8 @@ impl ExclusionValidator {
         };
 
         match (ip, network_ip) {
-            (IpAddr::V4(ip4), IpAddr::V4(net4)) => {
-                self.ipv4_in_cidr(ip4, &net4, prefix_len)
-            }
-            (IpAddr::V6(ip6), IpAddr::V6(net6)) => {
-                self.ipv6_in_cidr(ip6, &net6, prefix_len)
-            }
+            (IpAddr::V4(ip4), IpAddr::V4(net4)) => self.ipv4_in_cidr(ip4, &net4, prefix_len),
+            (IpAddr::V6(ip6), IpAddr::V6(net6)) => self.ipv6_in_cidr(ip6, &net6, prefix_len),
             _ => false, // Mismatched IP versions
         }
     }
@@ -307,7 +309,11 @@ impl ExclusionValidator {
 
         let ip_bits = u32::from(*ip);
         let network_bits = u32::from(*network);
-        let mask = if prefix_len == 0 { 0 } else { !0u32 << (32 - prefix_len) };
+        let mask = if prefix_len == 0 {
+            0
+        } else {
+            !0u32 << (32 - prefix_len)
+        };
 
         (ip_bits & mask) == (network_bits & mask)
     }
@@ -320,7 +326,11 @@ impl ExclusionValidator {
 
         let ip_bits = u128::from(*ip);
         let network_bits = u128::from(*network);
-        let mask = if prefix_len == 0 { 0 } else { !0u128 << (128 - prefix_len) };
+        let mask = if prefix_len == 0 {
+            0
+        } else {
+            !0u128 << (128 - prefix_len)
+        };
 
         (ip_bits & mask) == (network_bits & mask)
     }
@@ -368,7 +378,8 @@ impl ExclusionValidator {
             Weekday::Fri => "fri",
             Weekday::Sat => "sat",
             Weekday::Sun => "sun",
-        }.to_string()
+        }
+        .to_string()
     }
 
     /// Get the highest priority action
@@ -392,8 +403,13 @@ impl ExclusionValidator {
     }
 
     /// Validate multiple targets in bulk
-    pub fn validate_bulk(&self, targets: &[String], scanner_type: Option<&str>) -> Vec<(String, ValidationResult)> {
-        targets.iter()
+    pub fn validate_bulk(
+        &self,
+        targets: &[String],
+        scanner_type: Option<&str>,
+    ) -> Vec<(String, ValidationResult)> {
+        targets
+            .iter()
             .map(|target| (target.clone(), self.validate(target, scanner_type)))
             .collect()
     }
@@ -513,8 +529,14 @@ mod tests {
     fn test_extract_domain() {
         let validator = ExclusionValidator::new(vec![]);
 
-        assert_eq!(validator.extract_domain("https://example.com/path"), "example.com");
-        assert_eq!(validator.extract_domain("http://api.example.com:8080"), "api.example.com");
+        assert_eq!(
+            validator.extract_domain("https://example.com/path"),
+            "example.com"
+        );
+        assert_eq!(
+            validator.extract_domain("http://api.example.com:8080"),
+            "api.example.com"
+        );
         assert_eq!(validator.extract_domain("example.com"), "example.com");
     }
 

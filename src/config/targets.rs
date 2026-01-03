@@ -354,34 +354,32 @@ impl TargetConfig {
         let parsed_url = Url::parse(url).ok()?;
         let host = parsed_url.host_str()?;
 
-        self.authentication.get(host)
-            .or_else(|| {
-                for (pattern, auth) in &self.authentication {
-                    if let Ok(re) = Regex::new(pattern) {
-                        if re.is_match(url) {
-                            return Some(auth);
-                        }
+        self.authentication.get(host).or_else(|| {
+            for (pattern, auth) in &self.authentication {
+                if let Ok(re) = Regex::new(pattern) {
+                    if re.is_match(url) {
+                        return Some(auth);
                     }
                 }
-                None
-            })
+            }
+            None
+        })
     }
 
     pub fn get_rate_limit_for_url(&self, url: &str) -> Option<&TargetRateLimit> {
         let parsed_url = Url::parse(url).ok()?;
         let host = parsed_url.host_str()?;
 
-        self.rate_limits.get(host)
-            .or_else(|| {
-                for (pattern, rate_limit) in &self.rate_limits {
-                    if let Ok(re) = Regex::new(pattern) {
-                        if re.is_match(url) {
-                            return Some(rate_limit);
-                        }
+        self.rate_limits.get(host).or_else(|| {
+            for (pattern, rate_limit) in &self.rate_limits {
+                if let Ok(re) = Regex::new(pattern) {
+                    if re.is_match(url) {
+                        return Some(rate_limit);
                     }
                 }
-                None
-            })
+            }
+            None
+        })
     }
 }
 

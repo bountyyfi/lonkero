@@ -125,23 +125,32 @@ impl AttackState {
 
     /// Check if we have a specific vulnerability type
     pub fn has_vulnerability(&self, vuln_type: &str) -> bool {
-        self.known_vulnerabilities
-            .iter()
-            .any(|v| v.vuln_type.to_lowercase().contains(&vuln_type.to_lowercase()))
+        self.known_vulnerabilities.iter().any(|v| {
+            v.vuln_type
+                .to_lowercase()
+                .contains(&vuln_type.to_lowercase())
+        })
     }
 
     /// Check if we have an exploitable vulnerability of a type
     pub fn has_exploitable_vulnerability(&self, vuln_type: &str) -> bool {
-        self.known_vulnerabilities
-            .iter()
-            .any(|v| v.vuln_type.to_lowercase().contains(&vuln_type.to_lowercase()) && v.exploitable)
+        self.known_vulnerabilities.iter().any(|v| {
+            v.vuln_type
+                .to_lowercase()
+                .contains(&vuln_type.to_lowercase())
+                && v.exploitable
+        })
     }
 
     /// Get vulnerabilities by type
     pub fn get_vulnerabilities(&self, vuln_type: &str) -> Vec<&KnownVulnerability> {
         self.known_vulnerabilities
             .iter()
-            .filter(|v| v.vuln_type.to_lowercase().contains(&vuln_type.to_lowercase()))
+            .filter(|v| {
+                v.vuln_type
+                    .to_lowercase()
+                    .contains(&vuln_type.to_lowercase())
+            })
             .collect()
     }
 
@@ -491,7 +500,10 @@ pub enum AttackStepType {
     /// Enumerate information (users, endpoints, etc.)
     Enumerate { target: EnumerationTarget },
     /// Exploit a known vulnerability
-    Exploit { vuln_type: String, payload: Option<String> },
+    Exploit {
+        vuln_type: String,
+        payload: Option<String>,
+    },
     /// Chain multiple vulnerabilities together
     ChainVuln { vuln_ids: Vec<String> },
     /// Brute force an authentication mechanism
@@ -681,9 +693,10 @@ impl Outcome {
                     },
                     UserType::Anonymous => SessionInfo::anonymous(),
                 };
-                state
-                    .authenticated_sessions
-                    .insert(format!("session_{}", state.authenticated_sessions.len()), session);
+                state.authenticated_sessions.insert(
+                    format!("session_{}", state.authenticated_sessions.len()),
+                    session,
+                );
             }
             Outcome::LeaksUsers => {
                 // Placeholder - actual users would be added via StateUpdate
@@ -704,7 +717,9 @@ impl Outcome {
                 });
             }
             Outcome::GainsInternalAccess => {
-                state.internal_ips_found.insert("internal_access".to_string());
+                state
+                    .internal_ips_found
+                    .insert("internal_access".to_string());
             }
             Outcome::GainsDataAccess(data_type) => {
                 state.discovered_secrets.push(DiscoveredSecret {
@@ -862,7 +877,9 @@ impl StateUpdate {
                 state.known_vulnerabilities.push(vuln.clone());
             }
             StateUpdate::SessionGained(name, session) => {
-                state.authenticated_sessions.insert(name.clone(), session.clone());
+                state
+                    .authenticated_sessions
+                    .insert(name.clone(), session.clone());
             }
             StateUpdate::SecretFound(secret) => {
                 state.discovered_secrets.push(secret.clone());
@@ -880,7 +897,9 @@ impl StateUpdate {
                 state.oauth_tokens_found.push(token.clone());
             }
             StateUpdate::ParameterFound(name, knowledge) => {
-                state.known_parameters.insert(name.clone(), knowledge.clone());
+                state
+                    .known_parameters
+                    .insert(name.clone(), knowledge.clone());
             }
         }
     }
@@ -1089,7 +1108,9 @@ impl AttackPlanner {
                 },
             )
             .with_description("Steal session cookies via XSS vulnerability")
-            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability("XSS".to_string())])
+            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability(
+                "XSS".to_string(),
+            )])
             .with_outcomes(vec![Outcome::GainsSession(UserType::Regular)])
             .with_success_rate(0.6)
             .with_priority(7),
@@ -1110,7 +1131,10 @@ impl AttackPlanner {
                 Prerequisite::HasExploitableVulnerability("IDOR".to_string()),
                 Prerequisite::HasAnySession,
             ])
-            .with_outcomes(vec![Outcome::DiscoversAdminIds, Outcome::GainsDataAccess("admin_data".to_string())])
+            .with_outcomes(vec![
+                Outcome::DiscoversAdminIds,
+                Outcome::GainsDataAccess("admin_data".to_string()),
+            ])
             .with_success_rate(0.5)
             .with_priority(7),
         );
@@ -1161,7 +1185,9 @@ impl AttackPlanner {
                 },
             )
             .with_description("Use SSRF to access internal network resources")
-            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability("SSRF".to_string())])
+            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability(
+                "SSRF".to_string(),
+            )])
             .with_outcomes(vec![Outcome::GainsInternalAccess])
             .with_success_rate(0.6)
             .with_priority(7),
@@ -1192,7 +1218,9 @@ impl AttackPlanner {
                 },
             )
             .with_description("Access cloud metadata service to steal credentials")
-            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability("SSRF".to_string())])
+            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability(
+                "SSRF".to_string(),
+            )])
             .with_outcomes(vec![
                 Outcome::CapturesSecrets,
                 Outcome::GainsDataAccess("cloud_credentials".to_string()),
@@ -1211,7 +1239,9 @@ impl AttackPlanner {
                 },
             )
             .with_description("Dump database contents via SQL injection")
-            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability("SQL".to_string())])
+            .with_prerequisites(vec![Prerequisite::HasExploitableVulnerability(
+                "SQL".to_string(),
+            )])
             .with_outcomes(vec![
                 Outcome::GainsDataAccess("database".to_string()),
                 Outcome::CapturesSecrets,
@@ -1231,7 +1261,9 @@ impl AttackPlanner {
                 },
             )
             .with_description("Upload a web shell via file upload vulnerability")
-            .with_prerequisites(vec![Prerequisite::HasVulnerability("File Upload".to_string())])
+            .with_prerequisites(vec![Prerequisite::HasVulnerability(
+                "File Upload".to_string(),
+            )])
             .with_outcomes(vec![Outcome::GainsRce])
             .with_success_rate(0.5)
             .with_priority(9),
@@ -1247,7 +1279,9 @@ impl AttackPlanner {
                 },
             )
             .with_description("Achieve RCE via insecure deserialization")
-            .with_prerequisites(vec![Prerequisite::HasVulnerability("Deserialization".to_string())])
+            .with_prerequisites(vec![Prerequisite::HasVulnerability(
+                "Deserialization".to_string(),
+            )])
             .with_outcomes(vec![Outcome::GainsRce])
             .with_success_rate(0.4)
             .with_priority(9),
@@ -1348,7 +1382,9 @@ impl AttackPlanner {
         // Otherwise, find highest priority executable step
         self.available_steps
             .iter()
-            .filter(|step| step.can_execute(&self.state) && !self.completed_steps.contains(&step.id))
+            .filter(|step| {
+                step.can_execute(&self.state) && !self.completed_steps.contains(&step.id)
+            })
             .max_by_key(|step| step.priority)
     }
 
@@ -2106,9 +2142,10 @@ mod tests {
         assert!(Prerequisite::HasUserList.is_met(&state));
 
         // Add session
-        state
-            .authenticated_sessions
-            .insert("sess1".to_string(), SessionInfo::regular_user("user1".to_string()));
+        state.authenticated_sessions.insert(
+            "sess1".to_string(),
+            SessionInfo::regular_user("user1".to_string()),
+        );
         assert!(Prerequisite::HasAnySession.is_met(&state));
         assert!(Prerequisite::HasSession(UserType::Regular).is_met(&state));
         assert!(!Prerequisite::HasSession(UserType::Admin).is_met(&state));
@@ -2146,11 +2183,17 @@ mod tests {
 
     #[test]
     fn test_outcome_goal_matching() {
-        assert!(Outcome::GainsSession(UserType::Regular).achieves_goal(&AttackGoal::AccountTakeover));
-        assert!(Outcome::GainsSession(UserType::Admin).achieves_goal(&AttackGoal::PrivilegeEscalation));
+        assert!(
+            Outcome::GainsSession(UserType::Regular).achieves_goal(&AttackGoal::AccountTakeover)
+        );
+        assert!(
+            Outcome::GainsSession(UserType::Admin).achieves_goal(&AttackGoal::PrivilegeEscalation)
+        );
         assert!(Outcome::GainsRce.achieves_goal(&AttackGoal::RemoteCodeExecution));
         assert!(Outcome::GainsInternalAccess.achieves_goal(&AttackGoal::InternalNetworkAccess));
-        assert!(Outcome::GainsDataAccess("db".to_string()).achieves_goal(&AttackGoal::DataExfiltration));
+        assert!(
+            Outcome::GainsDataAccess("db".to_string()).achieves_goal(&AttackGoal::DataExfiltration)
+        );
     }
 
     #[test]
@@ -2204,7 +2247,10 @@ mod tests {
         assert_eq!(ParameterType::from_name("token"), ParameterType::Token);
         assert_eq!(ParameterType::from_name("file_path"), ParameterType::File);
         assert_eq!(ParameterType::from_name("redirect_url"), ParameterType::Url);
-        assert_eq!(ParameterType::from_name("password"), ParameterType::Password);
+        assert_eq!(
+            ParameterType::from_name("password"),
+            ParameterType::Password
+        );
         assert_eq!(ParameterType::from_name("random"), ParameterType::Other);
     }
 

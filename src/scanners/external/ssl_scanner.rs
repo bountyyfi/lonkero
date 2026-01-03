@@ -178,7 +178,8 @@ impl SslScanner {
         let certificate = self.get_certificate_info(hostname, port).await?;
 
         // Get certificate chain
-        let (certificate_chain, chain_valid, chain_issues) = if self.config.check_certificate_chain {
+        let (certificate_chain, chain_valid, chain_issues) = if self.config.check_certificate_chain
+        {
             self.check_certificate_chain(hostname, port).await?
         } else {
             (Vec::new(), true, Vec::new())
@@ -214,7 +215,8 @@ impl SslScanner {
 
         // Check vulnerabilities
         let vulnerabilities = if self.config.check_vulnerabilities {
-            self.check_vulnerabilities(hostname, port, &protocols, &cipher_suites).await?
+            self.check_vulnerabilities(hostname, port, &protocols, &cipher_suites)
+                .await?
         } else {
             Vec::new()
         };
@@ -290,7 +292,10 @@ impl SslScanner {
         //
         // This implementation returns a conservative template indicating the
         // certificate should be manually verified.
-        debug!("Certificate info for {}:{} - requires TLS handshake inspection", hostname, port);
+        debug!(
+            "Certificate info for {}:{} - requires TLS handshake inspection",
+            hostname, port
+        );
 
         let valid_from = chrono::Utc::now() - chrono::Duration::days(30);
         let valid_until = chrono::Utc::now() + chrono::Duration::days(60);
@@ -322,9 +327,13 @@ impl SslScanner {
     ) -> Result<(Vec<CertificateInfo>, bool, Vec<String>)> {
         // Certificate chain validation requires full TLS handshake inspection
         // to extract intermediate certificates and validate the trust chain.
-        debug!("Certificate chain check for {}:{} - requires full TLS inspection", hostname, port);
+        debug!(
+            "Certificate chain check for {}:{} - requires full TLS inspection",
+            hostname, port
+        );
         let cert = self.get_certificate_info(hostname, port).await?;
-        let issues = vec!["Certificate chain validation requires TLS handshake inspection".to_string()];
+        let issues =
+            vec!["Certificate chain validation requires TLS handshake inspection".to_string()];
         Ok((vec![cert], true, issues))
     }
 
@@ -342,15 +351,18 @@ impl SslScanner {
         //
         // This returns a secure default assuming modern TLS configuration.
         // For production scanning, use tools like testssl.sh or sslyze.
-        debug!("Protocol support check for {}:{} - using secure defaults", hostname, port);
+        debug!(
+            "Protocol support check for {}:{} - using secure defaults",
+            hostname, port
+        );
 
         Ok(ProtocolSupport {
-            ssl_v2: false,    // Assumed disabled (deprecated since 2011)
-            ssl_v3: false,    // Assumed disabled (POODLE vulnerability, deprecated 2015)
-            tls_v1_0: false,  // Assumed disabled (deprecated 2020)
-            tls_v1_1: false,  // Assumed disabled (deprecated 2020)
-            tls_v1_2: true,   // Assumed supported (current standard)
-            tls_v1_3: true,   // Assumed supported (current standard)
+            ssl_v2: false,   // Assumed disabled (deprecated since 2011)
+            ssl_v3: false,   // Assumed disabled (POODLE vulnerability, deprecated 2015)
+            tls_v1_0: false, // Assumed disabled (deprecated 2020)
+            tls_v1_1: false, // Assumed disabled (deprecated 2020)
+            tls_v1_2: true,  // Assumed supported (current standard)
+            tls_v1_3: true,  // Assumed supported (current standard)
         })
     }
 
@@ -391,7 +403,10 @@ impl SslScanner {
         //
         // This returns secure modern defaults. For production scanning,
         // use specialized tools like nmap --script ssl-enum-ciphers or sslyze.
-        debug!("Cipher suite check for {}:{} - using secure defaults", hostname, port);
+        debug!(
+            "Cipher suite check for {}:{} - using secure defaults",
+            hostname, port
+        );
 
         let cipher_suites = vec![
             CipherSuite {
@@ -484,7 +499,10 @@ impl SslScanner {
     async fn check_ocsp_stapling(&self, hostname: &str, port: u16) -> Result<bool> {
         // OCSP stapling detection requires examining the TLS handshake
         // for the presence of a stapled OCSP response in the Certificate Status extension.
-        debug!("OCSP stapling check for {}:{} - requires TLS handshake inspection", hostname, port);
+        debug!(
+            "OCSP stapling check for {}:{} - requires TLS handshake inspection",
+            hostname, port
+        );
         // Assume enabled as it's increasingly common with modern servers
         Ok(true)
     }
@@ -504,7 +522,9 @@ impl SslScanner {
             vulnerabilities.push(SslVulnerability {
                 name: "POODLE".to_string(),
                 severity: "HIGH".to_string(),
-                description: "SSLv3 is vulnerable to POODLE attack. Attackers can decrypt SSL traffic.".to_string(),
+                description:
+                    "SSLv3 is vulnerable to POODLE attack. Attackers can decrypt SSL traffic."
+                        .to_string(),
                 affected_versions: vec!["SSLv3".to_string()],
                 cve_ids: vec!["CVE-2014-3566".to_string()],
             });
@@ -517,7 +537,8 @@ impl SslScanner {
                 vulnerabilities.push(SslVulnerability {
                     name: "BEAST".to_string(),
                     severity: "MEDIUM".to_string(),
-                    description: "TLSv1.0 with CBC ciphers is vulnerable to BEAST attack".to_string(),
+                    description: "TLSv1.0 with CBC ciphers is vulnerable to BEAST attack"
+                        .to_string(),
                     affected_versions: vec!["TLSv1.0".to_string()],
                     cve_ids: vec!["CVE-2011-3389".to_string()],
                 });
@@ -530,7 +551,11 @@ impl SslScanner {
                 name: "CRIME".to_string(),
                 severity: "HIGH".to_string(),
                 description: "TLS compression is enabled, vulnerable to CRIME attack".to_string(),
-                affected_versions: vec!["TLSv1.0".to_string(), "TLSv1.1".to_string(), "TLSv1.2".to_string()],
+                affected_versions: vec![
+                    "TLSv1.0".to_string(),
+                    "TLSv1.1".to_string(),
+                    "TLSv1.2".to_string(),
+                ],
                 cve_ids: vec!["CVE-2012-4929".to_string()],
             });
         }
@@ -540,7 +565,8 @@ impl SslScanner {
             vulnerabilities.push(SslVulnerability {
                 name: "BREACH".to_string(),
                 severity: "MEDIUM".to_string(),
-                description: "HTTP compression over HTTPS is enabled, vulnerable to BREACH attack".to_string(),
+                description: "HTTP compression over HTTPS is enabled, vulnerable to BREACH attack"
+                    .to_string(),
                 affected_versions: vec!["HTTP/1.1".to_string(), "HTTP/2".to_string()],
                 cve_ids: vec!["CVE-2013-3587".to_string()],
             });
@@ -548,7 +574,10 @@ impl SslScanner {
 
         // Check for FREAK (export ciphers)
         let has_export = cipher_suites.iter().any(|c| {
-            c.name.contains("EXPORT") || c.name.contains("EXP") || c.encryption.contains("40") || c.encryption.contains("56")
+            c.name.contains("EXPORT")
+                || c.name.contains("EXP")
+                || c.encryption.contains("40")
+                || c.encryption.contains("56")
         });
         if has_export {
             vulnerabilities.push(SslVulnerability {
@@ -561,14 +590,15 @@ impl SslScanner {
         }
 
         // Check for LOGJAM (512-bit DH)
-        let has_weak_dh = cipher_suites.iter().any(|c| {
-            c.key_exchange.contains("DH") && !c.key_exchange.contains("ECDH")
-        });
+        let has_weak_dh = cipher_suites
+            .iter()
+            .any(|c| c.key_exchange.contains("DH") && !c.key_exchange.contains("ECDH"));
         if has_weak_dh {
             vulnerabilities.push(SslVulnerability {
                 name: "LOGJAM".to_string(),
                 severity: "HIGH".to_string(),
-                description: "Weak Diffie-Hellman parameters detected, vulnerable to LOGJAM attack".to_string(),
+                description: "Weak Diffie-Hellman parameters detected, vulnerable to LOGJAM attack"
+                    .to_string(),
                 affected_versions: vec!["All TLS versions with DHE".to_string()],
                 cve_ids: vec!["CVE-2015-4000".to_string()],
             });
@@ -587,13 +617,17 @@ impl SslScanner {
 
         // Check for Sweet32 (64-bit block ciphers like 3DES)
         let has_64bit_block = cipher_suites.iter().any(|c| {
-            c.encryption.contains("3DES") || c.encryption.contains("DES") || c.encryption.contains("IDEA")
+            c.encryption.contains("3DES")
+                || c.encryption.contains("DES")
+                || c.encryption.contains("IDEA")
         });
         if has_64bit_block {
             vulnerabilities.push(SslVulnerability {
                 name: "Sweet32".to_string(),
                 severity: "MEDIUM".to_string(),
-                description: "64-bit block ciphers (3DES) enabled, vulnerable to Sweet32 birthday attack".to_string(),
+                description:
+                    "64-bit block ciphers (3DES) enabled, vulnerable to Sweet32 birthday attack"
+                        .to_string(),
                 affected_versions: vec!["All TLS versions with 3DES".to_string()],
                 cve_ids: vec!["CVE-2016-2183".to_string()],
             });
@@ -605,7 +639,8 @@ impl SslScanner {
             vulnerabilities.push(SslVulnerability {
                 name: "RC4 NOMORE".to_string(),
                 severity: "HIGH".to_string(),
-                description: "RC4 cipher enabled, vulnerable to multiple attacks including NOMORE".to_string(),
+                description: "RC4 cipher enabled, vulnerable to multiple attacks including NOMORE"
+                    .to_string(),
                 affected_versions: vec!["All TLS versions with RC4".to_string()],
                 cve_ids: vec!["CVE-2015-2808".to_string(), "CVE-2013-2566".to_string()],
             });
@@ -616,7 +651,9 @@ impl SslScanner {
             vulnerabilities.push(SslVulnerability {
                 name: "ROBOT".to_string(),
                 severity: "CRITICAL".to_string(),
-                description: "Server vulnerable to ROBOT attack (Return Of Bleichenbacher's Oracle Threat)".to_string(),
+                description:
+                    "Server vulnerable to ROBOT attack (Return Of Bleichenbacher's Oracle Threat)"
+                        .to_string(),
                 affected_versions: vec!["TLS with RSA key exchange".to_string()],
                 cve_ids: vec!["CVE-2017-13099".to_string()],
             });
@@ -629,7 +666,9 @@ impl SslScanner {
                 vulnerabilities.push(SslVulnerability {
                     name: "Zombie POODLE / GOLDENDOODLE".to_string(),
                     severity: "MEDIUM".to_string(),
-                    description: "TLS 1.2 with CBC ciphers may be vulnerable to padding oracle attacks".to_string(),
+                    description:
+                        "TLS 1.2 with CBC ciphers may be vulnerable to padding oracle attacks"
+                            .to_string(),
                     affected_versions: vec!["TLSv1.2 with CBC".to_string()],
                     cve_ids: vec!["CVE-2019-1559".to_string()],
                 });
@@ -721,16 +760,14 @@ impl SslScanner {
             .send()
             .await
         {
-            Ok(response) => {
-                response
-                    .headers()
-                    .get("Content-Encoding")
-                    .map(|v| {
-                        let val = v.to_str().unwrap_or("");
-                        val.contains("gzip") || val.contains("deflate") || val.contains("br")
-                    })
-                    .unwrap_or(false)
-            }
+            Ok(response) => response
+                .headers()
+                .get("Content-Encoding")
+                .map(|v| {
+                    let val = v.to_str().unwrap_or("");
+                    val.contains("gzip") || val.contains("deflate") || val.contains("br")
+                })
+                .unwrap_or(false),
             Err(_) => false,
         }
     }
@@ -758,8 +795,16 @@ impl SslScanner {
         if certificate.days_until_expiry < 30 {
             issues.push(SslIssue {
                 issue_type: "certificate_expiry".to_string(),
-                severity: if certificate.days_until_expiry < 7 { "CRITICAL" } else { "HIGH" }.to_string(),
-                description: format!("Certificate expires in {} days", certificate.days_until_expiry),
+                severity: if certificate.days_until_expiry < 7 {
+                    "CRITICAL"
+                } else {
+                    "HIGH"
+                }
+                .to_string(),
+                description: format!(
+                    "Certificate expires in {} days",
+                    certificate.days_until_expiry
+                ),
                 remediation: "Renew SSL certificate before expiration".to_string(),
             });
         }
@@ -800,7 +845,8 @@ impl SslScanner {
                 issue_type: "hsts_missing".to_string(),
                 severity: "MEDIUM".to_string(),
                 description: "HSTS header not found".to_string(),
-                remediation: "Enable HSTS with max-age >= 31536000 and includeSubDomains".to_string(),
+                remediation: "Enable HSTS with max-age >= 31536000 and includeSubDomains"
+                    .to_string(),
             });
         }
 

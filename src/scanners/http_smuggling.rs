@@ -97,7 +97,8 @@ impl ConnectionPool {
 
         // Create new connection
         debug!("Creating new TCP connection to {}", key);
-        let stream = TcpStream::connect((host, port)).await
+        let stream = TcpStream::connect((host, port))
+            .await
             .with_context(|| format!("Failed to connect to {}:{}", host, port))?;
 
         if use_tls {
@@ -144,7 +145,8 @@ impl HTTPSmugglingScanner {
 
     /// Create a new connection (TCP or TLS-wrapped)
     async fn create_stream(&self, host: &str, port: u16, use_tls: bool) -> Result<SmuggleStream> {
-        let tcp_stream = TcpStream::connect((host, port)).await
+        let tcp_stream = TcpStream::connect((host, port))
+            .await
             .with_context(|| format!("Failed to connect to {}:{}", host, port))?;
 
         if use_tls {
@@ -154,7 +156,9 @@ impl HTTPSmugglingScanner {
                 .with_context(|| "Failed to build TLS connector")?;
             let connector = TlsConnector::from(connector);
 
-            let tls_stream = connector.connect(host, tcp_stream).await
+            let tls_stream = connector
+                .connect(host, tcp_stream)
+                .await
                 .with_context(|| format!("TLS handshake failed for {}", host))?;
 
             debug!("Created TLS connection to {}:{}", host, port);
@@ -210,23 +214,32 @@ impl HTTPSmugglingScanner {
         let host = parsed_url.host_str().unwrap_or("localhost");
         let port = parsed_url.port().unwrap_or(if use_tls { 443 } else { 80 });
 
-        info!("Testing HTTP request smuggling vulnerabilities using raw {} sockets", if use_tls { "TLS" } else { "TCP" });
+        info!(
+            "Testing HTTP request smuggling vulnerabilities using raw {} sockets",
+            if use_tls { "TLS" } else { "TCP" }
+        );
 
         // Test CL.TE smuggling with TLS support
-        let (vulns, tests) = self.test_cl_te_smuggling_tls(host, port, use_tls, url).await?;
+        let (vulns, tests) = self
+            .test_cl_te_smuggling_tls(host, port, use_tls, url)
+            .await?;
         vulnerabilities.extend(vulns);
         tests_run += tests;
 
         // Test TE.CL smuggling
         if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_te_cl_smuggling_tls(host, port, use_tls, url).await?;
+            let (vulns, tests) = self
+                .test_te_cl_smuggling_tls(host, port, use_tls, url)
+                .await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         // Test TE.TE smuggling
         if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_te_te_smuggling_tls(host, port, use_tls, url).await?;
+            let (vulns, tests) = self
+                .test_te_te_smuggling_tls(host, port, use_tls, url)
+                .await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
@@ -235,7 +248,13 @@ impl HTTPSmugglingScanner {
     }
 
     /// Test CL.TE smuggling with TLS support
-    async fn test_cl_te_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, _url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_cl_te_smuggling_tls(
+        &self,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+        _url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -271,7 +290,13 @@ impl HTTPSmugglingScanner {
     }
 
     /// Test TE.CL smuggling with TLS support
-    async fn test_te_cl_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, _url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_te_cl_smuggling_tls(
+        &self,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+        _url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -311,7 +336,13 @@ impl HTTPSmugglingScanner {
     }
 
     /// Test TE.TE smuggling with TLS support
-    async fn test_te_te_smuggling_tls(&self, host: &str, port: u16, use_tls: bool, _url: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_te_te_smuggling_tls(
+        &self,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+        _url: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -390,7 +421,10 @@ impl HTTPSmugglingScanner {
 
         // CL.TE Test 2: Full request smuggling with marker
         // Smuggle a complete GET request with our test marker
-        let smuggled_request = format!("GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n", self.test_marker, host);
+        let smuggled_request = format!(
+            "GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n",
+            self.test_marker, host
+        );
         let request2 = format!(
             "POST {} HTTP/1.1\r\n\
              Host: {}\r\n\
@@ -401,24 +435,31 @@ impl HTTPSmugglingScanner {
              {}\
              0\r\n\
              \r\n",
-            path, host, smuggled_request.len(), smuggled_request
+            path,
+            host,
+            smuggled_request.len(),
+            smuggled_request
         );
 
-        if let Ok((_first_response, second_response)) =
-            self.send_double_request(&host, port, &request2, "GET / HTTP/1.1").await {
-
+        if let Ok((_first_response, second_response)) = self
+            .send_double_request(&host, port, &request2, "GET / HTTP/1.1")
+            .await
+        {
             // Check if second response contains our marker or shows signs of poisoning
-            if second_response.contains(&self.test_marker) ||
-               second_response.contains("400") ||
-               second_response.contains("Bad Request") {
+            if second_response.contains(&self.test_marker)
+                || second_response.contains("400")
+                || second_response.contains("Bad Request")
+            {
                 info!("CL.TE smuggling detected: Full request smuggling");
                 vulnerabilities.push(self.create_vulnerability(
                     url,
                     "CL.TE Smuggling",
                     &request2,
                     "HTTP request smuggling via Content-Length/Transfer-Encoding conflict",
-                    &format!("Successfully smuggled request. Second response: {}",
-                             &second_response[..std::cmp::min(200, second_response.len())]),
+                    &format!(
+                        "Successfully smuggled request. Second response: {}",
+                        &second_response[..std::cmp::min(200, second_response.len())]
+                    ),
                     Severity::Critical,
                 ));
                 return Ok((vulnerabilities, tests_run));
@@ -443,9 +484,10 @@ impl HTTPSmugglingScanner {
             path, host, self.test_marker, host
         );
 
-        if let Ok((_, second_response)) =
-            self.send_double_request(&host, port, &request3, "GET / HTTP/1.1").await {
-
+        if let Ok((_, second_response)) = self
+            .send_double_request(&host, port, &request3, "GET / HTTP/1.1")
+            .await
+        {
             if self.detect_smuggling_from_raw(&second_response) {
                 info!("CL.TE smuggling detected: Obfuscated chunk encoding");
                 vulnerabilities.push(self.create_vulnerability(
@@ -492,9 +534,10 @@ impl HTTPSmugglingScanner {
             path, host, self.test_marker, host
         );
 
-        if let Ok((_, second_response)) =
-            self.send_double_request(&host, port, &request1, "GET / HTTP/1.1").await {
-
+        if let Ok((_, second_response)) = self
+            .send_double_request(&host, port, &request1, "GET / HTTP/1.1")
+            .await
+        {
             if self.detect_smuggling_from_raw(&second_response) {
                 info!("TE.CL smuggling detected: Basic test");
                 vulnerabilities.push(self.create_vulnerability(
@@ -526,9 +569,10 @@ impl HTTPSmugglingScanner {
             path, host, self.test_marker, host
         );
 
-        if let Ok((_, second_response)) =
-            self.send_double_request(&host, port, &request2, "GET / HTTP/1.1").await {
-
+        if let Ok((_, second_response)) = self
+            .send_double_request(&host, port, &request2, "GET / HTTP/1.1")
+            .await
+        {
             if self.detect_smuggling_from_raw(&second_response) {
                 info!("TE.CL smuggling detected: Zero chunk test");
                 vulnerabilities.push(self.create_vulnerability(
@@ -558,13 +602,15 @@ impl HTTPSmugglingScanner {
             path, host, host
         );
 
-        if let Ok((_, second_response)) =
-            self.send_double_request(&host, port, &request3, "GET / HTTP/1.1").await {
-
+        if let Ok((_, second_response)) = self
+            .send_double_request(&host, port, &request3, "GET / HTTP/1.1")
+            .await
+        {
             // Look for admin-related content or access denial
-            if second_response.contains("admin") ||
-               second_response.contains("unauthorized") ||
-               second_response.contains("forbidden") {
+            if second_response.contains("admin")
+                || second_response.contains("unauthorized")
+                || second_response.contains("forbidden")
+            {
                 info!("TE.CL smuggling detected: Admin path test");
                 vulnerabilities.push(self.create_vulnerability(
                     url,
@@ -614,9 +660,10 @@ impl HTTPSmugglingScanner {
                 path, host, te1, te2, self.test_marker, host
             );
 
-            if let Ok((_, second_response)) =
-                self.send_double_request(&host, port, &request, "GET / HTTP/1.1").await {
-
+            if let Ok((_, second_response)) = self
+                .send_double_request(&host, port, &request, "GET / HTTP/1.1")
+                .await
+            {
                 if self.detect_smuggling_from_raw(&second_response) {
                     info!("TE.TE smuggling detected: {}", description);
                     vulnerabilities.push(self.create_vulnerability(
@@ -624,7 +671,10 @@ impl HTTPSmugglingScanner {
                         "TE.TE Smuggling",
                         &request,
                         "HTTP request smuggling via dual Transfer-Encoding headers",
-                        &format!("Server processes obfuscated Transfer-Encoding differently: {}", description),
+                        &format!(
+                            "Server processes obfuscated Transfer-Encoding differently: {}",
+                            description
+                        ),
                         Severity::Critical,
                     ));
                     return Ok((vulnerabilities, tests_run));
@@ -637,7 +687,10 @@ impl HTTPSmugglingScanner {
 
     /// Test timing-based desync detection
     /// Send smuggling payload and measure response times to detect desynchronization
-    async fn test_timing_based_desync(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_timing_based_desync(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 2;
 
@@ -654,10 +707,16 @@ impl HTTPSmugglingScanner {
             path, host
         );
 
-        let baseline_times = self.measure_request_timing(&host, port, &baseline_request, 3).await?;
+        let baseline_times = self
+            .measure_request_timing(&host, port, &baseline_request, 3)
+            .await?;
         let baseline_avg = baseline_times.iter().sum::<u128>() / baseline_times.len() as u128;
 
-        debug!("Baseline timing: {} ms (avg of {} requests)", baseline_avg, baseline_times.len());
+        debug!(
+            "Baseline timing: {} ms (avg of {} requests)",
+            baseline_avg,
+            baseline_times.len()
+        );
 
         // Test: Send potential smuggling payload and measure timing
         let smuggling_request = format!(
@@ -674,27 +733,46 @@ impl HTTPSmugglingScanner {
         );
 
         // Send smuggling payload followed by normal request on same connection
-        if let Ok(stream) = self.connection_pool.get_connection(&host, port, false).await {
+        if let Ok(stream) = self
+            .connection_pool
+            .get_connection(&host, port, false)
+            .await
+        {
             let start = Instant::now();
 
             // Send smuggling attempt
-            let _ = self.send_request_on_stream(stream, &smuggling_request).await;
+            let _ = self
+                .send_request_on_stream(stream, &smuggling_request)
+                .await;
 
             // Try to get new connection and send normal request
-            if let Ok(stream2) = self.connection_pool.get_connection(&host, port, false).await {
-                let response = self.send_request_on_stream(stream2, &baseline_request).await?;
+            if let Ok(stream2) = self
+                .connection_pool
+                .get_connection(&host, port, false)
+                .await
+            {
+                let response = self
+                    .send_request_on_stream(stream2, &baseline_request)
+                    .await?;
                 let duration = start.elapsed().as_millis();
 
                 // If response time is significantly higher, might indicate desync
                 if duration > baseline_avg * 3 {
-                    info!("Timing-based desync detected: {} ms vs {} ms baseline", duration, baseline_avg);
+                    info!(
+                        "Timing-based desync detected: {} ms vs {} ms baseline",
+                        duration, baseline_avg
+                    );
                     vulnerabilities.push(self.create_vulnerability(
                         url,
                         "Timing-Based Desync",
                         &smuggling_request,
                         "HTTP request smuggling detected via timing analysis",
-                        &format!("Response time anomaly: {} ms vs {} ms baseline ({}x slower)",
-                                duration, baseline_avg, duration / baseline_avg.max(1)),
+                        &format!(
+                            "Response time anomaly: {} ms vs {} ms baseline ({}x slower)",
+                            duration,
+                            baseline_avg,
+                            duration / baseline_avg.max(1)
+                        ),
                         Severity::High,
                     ));
                 }
@@ -707,8 +785,10 @@ impl HTTPSmugglingScanner {
                         "Connection Desync",
                         &smuggling_request,
                         "HTTP connection desynchronization detected",
-                        &format!("Connection error after smuggling: {}",
-                                &response[..std::cmp::min(100, response.len())]),
+                        &format!(
+                            "Connection error after smuggling: {}",
+                            &response[..std::cmp::min(100, response.len())]
+                        ),
                         Severity::High,
                     ));
                 }
@@ -719,8 +799,17 @@ impl HTTPSmugglingScanner {
     }
 
     /// Send a raw HTTP request over TCP and read response
-    async fn send_raw_request(&self, host: &str, port: u16, request: &str, reuse_connection: bool) -> Result<String> {
-        let stream = self.connection_pool.get_connection(host, port, false).await?;
+    async fn send_raw_request(
+        &self,
+        host: &str,
+        port: u16,
+        request: &str,
+        reuse_connection: bool,
+    ) -> Result<String> {
+        let stream = self
+            .connection_pool
+            .get_connection(host, port, false)
+            .await?;
         let response = self.send_request_on_stream(stream, request).await?;
 
         // Optionally return connection to pool for reuse
@@ -738,7 +827,10 @@ impl HTTPSmugglingScanner {
         stream.write_all(request.as_bytes()).await?;
         stream.flush().await?;
 
-        debug!("Sent request:\n{}", request.lines().take(5).collect::<Vec<_>>().join("\n"));
+        debug!(
+            "Sent request:\n{}",
+            request.lines().take(5).collect::<Vec<_>>().join("\n")
+        );
 
         // Read response with timeout
         let mut response = Vec::new();
@@ -783,9 +875,18 @@ impl HTTPSmugglingScanner {
 
     /// Send smuggling request followed by a normal request on the same connection
     /// This is critical for detecting request smuggling - we need connection reuse
-    async fn send_double_request(&self, host: &str, port: u16, smuggling_request: &str, normal_request: &str) -> Result<(String, String)> {
+    async fn send_double_request(
+        &self,
+        host: &str,
+        port: u16,
+        smuggling_request: &str,
+        normal_request: &str,
+    ) -> Result<(String, String)> {
         // Get a connection from the pool
-        let mut stream = self.connection_pool.get_connection(host, port, false).await?;
+        let mut stream = self
+            .connection_pool
+            .get_connection(host, port, false)
+            .await?;
 
         // Send smuggling request
         stream.write_all(smuggling_request.as_bytes()).await?;
@@ -876,15 +977,20 @@ impl HTTPSmugglingScanner {
         }
 
         // For responses without body (304, etc) or connection close
-        response.contains("\r\n\r\n") && (
-            response.contains(" 204 ") ||
-            response.contains(" 304 ") ||
-            response.contains("Connection: close")
-        )
+        response.contains("\r\n\r\n")
+            && (response.contains(" 204 ")
+                || response.contains(" 304 ")
+                || response.contains("Connection: close"))
     }
 
     /// Measure request timing for baseline comparison
-    async fn measure_request_timing(&self, host: &str, port: u16, request: &str, iterations: usize) -> Result<Vec<u128>> {
+    async fn measure_request_timing(
+        &self,
+        host: &str,
+        port: u16,
+        request: &str,
+        iterations: usize,
+    ) -> Result<Vec<u128>> {
         let mut timings = Vec::new();
 
         for _ in 0..iterations {
@@ -928,7 +1034,8 @@ impl HTTPSmugglingScanner {
         }
 
         // Check for conflicting headers in response
-        if response_lower.contains("transfer-encoding") && response_lower.contains("content-length") {
+        if response_lower.contains("transfer-encoding") && response_lower.contains("content-length")
+        {
             return true;
         }
 
@@ -939,15 +1046,14 @@ impl HTTPSmugglingScanner {
     fn parse_url(&self, url: &str) -> Result<(String, u16, String)> {
         let parsed = url::Url::parse(url)?;
 
-        let host = parsed.host_str()
+        let host = parsed
+            .host_str()
             .ok_or_else(|| anyhow!("No host in URL"))?
             .to_string();
 
-        let port = parsed.port().unwrap_or_else(|| {
-            match parsed.scheme() {
-                "https" => 443,
-                _ => 80,
-            }
+        let port = parsed.port().unwrap_or_else(|| match parsed.scheme() {
+            "https" => 443,
+            _ => 80,
         });
 
         let path = if parsed.path().is_empty() {
@@ -1009,9 +1115,10 @@ impl HTTPSmugglingScanner {
                          7. Update to latest versions of proxy and web server software\n\
                          8. Configure servers to strictly validate HTTP request headers\n\
                          9. Implement request timeout controls\n\
-                         10. Use a Web Application Firewall (WAF) with smuggling detection".to_string(),
+                         10. Use a Web Application Firewall (WAF) with smuggling detection"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -1071,7 +1178,10 @@ mod tests {
     fn test_extract_host() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.extract_host("http://example.com/path"), "example.com");
+        assert_eq!(
+            scanner.extract_host("http://example.com/path"),
+            "example.com"
+        );
         assert_eq!(scanner.extract_host("https://test.org:8080"), "test.org");
         assert_eq!(scanner.extract_host("invalid"), "localhost");
     }
@@ -1079,7 +1189,10 @@ mod tests {
     #[test]
     fn test_detect_smuggling_markers() {
         let scanner = create_test_scanner();
-        let response = format!("HTTP/1.1 200 OK\r\n\r\nResponse contains {}", scanner.test_marker);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n\r\nResponse contains {}",
+            scanner.test_marker
+        );
 
         assert!(scanner.detect_smuggling_from_raw(&response));
     }
@@ -1112,7 +1225,8 @@ mod tests {
         assert!(!scanner.is_complete_http_response(response2));
 
         // Chunked response complete
-        let response3 = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
+        let response3 =
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
         assert!(scanner.is_complete_http_response(response3));
 
         // 204 No Content

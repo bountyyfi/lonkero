@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -183,7 +182,10 @@ impl SessionManagementScanner {
                         Severity::High,
                         Confidence::High,
                         "Session cookie lacks HttpOnly flag - vulnerable to XSS theft",
-                        format!("Cookie: {}", set_cookie.chars().take(100).collect::<String>()),
+                        format!(
+                            "Cookie: {}",
+                            set_cookie.chars().take(100).collect::<String>()
+                        ),
                         7.5,
                     ));
                 }
@@ -196,7 +198,10 @@ impl SessionManagementScanner {
                         Severity::High,
                         Confidence::High,
                         "Session cookie lacks Secure flag - vulnerable to interception",
-                        format!("HTTPS site with insecure cookie: {}", set_cookie.chars().take(100).collect::<String>()),
+                        format!(
+                            "HTTPS site with insecure cookie: {}",
+                            set_cookie.chars().take(100).collect::<String>()
+                        ),
                         7.4,
                     ));
                 }
@@ -265,8 +270,7 @@ impl SessionManagementScanner {
         let body_lower = response.body.to_lowercase();
 
         // Check if session ID is accepted from query parameter
-        if (body_lower.contains("session") || body_lower.contains("sid"))
-            && url.contains("session")
+        if (body_lower.contains("session") || body_lower.contains("sid")) && url.contains("session")
         {
             vulnerabilities.push(self.create_vulnerability(
                 "Potential Session Fixation",
@@ -318,7 +322,10 @@ impl SessionManagementScanner {
                             Severity::High,
                             Confidence::Medium,
                             "Session ID is too short - vulnerable to brute force",
-                            format!("Session ID length: {} chars (minimum: 16)", session_value.len()),
+                            format!(
+                                "Session ID length: {} chars (minimum: 16)",
+                                session_value.len()
+                            ),
                             7.0,
                         ));
                     }
@@ -367,9 +374,7 @@ impl SessionManagementScanner {
             || body_lower.contains("expiry")
             || body_lower.contains("ttl");
 
-        if (body_lower.contains("session") || body_lower.contains("auth"))
-            && !has_timeout
-        {
+        if (body_lower.contains("session") || body_lower.contains("auth")) && !has_timeout {
             vulnerabilities.push(self.create_vulnerability(
                 "No Session Timeout Configured",
                 url,
@@ -387,8 +392,13 @@ impl SessionManagementScanner {
         let url_lower = url.to_lowercase();
 
         let session_params = vec![
-            "sessionid=", "session=", "sid=", "jsessionid=",
-            "phpsessid=", "aspsessionid=", "token="
+            "sessionid=",
+            "session=",
+            "sid=",
+            "jsessionid=",
+            "phpsessid=",
+            "aspsessionid=",
+            "token=",
         ];
 
         for param in &session_params {
@@ -736,7 +746,10 @@ mod tests {
         let scanner = SessionManagementScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("set-cookie".to_string(), "sessionid=abc123; Secure".to_string());
+        headers.insert(
+            "set-cookie".to_string(),
+            "sessionid=abc123; Secure".to_string(),
+        );
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
@@ -757,7 +770,10 @@ mod tests {
         let scanner = SessionManagementScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("set-cookie".to_string(), "sessionid=abc123; HttpOnly".to_string());
+        headers.insert(
+            "set-cookie".to_string(),
+            "sessionid=abc123; HttpOnly".to_string(),
+        );
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
@@ -788,7 +804,10 @@ mod tests {
         let scanner = SessionManagementScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("set-cookie".to_string(), "sessionid=12345; HttpOnly; Secure".to_string());
+        headers.insert(
+            "set-cookie".to_string(),
+            "sessionid=12345; HttpOnly; Secure".to_string(),
+        );
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
@@ -808,8 +827,11 @@ mod tests {
         let scanner = SessionManagementScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("set-cookie".to_string(),
-            "sessionid=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6; HttpOnly; Secure; SameSite=Strict".to_string());
+        headers.insert(
+            "set-cookie".to_string(),
+            "sessionid=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6; HttpOnly; Secure; SameSite=Strict"
+                .to_string(),
+        );
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
@@ -822,6 +844,10 @@ mod tests {
         scanner.check_cookie_security(&response, "https://example.com", &mut vulns);
 
         // Should not report issues for secure cookie
-        assert_eq!(vulns.len(), 0, "Should not report issues for properly configured cookie");
+        assert_eq!(
+            vulns.len(),
+            0,
+            "Should not report issues for properly configured cookie"
+        );
     }
 }

@@ -380,7 +380,8 @@ impl WordPressSecurityScanner {
                 ),
                 evidence: Some(format!(
                     "Enumerated users:\n{}",
-                    found_users.iter()
+                    found_users
+                        .iter()
                         .map(|u| format!("- {}", u))
                         .collect::<Vec<_>>()
                         .join("\n")
@@ -397,7 +398,8 @@ impl WordPressSecurityScanner {
                                       exit;\n\
                                   }\n\
                               });\n\
-                              3. Or use .htaccess rules to block author queries".to_string(),
+                              3. Or use .htaccess rules to block author queries"
+                    .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_data: None,
             });
@@ -421,9 +423,11 @@ impl WordPressSecurityScanner {
             let test_url = format!("{}{}", base_url, endpoint);
 
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 && response.body.contains("\"id\"") &&
-                   response.body.contains("\"name\"") && response.body.contains("\"slug\"") {
-
+                if response.status_code == 200
+                    && response.body.contains("\"id\"")
+                    && response.body.contains("\"name\"")
+                    && response.body.contains("\"slug\"")
+                {
                     // Parse users from JSON
                     let mut users = Vec::new();
                     let user_re = Regex::new(r#""slug"\s*:\s*"([^"]+)""#).ok();
@@ -497,7 +501,11 @@ impl WordPressSecurityScanner {
         // Test if XML-RPC is enabled
         let list_methods = r#"<?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName></methodCall>"#;
 
-        if let Ok(response) = self.http_client.post(&xmlrpc_url, list_methods.to_string()).await {
+        if let Ok(response) = self
+            .http_client
+            .post(&xmlrpc_url, list_methods.to_string())
+            .await
+        {
             if response.status_code == 200 && response.body.contains("methodResponse") {
                 let mut exposed_methods = Vec::new();
 
@@ -528,17 +536,23 @@ impl WordPressSecurityScanner {
 </params>
 </methodCall>"#;
 
-                let has_pingback_ssrf = if let Ok(pingback_response) =
-                    self.http_client.post(&xmlrpc_url, pingback_test.to_string()).await {
+                let has_pingback_ssrf = if let Ok(pingback_response) = self
+                    .http_client
+                    .post(&xmlrpc_url, pingback_test.to_string())
+                    .await
+                {
                     // If it doesn't immediately reject with "source URL does not exist"
                     // it might be vulnerable to SSRF
-                    !pingback_response.body.contains("source URL does not exist") &&
-                    pingback_response.body.contains("faultCode")
+                    !pingback_response.body.contains("source URL does not exist")
+                        && pingback_response.body.contains("faultCode")
                 } else {
                     false
                 };
 
-                let severity = if exposed_methods.iter().any(|m| m.contains("multicall") || m.contains("pingback")) {
+                let severity = if exposed_methods
+                    .iter()
+                    .any(|m| m.contains("multicall") || m.contains("pingback"))
+                {
                     Severity::High
                 } else {
                     Severity::Medium
@@ -605,7 +619,10 @@ impl WordPressSecurityScanner {
             ("/wp-config.php.swp", "Vim swap file"),
             ("/wp-config.bak", "Configuration backup"),
             ("/wp-config.txt", "Configuration as text"),
-            ("/wp-config-sample.php", "Sample configuration (version disclosure)"),
+            (
+                "/wp-config-sample.php",
+                "Sample configuration (version disclosure)",
+            ),
             ("/.wp-config.php.swp", "Hidden vim swap"),
             ("/wp-config.php.orig", "Original backup"),
         ];
@@ -616,12 +633,12 @@ impl WordPressSecurityScanner {
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
                     // Check if it contains actual config data
-                    let has_sensitive_data = response.body.contains("DB_NAME") ||
-                                             response.body.contains("DB_PASSWORD") ||
-                                             response.body.contains("DB_USER") ||
-                                             response.body.contains("AUTH_KEY") ||
-                                             response.body.contains("SECURE_AUTH_KEY") ||
-                                             response.body.contains("table_prefix");
+                    let has_sensitive_data = response.body.contains("DB_NAME")
+                        || response.body.contains("DB_PASSWORD")
+                        || response.body.contains("DB_USER")
+                        || response.body.contains("AUTH_KEY")
+                        || response.body.contains("SECURE_AUTH_KEY")
+                        || response.body.contains("table_prefix");
 
                     if has_sensitive_data {
                         vulnerabilities.push(Vulnerability {
@@ -684,12 +701,12 @@ impl WordPressSecurityScanner {
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 && response.body.len() > 100 {
                     // Check for log content indicators
-                    let is_log_file = response.body.contains("PHP") ||
-                                      response.body.contains("Warning") ||
-                                      response.body.contains("Error") ||
-                                      response.body.contains("Notice") ||
-                                      response.body.contains("Fatal") ||
-                                      response.body.contains("Stack trace");
+                    let is_log_file = response.body.contains("PHP")
+                        || response.body.contains("Warning")
+                        || response.body.contains("Error")
+                        || response.body.contains("Notice")
+                        || response.body.contains("Fatal")
+                        || response.body.contains("Stack trace");
 
                     if is_log_file {
                         vulnerabilities.push(Vulnerability {
@@ -728,9 +745,10 @@ impl WordPressSecurityScanner {
                                           <Files debug.log>\n\
                                           Order Allow,Deny\n\
                                           Deny from all\n\
-                                          </Files>".to_string(),
+                                          </Files>"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -854,7 +872,10 @@ impl WordPressSecurityScanner {
                                 if Self::version_vulnerable(&ver, &vuln.vulnerable_version) {
                                     vulnerabilities.push(Vulnerability {
                                         id: format!("wp_plugin_vuln_{}", Self::generate_id()),
-                                        vuln_type: format!("Vulnerable WordPress Plugin: {}", plugin_slug),
+                                        vuln_type: format!(
+                                            "Vulnerable WordPress Plugin: {}",
+                                            plugin_slug
+                                        ),
                                         severity: vuln.severity.clone(),
                                         confidence: Confidence::High,
                                         category: "Known Vulnerability".to_string(),
@@ -866,7 +887,8 @@ impl WordPressSecurityScanner {
                                             Vulnerability: {}\n\
                                             CVE: {}\n\
                                             Vulnerable versions: <= {}",
-                                            plugin_slug, ver,
+                                            plugin_slug,
+                                            ver,
                                             vuln.description,
                                             vuln.cve.as_ref().unwrap_or(&"N/A".to_string()),
                                             vuln.vulnerable_version
@@ -891,7 +913,7 @@ impl WordPressSecurityScanner {
                                             plugin_slug, plugin_slug
                                         ),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                        ml_data: None,
                                     });
                                 }
                             }
@@ -911,11 +933,20 @@ impl WordPressSecurityScanner {
         let base_url = self.get_base_url(url);
 
         let backup_patterns = vec![
-            "/backup.sql", "/backup.sql.gz", "/backup.sql.zip",
-            "/db.sql", "/database.sql", "/dump.sql",
-            "/wp-content/backup.sql", "/wp-content/backups/",
-            "/backups/", "/backup/", "/bak/",
-            "/.sql", "/wordpress.sql", "/site.sql",
+            "/backup.sql",
+            "/backup.sql.gz",
+            "/backup.sql.zip",
+            "/db.sql",
+            "/database.sql",
+            "/dump.sql",
+            "/wp-content/backup.sql",
+            "/wp-content/backups/",
+            "/backups/",
+            "/backup/",
+            "/bak/",
+            "/.sql",
+            "/wordpress.sql",
+            "/site.sql",
             "/wp-content/uploads/backup.sql",
             "/wp-content/updraft/", // UpdraftPlus backup location
         ];
@@ -925,15 +956,15 @@ impl WordPressSecurityScanner {
 
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
-                    let is_backup = response.body.contains("CREATE TABLE") ||
-                                    response.body.contains("INSERT INTO") ||
-                                    response.body.contains("DROP TABLE") ||
-                                    response.body.contains("wp_users") ||
-                                    response.body.contains("wp_options") ||
-                                    (response.body.len() > 10000 && pattern.contains(".sql"));
+                    let is_backup = response.body.contains("CREATE TABLE")
+                        || response.body.contains("INSERT INTO")
+                        || response.body.contains("DROP TABLE")
+                        || response.body.contains("wp_users")
+                        || response.body.contains("wp_options")
+                        || (response.body.len() > 10000 && pattern.contains(".sql"));
 
-                    let is_directory = response.body.contains("Index of") ||
-                                       response.body.contains("<title>Index");
+                    let is_directory = response.body.contains("Index of")
+                        || response.body.contains("<title>Index");
 
                     if is_backup {
                         vulnerabilities.push(Vulnerability {
@@ -947,8 +978,11 @@ impl WordPressSecurityScanner {
                             payload: pattern.to_string(),
                             description: "Database backup file is publicly accessible. \
                                 This exposes all WordPress data including user credentials, \
-                                posts, configuration, and potentially sensitive customer data.".to_string(),
-                            evidence: Some("SQL backup file containing database schema and data".to_string()),
+                                posts, configuration, and potentially sensitive customer data."
+                                .to_string(),
+                            evidence: Some(
+                                "SQL backup file containing database schema and data".to_string(),
+                            ),
                             cwe: "CWE-200".to_string(),
                             cvss: 9.8,
                             verified: true,
@@ -958,9 +992,10 @@ impl WordPressSecurityScanner {
                                           3. Rotate authentication keys\n\
                                           4. Review for sensitive data exposure\n\
                                           5. Never store backups in web-accessible directories\n\
-                                          6. Use secure off-site backup storage".to_string(),
+                                          6. Use secure off-site backup storage"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     } else if is_directory {
@@ -1004,10 +1039,10 @@ impl WordPressSecurityScanner {
         if let Ok(response) = self.http_client.get(&install_url).await {
             if response.status_code == 200 {
                 // Check if installation is available (not already installed)
-                let is_install_available = response.body.contains("Welcome to WordPress") ||
-                                           response.body.contains("installation process") ||
-                                           response.body.contains("wp-core-ui") &&
-                                           !response.body.contains("Already Installed");
+                let is_install_available = response.body.contains("Welcome to WordPress")
+                    || response.body.contains("installation process")
+                    || response.body.contains("wp-core-ui")
+                        && !response.body.contains("Already Installed");
 
                 if is_install_available {
                     vulnerabilities.push(Vulnerability {
@@ -1021,7 +1056,8 @@ impl WordPressSecurityScanner {
                         payload: "/wp-admin/install.php".to_string(),
                         description: "WordPress installation script is accessible. \
                             If wp-config.php is not properly configured, an attacker could \
-                            potentially reinstall WordPress and gain admin access.".to_string(),
+                            potentially reinstall WordPress and gain admin access."
+                            .to_string(),
                         evidence: Some("Installation script returns installation page".to_string()),
                         cwe: "CWE-16".to_string(),
                         cvss: 9.8,
@@ -1034,9 +1070,10 @@ impl WordPressSecurityScanner {
                                       <Files install.php>\n\
                                       Order Allow,Deny\n\
                                       Deny from all\n\
-                                      </Files>".to_string(),
+                                      </Files>"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -1063,9 +1100,9 @@ impl WordPressSecurityScanner {
 
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
-                    let has_listing = response.body.contains("Index of") ||
-                                      response.body.contains("<title>Index") ||
-                                      response.body.contains("Parent Directory");
+                    let has_listing = response.body.contains("Index of")
+                        || response.body.contains("<title>Index")
+                        || response.body.contains("Parent Directory");
 
                     if has_listing {
                         vulnerabilities.push(Vulnerability {
@@ -1091,9 +1128,10 @@ impl WordPressSecurityScanner {
                             remediation: "1. Add to .htaccess:\n\
                                           Options -Indexes\n\n\
                                           2. Or add empty index.php to each directory:\n\
-                                          <?php // Silence is golden".to_string(),
+                                          <?php // Silence is golden"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -1112,7 +1150,8 @@ impl WordPressSecurityScanner {
         if let Ok(response) = self.http_client.get(url).await {
             let theme_re = Regex::new(r#"/wp-content/themes/([^/]+)/"#).ok();
             if let Some(re) = theme_re {
-                let mut themes: Vec<String> = re.captures_iter(&response.body)
+                let mut themes: Vec<String> = re
+                    .captures_iter(&response.body)
                     .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
                     .collect();
                 themes.dedup();
@@ -1124,8 +1163,15 @@ impl WordPressSecurityScanner {
                         if readme_response.status_code == 200 {
                             // Check for known vulnerable themes
                             // This is a simplified check - in production, would use a theme vulnerability database
-                            if readme_response.body.to_lowercase().contains("tested up to: 4") ||
-                               readme_response.body.to_lowercase().contains("tested up to: 3") {
+                            if readme_response
+                                .body
+                                .to_lowercase()
+                                .contains("tested up to: 4")
+                                || readme_response
+                                    .body
+                                    .to_lowercase()
+                                    .contains("tested up to: 3")
+                            {
                                 vulnerabilities.push(Vulnerability {
                                     id: format!("wp_theme_old_{}", Self::generate_id()),
                                     vuln_type: format!("Outdated WordPress Theme: {}", theme),
@@ -1216,13 +1262,31 @@ impl WordPressSecurityScanner {
 
         // Additional popular plugins to check
         let common_plugins = vec![
-            "akismet", "jetpack", "classic-editor", "gutenberg", "woocommerce",
-            "wp-mail-smtp", "google-analytics-for-wordpress", "wp-google-maps",
-            "cookie-notice", "wordpress-seo", "better-wp-security", "sucuri-scanner",
-            "wpforms-lite", "mailchimp-for-wp", "google-sitemap-generator",
-            "tinymce-advanced", "wp-optimize", "regenerate-thumbnails",
-            "duplicate-post", "redirection", "tablepress", "autoptimize",
-            "w3-total-cache", "wp-fastest-cache", "litespeed-cache",
+            "akismet",
+            "jetpack",
+            "classic-editor",
+            "gutenberg",
+            "woocommerce",
+            "wp-mail-smtp",
+            "google-analytics-for-wordpress",
+            "wp-google-maps",
+            "cookie-notice",
+            "wordpress-seo",
+            "better-wp-security",
+            "sucuri-scanner",
+            "wpforms-lite",
+            "mailchimp-for-wp",
+            "google-sitemap-generator",
+            "tinymce-advanced",
+            "wp-optimize",
+            "regenerate-thumbnails",
+            "duplicate-post",
+            "redirection",
+            "tablepress",
+            "autoptimize",
+            "w3-total-cache",
+            "wp-fastest-cache",
+            "litespeed-cache",
         ];
 
         for plugin in common_plugins {
@@ -1264,11 +1328,8 @@ impl WordPressSecurityScanner {
 
     /// Helper: Check if version is vulnerable
     fn version_vulnerable(current: &str, vulnerable: &str) -> bool {
-        let parse_version = |v: &str| -> Vec<u32> {
-            v.split('.')
-                .filter_map(|s| s.parse().ok())
-                .collect()
-        };
+        let parse_version =
+            |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
 
         let current_parts = parse_version(current);
         let vuln_parts = parse_version(vulnerable);
@@ -1299,10 +1360,18 @@ mod tests {
 
     #[test]
     fn test_version_comparison() {
-        assert!(WordPressSecurityScanner::version_vulnerable("1.0.0", "1.0.1"));
+        assert!(WordPressSecurityScanner::version_vulnerable(
+            "1.0.0", "1.0.1"
+        ));
         assert!(WordPressSecurityScanner::version_vulnerable("1.0", "1.0.1"));
-        assert!(!WordPressSecurityScanner::version_vulnerable("1.0.2", "1.0.1"));
-        assert!(WordPressSecurityScanner::version_vulnerable("5.3.1", "5.3.1"));
-        assert!(!WordPressSecurityScanner::version_vulnerable("5.3.2", "5.3.1"));
+        assert!(!WordPressSecurityScanner::version_vulnerable(
+            "1.0.2", "1.0.1"
+        ));
+        assert!(WordPressSecurityScanner::version_vulnerable(
+            "5.3.1", "5.3.1"
+        ));
+        assert!(!WordPressSecurityScanner::version_vulnerable(
+            "5.3.2", "5.3.1"
+        ));
     }
 }

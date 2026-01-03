@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use super::features::{FeatureExtractor, VulnFeatures};
+use super::training_data::{TrainingDataCollector, TrainingExample, VerificationStatus};
 /**
  * Bountyy Oy - Automatic Learning System
  * Learns from scan results without user verification
@@ -31,11 +33,8 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::HttpResponse;
 use crate::types::{Confidence, Vulnerability};
-use super::features::{FeatureExtractor, VulnFeatures};
-use super::training_data::{TrainingDataCollector, TrainingExample, VerificationStatus};
 use anyhow::Result;
 use std::collections::HashMap;
 use tracing::{debug, info};
@@ -116,9 +115,9 @@ impl Default for VulnPatterns {
                 "Database error",
             ],
             xss_contexts: vec![
-                "<script>", // Direct script injection
+                "<script>",    // Direct script injection
                 "javascript:", // JavaScript URI
-                "onerror=", // Event handler
+                "onerror=",    // Event handler
                 "onload=",
                 "onclick=",
                 "onmouseover=",
@@ -196,11 +195,7 @@ impl AutoLearner {
         }
 
         // 2. Check for verified exploitation evidence (weaker than browser verification)
-        let exploitation = self.check_exploitation_evidence(
-            &vuln.vuln_type,
-            response,
-            payload,
-        );
+        let exploitation = self.check_exploitation_evidence(&vuln.vuln_type, response, payload);
 
         if let Some((exploit_evidence, exploit_confidence)) = exploitation {
             reasons.push(format!("Exploitation verified: {}", exploit_evidence));
@@ -236,12 +231,16 @@ impl AutoLearner {
         if status == VerificationStatus::Confirmed {
             info!(
                 "Auto-verified TRUE POSITIVE: {} at {} (confidence: {:.0}%)",
-                vuln.vuln_type, vuln.url, confidence * 100.0
+                vuln.vuln_type,
+                vuln.url,
+                confidence * 100.0
             );
         } else if status == VerificationStatus::FalsePositive {
             debug!(
                 "Auto-verified FALSE POSITIVE: {} at {} (confidence: {:.0}%)",
-                vuln.vuln_type, vuln.url, confidence * 100.0
+                vuln.vuln_type,
+                vuln.url,
+                confidence * 100.0
             );
         }
 
@@ -268,10 +267,7 @@ impl AutoLearner {
         if vuln_upper.contains("SQL") {
             for pattern in &self.vuln_patterns.sql_errors {
                 if body.contains(pattern) || body_lower.contains(&pattern.to_lowercase()) {
-                    return Some((
-                        format!("SQL error exposed: {}", pattern),
-                        0.95,
-                    ));
+                    return Some((format!("SQL error exposed: {}", pattern), 0.95));
                 }
             }
         }
@@ -285,10 +281,7 @@ impl AutoLearner {
                         // Payload contains dangerous pattern
                         if body.contains(payload) {
                             // And it's reflected unencoded!
-                            return Some((
-                                format!("XSS payload reflected with {}", context),
-                                0.95,
-                            ));
+                            return Some((format!("XSS payload reflected with {}", context), 0.95));
                         }
                     }
                 }
@@ -316,13 +309,13 @@ impl AutoLearner {
         }
 
         // Command Injection verification
-        if vuln_upper.contains("COMMAND") || vuln_upper.contains("CMDI") || vuln_upper.contains("RCE") {
+        if vuln_upper.contains("COMMAND")
+            || vuln_upper.contains("CMDI")
+            || vuln_upper.contains("RCE")
+        {
             for indicator in &self.vuln_patterns.cmdi_indicators {
                 if body.contains(indicator) {
-                    return Some((
-                        format!("Command output detected: {}", indicator),
-                        0.90,
-                    ));
+                    return Some((format!("Command output detected: {}", indicator), 0.90));
                 }
             }
         }
@@ -417,20 +410,22 @@ impl AutoLearner {
         if let Some(ref evidence) = vuln.evidence {
             let evidence_lower = evidence.to_lowercase();
             // Chromium scanner adds these markers when JS actually executes
-            if evidence_lower.contains("javascript executed") ||
-               evidence_lower.contains("dialog intercepted") ||
-               evidence_lower.contains("alert triggered") ||
-               evidence_lower.contains("real browser") ||
-               evidence_lower.contains("chromium") {
+            if evidence_lower.contains("javascript executed")
+                || evidence_lower.contains("dialog intercepted")
+                || evidence_lower.contains("alert triggered")
+                || evidence_lower.contains("real browser")
+                || evidence_lower.contains("chromium")
+            {
                 return true;
             }
         }
 
         // Check description for browser execution proof
         let desc_lower = vuln.description.to_lowercase();
-        if desc_lower.contains("real browser") ||
-           desc_lower.contains("browser context") ||
-           desc_lower.contains("javascript executed") {
+        if desc_lower.contains("real browser")
+            || desc_lower.contains("browser context")
+            || desc_lower.contains("javascript executed")
+        {
             return true;
         }
 
@@ -464,14 +459,15 @@ impl AutoLearner {
         let url_pattern = self.anonymize_url(&vuln.url);
 
         if let Some(history) = self.endpoint_history.get(&url_pattern) {
-            let matching: Vec<_> = history.iter()
+            let matching: Vec<_> = history
+                .iter()
                 .filter(|h| h.vuln_type == vuln.vuln_type)
                 .collect();
 
             if !matching.is_empty() {
-                let true_positive_rate = matching.iter()
-                    .filter(|h| h.was_true_positive)
-                    .count() as f32 / matching.len() as f32;
+                let true_positive_rate = matching.iter().filter(|h| h.was_true_positive).count()
+                    as f32
+                    / matching.len() as f32;
 
                 return Some(true_positive_rate);
             }
@@ -576,7 +572,8 @@ impl AutoLearner {
 
         // Raise threshold - we're more conservative now
         // Only browser-verified XSS should easily reach Confirmed
-        let status = if confidence > 0.85 {  // Raised from 0.75
+        let status = if confidence > 0.85 {
+            // Raised from 0.75
             VerificationStatus::Confirmed
         } else if confidence < 0.35 {
             VerificationStatus::FalsePositive
@@ -659,9 +656,9 @@ impl AutoLearner {
         let id_pattern = regex::Regex::new(r"/\d+").unwrap();
         let anonymized = id_pattern.replace_all(&path, "/{id}");
 
-        let uuid_pattern = regex::Regex::new(
-            r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-        ).unwrap();
+        let uuid_pattern =
+            regex::Regex::new(r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+                .unwrap();
 
         uuid_pattern.replace_all(&anonymized, "/{uuid}").to_string()
     }
@@ -701,8 +698,8 @@ pub struct LearningStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::types::Severity;
+    use std::collections::HashMap;
 
     fn create_test_response(body: &str, status: u16) -> HttpResponse {
         HttpResponse {
@@ -757,10 +754,8 @@ mod tests {
 
         let vuln = create_test_vuln("Cross-Site Scripting (XSS)");
         let payload = "<script>alert(1)</script>";
-        let response = create_test_response(
-            &format!("<html><body>Hello {}</body></html>", payload),
-            200,
-        );
+        let response =
+            create_test_response(&format!("<html><body>Hello {}</body></html>", payload), 200);
 
         let result = learner.auto_verify(&vuln, &response, None, Some(payload));
 
@@ -774,10 +769,7 @@ mod tests {
 
         let vuln = create_test_vuln("SQL Injection");
         // Normal response without any SQL errors
-        let response = create_test_response(
-            "<html><body>User profile page</body></html>",
-            200,
-        );
+        let response = create_test_response("<html><body>User profile page</body></html>", 200);
 
         let result = learner.auto_verify(&vuln, &response, None, Some("' OR '1'='1"));
 

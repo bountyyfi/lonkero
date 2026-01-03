@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -97,7 +96,12 @@ impl AuthBypassScanner {
         tests_run += 1;
         let nextjs_results = self.test_nextjs_middleware_bypass(url).await;
         for (bypass_url, response, original_path) in nextjs_results {
-            self.check_nextjs_middleware_bypass(&response, &bypass_url, &original_path, &mut vulnerabilities);
+            self.check_nextjs_middleware_bypass(
+                &response,
+                &bypass_url,
+                &original_path,
+                &mut vulnerabilities,
+            );
         }
 
         // Test 10: SSO redirect bypass - accessing signup page when SSO is forced
@@ -150,13 +154,19 @@ impl AuthBypassScanner {
 
         // Try first payload
         let test_url = if url.contains('?') {
-            format!("{}&username={}&password={}", url,
+            format!(
+                "{}&username={}&password={}",
+                url,
                 urlencoding::encode(payloads[0]),
-                urlencoding::encode(payloads[0]))
+                urlencoding::encode(payloads[0])
+            )
         } else {
-            format!("{}?username={}&password={}", url,
+            format!(
+                "{}?username={}&password={}",
+                url,
                 urlencoding::encode(payloads[0]),
-                urlencoding::encode(payloads[0]))
+                urlencoding::encode(payloads[0])
+            )
         };
 
         self.http_client.get(&test_url).await
@@ -173,11 +183,18 @@ impl AuthBypassScanner {
 
         // Check for successful authentication indicators
         let auth_success = vec![
-            "welcome", "dashboard", "logged in", "successful",
-            "profile", "logout", "sign out", "authenticated"
+            "welcome",
+            "dashboard",
+            "logged in",
+            "successful",
+            "profile",
+            "logout",
+            "sign out",
+            "authenticated",
         ];
 
-        let success_count = auth_success.iter()
+        let success_count = auth_success
+            .iter()
             .filter(|&indicator| body_lower.contains(indicator))
             .count();
 
@@ -188,7 +205,10 @@ impl AuthBypassScanner {
                 Severity::Critical,
                 Confidence::High,
                 "SQL injection allows authentication bypass - complete account takeover",
-                format!("SQL injection payload bypassed authentication (status: {})", response.status_code),
+                format!(
+                    "SQL injection payload bypassed authentication (status: {})",
+                    response.status_code
+                ),
                 9.8,
             ));
         }
@@ -268,7 +288,10 @@ impl AuthBypassScanner {
     }
 
     /// Test default credentials
-    async fn test_default_credentials(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_default_credentials(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Common default credentials
         let credentials = vec![
             ("admin", "admin"),
@@ -313,7 +336,10 @@ impl AuthBypassScanner {
     }
 
     /// Test header manipulation
-    async fn test_header_manipulation(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_header_manipulation(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Try adding headers that might bypass auth
         // Note: Simplified version - real implementation would use custom headers
         let test_url = if url.contains('?') {
@@ -351,12 +377,7 @@ impl AuthBypassScanner {
 
     /// Test path traversal bypass
     async fn test_path_bypass(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
-        let bypass_paths = vec![
-            "/admin/../admin",
-            "/./admin",
-            "/%2e/admin",
-            "/admin/.",
-        ];
+        let bypass_paths = vec!["/admin/../admin", "/./admin", "/%2e/admin", "/admin/."];
 
         // Append first bypass path to URL
         let test_url = format!("{}{}", url, bypass_paths[0]);
@@ -423,9 +444,9 @@ impl AuthBypassScanner {
     async fn test_encoding_bypass(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
         // URL encoding variations
         let encoded_admin = vec![
-            "%61dmin",      // URL encoding
-            "admin%00",     // Null byte
-            "admin%20",     // Space
+            "%61dmin",  // URL encoding
+            "admin%00", // Null byte
+            "admin%20", // Space
         ];
 
         let test_url = if url.contains('?') {
@@ -466,7 +487,10 @@ impl AuthBypassScanner {
     /// by prefixing protected paths with /_next/
     /// Example: /dashboard (protected) -> /_next/dashboard (bypassed)
     /// Example: /kirjaudu (protected) -> /_next/kirjaudu (bypassed)
-    async fn test_nextjs_middleware_bypass(&self, url: &str) -> Vec<(String, crate::http_client::HttpResponse, String)> {
+    async fn test_nextjs_middleware_bypass(
+        &self,
+        url: &str,
+    ) -> Vec<(String, crate::http_client::HttpResponse, String)> {
         let mut results = Vec::new();
 
         // Parse the URL to extract base and path
@@ -545,8 +569,13 @@ impl AuthBypassScanner {
                 }
 
                 // Skip static assets
-                if path.contains(".js") || path.contains(".css") || path.contains(".png")
-                   || path.contains(".jpg") || path.contains(".svg") || path.contains(".ico") {
+                if path.contains(".js")
+                    || path.contains(".css")
+                    || path.contains(".png")
+                    || path.contains(".jpg")
+                    || path.contains(".svg")
+                    || path.contains(".ico")
+                {
                     continue;
                 }
 
@@ -643,12 +672,24 @@ impl AuthBypassScanner {
 
         // Look for indicators that we actually got protected content
         let content_indicators = vec![
-            "dashboard", "admin", "profile", "settings", "account",
-            "user", "manage", "internal", "private", "panel",
-            "api", "data", "config", "json", // API responses
+            "dashboard",
+            "admin",
+            "profile",
+            "settings",
+            "account",
+            "user",
+            "manage",
+            "internal",
+            "private",
+            "panel",
+            "api",
+            "data",
+            "config",
+            "json", // API responses
         ];
 
-        let has_protected_content = content_indicators.iter()
+        let has_protected_content = content_indicators
+            .iter()
             .any(|&indicator| body_lower.contains(indicator));
 
         // Also check for HTML content (not just error pages or blank)
@@ -1010,12 +1051,29 @@ References:
 
         // Check if site forces SSO redirect
         let is_sso_site = main_response.status_code == 302 || main_response.status_code == 307;
-        let sso_indicators = vec!["sso", "saml", "oauth", "login.microsoftonline", "okta", "auth0",
-                                   "onelogin", "pingidentity", "keycloak", "adfs"];
+        let sso_indicators = vec![
+            "sso",
+            "saml",
+            "oauth",
+            "login.microsoftonline",
+            "okta",
+            "auth0",
+            "onelogin",
+            "pingidentity",
+            "keycloak",
+            "adfs",
+        ];
 
-        let has_sso_redirect = is_sso_site && main_response.headers.get("location")
-            .map(|loc| sso_indicators.iter().any(|s| loc.to_lowercase().contains(s)))
-            .unwrap_or(false);
+        let has_sso_redirect = is_sso_site
+            && main_response
+                .headers
+                .get("location")
+                .map(|loc| {
+                    sso_indicators
+                        .iter()
+                        .any(|s| loc.to_lowercase().contains(s))
+                })
+                .unwrap_or(false);
 
         if !has_sso_redirect && !main_response.body.to_lowercase().contains("sso") {
             return vulnerabilities;
@@ -1023,11 +1081,21 @@ References:
 
         // Test signup/register pages that might bypass SSO
         let bypass_paths = vec![
-            "/signup", "/sign-up", "/register", "/registration", "/create-account",
-            "/new-account", "/join", "/enroll", "/subscribe",
-            "/rekisteroidy", "/rekisteröidy",  // Finnish
-            "/registrieren", "/anmelden",       // German
-            "/inscription", "/inscrire",        // French
+            "/signup",
+            "/sign-up",
+            "/register",
+            "/registration",
+            "/create-account",
+            "/new-account",
+            "/join",
+            "/enroll",
+            "/subscribe",
+            "/rekisteroidy",
+            "/rekisteröidy", // Finnish
+            "/registrieren",
+            "/anmelden", // German
+            "/inscription",
+            "/inscrire", // French
         ];
 
         // Test with different methods: GET, POST, different headers
@@ -1039,7 +1107,9 @@ References:
                 if response.status_code == 200 {
                     let body_lower = response.body.to_lowercase();
                     // Check if it's actually a signup form
-                    if body_lower.contains("email") && (body_lower.contains("password") || body_lower.contains("register")) {
+                    if body_lower.contains("email")
+                        && (body_lower.contains("password") || body_lower.contains("register"))
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("sso_bypass_{}", uuid::Uuid::new_v4().to_string()),
                             vuln_type: "SSO Redirect Bypass - Signup Page Accessible".to_string(),
@@ -1079,7 +1149,10 @@ References:
             if let Ok(response) = self.http_client.post(&test_url, String::new()).await {
                 if response.status_code == 200 || response.status_code == 422 {
                     let body_lower = response.body.to_lowercase();
-                    if body_lower.contains("email") || body_lower.contains("validation") || body_lower.contains("required") {
+                    if body_lower.contains("email")
+                        || body_lower.contains("validation")
+                        || body_lower.contains("required")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("sso_bypass_post_{}", uuid::Uuid::new_v4().to_string()),
                             vuln_type: "SSO Redirect Bypass - Signup via POST".to_string(),
@@ -1125,14 +1198,23 @@ References:
 
         // Jenkins detection and anonymous access paths
         let jenkins_paths = vec![
-            ("/api/json", "Jenkins API - exposes jobs, builds, and configuration"),
-            ("/api/json?tree=jobs[name,url,lastBuild[number,result]]", "Jenkins jobs listing"),
+            (
+                "/api/json",
+                "Jenkins API - exposes jobs, builds, and configuration",
+            ),
+            (
+                "/api/json?tree=jobs[name,url,lastBuild[number,result]]",
+                "Jenkins jobs listing",
+            ),
             ("/api/json?depth=2", "Jenkins deep API - exposes secrets"),
             ("/script", "Jenkins Script Console - RCE if accessible"),
             ("/scriptText", "Jenkins Script API"),
             ("/computer/api/json", "Jenkins nodes/agents info"),
             ("/credentials", "Jenkins credentials page"),
-            ("/credentials/store/system/domain/_/api/json", "Jenkins credentials API"),
+            (
+                "/credentials/store/system/domain/_/api/json",
+                "Jenkins credentials API",
+            ),
             ("/manage", "Jenkins management page"),
             ("/configureSecurity", "Jenkins security configuration"),
             ("/securityRealm", "Jenkins authentication settings"),
@@ -1149,14 +1231,18 @@ References:
             Err(_) => return vulnerabilities,
         };
 
-        let is_jenkins = main_response.headers.get("x-jenkins").is_some() ||
-                         main_response.headers.get("x-jenkins-session").is_some() ||
-                         main_response.body.contains("Jenkins") ||
-                         main_response.body.contains("hudson");
+        let is_jenkins = main_response.headers.get("x-jenkins").is_some()
+            || main_response.headers.get("x-jenkins-session").is_some()
+            || main_response.body.contains("Jenkins")
+            || main_response.body.contains("hudson");
 
         if !is_jenkins {
             // Also try /api/json to detect Jenkins
-            if let Ok(api_response) = self.http_client.get(&format!("{}/api/json", base_url)).await {
+            if let Ok(api_response) = self
+                .http_client
+                .get(&format!("{}/api/json", base_url))
+                .await
+            {
                 if !api_response.body.contains("_class") || !api_response.body.contains("hudson") {
                     return vulnerabilities;
                 }
@@ -1174,14 +1260,14 @@ References:
                     let body_lower = response.body.to_lowercase();
 
                     // Check if we got actual data (not login page)
-                    let has_data = response.body.contains("_class") ||
-                                   response.body.contains("\"name\"") ||
-                                   response.body.contains("\"jobs\"") ||
-                                   body_lower.contains("credentials") ||
-                                   body_lower.contains("script console");
+                    let has_data = response.body.contains("_class")
+                        || response.body.contains("\"name\"")
+                        || response.body.contains("\"jobs\"")
+                        || body_lower.contains("credentials")
+                        || body_lower.contains("script console");
 
-                    let is_login_page = body_lower.contains("login") &&
-                                        body_lower.contains("password");
+                    let is_login_page =
+                        body_lower.contains("login") && body_lower.contains("password");
 
                     if has_data && !is_login_page {
                         let severity = if path.contains("script") || path.contains("credentials") {
@@ -1358,14 +1444,36 @@ References:
 
         // Common protected paths that should require login
         let protected_paths = vec![
-            "/admin", "/dashboard", "/panel", "/portal", "/manage",
-            "/settings", "/config", "/configuration", "/users", "/accounts",
-            "/profile", "/my-account", "/account", "/user",
-            "/internal", "/private", "/secure", "/protected",
-            "/api/users", "/api/admin", "/api/config", "/api/settings",
-            "/backend", "/control", "/cms", "/manager",
-            "/hallinta", "/asetukset",  // Finnish
-            "/verwaltung", "/einstellungen",  // German
+            "/admin",
+            "/dashboard",
+            "/panel",
+            "/portal",
+            "/manage",
+            "/settings",
+            "/config",
+            "/configuration",
+            "/users",
+            "/accounts",
+            "/profile",
+            "/my-account",
+            "/account",
+            "/user",
+            "/internal",
+            "/private",
+            "/secure",
+            "/protected",
+            "/api/users",
+            "/api/admin",
+            "/api/config",
+            "/api/settings",
+            "/backend",
+            "/control",
+            "/cms",
+            "/manager",
+            "/hallinta",
+            "/asetukset", // Finnish
+            "/verwaltung",
+            "/einstellungen", // German
         ];
 
         // First get main page to check if site has authentication
@@ -1374,8 +1482,8 @@ References:
             Err(_) => return vulnerabilities,
         };
 
-        let main_has_login = main_response.body.to_lowercase().contains("login") ||
-                             main_response.body.to_lowercase().contains("sign in");
+        let main_has_login = main_response.body.to_lowercase().contains("login")
+            || main_response.body.to_lowercase().contains("sign in");
 
         if !main_has_login {
             return vulnerabilities;
@@ -1389,17 +1497,17 @@ References:
                     let body_lower = response.body.to_lowercase();
 
                     // Check if we got actual protected content (not login redirect)
-                    let has_protected_content =
-                        (body_lower.contains("user") && body_lower.contains("email")) ||
-                        body_lower.contains("settings") ||
-                        body_lower.contains("configuration") ||
-                        body_lower.contains("dashboard") ||
-                        body_lower.contains("admin panel") ||
-                        body_lower.contains("management");
+                    let has_protected_content = (body_lower.contains("user")
+                        && body_lower.contains("email"))
+                        || body_lower.contains("settings")
+                        || body_lower.contains("configuration")
+                        || body_lower.contains("dashboard")
+                        || body_lower.contains("admin panel")
+                        || body_lower.contains("management");
 
-                    let is_login_page = body_lower.contains("login") &&
-                                        body_lower.contains("password") &&
-                                        body_lower.contains("form");
+                    let is_login_page = body_lower.contains("login")
+                        && body_lower.contains("password")
+                        && body_lower.contains("form");
 
                     if has_protected_content && !is_login_page && response.body.len() > 500 {
                         vulnerabilities.push(Vulnerability {
@@ -1574,7 +1682,11 @@ References:
             Ok(u) => u,
             Err(_) => return vulnerabilities,
         };
-        let base_url = format!("{}://{}", parsed_url.scheme(), parsed_url.host_str().unwrap_or(""));
+        let base_url = format!(
+            "{}://{}",
+            parsed_url.scheme(),
+            parsed_url.host_str().unwrap_or("")
+        );
 
         // Extract paths from HTML/JS
         let mut paths_to_test: Vec<String> = Vec::new();
@@ -1599,14 +1711,14 @@ References:
             r#"push\s*\(\s*["']([^"']+)["']"#,
             r#"replace\s*\(\s*["']([^"']+)["']"#,
             // More aggressive JS extraction
-            r#"["'](/[a-zA-Z][a-zA-Z0-9_/-]*)["']"#,          // Any path-like string "/something"
-            r#"url\s*:\s*["']([^"']+)["']"#,                   // url: "/path"
-            r#"endpoint\s*:\s*["']([^"']+)["']"#,              // endpoint: "/api/..."
-            r#"api\s*:\s*["']([^"']+)["']"#,                   // api: "/api/..."
-            r#"fetch\s*\(\s*["']([^"']+)["']"#,                // fetch("/api/...")
-            r#"axios\.[a-z]+\s*\(\s*["']([^"']+)["']"#,        // axios.get("/api/...")
-            r#"\$http\.[a-z]+\s*\(\s*["']([^"']+)["']"#,       // $http.get("/api/...")
-            r#"redirect\s*:\s*["']([^"']+)["']"#,              // redirect: "/login"
+            r#"["'](/[a-zA-Z][a-zA-Z0-9_/-]*)["']"#, // Any path-like string "/something"
+            r#"url\s*:\s*["']([^"']+)["']"#,         // url: "/path"
+            r#"endpoint\s*:\s*["']([^"']+)["']"#,    // endpoint: "/api/..."
+            r#"api\s*:\s*["']([^"']+)["']"#,         // api: "/api/..."
+            r#"fetch\s*\(\s*["']([^"']+)["']"#,      // fetch("/api/...")
+            r#"axios\.[a-z]+\s*\(\s*["']([^"']+)["']"#, // axios.get("/api/...")
+            r#"\$http\.[a-z]+\s*\(\s*["']([^"']+)["']"#, // $http.get("/api/...")
+            r#"redirect\s*:\s*["']([^"']+)["']"#,    // redirect: "/login"
         ];
         for pattern in router_patterns {
             if let Ok(re) = regex::Regex::new(pattern) {
@@ -1616,7 +1728,10 @@ References:
                         // Include paths that start with / but exclude static assets
                         if p.starts_with('/') && !p.starts_with("//") {
                             // Skip common static file extensions
-                            let skip_extensions = [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".eot"];
+                            let skip_extensions = [
+                                ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+                                ".woff", ".ttf", ".eot",
+                            ];
                             let is_static = skip_extensions.iter().any(|ext| p.ends_with(ext));
                             if !is_static && p.len() > 1 && p.len() < 100 {
                                 paths_to_test.push(p.to_string());
@@ -1645,7 +1760,8 @@ References:
         }
 
         // Fetch and extract paths from JS bundles
-        for js_url in js_urls.iter().take(5) {  // Limit to 5 JS files
+        for js_url in js_urls.iter().take(5) {
+            // Limit to 5 JS files
             if let Ok(js_response) = self.http_client.get(js_url).await {
                 let js_body = &js_response.body;
                 // Extract path strings from JS
@@ -1653,7 +1769,10 @@ References:
                     for cap in re.captures_iter(js_body) {
                         if let Some(path) = cap.get(1) {
                             let p = path.as_str();
-                            let skip_extensions = [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".eot", ".map"];
+                            let skip_extensions = [
+                                ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+                                ".woff", ".ttf", ".eot", ".map",
+                            ];
                             let is_static = skip_extensions.iter().any(|ext| p.ends_with(ext));
                             if !is_static && p.len() > 1 && p.len() < 100 {
                                 paths_to_test.push(p.to_string());
@@ -1666,10 +1785,26 @@ References:
 
         // Also add common admin/protected paths
         let common_paths = [
-            "/admin", "/dashboard", "/api/admin", "/management", "/panel",
-            "/config", "/settings", "/users", "/internal", "/private",
-            "/driver", "/drivers", "/reports", "/export", "/imports",
-            "/system", "/console", "/backend", "/portal", "/secure",
+            "/admin",
+            "/dashboard",
+            "/api/admin",
+            "/management",
+            "/panel",
+            "/config",
+            "/settings",
+            "/users",
+            "/internal",
+            "/private",
+            "/driver",
+            "/drivers",
+            "/reports",
+            "/export",
+            "/imports",
+            "/system",
+            "/console",
+            "/backend",
+            "/portal",
+            "/secure",
         ];
         for p in common_paths {
             if !paths_to_test.contains(&p.to_string()) {
@@ -1681,41 +1816,72 @@ References:
         paths_to_test.sort();
         paths_to_test.dedup();
 
-        info!("[403-Bypass] Extracted {} unique paths for access testing", paths_to_test.len());
+        info!(
+            "[403-Bypass] Extracted {} unique paths for access testing",
+            paths_to_test.len()
+        );
 
         // 403 Bypass techniques
         let bypass_techniques: Vec<(&str, Box<dyn Fn(&str) -> String + Send + Sync>)> = vec![
             // Path manipulation
-            ("trailing slash", Box::new(|p: &str| format!("{}/", p.trim_end_matches('/')))),
-            ("double slash", Box::new(|p: &str| format!("/{}", p.trim_start_matches('/')))),
+            (
+                "trailing slash",
+                Box::new(|p: &str| format!("{}/", p.trim_end_matches('/'))),
+            ),
+            (
+                "double slash",
+                Box::new(|p: &str| format!("/{}", p.trim_start_matches('/'))),
+            ),
             ("dot segment", Box::new(|p: &str| format!("{}/..", p))),
             ("dot bypass", Box::new(|p: &str| format!("{}/.", p))),
             ("semicolon", Box::new(|p: &str| format!("{};/", p))),
             ("null byte", Box::new(|p: &str| format!("{}%00", p))),
             ("percent20", Box::new(|p: &str| format!("{}%20", p))),
             ("tab char", Box::new(|p: &str| format!("{}%09", p))),
-            ("url encode", Box::new(|p: &str| {
-                let encoded: String = p.chars().map(|c| format!("%{:02X}", c as u8)).collect();
-                encoded
-            })),
-            ("double url encode", Box::new(|p: &str| {
-                let encoded: String = p.chars().map(|c| format!("%25{:02X}", c as u8)).collect();
-                encoded
-            })),
-            ("unicode bypass", Box::new(|p: &str| p.replace('/', "%c0%af"))),
-            ("case variation", Box::new(|p: &str| {
-                p.chars().enumerate().map(|(i, c)| {
-                    if i % 2 == 0 { c.to_uppercase().next().unwrap_or(c) }
-                    else { c.to_lowercase().next().unwrap_or(c) }
-                }).collect()
-            })),
+            (
+                "url encode",
+                Box::new(|p: &str| {
+                    let encoded: String = p.chars().map(|c| format!("%{:02X}", c as u8)).collect();
+                    encoded
+                }),
+            ),
+            (
+                "double url encode",
+                Box::new(|p: &str| {
+                    let encoded: String =
+                        p.chars().map(|c| format!("%25{:02X}", c as u8)).collect();
+                    encoded
+                }),
+            ),
+            (
+                "unicode bypass",
+                Box::new(|p: &str| p.replace('/', "%c0%af")),
+            ),
+            (
+                "case variation",
+                Box::new(|p: &str| {
+                    p.chars()
+                        .enumerate()
+                        .map(|(i, c)| {
+                            if i % 2 == 0 {
+                                c.to_uppercase().next().unwrap_or(c)
+                            } else {
+                                c.to_lowercase().next().unwrap_or(c)
+                            }
+                        })
+                        .collect()
+                }),
+            ),
             ("backslash", Box::new(|p: &str| p.replace('/', "\\"))),
-            ("mixed slash", Box::new(|p: &str| format!("/{}/\\", p.trim_matches('/')))),
+            (
+                "mixed slash",
+                Box::new(|p: &str| format!("/{}/\\", p.trim_matches('/'))),
+            ),
         ];
 
         // Header-based bypass techniques
         let bypass_headers = [
-            ("X-Original-URL", ""),  // Will be set to the path
+            ("X-Original-URL", ""), // Will be set to the path
             ("X-Rewrite-URL", ""),
             ("X-Forwarded-For", "127.0.0.1"),
             ("X-Forwarded-Host", "localhost"),
@@ -1731,7 +1897,8 @@ References:
         ];
 
         // Test each path
-        for path in paths_to_test.iter().take(50) {  // Limit to 50 paths
+        for path in paths_to_test.iter().take(50) {
+            // Limit to 50 paths
             let original_url = format!("{}{}", base_url, path);
 
             // First check if path returns 403
@@ -1740,10 +1907,15 @@ References:
             };
 
             if original_response.status_code != 403 && original_response.status_code != 401 {
-                continue;  // Only test 403/401 paths
+                continue; // Only test 403/401 paths
             }
 
-            info!("[403-Bypass] Testing {} bypass techniques on: {} (HTTP {})", bypass_techniques.len() + bypass_headers.len(), path, original_response.status_code);
+            info!(
+                "[403-Bypass] Testing {} bypass techniques on: {} (HTTP {})",
+                bypass_techniques.len() + bypass_headers.len(),
+                path,
+                original_response.status_code
+            );
 
             // Try path-based bypasses
             for (technique_name, transform) in &bypass_techniques {
@@ -1755,7 +1927,9 @@ References:
                     if bypass_response.status_code == 200 {
                         let body_len = bypass_response.body.len();
                         // Verify it's not just an error page (should have substantial content)
-                        if body_len > 500 && !bypass_response.body.to_lowercase().contains("forbidden") {
+                        if body_len > 500
+                            && !bypass_response.body.to_lowercase().contains("forbidden")
+                        {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("403_bypass_{}", rand::random::<u16>()),
                                 vuln_type: "403 Forbidden Bypass".to_string(),
@@ -1800,20 +1974,31 @@ References:
 
             // Try header-based bypasses
             for (header_name, header_value) in &bypass_headers {
-                let value = if header_value.is_empty() { path.as_str() } else { *header_value };
+                let value = if header_value.is_empty() {
+                    path.as_str()
+                } else {
+                    *header_value
+                };
                 let headers = vec![(header_name.to_string(), value.to_string())];
 
                 // For X-Original-URL/X-Rewrite-URL, request the root but with header pointing to path
-                let request_url = if *header_name == "X-Original-URL" || *header_name == "X-Rewrite-URL" {
-                    format!("{}/", base_url)
-                } else {
-                    original_url.clone()
-                };
+                let request_url =
+                    if *header_name == "X-Original-URL" || *header_name == "X-Rewrite-URL" {
+                        format!("{}/", base_url)
+                    } else {
+                        original_url.clone()
+                    };
 
-                if let Ok(bypass_response) = self.http_client.get_with_headers(&request_url, headers).await {
+                if let Ok(bypass_response) = self
+                    .http_client
+                    .get_with_headers(&request_url, headers)
+                    .await
+                {
                     if bypass_response.status_code == 200 {
                         let body_len = bypass_response.body.len();
-                        if body_len > 500 && !bypass_response.body.to_lowercase().contains("forbidden") {
+                        if body_len > 500
+                            && !bypass_response.body.to_lowercase().contains("forbidden")
+                        {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("403_header_bypass_{}", rand::random::<u16>()),
                                 vuln_type: "403 Forbidden Bypass via Header".to_string(),

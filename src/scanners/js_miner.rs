@@ -4,7 +4,7 @@
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use regex::Regex;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::info;
 
@@ -149,10 +149,23 @@ const THIRD_PARTY_DOMAINS: &[&str] = &[
 
 /// Documentation domains to skip for API URL detection
 const DOC_DOMAINS: &[&str] = &[
-    "nextjs.org", "reactjs.org", "vuejs.org", "angular.io", "nodejs.org",
-    "developer.mozilla.org", "docs.github.com", "stackoverflow.com",
-    "medium.com", "dev.to", "w3.org", "json-schema.org", "schema.org",
-    "npmjs.com", "github.com", "gitlab.com", "bitbucket.org",
+    "nextjs.org",
+    "reactjs.org",
+    "vuejs.org",
+    "angular.io",
+    "nodejs.org",
+    "developer.mozilla.org",
+    "docs.github.com",
+    "stackoverflow.com",
+    "medium.com",
+    "dev.to",
+    "w3.org",
+    "json-schema.org",
+    "schema.org",
+    "npmjs.com",
+    "github.com",
+    "gitlab.com",
+    "bitbucket.org",
 ];
 
 /// Scanner for JavaScript source code analysis (sensitive data mining)
@@ -162,9 +175,7 @@ pub struct JsMinerScanner {
 
 impl JsMinerScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self {
-            http_client,
-        }
+        Self { http_client }
     }
 
     /// Check if URL is from a third-party domain that should be skipped
@@ -193,12 +204,16 @@ impl JsMinerScanner {
 
         // Extract base domain (last 2 parts for most TLDs)
         if target_parts.len() >= 2 && js_parts.len() >= 2 {
-            let target_base = format!("{}.{}",
+            let target_base = format!(
+                "{}.{}",
                 target_parts[target_parts.len() - 2],
-                target_parts[target_parts.len() - 1]);
-            let js_base = format!("{}.{}",
+                target_parts[target_parts.len() - 1]
+            );
+            let js_base = format!(
+                "{}.{}",
                 js_parts[js_parts.len() - 2],
-                js_parts[js_parts.len() - 1]);
+                js_parts[js_parts.len() - 1]
+            );
 
             // Same base domain - not third-party
             if target_base == js_base {
@@ -218,8 +233,10 @@ impl JsMinerScanner {
                 return true;
             }
         }
-        url_lower.contains("/docs/") || url_lower.contains("/documentation/") ||
-        url_lower.contains("/reference/") || url_lower.contains("/api-reference/")
+        url_lower.contains("/docs/")
+            || url_lower.contains("/documentation/")
+            || url_lower.contains("/reference/")
+            || url_lower.contains("/api-reference/")
     }
 
     /// Extract GraphQL operation name from a matched string
@@ -227,7 +244,8 @@ impl JsMinerScanner {
     /// Output: "query company" or "mutation saveOrder" or "query dailyRoute"
     fn extract_graphql_operation_name(match_str: &str) -> Option<String> {
         // Try to extract "query/mutation/subscription Name" pattern
-        let re = regex::Regex::new(r"(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)").ok()?;
+        let re =
+            regex::Regex::new(r"(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)").ok()?;
         if let Some(caps) = re.captures(match_str) {
             let op_type = caps.get(1)?.as_str();
             let op_name = caps.get(2)?.as_str();
@@ -287,12 +305,15 @@ impl JsMinerScanner {
             .collect();
 
         let skipped_count = total_js_count - first_party_files.len();
-        info!("Analyzing {} first-party JavaScript files (filtered {} third-party)",
-              first_party_files.len(),
-              skipped_count);
+        info!(
+            "Analyzing {} first-party JavaScript files (filtered {} third-party)",
+            first_party_files.len(),
+            skipped_count
+        );
 
         // Analyze inline scripts
-        results.tests_run += self.analyze_inline_scripts_full(html, url, &mut results, &mut seen_evidence);
+        results.tests_run +=
+            self.analyze_inline_scripts_full(html, url, &mut results, &mut seen_evidence);
 
         // Analyze JavaScript files (limit to 20 for performance)
         let files_to_analyze: Vec<String> = first_party_files.into_iter().take(20).collect();
@@ -302,7 +323,14 @@ impl JsMinerScanner {
         }
 
         for js_url in files_to_analyze {
-            let tests = self.analyze_js_file_full(&js_url, &mut analyzed_urls, &mut results, &mut seen_evidence).await;
+            let tests = self
+                .analyze_js_file_full(
+                    &js_url,
+                    &mut analyzed_urls,
+                    &mut results,
+                    &mut seen_evidence,
+                )
+                .await;
             results.tests_run += tests;
         }
 
@@ -323,7 +351,10 @@ impl JsMinerScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<JsMinerResults> {
-        info!("Starting JavaScript mining scan with endpoint extraction on {}", url);
+        info!(
+            "Starting JavaScript mining scan with endpoint extraction on {}",
+            url
+        );
 
         let mut results = JsMinerResults::new();
         let mut analyzed_urls: HashSet<String> = HashSet::new();
@@ -358,7 +389,12 @@ impl JsMinerScanner {
             .collect();
 
         // Analyze inline scripts
-        results.tests_run += self.analyze_inline_scripts(html, url, &mut results.vulnerabilities, &mut seen_evidence);
+        results.tests_run += self.analyze_inline_scripts(
+            html,
+            url,
+            &mut results.vulnerabilities,
+            &mut seen_evidence,
+        );
 
         // Also extract from inline scripts
         self.extract_endpoints_and_params(html, &mut results);
@@ -367,7 +403,14 @@ impl JsMinerScanner {
         let files_to_analyze: Vec<String> = first_party_files.into_iter().take(20).collect();
 
         for js_url in files_to_analyze {
-            let tests = self.analyze_js_file(&js_url, &mut analyzed_urls, &mut results.vulnerabilities, &mut seen_evidence).await;
+            let tests = self
+                .analyze_js_file(
+                    &js_url,
+                    &mut analyzed_urls,
+                    &mut results.vulnerabilities,
+                    &mut seen_evidence,
+                )
+                .await;
             results.tests_run += tests;
 
             // Also extract endpoints and params from JS content
@@ -411,7 +454,10 @@ impl JsMinerScanner {
                 for cap in regex.captures_iter(content) {
                     if let Some(url) = cap.get(1) {
                         let url_str = url.as_str().to_string();
-                        if !Self::is_documentation_url(&url_str) && url_str.len() > 5 && Self::is_valid_endpoint(&url_str) {
+                        if !Self::is_documentation_url(&url_str)
+                            && url_str.len() > 5
+                            && Self::is_valid_endpoint(&url_str)
+                        {
                             results.api_endpoints.insert(url_str);
                         }
                     }
@@ -465,7 +511,9 @@ impl JsMinerScanner {
                         if !Self::is_documentation_url(&url_str) && !url_str.is_empty() {
                             // For relative paths, mark them for later resolution
                             if url_str.starts_with('/') {
-                                results.graphql_endpoints.insert(format!("RELATIVE:{}", url_str));
+                                results
+                                    .graphql_endpoints
+                                    .insert(format!("RELATIVE:{}", url_str));
                             } else if url_str.starts_with("http") {
                                 results.graphql_endpoints.insert(url_str);
                             } else if url_str.contains("graphql") || url_str.contains("/gql") {
@@ -504,9 +552,7 @@ impl JsMinerScanner {
         }
 
         // Extract Azure Blob Storage URLs
-        let azure_patterns = [
-            r#"["'`](https?://([a-z0-9]+)\.blob\.core\.windows\.net[^"'`]*)"#,
-        ];
+        let azure_patterns = [r#"["'`](https?://([a-z0-9]+)\.blob\.core\.windows\.net[^"'`]*)"#];
 
         for pattern in &azure_patterns {
             if let Ok(regex) = Regex::new(pattern) {
@@ -553,331 +599,1647 @@ impl JsMinerScanner {
         // parameters actually discovered from forms, URLs, and API endpoints.
 
         // Use "global" as key for parameters not tied to a specific endpoint
-        let global_params = results.parameters.entry("global".to_string()).or_insert_with(HashSet::new);
+        let global_params = results
+            .parameters
+            .entry("global".to_string())
+            .or_insert_with(HashSet::new);
 
         // Comprehensive JS/framework noise filter
         let js_noise: HashSet<&str> = [
             // JavaScript keywords
-            "function", "return", "const", "let", "var", "this", "true", "false",
-            "null", "undefined", "async", "await", "import", "export", "default",
-            "class", "extends", "constructor", "prototype", "new", "delete", "typeof",
-            "instanceof", "in", "of", "if", "else", "for", "while", "do", "switch",
-            "case", "break", "continue", "try", "catch", "finally", "throw", "yield",
-            "static", "get", "set", "super", "with", "debugger", "void",
-
+            "function",
+            "return",
+            "const",
+            "let",
+            "var",
+            "this",
+            "true",
+            "false",
+            "null",
+            "undefined",
+            "async",
+            "await",
+            "import",
+            "export",
+            "default",
+            "class",
+            "extends",
+            "constructor",
+            "prototype",
+            "new",
+            "delete",
+            "typeof",
+            "instanceof",
+            "in",
+            "of",
+            "if",
+            "else",
+            "for",
+            "while",
+            "do",
+            "switch",
+            "case",
+            "break",
+            "continue",
+            "try",
+            "catch",
+            "finally",
+            "throw",
+            "yield",
+            "static",
+            "get",
+            "set",
+            "super",
+            "with",
+            "debugger",
+            "void",
             // Common JS methods/properties
-            "toString", "valueOf", "length", "push", "pop", "shift", "unshift",
-            "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
-            "slice", "splice", "concat", "join", "split", "indexOf", "includes",
-            "then", "catch", "finally", "resolve", "reject", "all", "race",
-            "keys", "values", "entries", "assign", "freeze", "seal", "create",
-            "parse", "stringify", "apply", "call", "bind", "hasOwnProperty",
-            "isArray", "isObject", "isString", "isNumber", "isFunction", "isBoolean",
-            "from", "of", "fill", "flat", "flatMap", "sort", "reverse", "copyWithin",
-
+            "toString",
+            "valueOf",
+            "length",
+            "push",
+            "pop",
+            "shift",
+            "unshift",
+            "map",
+            "filter",
+            "reduce",
+            "forEach",
+            "find",
+            "findIndex",
+            "some",
+            "every",
+            "slice",
+            "splice",
+            "concat",
+            "join",
+            "split",
+            "indexOf",
+            "includes",
+            "then",
+            "catch",
+            "finally",
+            "resolve",
+            "reject",
+            "all",
+            "race",
+            "keys",
+            "values",
+            "entries",
+            "assign",
+            "freeze",
+            "seal",
+            "create",
+            "parse",
+            "stringify",
+            "apply",
+            "call",
+            "bind",
+            "hasOwnProperty",
+            "isArray",
+            "isObject",
+            "isString",
+            "isNumber",
+            "isFunction",
+            "isBoolean",
+            "from",
+            "of",
+            "fill",
+            "flat",
+            "flatMap",
+            "sort",
+            "reverse",
+            "copyWithin",
             // React hooks and internals
-            "props", "state", "setState", "useState", "useEffect", "useCallback",
-            "useMemo", "useRef", "useContext", "useReducer", "useLayoutEffect",
-            "useImperativeHandle", "useDebugValue", "useDeferredValue", "useTransition",
-            "useId", "useSyncExternalStore", "useInsertionEffect", "forwardRef",
-            "createContext", "createRef", "createRoot", "createElement", "cloneElement",
-            "isValidElement", "Children", "Fragment", "StrictMode", "Suspense", "lazy",
-            "memo", "startTransition", "flushSync", "hydrate", "render", "unmountComponentAtNode",
-            "Component", "PureComponent", "shouldComponentUpdate", "componentDidMount",
-            "componentDidUpdate", "componentWillUnmount", "getDerivedStateFromProps",
-            "getSnapshotBeforeUpdate", "componentDidCatch", "getDerivedStateFromError",
-
+            "props",
+            "state",
+            "setState",
+            "useState",
+            "useEffect",
+            "useCallback",
+            "useMemo",
+            "useRef",
+            "useContext",
+            "useReducer",
+            "useLayoutEffect",
+            "useImperativeHandle",
+            "useDebugValue",
+            "useDeferredValue",
+            "useTransition",
+            "useId",
+            "useSyncExternalStore",
+            "useInsertionEffect",
+            "forwardRef",
+            "createContext",
+            "createRef",
+            "createRoot",
+            "createElement",
+            "cloneElement",
+            "isValidElement",
+            "Children",
+            "Fragment",
+            "StrictMode",
+            "Suspense",
+            "lazy",
+            "memo",
+            "startTransition",
+            "flushSync",
+            "hydrate",
+            "render",
+            "unmountComponentAtNode",
+            "Component",
+            "PureComponent",
+            "shouldComponentUpdate",
+            "componentDidMount",
+            "componentDidUpdate",
+            "componentWillUnmount",
+            "getDerivedStateFromProps",
+            "getSnapshotBeforeUpdate",
+            "componentDidCatch",
+            "getDerivedStateFromError",
             // Vue.js
-            "computed", "watch", "watchEffect", "methods", "data", "template", "style",
-            "setup", "onMounted", "onUnmounted", "onUpdated", "onBeforeMount",
-            "onBeforeUnmount", "onBeforeUpdate", "onActivated", "onDeactivated",
-            "onErrorCaptured", "onRenderTracked", "onRenderTriggered", "onServerPrefetch",
-            "ref", "reactive", "readonly", "toRef", "toRefs", "isRef", "unref", "shallowRef",
-            "triggerRef", "customRef", "shallowReactive", "shallowReadonly", "toRaw",
-            "markRaw", "effectScope", "getCurrentScope", "onScopeDispose", "provide", "inject",
-            "defineComponent", "defineAsyncComponent", "defineProps", "defineEmits",
-            "defineExpose", "withDefaults", "useSlots", "useAttrs", "nextTick",
-            "vModel", "vShow", "vIf", "vFor", "vBind", "vOn", "vSlot",
-
+            "computed",
+            "watch",
+            "watchEffect",
+            "methods",
+            "data",
+            "template",
+            "style",
+            "setup",
+            "onMounted",
+            "onUnmounted",
+            "onUpdated",
+            "onBeforeMount",
+            "onBeforeUnmount",
+            "onBeforeUpdate",
+            "onActivated",
+            "onDeactivated",
+            "onErrorCaptured",
+            "onRenderTracked",
+            "onRenderTriggered",
+            "onServerPrefetch",
+            "ref",
+            "reactive",
+            "readonly",
+            "toRef",
+            "toRefs",
+            "isRef",
+            "unref",
+            "shallowRef",
+            "triggerRef",
+            "customRef",
+            "shallowReactive",
+            "shallowReadonly",
+            "toRaw",
+            "markRaw",
+            "effectScope",
+            "getCurrentScope",
+            "onScopeDispose",
+            "provide",
+            "inject",
+            "defineComponent",
+            "defineAsyncComponent",
+            "defineProps",
+            "defineEmits",
+            "defineExpose",
+            "withDefaults",
+            "useSlots",
+            "useAttrs",
+            "nextTick",
+            "vModel",
+            "vShow",
+            "vIf",
+            "vFor",
+            "vBind",
+            "vOn",
+            "vSlot",
             // Angular
-            "ngOnInit", "ngOnDestroy", "ngOnChanges", "ngDoCheck", "ngAfterContentInit",
-            "ngAfterContentChecked", "ngAfterViewInit", "ngAfterViewChecked",
-            "Injectable", "Component", "Directive", "Pipe", "NgModule", "Input", "Output",
-            "ViewChild", "ViewChildren", "ContentChild", "ContentChildren", "HostBinding",
-            "HostListener", "EventEmitter", "ChangeDetectorRef", "ElementRef", "TemplateRef",
-            "ViewContainerRef", "Renderer2", "Injector", "NgZone", "ApplicationRef",
-            "FormControl", "FormGroup", "FormArray", "Validators", "AbstractControl",
-            "HttpClient", "HttpHeaders", "HttpParams", "HttpInterceptor",
-            "ActivatedRoute", "Router", "RouterModule", "Routes", "CanActivate",
-            "Observable", "Subject", "BehaviorSubject", "ReplaySubject", "AsyncSubject",
-            "pipe", "subscribe", "unsubscribe", "switchMap", "mergeMap", "concatMap",
-            "exhaustMap", "tap", "map", "filter", "take", "takeUntil", "debounceTime",
-            "distinctUntilChanged", "catchError", "retry", "finalize", "shareReplay",
-
+            "ngOnInit",
+            "ngOnDestroy",
+            "ngOnChanges",
+            "ngDoCheck",
+            "ngAfterContentInit",
+            "ngAfterContentChecked",
+            "ngAfterViewInit",
+            "ngAfterViewChecked",
+            "Injectable",
+            "Component",
+            "Directive",
+            "Pipe",
+            "NgModule",
+            "Input",
+            "Output",
+            "ViewChild",
+            "ViewChildren",
+            "ContentChild",
+            "ContentChildren",
+            "HostBinding",
+            "HostListener",
+            "EventEmitter",
+            "ChangeDetectorRef",
+            "ElementRef",
+            "TemplateRef",
+            "ViewContainerRef",
+            "Renderer2",
+            "Injector",
+            "NgZone",
+            "ApplicationRef",
+            "FormControl",
+            "FormGroup",
+            "FormArray",
+            "Validators",
+            "AbstractControl",
+            "HttpClient",
+            "HttpHeaders",
+            "HttpParams",
+            "HttpInterceptor",
+            "ActivatedRoute",
+            "Router",
+            "RouterModule",
+            "Routes",
+            "CanActivate",
+            "Observable",
+            "Subject",
+            "BehaviorSubject",
+            "ReplaySubject",
+            "AsyncSubject",
+            "pipe",
+            "subscribe",
+            "unsubscribe",
+            "switchMap",
+            "mergeMap",
+            "concatMap",
+            "exhaustMap",
+            "tap",
+            "map",
+            "filter",
+            "take",
+            "takeUntil",
+            "debounceTime",
+            "distinctUntilChanged",
+            "catchError",
+            "retry",
+            "finalize",
+            "shareReplay",
             // Next.js / Nuxt.js
-            "getServerSideProps", "getStaticProps", "getStaticPaths", "getInitialProps",
-            "useRouter", "useSearchParams", "usePathname", "useParams", "useSelectedLayoutSegment",
-            "notFound", "redirect", "permanentRedirect", "revalidatePath", "revalidateTag",
-            "generateStaticParams", "generateMetadata", "generateViewport",
-            "NextRequest", "NextResponse", "NextPage", "NextApiRequest", "NextApiResponse",
-            "asyncData", "fetch", "head", "layout", "middleware", "plugins", "nuxtApp",
-            "useAsyncData", "useFetch", "useLazyFetch", "useHead", "useState", "useNuxtApp",
-            "defineNuxtConfig", "defineNuxtPlugin", "defineNuxtRouteMiddleware",
-            "isServer", "isClient", "isBrowser", "isNode", "isDev", "isProd",
-
+            "getServerSideProps",
+            "getStaticProps",
+            "getStaticPaths",
+            "getInitialProps",
+            "useRouter",
+            "useSearchParams",
+            "usePathname",
+            "useParams",
+            "useSelectedLayoutSegment",
+            "notFound",
+            "redirect",
+            "permanentRedirect",
+            "revalidatePath",
+            "revalidateTag",
+            "generateStaticParams",
+            "generateMetadata",
+            "generateViewport",
+            "NextRequest",
+            "NextResponse",
+            "NextPage",
+            "NextApiRequest",
+            "NextApiResponse",
+            "asyncData",
+            "fetch",
+            "head",
+            "layout",
+            "middleware",
+            "plugins",
+            "nuxtApp",
+            "useAsyncData",
+            "useFetch",
+            "useLazyFetch",
+            "useHead",
+            "useState",
+            "useNuxtApp",
+            "defineNuxtConfig",
+            "defineNuxtPlugin",
+            "defineNuxtRouteMiddleware",
+            "isServer",
+            "isClient",
+            "isBrowser",
+            "isNode",
+            "isDev",
+            "isProd",
             // Node.js / Express
-            "module", "exports", "require", "define", "factory", "__dirname", "__filename",
-            "process", "global", "Buffer", "console", "setTimeout", "setInterval",
-            "clearTimeout", "clearInterval", "setImmediate", "clearImmediate",
-            "express", "app", "router", "middleware", "bodyParser", "cookieParser",
-            "cors", "helmet", "morgan", "passport", "session", "multer",
-
+            "module",
+            "exports",
+            "require",
+            "define",
+            "factory",
+            "__dirname",
+            "__filename",
+            "process",
+            "global",
+            "Buffer",
+            "console",
+            "setTimeout",
+            "setInterval",
+            "clearTimeout",
+            "clearInterval",
+            "setImmediate",
+            "clearImmediate",
+            "express",
+            "app",
+            "router",
+            "middleware",
+            "bodyParser",
+            "cookieParser",
+            "cors",
+            "helmet",
+            "morgan",
+            "passport",
+            "session",
+            "multer",
             // TypeScript
-            "interface", "type", "enum", "namespace", "declare", "readonly", "abstract",
-            "implements", "private", "protected", "public", "override", "as", "is",
-            "keyof", "infer", "never", "unknown", "any", "object", "string", "number",
-            "boolean", "symbol", "bigint", "Record", "Partial", "Required", "Pick",
-            "Omit", "Exclude", "Extract", "NonNullable", "ReturnType", "Parameters",
-
+            "interface",
+            "type",
+            "enum",
+            "namespace",
+            "declare",
+            "readonly",
+            "abstract",
+            "implements",
+            "private",
+            "protected",
+            "public",
+            "override",
+            "as",
+            "is",
+            "keyof",
+            "infer",
+            "never",
+            "unknown",
+            "any",
+            "object",
+            "string",
+            "number",
+            "boolean",
+            "symbol",
+            "bigint",
+            "Record",
+            "Partial",
+            "Required",
+            "Pick",
+            "Omit",
+            "Exclude",
+            "Extract",
+            "NonNullable",
+            "ReturnType",
+            "Parameters",
             // Webpack / Build tools
-            "webpack", "chunk", "chunks", "bundle", "loader", "plugin", "entry", "output",
-            "resolve", "alias", "extensions", "devServer", "optimization", "splitChunks",
-            "miniCssExtractPlugin", "htmlWebpackPlugin", "definePlugin", "hotModuleReplacement",
-            "__webpack_require__", "__webpack_exports__", "__webpack_modules__",
-            "webpackChunkName", "webpackPrefetch", "webpackPreload",
-
+            "webpack",
+            "chunk",
+            "chunks",
+            "bundle",
+            "loader",
+            "plugin",
+            "entry",
+            "output",
+            "resolve",
+            "alias",
+            "extensions",
+            "devServer",
+            "optimization",
+            "splitChunks",
+            "miniCssExtractPlugin",
+            "htmlWebpackPlugin",
+            "definePlugin",
+            "hotModuleReplacement",
+            "__webpack_require__",
+            "__webpack_exports__",
+            "__webpack_modules__",
+            "webpackChunkName",
+            "webpackPrefetch",
+            "webpackPreload",
             // DOM / Browser APIs
-            "document", "window", "navigator", "location", "history", "localStorage",
-            "sessionStorage", "indexedDB", "fetch", "XMLHttpRequest", "WebSocket",
-            "addEventListener", "removeEventListener", "dispatchEvent", "preventDefault",
-            "stopPropagation", "target", "currentTarget", "srcElement", "relatedTarget",
-            "querySelector", "querySelectorAll", "getElementById", "getElementsByClassName",
-            "getElementsByTagName", "createElement", "createTextNode", "appendChild",
-            "removeChild", "insertBefore", "replaceChild", "cloneNode", "getAttribute",
-            "setAttribute", "removeAttribute", "classList", "className", "innerHTML",
-            "innerText", "textContent", "parentNode", "parentElement", "childNodes",
-            "children", "firstChild", "lastChild", "nextSibling", "previousSibling",
-            "offsetWidth", "offsetHeight", "offsetTop", "offsetLeft", "clientWidth",
-            "clientHeight", "scrollWidth", "scrollHeight", "scrollTop", "scrollLeft",
-            "getBoundingClientRect", "getComputedStyle", "requestAnimationFrame",
-            "cancelAnimationFrame", "MutationObserver", "IntersectionObserver",
-            "ResizeObserver", "PerformanceObserver", "CustomEvent", "Event",
-
+            "document",
+            "window",
+            "navigator",
+            "location",
+            "history",
+            "localStorage",
+            "sessionStorage",
+            "indexedDB",
+            "fetch",
+            "XMLHttpRequest",
+            "WebSocket",
+            "addEventListener",
+            "removeEventListener",
+            "dispatchEvent",
+            "preventDefault",
+            "stopPropagation",
+            "target",
+            "currentTarget",
+            "srcElement",
+            "relatedTarget",
+            "querySelector",
+            "querySelectorAll",
+            "getElementById",
+            "getElementsByClassName",
+            "getElementsByTagName",
+            "createElement",
+            "createTextNode",
+            "appendChild",
+            "removeChild",
+            "insertBefore",
+            "replaceChild",
+            "cloneNode",
+            "getAttribute",
+            "setAttribute",
+            "removeAttribute",
+            "classList",
+            "className",
+            "innerHTML",
+            "innerText",
+            "textContent",
+            "parentNode",
+            "parentElement",
+            "childNodes",
+            "children",
+            "firstChild",
+            "lastChild",
+            "nextSibling",
+            "previousSibling",
+            "offsetWidth",
+            "offsetHeight",
+            "offsetTop",
+            "offsetLeft",
+            "clientWidth",
+            "clientHeight",
+            "scrollWidth",
+            "scrollHeight",
+            "scrollTop",
+            "scrollLeft",
+            "getBoundingClientRect",
+            "getComputedStyle",
+            "requestAnimationFrame",
+            "cancelAnimationFrame",
+            "MutationObserver",
+            "IntersectionObserver",
+            "ResizeObserver",
+            "PerformanceObserver",
+            "CustomEvent",
+            "Event",
             // Common libraries (lodash, axios, moment, etc.)
-            "lodash", "underscore", "axios", "moment", "dayjs", "luxon", "date",
-            "jquery", "d3", "chart", "echarts", "highcharts", "three", "pixi",
-            "socket", "io", "emit", "on", "off", "once", "broadcast",
-            "debounce", "throttle", "memoize", "curry", "compose", "pipe",
-            "get", "set", "has", "merge", "cloneDeep", "isEqual", "isEmpty",
-            "pick", "omit", "groupBy", "sortBy", "orderBy", "uniq", "uniqBy",
-
+            "lodash",
+            "underscore",
+            "axios",
+            "moment",
+            "dayjs",
+            "luxon",
+            "date",
+            "jquery",
+            "d3",
+            "chart",
+            "echarts",
+            "highcharts",
+            "three",
+            "pixi",
+            "socket",
+            "io",
+            "emit",
+            "on",
+            "off",
+            "once",
+            "broadcast",
+            "debounce",
+            "throttle",
+            "memoize",
+            "curry",
+            "compose",
+            "pipe",
+            "get",
+            "set",
+            "has",
+            "merge",
+            "cloneDeep",
+            "isEqual",
+            "isEmpty",
+            "pick",
+            "omit",
+            "groupBy",
+            "sortBy",
+            "orderBy",
+            "uniq",
+            "uniqBy",
             // State management (Redux, MobX, Zustand, Pinia)
-            "dispatch", "getState", "subscribe", "replaceReducer", "combineReducers",
-            "createStore", "applyMiddleware", "compose", "bindActionCreators",
-            "useSelector", "useDispatch", "useStore", "connect", "mapStateToProps",
-            "mapDispatchToProps", "action", "reducer", "selector", "slice", "thunk",
-            "saga", "observable", "autorun", "reaction", "when", "makeAutoObservable",
-            "makeObservable", "runInAction", "flow", "defineStore", "storeToRefs",
-
+            "dispatch",
+            "getState",
+            "subscribe",
+            "replaceReducer",
+            "combineReducers",
+            "createStore",
+            "applyMiddleware",
+            "compose",
+            "bindActionCreators",
+            "useSelector",
+            "useDispatch",
+            "useStore",
+            "connect",
+            "mapStateToProps",
+            "mapDispatchToProps",
+            "action",
+            "reducer",
+            "selector",
+            "slice",
+            "thunk",
+            "saga",
+            "observable",
+            "autorun",
+            "reaction",
+            "when",
+            "makeAutoObservable",
+            "makeObservable",
+            "runInAction",
+            "flow",
+            "defineStore",
+            "storeToRefs",
             // Testing
-            "describe", "it", "test", "expect", "beforeEach", "afterEach", "beforeAll",
-            "afterAll", "jest", "mock", "spy", "fn", "spyOn", "mockImplementation",
-            "mockReturnValue", "mockResolvedValue", "mockRejectedValue", "toEqual",
-            "toBe", "toHaveBeenCalled", "toHaveBeenCalledWith", "toThrow", "toMatch",
-
+            "describe",
+            "it",
+            "test",
+            "expect",
+            "beforeEach",
+            "afterEach",
+            "beforeAll",
+            "afterAll",
+            "jest",
+            "mock",
+            "spy",
+            "fn",
+            "spyOn",
+            "mockImplementation",
+            "mockReturnValue",
+            "mockResolvedValue",
+            "mockRejectedValue",
+            "toEqual",
+            "toBe",
+            "toHaveBeenCalled",
+            "toHaveBeenCalledWith",
+            "toThrow",
+            "toMatch",
             // Common single/double letter variable names (minified code)
-            "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-            "a", "b", "c", "d", "e", "f", "g", "h",
-            "el", "ev", "fn", "cb", "rx", "tx", "id", "pk", "fk", "db", "ui", "vm", "vn",
-            "aa", "ab", "ac", "ad", "ae", "af", "ag", "ah", "ai", "aj", "ak", "al", "am",
-            "ba", "bb", "bc", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bk", "bl", "bm",
-            "ca", "cb", "cc", "cd", "ce", "cf", "cg", "ch", "ci", "cj", "ck", "cl", "cm",
-
+            "i",
+            "j",
+            "k",
+            "l",
+            "m",
+            "n",
+            "o",
+            "p",
+            "q",
+            "r",
+            "s",
+            "t",
+            "u",
+            "v",
+            "w",
+            "x",
+            "y",
+            "z",
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+            "f",
+            "g",
+            "h",
+            "el",
+            "ev",
+            "fn",
+            "cb",
+            "rx",
+            "tx",
+            "id",
+            "pk",
+            "fk",
+            "db",
+            "ui",
+            "vm",
+            "vn",
+            "aa",
+            "ab",
+            "ac",
+            "ad",
+            "ae",
+            "af",
+            "ag",
+            "ah",
+            "ai",
+            "aj",
+            "ak",
+            "al",
+            "am",
+            "ba",
+            "bb",
+            "bc",
+            "bd",
+            "be",
+            "bf",
+            "bg",
+            "bh",
+            "bi",
+            "bj",
+            "bk",
+            "bl",
+            "bm",
+            "ca",
+            "cb",
+            "cc",
+            "cd",
+            "ce",
+            "cf",
+            "cg",
+            "ch",
+            "ci",
+            "cj",
+            "ck",
+            "cl",
+            "cm",
             // Common variable/property names that aren't input parameters
-            "err", "res", "req", "ctx", "obj", "arr", "val", "key", "idx", "len", "str",
-            "num", "bool", "func", "args", "self", "that", "base", "root", "node", "tree",
-            "item", "items", "index", "result", "results", "response", "request",
-            "error", "errors", "success", "failure", "pending", "loading", "loaded",
-            "options", "config", "settings", "params", "attrs", "slots", "refs",
-            "context", "store", "router", "route", "routes", "path", "paths",
-            "parent", "child", "children", "sibling", "ancestor", "descendant",
-            "prev", "next", "first", "last", "current", "selected", "active", "disabled",
-            "visible", "hidden", "open", "closed", "expanded", "collapsed",
-            "width", "height", "top", "left", "right", "bottom", "margin", "padding",
-            "color", "background", "border", "font", "size", "weight", "opacity",
-            "transform", "transition", "animation", "duration", "delay", "easing",
-            "min", "max", "step", "count", "total", "sum", "avg", "mean", "median",
-            "start", "end", "begin", "finish", "init", "destroy", "reset", "clear",
-            "add", "remove", "insert", "delete", "update", "edit", "save", "load",
-            "show", "hide", "toggle", "enable", "disable", "lock", "unlock",
-            "on", "off", "yes", "no", "ok", "cancel", "confirm", "submit", "abort",
-
+            "err",
+            "res",
+            "req",
+            "ctx",
+            "obj",
+            "arr",
+            "val",
+            "key",
+            "idx",
+            "len",
+            "str",
+            "num",
+            "bool",
+            "func",
+            "args",
+            "self",
+            "that",
+            "base",
+            "root",
+            "node",
+            "tree",
+            "item",
+            "items",
+            "index",
+            "result",
+            "results",
+            "response",
+            "request",
+            "error",
+            "errors",
+            "success",
+            "failure",
+            "pending",
+            "loading",
+            "loaded",
+            "options",
+            "config",
+            "settings",
+            "params",
+            "attrs",
+            "slots",
+            "refs",
+            "context",
+            "store",
+            "router",
+            "route",
+            "routes",
+            "path",
+            "paths",
+            "parent",
+            "child",
+            "children",
+            "sibling",
+            "ancestor",
+            "descendant",
+            "prev",
+            "next",
+            "first",
+            "last",
+            "current",
+            "selected",
+            "active",
+            "disabled",
+            "visible",
+            "hidden",
+            "open",
+            "closed",
+            "expanded",
+            "collapsed",
+            "width",
+            "height",
+            "top",
+            "left",
+            "right",
+            "bottom",
+            "margin",
+            "padding",
+            "color",
+            "background",
+            "border",
+            "font",
+            "size",
+            "weight",
+            "opacity",
+            "transform",
+            "transition",
+            "animation",
+            "duration",
+            "delay",
+            "easing",
+            "min",
+            "max",
+            "step",
+            "count",
+            "total",
+            "sum",
+            "avg",
+            "mean",
+            "median",
+            "start",
+            "end",
+            "begin",
+            "finish",
+            "init",
+            "destroy",
+            "reset",
+            "clear",
+            "add",
+            "remove",
+            "insert",
+            "delete",
+            "update",
+            "edit",
+            "save",
+            "load",
+            "show",
+            "hide",
+            "toggle",
+            "enable",
+            "disable",
+            "lock",
+            "unlock",
+            "on",
+            "off",
+            "yes",
+            "no",
+            "ok",
+            "cancel",
+            "confirm",
+            "submit",
+            "abort",
             // HTML meta tag names (NOT form parameters - these are SEO/metadata)
-            "author", "publisher", "creator", "robots", "keywords", "description",
-            "viewport", "charset", "generator", "application", "rating", "revisit",
-            "distribution", "copyright", "language", "content", "expires", "pragma",
-            "refresh", "theme", "color", "canonical", "alternate", "icon", "manifest",
+            "author",
+            "publisher",
+            "creator",
+            "robots",
+            "keywords",
+            "description",
+            "viewport",
+            "charset",
+            "generator",
+            "application",
+            "rating",
+            "revisit",
+            "distribution",
+            "copyright",
+            "language",
+            "content",
+            "expires",
+            "pragma",
+            "refresh",
+            "theme",
+            "color",
+            "canonical",
+            "alternate",
+            "icon",
+            "manifest",
             // Open Graph / social meta (og:, twitter:, fb:, etc.)
-            "og", "twitter", "fb", "article", "profile", "book", "video", "music",
-            "site", "card", "image", "title", "url", "locale", "type", "determiner",
-            "section", "tag", "published", "modified", "expiration", "first", "last",
+            "og",
+            "twitter",
+            "fb",
+            "article",
+            "profile",
+            "book",
+            "video",
+            "music",
+            "site",
+            "card",
+            "image",
+            "title",
+            "url",
+            "locale",
+            "type",
+            "determiner",
+            "section",
+            "tag",
+            "published",
+            "modified",
+            "expiration",
+            "first",
+            "last",
             // Schema.org / JSON-LD structured data (NOT form inputs)
-            "context", "graph", "organizationType", "personType", "productType",
-            "eventType", "placeType", "articleType", "webpageType", "breadcrumbType",
-            "faqType", "howToType", "recipeType", "reviewType", "ratingType",
-            "addressType", "geoType", "postalAddress", "streetAddress", "locality",
+            "context",
+            "graph",
+            "organizationType",
+            "personType",
+            "productType",
+            "eventType",
+            "placeType",
+            "articleType",
+            "webpageType",
+            "breadcrumbType",
+            "faqType",
+            "howToType",
+            "recipeType",
+            "reviewType",
+            "ratingType",
+            "addressType",
+            "geoType",
+            "postalAddress",
+            "streetAddress",
+            "locality",
             // Common HTML attribute names that aren't form parameters
-            "class", "href", "src", "alt", "title", "rel", "target", "method", "action",
-            "enctype", "autocomplete", "novalidate", "placeholder", "pattern", "required",
-            "readonly", "disabled", "checked", "selected", "multiple", "accept", "maxlength",
-            "minlength", "rows", "cols", "wrap", "spellcheck", "tabindex", "accesskey",
-            "role", "aria", "data", "draggable", "contenteditable", "hidden", "translate",
+            "class",
+            "href",
+            "src",
+            "alt",
+            "title",
+            "rel",
+            "target",
+            "method",
+            "action",
+            "enctype",
+            "autocomplete",
+            "novalidate",
+            "placeholder",
+            "pattern",
+            "required",
+            "readonly",
+            "disabled",
+            "checked",
+            "selected",
+            "multiple",
+            "accept",
+            "maxlength",
+            "minlength",
+            "rows",
+            "cols",
+            "wrap",
+            "spellcheck",
+            "tabindex",
+            "accesskey",
+            "role",
+            "aria",
+            "data",
+            "draggable",
+            "contenteditable",
+            "hidden",
+            "translate",
             // Font/styling attributes (from CSS/font imports)
-            "family", "weight", "style", "display", "swap", "subset", "text", "preconnect",
-            "handler", "handlers", "listener", "listeners", "callback", "callbacks",
-            "event", "events", "trigger", "emit", "fire", "notify", "broadcast",
-            "model", "models", "view", "views", "controller", "controllers",
-            "service", "services", "factory", "factories", "provider", "providers",
-            "util", "utils", "helper", "helpers", "common", "shared", "core", "base",
-            "api", "http", "https", "ws", "wss", "tcp", "udp", "host", "port",
-            "env", "dev", "prod", "test", "stage", "local", "remote", "debug", "release",
+            "family",
+            "weight",
+            "style",
+            "display",
+            "swap",
+            "subset",
+            "text",
+            "preconnect",
+            "handler",
+            "handlers",
+            "listener",
+            "listeners",
+            "callback",
+            "callbacks",
+            "event",
+            "events",
+            "trigger",
+            "emit",
+            "fire",
+            "notify",
+            "broadcast",
+            "model",
+            "models",
+            "view",
+            "views",
+            "controller",
+            "controllers",
+            "service",
+            "services",
+            "factory",
+            "factories",
+            "provider",
+            "providers",
+            "util",
+            "utils",
+            "helper",
+            "helpers",
+            "common",
+            "shared",
+            "core",
+            "base",
+            "api",
+            "http",
+            "https",
+            "ws",
+            "wss",
+            "tcp",
+            "udp",
+            "host",
+            "port",
+            "env",
+            "dev",
+            "prod",
+            "test",
+            "stage",
+            "local",
+            "remote",
+            "debug",
+            "release",
             // Config/state words
-            "stable", "unstable", "beta", "alpha", "latest", "legacy", "deprecated",
-            "active", "inactive", "valid", "invalid", "dirty", "pristine", "clean",
-            "pending", "complete", "finished", "done", "ready", "busy", "idle",
-            "locked", "unlocked", "frozen", "mutable", "immutable",
-            "sync", "lazy", "eager", "strict", "loose", "safe", "unsafe",
-            "internal", "external", "scoped", "isolated", "sandboxed",
-            "dynamic", "fixed", "absolute", "relative", "sticky", "fluid",
-            "primary", "secondary", "tertiary", "custom", "manual",
-            "horizontal", "vertical", "inline", "block", "none", "both",
-            "unique", "duplicate", "cloned", "cached", "persisted", "transient",
-            "ascending", "descending", "asc", "desc", "forward", "backward", "reverse",
-            "native", "polyfill", "fallback", "shim", "mock", "stub", "fake", "real",
-
+            "stable",
+            "unstable",
+            "beta",
+            "alpha",
+            "latest",
+            "legacy",
+            "deprecated",
+            "active",
+            "inactive",
+            "valid",
+            "invalid",
+            "dirty",
+            "pristine",
+            "clean",
+            "pending",
+            "complete",
+            "finished",
+            "done",
+            "ready",
+            "busy",
+            "idle",
+            "locked",
+            "unlocked",
+            "frozen",
+            "mutable",
+            "immutable",
+            "sync",
+            "lazy",
+            "eager",
+            "strict",
+            "loose",
+            "safe",
+            "unsafe",
+            "internal",
+            "external",
+            "scoped",
+            "isolated",
+            "sandboxed",
+            "dynamic",
+            "fixed",
+            "absolute",
+            "relative",
+            "sticky",
+            "fluid",
+            "primary",
+            "secondary",
+            "tertiary",
+            "custom",
+            "manual",
+            "horizontal",
+            "vertical",
+            "inline",
+            "block",
+            "none",
+            "both",
+            "unique",
+            "duplicate",
+            "cloned",
+            "cached",
+            "persisted",
+            "transient",
+            "ascending",
+            "descending",
+            "asc",
+            "desc",
+            "forward",
+            "backward",
+            "reverse",
+            "native",
+            "polyfill",
+            "fallback",
+            "shim",
+            "mock",
+            "stub",
+            "fake",
+            "real",
             // HTML attributes (not input parameters)
-            "draggable", "droppable", "sortable", "resizable", "selectable", "editable",
-            "disabled", "enabled", "readonly", "required", "optional", "checked", "selected",
-            "hidden", "visible", "collapsed", "expanded", "focused", "blurred",
-            "placeholder", "autofocus", "autocomplete", "spellcheck", "contenteditable",
-            "tabindex", "accesskey", "translate", "dir", "lang", "title", "alt",
-            "href", "src", "srcset", "sizes", "media", "rel", "target", "download",
-            "width", "height", "min", "max", "step", "pattern", "maxlength", "minlength",
-            "cols", "rows", "wrap", "multiple", "accept", "capture", "form", "formaction",
-            "enctype", "method", "novalidate", "formnovalidate", "formtarget",
-            "async", "defer", "crossorigin", "integrity", "referrerpolicy", "loading",
-            "decoding", "fetchpriority", "blocking", "elementtiming",
-
+            "draggable",
+            "droppable",
+            "sortable",
+            "resizable",
+            "selectable",
+            "editable",
+            "disabled",
+            "enabled",
+            "readonly",
+            "required",
+            "optional",
+            "checked",
+            "selected",
+            "hidden",
+            "visible",
+            "collapsed",
+            "expanded",
+            "focused",
+            "blurred",
+            "placeholder",
+            "autofocus",
+            "autocomplete",
+            "spellcheck",
+            "contenteditable",
+            "tabindex",
+            "accesskey",
+            "translate",
+            "dir",
+            "lang",
+            "title",
+            "alt",
+            "href",
+            "src",
+            "srcset",
+            "sizes",
+            "media",
+            "rel",
+            "target",
+            "download",
+            "width",
+            "height",
+            "min",
+            "max",
+            "step",
+            "pattern",
+            "maxlength",
+            "minlength",
+            "cols",
+            "rows",
+            "wrap",
+            "multiple",
+            "accept",
+            "capture",
+            "form",
+            "formaction",
+            "enctype",
+            "method",
+            "novalidate",
+            "formnovalidate",
+            "formtarget",
+            "async",
+            "defer",
+            "crossorigin",
+            "integrity",
+            "referrerpolicy",
+            "loading",
+            "decoding",
+            "fetchpriority",
+            "blocking",
+            "elementtiming",
             // CSS properties commonly found in JS
-            "display", "position", "overflow", "visibility", "opacity", "zIndex",
-            "margin", "padding", "border", "outline", "background", "color",
-            "font", "fontSize", "fontWeight", "fontFamily", "fontStyle",
-            "textAlign", "textDecoration", "textTransform", "lineHeight", "letterSpacing",
-            "flex", "flexDirection", "flexWrap", "justifyContent", "alignItems", "alignContent",
-            "gridTemplate", "gridColumn", "gridRow", "gap", "order", "flexGrow", "flexShrink",
-            "transform", "transition", "animation", "cursor", "pointerEvents", "userSelect",
-            "boxShadow", "borderRadius", "boxSizing", "whiteSpace", "wordBreak", "wordWrap",
-
+            "display",
+            "position",
+            "overflow",
+            "visibility",
+            "opacity",
+            "zIndex",
+            "margin",
+            "padding",
+            "border",
+            "outline",
+            "background",
+            "color",
+            "font",
+            "fontSize",
+            "fontWeight",
+            "fontFamily",
+            "fontStyle",
+            "textAlign",
+            "textDecoration",
+            "textTransform",
+            "lineHeight",
+            "letterSpacing",
+            "flex",
+            "flexDirection",
+            "flexWrap",
+            "justifyContent",
+            "alignItems",
+            "alignContent",
+            "gridTemplate",
+            "gridColumn",
+            "gridRow",
+            "gap",
+            "order",
+            "flexGrow",
+            "flexShrink",
+            "transform",
+            "transition",
+            "animation",
+            "cursor",
+            "pointerEvents",
+            "userSelect",
+            "boxShadow",
+            "borderRadius",
+            "boxSizing",
+            "whiteSpace",
+            "wordBreak",
+            "wordWrap",
             // UI Framework components (Quasar, Vuetify, Element, Material, etc.)
             // Quasar (Q prefix)
-            "QBadge", "QBtn", "QCard", "QCardSection", "QCardActions", "QCheckbox",
-            "QChip", "QDialog", "QDrawer", "QExpansionItem", "QField", "QForm",
-            "QHeader", "QIcon", "QImg", "QInput", "QItem", "QItemSection", "QItemLabel",
-            "QLayout", "QList", "QMenu", "QPage", "QPageContainer", "QPageSticky",
-            "QPopupProxy", "QRadio", "QRouteTab", "QScrollArea", "QSelect", "QSeparator",
-            "QSlider", "QSpace", "QSpinner", "QSplitter", "QStep", "QStepper",
-            "QTab", "QTable", "QTabs", "QTabPanel", "QTabPanels", "QTimeline",
-            "QToggle", "QToolbar", "QToolbarTitle", "QTooltip", "QTree", "QUploader",
-            "QVideo", "QVirtualScroll",
+            "QBadge",
+            "QBtn",
+            "QCard",
+            "QCardSection",
+            "QCardActions",
+            "QCheckbox",
+            "QChip",
+            "QDialog",
+            "QDrawer",
+            "QExpansionItem",
+            "QField",
+            "QForm",
+            "QHeader",
+            "QIcon",
+            "QImg",
+            "QInput",
+            "QItem",
+            "QItemSection",
+            "QItemLabel",
+            "QLayout",
+            "QList",
+            "QMenu",
+            "QPage",
+            "QPageContainer",
+            "QPageSticky",
+            "QPopupProxy",
+            "QRadio",
+            "QRouteTab",
+            "QScrollArea",
+            "QSelect",
+            "QSeparator",
+            "QSlider",
+            "QSpace",
+            "QSpinner",
+            "QSplitter",
+            "QStep",
+            "QStepper",
+            "QTab",
+            "QTable",
+            "QTabs",
+            "QTabPanel",
+            "QTabPanels",
+            "QTimeline",
+            "QToggle",
+            "QToolbar",
+            "QToolbarTitle",
+            "QTooltip",
+            "QTree",
+            "QUploader",
+            "QVideo",
+            "QVirtualScroll",
             // Vuetify (V prefix)
-            "VApp", "VAppBar", "VAlert", "VAutocomplete", "VAvatar", "VBadge",
-            "VBottomNavigation", "VBreadcrumbs", "VBtn", "VBtnToggle", "VCalendar",
-            "VCard", "VCardActions", "VCardText", "VCardTitle", "VCarousel",
-            "VCheckbox", "VChip", "VCol", "VCombobox", "VContainer", "VDataTable",
-            "VDialog", "VDivider", "VExpansionPanel", "VExpansionPanels", "VFileInput",
-            "VFooter", "VForm", "VIcon", "VImg", "VInput", "VItem", "VItemGroup",
-            "VList", "VListItem", "VListItemAction", "VListItemContent", "VListItemTitle",
-            "VMain", "VMenu", "VNavigationDrawer", "VOverlay", "VPagination",
-            "VProgressCircular", "VProgressLinear", "VRadio", "VRadioGroup", "VRating",
-            "VRow", "VSelect", "VSheet", "VSlideGroup", "VSlider", "VSnackbar",
-            "VSpacer", "VSpeedDial", "VStepper", "VSwitch", "VSystemBar", "VTab",
-            "VTable", "VTabs", "VTextarea", "VTextField", "VTimeline", "VToolbar",
-            "VTooltip", "VTreeview", "VWindow",
+            "VApp",
+            "VAppBar",
+            "VAlert",
+            "VAutocomplete",
+            "VAvatar",
+            "VBadge",
+            "VBottomNavigation",
+            "VBreadcrumbs",
+            "VBtn",
+            "VBtnToggle",
+            "VCalendar",
+            "VCard",
+            "VCardActions",
+            "VCardText",
+            "VCardTitle",
+            "VCarousel",
+            "VCheckbox",
+            "VChip",
+            "VCol",
+            "VCombobox",
+            "VContainer",
+            "VDataTable",
+            "VDialog",
+            "VDivider",
+            "VExpansionPanel",
+            "VExpansionPanels",
+            "VFileInput",
+            "VFooter",
+            "VForm",
+            "VIcon",
+            "VImg",
+            "VInput",
+            "VItem",
+            "VItemGroup",
+            "VList",
+            "VListItem",
+            "VListItemAction",
+            "VListItemContent",
+            "VListItemTitle",
+            "VMain",
+            "VMenu",
+            "VNavigationDrawer",
+            "VOverlay",
+            "VPagination",
+            "VProgressCircular",
+            "VProgressLinear",
+            "VRadio",
+            "VRadioGroup",
+            "VRating",
+            "VRow",
+            "VSelect",
+            "VSheet",
+            "VSlideGroup",
+            "VSlider",
+            "VSnackbar",
+            "VSpacer",
+            "VSpeedDial",
+            "VStepper",
+            "VSwitch",
+            "VSystemBar",
+            "VTab",
+            "VTable",
+            "VTabs",
+            "VTextarea",
+            "VTextField",
+            "VTimeline",
+            "VToolbar",
+            "VTooltip",
+            "VTreeview",
+            "VWindow",
             // Element UI (El prefix)
-            "ElAlert", "ElAside", "ElAutocomplete", "ElAvatar", "ElBacktop", "ElBadge",
-            "ElBreadcrumb", "ElButton", "ElButtonGroup", "ElCalendar", "ElCard",
-            "ElCarousel", "ElCascader", "ElCheckbox", "ElCheckboxGroup", "ElCol",
-            "ElCollapse", "ElColorPicker", "ElContainer", "ElDatePicker", "ElDialog",
-            "ElDivider", "ElDrawer", "ElDropdown", "ElEmpty", "ElFooter", "ElForm",
-            "ElFormItem", "ElHeader", "ElIcon", "ElImage", "ElInput", "ElInputNumber",
-            "ElLink", "ElMain", "ElMenu", "ElMenuItem", "ElOption", "ElPageHeader",
-            "ElPagination", "ElPopconfirm", "ElPopover", "ElProgress", "ElRadio",
-            "ElRadioGroup", "ElRate", "ElResult", "ElRow", "ElScrollbar", "ElSelect",
-            "ElSkeleton", "ElSlider", "ElSpace", "ElStep", "ElSteps", "ElSubmenu",
-            "ElSwitch", "ElTable", "ElTableColumn", "ElTabPane", "ElTabs", "ElTag",
-            "ElTimePicker", "ElTimeline", "ElTimeSelect", "ElTooltip", "ElTransfer",
-            "ElTree", "ElUpload",
+            "ElAlert",
+            "ElAside",
+            "ElAutocomplete",
+            "ElAvatar",
+            "ElBacktop",
+            "ElBadge",
+            "ElBreadcrumb",
+            "ElButton",
+            "ElButtonGroup",
+            "ElCalendar",
+            "ElCard",
+            "ElCarousel",
+            "ElCascader",
+            "ElCheckbox",
+            "ElCheckboxGroup",
+            "ElCol",
+            "ElCollapse",
+            "ElColorPicker",
+            "ElContainer",
+            "ElDatePicker",
+            "ElDialog",
+            "ElDivider",
+            "ElDrawer",
+            "ElDropdown",
+            "ElEmpty",
+            "ElFooter",
+            "ElForm",
+            "ElFormItem",
+            "ElHeader",
+            "ElIcon",
+            "ElImage",
+            "ElInput",
+            "ElInputNumber",
+            "ElLink",
+            "ElMain",
+            "ElMenu",
+            "ElMenuItem",
+            "ElOption",
+            "ElPageHeader",
+            "ElPagination",
+            "ElPopconfirm",
+            "ElPopover",
+            "ElProgress",
+            "ElRadio",
+            "ElRadioGroup",
+            "ElRate",
+            "ElResult",
+            "ElRow",
+            "ElScrollbar",
+            "ElSelect",
+            "ElSkeleton",
+            "ElSlider",
+            "ElSpace",
+            "ElStep",
+            "ElSteps",
+            "ElSubmenu",
+            "ElSwitch",
+            "ElTable",
+            "ElTableColumn",
+            "ElTabPane",
+            "ElTabs",
+            "ElTag",
+            "ElTimePicker",
+            "ElTimeline",
+            "ElTimeSelect",
+            "ElTooltip",
+            "ElTransfer",
+            "ElTree",
+            "ElUpload",
             // Ant Design
-            "Alert", "Anchor", "AutoComplete", "Avatar", "BackTop", "Badge", "Breadcrumb",
-            "Button", "Calendar", "Card", "Carousel", "Cascader", "Checkbox", "Col",
-            "Collapse", "Comment", "ConfigProvider", "DatePicker", "Descriptions",
-            "Divider", "Drawer", "Dropdown", "Empty", "Form", "Grid", "Image", "Input",
-            "InputNumber", "Layout", "List", "Mentions", "Menu", "Message", "Modal",
-            "Notification", "PageHeader", "Pagination", "Popconfirm", "Popover",
-            "Progress", "Radio", "Rate", "Result", "Row", "Segmented", "Select",
-            "Skeleton", "Slider", "Space", "Spin", "Statistic", "Steps", "Switch",
-            "Table", "Tabs", "Tag", "TimePicker", "Timeline", "Tooltip", "Transfer",
-            "Tree", "TreeSelect", "Typography", "Upload",
+            "Alert",
+            "Anchor",
+            "AutoComplete",
+            "Avatar",
+            "BackTop",
+            "Badge",
+            "Breadcrumb",
+            "Button",
+            "Calendar",
+            "Card",
+            "Carousel",
+            "Cascader",
+            "Checkbox",
+            "Col",
+            "Collapse",
+            "Comment",
+            "ConfigProvider",
+            "DatePicker",
+            "Descriptions",
+            "Divider",
+            "Drawer",
+            "Dropdown",
+            "Empty",
+            "Form",
+            "Grid",
+            "Image",
+            "Input",
+            "InputNumber",
+            "Layout",
+            "List",
+            "Mentions",
+            "Menu",
+            "Message",
+            "Modal",
+            "Notification",
+            "PageHeader",
+            "Pagination",
+            "Popconfirm",
+            "Popover",
+            "Progress",
+            "Radio",
+            "Rate",
+            "Result",
+            "Row",
+            "Segmented",
+            "Select",
+            "Skeleton",
+            "Slider",
+            "Space",
+            "Spin",
+            "Statistic",
+            "Steps",
+            "Switch",
+            "Table",
+            "Tabs",
+            "Tag",
+            "TimePicker",
+            "Timeline",
+            "Tooltip",
+            "Transfer",
+            "Tree",
+            "TreeSelect",
+            "Typography",
+            "Upload",
             // Material UI (Mui prefix and common)
-            "MuiAlert", "MuiAppBar", "MuiAutocomplete", "MuiAvatar", "MuiBackdrop",
-            "MuiBadge", "MuiBottomNavigation", "MuiBox", "MuiBreadcrumbs", "MuiButton",
-            "MuiButtonGroup", "MuiCard", "MuiCardActions", "MuiCardContent", "MuiCardHeader",
-            "MuiCardMedia", "MuiCheckbox", "MuiChip", "MuiCircularProgress", "MuiCollapse",
-            "MuiContainer", "MuiDialog", "MuiDivider", "MuiDrawer", "MuiFab", "MuiFormControl",
-            "MuiFormControlLabel", "MuiGrid", "MuiIcon", "MuiIconButton", "MuiInput",
-            "MuiInputAdornment", "MuiInputBase", "MuiInputLabel", "MuiLinearProgress",
-            "MuiLink", "MuiList", "MuiListItem", "MuiListItemButton", "MuiListItemIcon",
-            "MuiListItemText", "MuiMenu", "MuiMenuItem", "MuiModal", "MuiOutlinedInput",
-            "MuiPagination", "MuiPaper", "MuiPopover", "MuiPopper", "MuiRadio",
-            "MuiRadioGroup", "MuiRating", "MuiSelect", "MuiSkeleton", "MuiSlider",
-            "MuiSnackbar", "MuiSpeedDial", "MuiStack", "MuiStep", "MuiStepper", "MuiSwitch",
-            "MuiTab", "MuiTable", "MuiTableBody", "MuiTableCell", "MuiTableHead",
-            "MuiTableRow", "MuiTabs", "MuiTextField", "MuiToggleButton", "MuiToolbar",
-            "MuiTooltip", "MuiTypography",
+            "MuiAlert",
+            "MuiAppBar",
+            "MuiAutocomplete",
+            "MuiAvatar",
+            "MuiBackdrop",
+            "MuiBadge",
+            "MuiBottomNavigation",
+            "MuiBox",
+            "MuiBreadcrumbs",
+            "MuiButton",
+            "MuiButtonGroup",
+            "MuiCard",
+            "MuiCardActions",
+            "MuiCardContent",
+            "MuiCardHeader",
+            "MuiCardMedia",
+            "MuiCheckbox",
+            "MuiChip",
+            "MuiCircularProgress",
+            "MuiCollapse",
+            "MuiContainer",
+            "MuiDialog",
+            "MuiDivider",
+            "MuiDrawer",
+            "MuiFab",
+            "MuiFormControl",
+            "MuiFormControlLabel",
+            "MuiGrid",
+            "MuiIcon",
+            "MuiIconButton",
+            "MuiInput",
+            "MuiInputAdornment",
+            "MuiInputBase",
+            "MuiInputLabel",
+            "MuiLinearProgress",
+            "MuiLink",
+            "MuiList",
+            "MuiListItem",
+            "MuiListItemButton",
+            "MuiListItemIcon",
+            "MuiListItemText",
+            "MuiMenu",
+            "MuiMenuItem",
+            "MuiModal",
+            "MuiOutlinedInput",
+            "MuiPagination",
+            "MuiPaper",
+            "MuiPopover",
+            "MuiPopper",
+            "MuiRadio",
+            "MuiRadioGroup",
+            "MuiRating",
+            "MuiSelect",
+            "MuiSkeleton",
+            "MuiSlider",
+            "MuiSnackbar",
+            "MuiSpeedDial",
+            "MuiStack",
+            "MuiStep",
+            "MuiStepper",
+            "MuiSwitch",
+            "MuiTab",
+            "MuiTable",
+            "MuiTableBody",
+            "MuiTableCell",
+            "MuiTableHead",
+            "MuiTableRow",
+            "MuiTabs",
+            "MuiTextField",
+            "MuiToggleButton",
+            "MuiToolbar",
+            "MuiTooltip",
+            "MuiTypography",
             // Chakra UI
-            "ChakraProvider", "Box", "Flex", "Grid", "SimpleGrid", "Stack", "HStack",
-            "VStack", "Center", "Container", "Spacer", "Wrap", "WrapItem",
+            "ChakraProvider",
+            "Box",
+            "Flex",
+            "Grid",
+            "SimpleGrid",
+            "Stack",
+            "HStack",
+            "VStack",
+            "Center",
+            "Container",
+            "Spacer",
+            "Wrap",
+            "WrapItem",
             // Bootstrap Vue
-            "BAlert", "BBadge", "BBreadcrumb", "BButton", "BButtonGroup", "BCard",
-            "BCardBody", "BCardHeader", "BCardText", "BCarousel", "BCol", "BCollapse",
-            "BContainer", "BDropdown", "BForm", "BFormGroup", "BFormInput", "BFormSelect",
-            "BIcon", "BImg", "BInputGroup", "BLink", "BListGroup", "BModal", "BNav",
-            "BNavbar", "BPagination", "BProgress", "BRow", "BSpinner", "BTab", "BTable",
-            "BTabs", "BToast", "BTooltip",
+            "BAlert",
+            "BBadge",
+            "BBreadcrumb",
+            "BButton",
+            "BButtonGroup",
+            "BCard",
+            "BCardBody",
+            "BCardHeader",
+            "BCardText",
+            "BCarousel",
+            "BCol",
+            "BCollapse",
+            "BContainer",
+            "BDropdown",
+            "BForm",
+            "BFormGroup",
+            "BFormInput",
+            "BFormSelect",
+            "BIcon",
+            "BImg",
+            "BInputGroup",
+            "BLink",
+            "BListGroup",
+            "BModal",
+            "BNav",
+            "BNavbar",
+            "BPagination",
+            "BProgress",
+            "BRow",
+            "BSpinner",
+            "BTab",
+            "BTable",
+            "BTabs",
+            "BToast",
+            "BTooltip",
             // PrimeVue/PrimeReact
-            "Accordion", "AccordionTab", "AutoComplete", "BlockUI", "Breadcrumb",
-            "ButtonGroup", "Calendar", "Carousel", "Chart", "Checkbox", "Chip", "Chips",
-            "ColorPicker", "Column", "ColumnGroup", "ConfirmDialog", "ConfirmPopup",
-            "ContextMenu", "DataTable", "DataView", "DeferredContent", "Dialog",
-            "Divider", "Dock", "Dropdown", "DynamicDialog", "Editor", "Fieldset",
-            "FileUpload", "Galleria", "Image", "InlineMessage", "Inplace", "InputMask",
-            "InputNumber", "InputSwitch", "InputText", "Knob", "Listbox", "MegaMenu",
-            "Menubar", "Message", "MultiSelect", "OrderList", "OrganizationChart",
-            "OverlayPanel", "Paginator", "Panel", "PanelMenu", "Password", "PickList",
-            "ProgressBar", "ProgressSpinner", "RadioButton", "Rating", "Ripple",
-            "ScrollPanel", "ScrollTop", "SelectButton", "Sidebar", "Skeleton", "Slider",
-            "SpeedDial", "SplitButton", "Splitter", "Steps", "TabMenu", "TabPanel",
-            "TabView", "Tag", "Terminal", "Textarea", "TieredMenu", "Toast", "ToggleButton",
-            "Toolbar", "Tooltip", "Tree", "TreeSelect", "TreeTable", "TriStateCheckbox",
+            "Accordion",
+            "AccordionTab",
+            "AutoComplete",
+            "BlockUI",
+            "Breadcrumb",
+            "ButtonGroup",
+            "Calendar",
+            "Carousel",
+            "Chart",
+            "Checkbox",
+            "Chip",
+            "Chips",
+            "ColorPicker",
+            "Column",
+            "ColumnGroup",
+            "ConfirmDialog",
+            "ConfirmPopup",
+            "ContextMenu",
+            "DataTable",
+            "DataView",
+            "DeferredContent",
+            "Dialog",
+            "Divider",
+            "Dock",
+            "Dropdown",
+            "DynamicDialog",
+            "Editor",
+            "Fieldset",
+            "FileUpload",
+            "Galleria",
+            "Image",
+            "InlineMessage",
+            "Inplace",
+            "InputMask",
+            "InputNumber",
+            "InputSwitch",
+            "InputText",
+            "Knob",
+            "Listbox",
+            "MegaMenu",
+            "Menubar",
+            "Message",
+            "MultiSelect",
+            "OrderList",
+            "OrganizationChart",
+            "OverlayPanel",
+            "Paginator",
+            "Panel",
+            "PanelMenu",
+            "Password",
+            "PickList",
+            "ProgressBar",
+            "ProgressSpinner",
+            "RadioButton",
+            "Rating",
+            "Ripple",
+            "ScrollPanel",
+            "ScrollTop",
+            "SelectButton",
+            "Sidebar",
+            "Skeleton",
+            "Slider",
+            "SpeedDial",
+            "SplitButton",
+            "Splitter",
+            "Steps",
+            "TabMenu",
+            "TabPanel",
+            "TabView",
+            "Tag",
+            "Terminal",
+            "Textarea",
+            "TieredMenu",
+            "Toast",
+            "ToggleButton",
+            "Toolbar",
+            "Tooltip",
+            "Tree",
+            "TreeSelect",
+            "TreeTable",
+            "TriStateCheckbox",
             "VirtualScroller",
-        ].iter().cloned().collect();
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         // Additional check: filter out PascalCase names that look like components/classes
         let is_likely_component = |s: &str| -> bool {
-            if s.len() < 3 { return false; }
+            if s.len() < 3 {
+                return false;
+            }
             let chars: Vec<char> = s.chars().collect();
             // Must start with uppercase
-            if !chars[0].is_uppercase() { return false; }
+            if !chars[0].is_uppercase() {
+                return false;
+            }
 
             // Count uppercase letters - components typically have 2+ (PascalCase)
             let uppercase_count = chars.iter().filter(|c| c.is_uppercase()).count();
@@ -888,35 +2250,157 @@ impl JsMinerScanner {
             // Common component/class name patterns (contains these = likely not a param)
             let class_patterns = [
                 // UI Components
-                "Input", "Button", "Form", "Modal", "Dialog", "Table", "List",
-                "Card", "Menu", "Icon", "Text", "Label", "Select", "Check",
-                "Radio", "Switch", "Slider", "Date", "Time", "Color", "File",
-                "Upload", "Download", "Nav", "Tab", "Panel", "Drawer", "Popup",
-                "Tooltip", "Toast", "Alert", "Badge", "Avatar", "Progress",
-                "Spinner", "Loading", "Skeleton", "Empty", "Error", "Success",
-                "Warning", "Info", "Header", "Footer", "Sidebar", "Content",
-                "Layout", "Container", "Row", "Col", "Grid", "Flex", "Box",
-                "Stack", "Wrap", "Space", "Divider", "Separator",
+                "Input",
+                "Button",
+                "Form",
+                "Modal",
+                "Dialog",
+                "Table",
+                "List",
+                "Card",
+                "Menu",
+                "Icon",
+                "Text",
+                "Label",
+                "Select",
+                "Check",
+                "Radio",
+                "Switch",
+                "Slider",
+                "Date",
+                "Time",
+                "Color",
+                "File",
+                "Upload",
+                "Download",
+                "Nav",
+                "Tab",
+                "Panel",
+                "Drawer",
+                "Popup",
+                "Tooltip",
+                "Toast",
+                "Alert",
+                "Badge",
+                "Avatar",
+                "Progress",
+                "Spinner",
+                "Loading",
+                "Skeleton",
+                "Empty",
+                "Error",
+                "Success",
+                "Warning",
+                "Info",
+                "Header",
+                "Footer",
+                "Sidebar",
+                "Content",
+                "Layout",
+                "Container",
+                "Row",
+                "Col",
+                "Grid",
+                "Flex",
+                "Box",
+                "Stack",
+                "Wrap",
+                "Space",
+                "Divider",
+                "Separator",
                 // Common class suffixes (Util, Helper, Service, etc.)
-                "Util", "Utils", "Helper", "Helpers", "Service", "Services",
-                "Handler", "Handlers", "Manager", "Managers", "Controller",
-                "Factory", "Provider", "Adapter", "Wrapper", "Builder",
-                "Parser", "Formatter", "Validator", "Converter", "Mapper",
-                "Reducer", "Selector", "Middleware", "Interceptor", "Guard",
-                "Resolver", "Directive", "Pipe", "Module", "Component",
-                "Plugin", "Extension", "Mixin", "Decorator", "Annotation",
+                "Util",
+                "Utils",
+                "Helper",
+                "Helpers",
+                "Service",
+                "Services",
+                "Handler",
+                "Handlers",
+                "Manager",
+                "Managers",
+                "Controller",
+                "Factory",
+                "Provider",
+                "Adapter",
+                "Wrapper",
+                "Builder",
+                "Parser",
+                "Formatter",
+                "Validator",
+                "Converter",
+                "Mapper",
+                "Reducer",
+                "Selector",
+                "Middleware",
+                "Interceptor",
+                "Guard",
+                "Resolver",
+                "Directive",
+                "Pipe",
+                "Module",
+                "Component",
+                "Plugin",
+                "Extension",
+                "Mixin",
+                "Decorator",
+                "Annotation",
                 // Apollo/GraphQL specific
-                "Apollo", "Query", "Mutation", "Subscription", "Fragment",
-                "Client", "Cache", "Link", "Schema", "Resolver",
+                "Apollo",
+                "Query",
+                "Mutation",
+                "Subscription",
+                "Fragment",
+                "Client",
+                "Cache",
+                "Link",
+                "Schema",
+                "Resolver",
                 // State management
-                "Store", "State", "Action", "Reducer", "Effect", "Saga",
-                "Slice", "Thunk", "Observable", "Subject",
+                "Store",
+                "State",
+                "Action",
+                "Reducer",
+                "Effect",
+                "Saga",
+                "Slice",
+                "Thunk",
+                "Observable",
+                "Subject",
                 // Common prefixes/suffixes
-                "use", "get", "set", "is", "has", "can", "should", "will",
-                "on", "handle", "fetch", "load", "save", "update", "delete",
-                "create", "init", "setup", "config", "register", "unregister",
-                "Params", "Options", "Config", "Settings", "Props", "Args",
-                "Data", "Info", "Meta", "Context", "Ref", "Refs",
+                "use",
+                "get",
+                "set",
+                "is",
+                "has",
+                "can",
+                "should",
+                "will",
+                "on",
+                "handle",
+                "fetch",
+                "load",
+                "save",
+                "update",
+                "delete",
+                "create",
+                "init",
+                "setup",
+                "config",
+                "register",
+                "unregister",
+                "Params",
+                "Options",
+                "Config",
+                "Settings",
+                "Props",
+                "Args",
+                "Data",
+                "Info",
+                "Meta",
+                "Context",
+                "Ref",
+                "Refs",
             ];
             for pattern in class_patterns {
                 if s.contains(pattern) {
@@ -936,7 +2420,8 @@ impl JsMinerScanner {
                         if !js_noise.contains(param_str)
                             && param_str.len() >= 2
                             && !is_likely_component(param_str)
-                            && !Self::is_minified_param(param_str) {
+                            && !Self::is_minified_param(param_str)
+                        {
                             global_params.insert(param_str.to_string());
                         }
                     }
@@ -949,9 +2434,9 @@ impl JsMinerScanner {
             r#"<input[^>]*name\s*=\s*["']([^"']+)["']"#,
             r#"<textarea[^>]*name\s*=\s*["']([^"']+)["']"#,
             r#"<select[^>]*name\s*=\s*["']([^"']+)["']"#,
-            r#"formControlName\s*=\s*["']([^"']+)["']"#,  // Angular
-            r#"v-model\s*=\s*["']([^"']+)["']"#,          // Vue
-            r#"register\s*\(\s*["']([^"']+)["']"#,        // React Hook Form
+            r#"formControlName\s*=\s*["']([^"']+)["']"#, // Angular
+            r#"v-model\s*=\s*["']([^"']+)["']"#,         // Vue
+            r#"register\s*\(\s*["']([^"']+)["']"#,       // React Hook Form
         ];
 
         for pattern in form_field_patterns {
@@ -975,7 +2460,10 @@ impl JsMinerScanner {
                 for cap in regex.captures_iter(content) {
                     if let Some(action) = cap.get(1) {
                         let action_str = action.as_str().to_string();
-                        if !action_str.is_empty() && action_str != "#" && Self::is_valid_endpoint(&action_str) {
+                        if !action_str.is_empty()
+                            && action_str != "#"
+                            && Self::is_valid_endpoint(&action_str)
+                        {
                             results.form_actions.insert(action_str);
                         }
                     }
@@ -994,7 +2482,11 @@ impl JsMinerScanner {
             Err(_) => return js_files,
         };
 
-        let origin = format!("{}://{}", url_obj.scheme(), url_obj.host_str().unwrap_or(""));
+        let origin = format!(
+            "{}://{}",
+            url_obj.scheme(),
+            url_obj.host_str().unwrap_or("")
+        );
 
         // Extract script tags with src attribute (flexible regex)
         // Matches: <script src="..."> <script type="module" src="..."> etc
@@ -1010,7 +2502,8 @@ impl JsMinerScanner {
         }
 
         // Also find JS URLs in link preload tags
-        let preload_regex = Regex::new(r#"<link[^>]*\shref\s*=\s*["']?([^"'\s>]+\.js[^"'\s>]*)"#).unwrap();
+        let preload_regex =
+            Regex::new(r#"<link[^>]*\shref\s*=\s*["']?([^"'\s>]+\.js[^"'\s>]*)"#).unwrap();
         for cap in preload_regex.captures_iter(html) {
             if let Some(href) = cap.get(1) {
                 let js_url = self.resolve_js_url(&origin, &url_obj, href.as_str());
@@ -1053,7 +2546,13 @@ impl JsMinerScanner {
     }
 
     /// Analyze inline scripts in HTML
-    fn analyze_inline_scripts(&self, html: &str, location: &str, vulnerabilities: &mut Vec<Vulnerability>, seen_evidence: &mut HashSet<String>) -> usize {
+    fn analyze_inline_scripts(
+        &self,
+        html: &str,
+        location: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+        seen_evidence: &mut HashSet<String>,
+    ) -> usize {
         let mut tests_run = 0;
 
         let inline_script_regex = Regex::new(r#"<script[^>]*>([\s\S]*?)</script>"#).unwrap();
@@ -1064,7 +2563,12 @@ impl JsMinerScanner {
                 if content.trim().len() > 50 {
                     let inline_location = format!("{}#inline-{}", location, index);
                     tests_run += 1;
-                    self.analyze_js_content(content, &inline_location, vulnerabilities, seen_evidence);
+                    self.analyze_js_content(
+                        content,
+                        &inline_location,
+                        vulnerabilities,
+                        seen_evidence,
+                    );
                 }
             }
         }
@@ -1073,7 +2577,13 @@ impl JsMinerScanner {
     }
 
     /// Analyze inline scripts with full results
-    fn analyze_inline_scripts_full(&self, html: &str, location: &str, results: &mut JsMinerResults, seen_evidence: &mut HashSet<String>) -> usize {
+    fn analyze_inline_scripts_full(
+        &self,
+        html: &str,
+        location: &str,
+        results: &mut JsMinerResults,
+        seen_evidence: &mut HashSet<String>,
+    ) -> usize {
         let mut tests_run = 0;
 
         let inline_script_regex = Regex::new(r#"<script[^>]*>([\s\S]*?)</script>"#).unwrap();
@@ -1093,7 +2603,13 @@ impl JsMinerScanner {
     }
 
     /// Analyze a JavaScript file with full results
-    async fn analyze_js_file_full(&self, js_url: &str, analyzed_urls: &mut HashSet<String>, results: &mut JsMinerResults, seen_evidence: &mut HashSet<String>) -> usize {
+    async fn analyze_js_file_full(
+        &self,
+        js_url: &str,
+        analyzed_urls: &mut HashSet<String>,
+        results: &mut JsMinerResults,
+        seen_evidence: &mut HashSet<String>,
+    ) -> usize {
         if analyzed_urls.contains(js_url) {
             return 0;
         }
@@ -1102,14 +2618,24 @@ impl JsMinerScanner {
 
         match self.http_client.get(js_url).await {
             Ok(response) => {
-                let content_type = response.headers.get("content-type")
+                let content_type = response
+                    .headers
+                    .get("content-type")
                     .map(|s| s.to_lowercase())
                     .unwrap_or_default();
 
-                if content_type.contains("javascript") || content_type.contains("application/json") || response.body.len() > 0 {
+                if content_type.contains("javascript")
+                    || content_type.contains("application/json")
+                    || response.body.len() > 0
+                {
                     if response.body.len() <= 30 * 1024 * 1024 {
                         let before_count = results.vulnerabilities.len();
-                        self.analyze_js_content_full(&response.body, js_url, results, seen_evidence);
+                        self.analyze_js_content_full(
+                            &response.body,
+                            js_url,
+                            results,
+                            seen_evidence,
+                        );
                         let found = results.vulnerabilities.len() - before_count;
                         if found > 0 {
                             info!("[JS-Miner] Found {} issues in {}", found, js_url);
@@ -1127,22 +2653,46 @@ impl JsMinerScanner {
     }
 
     /// Analyze JavaScript content with full results (vulns + attack surfaces)
-    fn analyze_js_content_full(&self, content: &str, location: &str, results: &mut JsMinerResults, seen_evidence: &mut HashSet<String>) {
+    fn analyze_js_content_full(
+        &self,
+        content: &str,
+        location: &str,
+        results: &mut JsMinerResults,
+        seen_evidence: &mut HashSet<String>,
+    ) {
         // First extract attack surfaces (endpoints, parameters)
         self.extract_attack_surfaces(content, location, results);
 
         // Then run vulnerability detection
-        self.analyze_js_content(content, location, &mut results.vulnerabilities, seen_evidence);
+        self.analyze_js_content(
+            content,
+            location,
+            &mut results.vulnerabilities,
+            seen_evidence,
+        );
     }
 
     /// Extract API endpoints, parameters, and form actions from JS content
-    fn extract_attack_surfaces(&self, content: &str, _location: &str, results: &mut JsMinerResults) {
+    fn extract_attack_surfaces(
+        &self,
+        content: &str,
+        _location: &str,
+        results: &mut JsMinerResults,
+    ) {
         // Extract API endpoints with path parameters
         // Pattern: /api/something or /v1/something or /graphql
-        if let Some(endpoints) = self.scan_pattern(content, r#"['"`](/(?:api|v[0-9]+|graphql)[^'"`\s<>]{0,100})['"`]"#, "API Endpoint") {
+        if let Some(endpoints) = self.scan_pattern(
+            content,
+            r#"['"`](/(?:api|v[0-9]+|graphql)[^'"`\s<>]{0,100})['"`]"#,
+            "API Endpoint",
+        ) {
             for endpoint in endpoints.into_iter().take(50) {
                 let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`');
-                if clean.len() > 3 && !clean.contains("..") && Self::is_valid_endpoint(clean) && !Self::is_language_path(clean) {
+                if clean.len() > 3
+                    && !clean.contains("..")
+                    && Self::is_valid_endpoint(clean)
+                    && !Self::is_language_path(clean)
+                {
                     results.api_endpoints.insert(clean.to_string());
 
                     // Extract path parameters like :id or {id}
@@ -1164,12 +2714,17 @@ impl JsMinerScanner {
         for pattern in href_patterns {
             if let Some(paths) = self.scan_pattern(content, pattern, "Route Path") {
                 for path in paths.into_iter().take(50) {
-                    let clean = path.trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == '(' || c == ')' || c == ' ');
+                    let clean = path.trim_matches(|c| {
+                        c == '"' || c == '\'' || c == '`' || c == '(' || c == ')' || c == ' '
+                    });
                     // Extract just the path part
                     if let Some(start) = clean.find('/') {
                         let path_only = &clean[start..];
                         // Skip language paths like /en, /fi, /sv
-                        if path_only.len() > 3 && Self::is_valid_endpoint(path_only) && !Self::is_language_path(path_only) {
+                        if path_only.len() > 3
+                            && Self::is_valid_endpoint(path_only)
+                            && !Self::is_language_path(path_only)
+                        {
                             results.api_endpoints.insert(path_only.to_string());
                         }
                     }
@@ -1178,7 +2733,11 @@ impl JsMinerScanner {
         }
 
         // Extract full API URLs
-        if let Some(urls) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*(?:api|v[0-9]+|graphql)[^\s"'<>]*"#, "API URL") {
+        if let Some(urls) = self.scan_pattern(
+            content,
+            r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*(?:api|v[0-9]+|graphql)[^\s"'<>]*"#,
+            "API URL",
+        ) {
             for url in urls.into_iter().take(20) {
                 if !Self::is_documentation_url(&url) && Self::is_valid_endpoint(&url) {
                     results.api_endpoints.insert(url.clone());
@@ -1192,7 +2751,11 @@ impl JsMinerScanner {
         }
 
         // Extract GraphQL endpoints specifically
-        if let Some(gql_endpoints) = self.scan_pattern(content, r#"['"`]((?:https?://)?[^'"`\s]*graphql[^'"`\s]*)['"`]"#, "GraphQL") {
+        if let Some(gql_endpoints) = self.scan_pattern(
+            content,
+            r#"['"`]((?:https?://)?[^'"`\s]*graphql[^'"`\s]*)['"`]"#,
+            "GraphQL",
+        ) {
             for endpoint in gql_endpoints.into_iter().take(10) {
                 let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`');
                 results.graphql_endpoints.insert(clean.to_string());
@@ -1224,10 +2787,15 @@ impl JsMinerScanner {
         for pattern in field_patterns {
             if let Some(fields) = self.scan_pattern(content, pattern, "Field Name") {
                 for field in fields.into_iter().take(50) {
-                    let clean = field.split(&['=', ':'][..]).last().unwrap_or(&field)
+                    let clean = field
+                        .split(&['=', ':'][..])
+                        .last()
+                        .unwrap_or(&field)
                         .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
                     if clean.len() > 1 && clean.len() < 30 && !Self::is_minified_param(clean) {
-                        results.parameters.entry("*".to_string())
+                        results
+                            .parameters
+                            .entry("*".to_string())
                             .or_insert_with(HashSet::new)
                             .insert(clean.to_string());
                     }
@@ -1266,10 +2834,17 @@ impl JsMinerScanner {
         for pattern in form_input_patterns {
             if let Some(inputs) = self.scan_pattern(content, pattern, "Form Input") {
                 for input in inputs.into_iter().take(30) {
-                    let clean = input.split(&['=', ':', '(', '{', '.'][..]).last().unwrap_or(&input)
-                        .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')' || c == '}');
+                    let clean = input
+                        .split(&['=', ':', '(', '{', '.'][..])
+                        .last()
+                        .unwrap_or(&input)
+                        .trim_matches(|c| {
+                            c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')' || c == '}'
+                        });
                     if clean.len() > 1 && clean.len() < 30 && !Self::is_minified_param(clean) {
-                        results.parameters.entry("*".to_string())
+                        results
+                            .parameters
+                            .entry("*".to_string())
                             .or_insert_with(HashSet::new)
                             .insert(clean.to_string());
                     }
@@ -1289,8 +2864,13 @@ impl JsMinerScanner {
         for pattern in submit_patterns {
             if let Some(endpoints) = self.scan_pattern(content, pattern, "Form Submit") {
                 for endpoint in endpoints.into_iter().take(10) {
-                    let clean = endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
-                    if !clean.is_empty() && !clean.contains("consent") && clean.len() < 200 && Self::is_valid_endpoint(clean) {
+                    let clean =
+                        endpoint.trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
+                    if !clean.is_empty()
+                        && !clean.contains("consent")
+                        && clean.len() < 200
+                        && Self::is_valid_endpoint(clean)
+                    {
                         results.form_actions.insert(clean.to_string());
                     }
                 }
@@ -1299,21 +2879,56 @@ impl JsMinerScanner {
 
         // Extract common form field names from text content (labels, placeholders)
         let common_form_fields = [
-            ("email", "email"), ("e-mail", "email"), ("sähköposti", "email"), ("correo", "email"),
-            ("name", "name"), ("nimi", "name"), ("nombre", "name"), ("fullname", "fullname"),
-            ("phone", "phone"), ("puhelin", "phone"), ("telefono", "phone"), ("mobile", "phone"),
-            ("message", "message"), ("viesti", "message"), ("mensaje", "message"), ("comment", "comment"),
-            ("subject", "subject"), ("aihe", "subject"), ("asunto", "subject"),
-            ("company", "company"), ("yritys", "company"), ("empresa", "company"),
-            ("address", "address"), ("osoite", "address"), ("direccion", "address"),
-            ("password", "password"), ("salasana", "password"), ("contraseña", "password"),
-            ("username", "username"), ("käyttäjä", "username"), ("usuario", "username"),
-            ("firstname", "firstname"), ("etunimi", "firstname"), ("nombre", "firstname"),
-            ("lastname", "lastname"), ("sukunimi", "lastname"), ("apellido", "lastname"),
-            ("search", "search"), ("haku", "search"), ("buscar", "search"), ("query", "query"),
-            ("city", "city"), ("kaupunki", "city"), ("ciudad", "city"),
-            ("country", "country"), ("maa", "country"), ("pais", "country"),
-            ("zip", "zip"), ("postal", "postalcode"), ("postinumero", "postalcode"),
+            ("email", "email"),
+            ("e-mail", "email"),
+            ("sähköposti", "email"),
+            ("correo", "email"),
+            ("name", "name"),
+            ("nimi", "name"),
+            ("nombre", "name"),
+            ("fullname", "fullname"),
+            ("phone", "phone"),
+            ("puhelin", "phone"),
+            ("telefono", "phone"),
+            ("mobile", "phone"),
+            ("message", "message"),
+            ("viesti", "message"),
+            ("mensaje", "message"),
+            ("comment", "comment"),
+            ("subject", "subject"),
+            ("aihe", "subject"),
+            ("asunto", "subject"),
+            ("company", "company"),
+            ("yritys", "company"),
+            ("empresa", "company"),
+            ("address", "address"),
+            ("osoite", "address"),
+            ("direccion", "address"),
+            ("password", "password"),
+            ("salasana", "password"),
+            ("contraseña", "password"),
+            ("username", "username"),
+            ("käyttäjä", "username"),
+            ("usuario", "username"),
+            ("firstname", "firstname"),
+            ("etunimi", "firstname"),
+            ("nombre", "firstname"),
+            ("lastname", "lastname"),
+            ("sukunimi", "lastname"),
+            ("apellido", "lastname"),
+            ("search", "search"),
+            ("haku", "search"),
+            ("buscar", "search"),
+            ("query", "query"),
+            ("city", "city"),
+            ("kaupunki", "city"),
+            ("ciudad", "city"),
+            ("country", "country"),
+            ("maa", "country"),
+            ("pais", "country"),
+            ("zip", "zip"),
+            ("postal", "postalcode"),
+            ("postinumero", "postalcode"),
         ];
 
         let content_lower = content.to_lowercase();
@@ -1328,8 +2943,13 @@ impl JsMinerScanner {
                 ];
 
                 for ctx_pattern in form_context_patterns {
-                    if Regex::new(ctx_pattern).map(|re| re.is_match(&content_lower)).unwrap_or(false) {
-                        results.parameters.entry("*".to_string())
+                    if Regex::new(ctx_pattern)
+                        .map(|re| re.is_match(&content_lower))
+                        .unwrap_or(false)
+                    {
+                        results
+                            .parameters
+                            .entry("*".to_string())
                             .or_insert_with(HashSet::new)
                             .insert(param_name.to_string());
                         break;
@@ -1346,24 +2966,31 @@ impl JsMinerScanner {
         let nextjs_patterns = [
             // Server Actions (Next.js 13+)
             r#"useFormState\s*\([^)]*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
-            r#"useFormStatus\s*\(\)"#,  // Marker for form presence
-            r#"startTransition.*formAction"#,  // Server action trigger
+            r#"useFormStatus\s*\(\)"#,        // Marker for form presence
+            r#"startTransition.*formAction"#, // Server action trigger
             // Action function definitions
             r#"async\s+function\s+([a-zA-Z_]*(?:submit|action|create|update|delete)[a-zA-Z_]*)"#,
-            r#"['"`]use\s+server['"`]"#,  // Server directive marker
+            r#"['"`]use\s+server['"`]"#, // Server directive marker
             // FormData extraction (common in server actions)
             r#"formData\.get\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
             r#"formData\.getAll\s*\(\s*['"`]([a-zA-Z_][a-zA-Z0-9_]{1,30})['"`]"#,
-            r#"Object\.fromEntries\s*\(\s*formData"#,  // Marker for form processing
+            r#"Object\.fromEntries\s*\(\s*formData"#, // Marker for form processing
         ];
 
         for pattern in nextjs_patterns {
             if let Some(matches) = self.scan_pattern(content, pattern, "Next.js Form") {
                 for m in matches.into_iter().take(20) {
-                    let clean = m.split(&['=', ':', '(', '{', '.'][..]).last().unwrap_or(&m)
-                        .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')');
+                    let clean = m
+                        .split(&['=', ':', '(', '{', '.'][..])
+                        .last()
+                        .unwrap_or(&m)
+                        .trim_matches(|c| {
+                            c == '"' || c == '\'' || c == '`' || c == ' ' || c == ')'
+                        });
                     if clean.len() > 2 && clean.len() < 30 && !Self::is_minified_param(clean) {
-                        results.parameters.entry("*".to_string())
+                        results
+                            .parameters
+                            .entry("*".to_string())
                             .or_insert_with(HashSet::new)
                             .insert(clean.to_string());
                     }
@@ -1395,7 +3022,9 @@ impl JsMinerScanner {
                                 if let Some(key) = cap.get(1) {
                                     let field = key.as_str();
                                     if !Self::is_minified_param(field) {
-                                        results.parameters.entry("*".to_string())
+                                        results
+                                            .parameters
+                                            .entry("*".to_string())
                                             .or_insert_with(HashSet::new)
                                             .insert(field.to_string());
                                     }
@@ -1403,10 +3032,15 @@ impl JsMinerScanner {
                             }
                         }
                     } else {
-                        let clean = m.split(&['=', ':', '('][..]).next().unwrap_or(&m)
+                        let clean = m
+                            .split(&['=', ':', '('][..])
+                            .next()
+                            .unwrap_or(&m)
                             .trim_matches(|c| c == '"' || c == '\'' || c == '`' || c == ' ');
                         if clean.len() > 2 && !Self::is_minified_param(clean) {
-                            results.parameters.entry("*".to_string())
+                            results
+                                .parameters
+                                .entry("*".to_string())
                                 .or_insert_with(HashSet::new)
                                 .insert(clean.to_string());
                         }
@@ -1419,13 +3053,36 @@ impl JsMinerScanner {
         // Avoid generic words like "name", "title", "content" that appear everywhere
         let form_field_strings = [
             // These are specific enough to indicate actual form fields
-            "email", "password", "username", "phone", "message", "subject",
-            "firstName", "lastName", "first_name", "last_name", "fullName", "full_name",
-            "company", "organization", "zipcode", "postalcode", "postal_code",
-            "cardNumber", "card_number", "cvv", "expiry", "expiration",
-            "newsletter", "subscribe",
+            "email",
+            "password",
+            "username",
+            "phone",
+            "message",
+            "subject",
+            "firstName",
+            "lastName",
+            "first_name",
+            "last_name",
+            "fullName",
+            "full_name",
+            "company",
+            "organization",
+            "zipcode",
+            "postalcode",
+            "postal_code",
+            "cardNumber",
+            "card_number",
+            "cvv",
+            "expiry",
+            "expiration",
+            "newsletter",
+            "subscribe",
             // Finnish additions (specific)
-            "sähköposti", "puhelin", "viesti", "postinumero", "yritys",
+            "sähköposti",
+            "puhelin",
+            "viesti",
+            "postinumero",
+            "yritys",
         ];
 
         // Only add these if they appear in a form-related context (stricter matching)
@@ -1434,7 +3091,9 @@ impl JsMinerScanner {
             let jsx_name_pattern = format!(r#"name\s*[=:]\s*[{{"'`]{}[}}"'`]"#, field);
             if let Ok(re) = Regex::new(&jsx_name_pattern) {
                 if re.is_match(content) {
-                    results.parameters.entry("*".to_string())
+                    results
+                        .parameters
+                        .entry("*".to_string())
                         .or_insert_with(HashSet::new)
                         .insert(field.to_string());
                 }
@@ -1481,7 +3140,9 @@ impl JsMinerScanner {
                             if let Some(key) = cap.get(1) {
                                 let field = key.as_str();
                                 if !Self::is_minified_param(field) {
-                                    results.parameters.entry("*".to_string())
+                                    results
+                                        .parameters
+                                        .entry("*".to_string())
                                         .or_insert_with(HashSet::new)
                                         .insert(field.to_string());
                                 }
@@ -1495,7 +3156,12 @@ impl JsMinerScanner {
 
     /// Extract GraphQL operations (queries, mutations, subscriptions) from JavaScript content
     /// These provide additional testing surface for the GraphQL scanner
-    fn extract_graphql_operations(&self, content: &str, source: &str, results: &mut JsMinerResults) {
+    fn extract_graphql_operations(
+        &self,
+        content: &str,
+        source: &str,
+        results: &mut JsMinerResults,
+    ) {
         // Pattern 1: gql` or graphql` tagged template literals with operation
         // Matches: gql`query GetUsers { ... }` or gql`mutation CreateUser($input: UserInput!) { ... }`
         let gql_template_pattern = r#"(?:gql|graphql)\s*`\s*((?:query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)[^`]{0,2000})`"#;
@@ -1530,14 +3196,21 @@ impl JsMinerScanner {
                 if let (Some(op_type), Some(name)) = (cap.get(1), cap.get(2)) {
                     let name_str = name.as_str();
                     // Skip if already captured
-                    if results.graphql_operations.iter().any(|op| op.name == name_str) {
+                    if results
+                        .graphql_operations
+                        .iter()
+                        .any(|op| op.name == name_str)
+                    {
                         continue;
                     }
 
                     results.graphql_operations.push(GraphQLOperationInfo {
                         operation_type: op_type.as_str().to_string(),
                         name: name_str.to_string(),
-                        raw: cap.get(0).map(|m| m.as_str().chars().take(200).collect()).unwrap_or_default(),
+                        raw: cap
+                            .get(0)
+                            .map(|m| m.as_str().chars().take(200).collect())
+                            .unwrap_or_default(),
                         source: source.to_string(),
                     });
                 }
@@ -1558,8 +3231,11 @@ impl JsMinerScanner {
                     if let Some(const_name) = cap.get(1) {
                         let name = const_name.as_str();
                         // Derive operation type from naming convention
-                        let operation_type = if name.contains("MUTATION") || name.starts_with("CREATE") ||
-                                               name.starts_with("UPDATE") || name.starts_with("DELETE") {
+                        let operation_type = if name.contains("MUTATION")
+                            || name.starts_with("CREATE")
+                            || name.starts_with("UPDATE")
+                            || name.starts_with("DELETE")
+                        {
                             "mutation"
                         } else if name.contains("SUBSCRIPTION") {
                             "subscription"
@@ -1575,7 +3251,15 @@ impl JsMinerScanner {
                         results.graphql_operations.push(GraphQLOperationInfo {
                             operation_type: operation_type.to_string(),
                             name: name.to_string(),
-                            raw: format!("{}({})", if operation_type == "mutation" { "mutation" } else { "query" }, name),
+                            raw: format!(
+                                "{}({})",
+                                if operation_type == "mutation" {
+                                    "mutation"
+                                } else {
+                                    "query"
+                                },
+                                name
+                            ),
                             source: source.to_string(),
                         });
                     }
@@ -1598,7 +3282,11 @@ impl JsMinerScanner {
                             continue;
                         }
 
-                        let operation_type = if name.contains("MUTATION") { "mutation" } else { "query" };
+                        let operation_type = if name.contains("MUTATION") {
+                            "mutation"
+                        } else {
+                            "query"
+                        };
                         results.graphql_operations.push(GraphQLOperationInfo {
                             operation_type: operation_type.to_string(),
                             name: name.to_string(),
@@ -1612,10 +3300,23 @@ impl JsMinerScanner {
 
         // Log if we found operations
         if !results.graphql_operations.is_empty() {
-            let queries = results.graphql_operations.iter().filter(|op| op.operation_type == "query").count();
-            let mutations = results.graphql_operations.iter().filter(|op| op.operation_type == "mutation").count();
-            info!("[JS-Miner] Extracted {} GraphQL operations ({} queries, {} mutations) from {}",
-                results.graphql_operations.len(), queries, mutations, source);
+            let queries = results
+                .graphql_operations
+                .iter()
+                .filter(|op| op.operation_type == "query")
+                .count();
+            let mutations = results
+                .graphql_operations
+                .iter()
+                .filter(|op| op.operation_type == "mutation")
+                .count();
+            info!(
+                "[JS-Miner] Extracted {} GraphQL operations ({} queries, {} mutations) from {}",
+                results.graphql_operations.len(),
+                queries,
+                mutations,
+                source
+            );
         }
     }
 
@@ -1625,27 +3326,84 @@ impl JsMinerScanner {
         // Common form field names - these work across ALL frameworks
         let known_form_fields = [
             // Contact/signup forms
-            "email", "password", "username", "phone", "telephone", "mobile",
-            "message", "subject", "comment", "feedback", "inquiry",
-            "firstName", "lastName", "fullName",
-            "first_name", "last_name", "full_name",
-            "company", "organization", "business",
-            "address", "street", "city", "state", "country", "zip", "postal",
-            "zipcode", "postcode", "postalcode",
-            "website", "linkedin", "twitter",
-            "budget", "amount", "price",
-            "description", "details", "notes",
-            "contactName", "contactEmail", "contactPhone",
-            "companyName", "companyEmail",
+            "email",
+            "password",
+            "username",
+            "phone",
+            "telephone",
+            "mobile",
+            "message",
+            "subject",
+            "comment",
+            "feedback",
+            "inquiry",
+            "firstName",
+            "lastName",
+            "fullName",
+            "first_name",
+            "last_name",
+            "full_name",
+            "company",
+            "organization",
+            "business",
+            "address",
+            "street",
+            "city",
+            "state",
+            "country",
+            "zip",
+            "postal",
+            "zipcode",
+            "postcode",
+            "postalcode",
+            "website",
+            "linkedin",
+            "twitter",
+            "budget",
+            "amount",
+            "price",
+            "description",
+            "details",
+            "notes",
+            "contactName",
+            "contactEmail",
+            "contactPhone",
+            "companyName",
+            "companyEmail",
             // Auth forms
-            "oldPassword", "newPassword", "confirmPassword", "password_confirmation",
-            "currentPassword", "old_password", "new_password", "confirm_password",
+            "oldPassword",
+            "newPassword",
+            "confirmPassword",
+            "password_confirmation",
+            "currentPassword",
+            "old_password",
+            "new_password",
+            "confirm_password",
             // Multi-language (Finnish, Spanish, German, French)
-            "nimi", "sähköposti", "puhelin", "viesti", "osoite", "kaupunki",
-            "postinumero", "yritys", "aihe", "kuvaus", "kommentti",
-            "nombre", "correo", "telefono", "mensaje", "direccion",
-            "vorname", "nachname", "telefon", "nachricht", "adresse",
-            "prenom", "courriel", "adresse",
+            "nimi",
+            "sähköposti",
+            "puhelin",
+            "viesti",
+            "osoite",
+            "kaupunki",
+            "postinumero",
+            "yritys",
+            "aihe",
+            "kuvaus",
+            "kommentti",
+            "nombre",
+            "correo",
+            "telefono",
+            "mensaje",
+            "direccion",
+            "vorname",
+            "nachname",
+            "telefon",
+            "nachricht",
+            "adresse",
+            "prenom",
+            "courriel",
+            "adresse",
         ];
 
         let content_lower = content.to_lowercase();
@@ -1662,7 +3420,9 @@ impl JsMinerScanner {
             for pattern in &patterns {
                 if let Ok(re) = Regex::new(pattern) {
                     if re.is_match(&content_lower) {
-                        results.parameters.entry("*".to_string())
+                        results
+                            .parameters
+                            .entry("*".to_string())
                             .or_insert_with(HashSet::new)
                             .insert(field.to_string());
                         break;
@@ -1685,7 +3445,12 @@ impl JsMinerScanner {
                 for cap in re.captures_iter(content) {
                     if let Some(endpoint) = cap.get(1).or(cap.get(0)) {
                         let ep = endpoint.as_str().to_string();
-                        if ep.len() > 3 && ep.len() < 100 && !ep.contains("consent") && !ep.contains("cookie") && Self::is_valid_endpoint(&ep) {
+                        if ep.len() > 3
+                            && ep.len() < 100
+                            && !ep.contains("consent")
+                            && !ep.contains("cookie")
+                            && Self::is_valid_endpoint(&ep)
+                        {
                             results.form_actions.insert(ep);
                         }
                     }
@@ -1705,7 +3470,10 @@ impl JsMinerScanner {
         // Skip UUID-like parameters (e.g., f_719771a0-d35e-4857-9c31-41e656da6325)
         // Matches: prefix_UUID or just UUID patterns
         if name.contains('-') {
-            let uuid_pattern = regex::Regex::new(r"^[a-zA-Z_]*[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$").ok();
+            let uuid_pattern = regex::Regex::new(
+                r"^[a-zA-Z_]*[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
+            )
+            .ok();
             if let Some(re) = uuid_pattern {
                 if re.is_match(name) || name.split('_').any(|part| re.is_match(part)) {
                     return true;
@@ -1730,77 +3498,283 @@ impl JsMinerScanner {
 
         // Skip common framework/meta params that aren't user input
         let skip_exact = [
-            "viewport", "charset", "content", "equiv", "property",
-            "xmlns", "lang", "dir", "class", "style", "type",
-            "rel", "href", "src", "alt", "title", "width", "height",
-            "async", "defer", "crossorigin", "integrity", "nonce",
-            "fetchpriority", "loading", "decoding", "sizes", "srcset",
+            "viewport",
+            "charset",
+            "content",
+            "equiv",
+            "property",
+            "xmlns",
+            "lang",
+            "dir",
+            "class",
+            "style",
+            "type",
+            "rel",
+            "href",
+            "src",
+            "alt",
+            "title",
+            "width",
+            "height",
+            "async",
+            "defer",
+            "crossorigin",
+            "integrity",
+            "nonce",
+            "fetchpriority",
+            "loading",
+            "decoding",
+            "sizes",
+            "srcset",
             // Next.js / React specific
-            "children", "dangerouslySetInnerHTML", "key", "ref",
-            "className", "htmlFor", "onChange", "onClick", "onSubmit",
-            "defaultValue", "defaultChecked", "suppressHydrationWarning",
-            "sreact", "reactformreplay", "description",
+            "children",
+            "dangerouslySetInnerHTML",
+            "key",
+            "ref",
+            "className",
+            "htmlFor",
+            "onChange",
+            "onClick",
+            "onSubmit",
+            "defaultValue",
+            "defaultChecked",
+            "suppressHydrationWarning",
+            "sreact",
+            "reactformreplay",
+            "description",
             // Build/chunk identifiers
-            "buildId", "assetPrefix", "runtimeConfig", "nextExport",
+            "buildId",
+            "assetPrefix",
+            "runtimeConfig",
+            "nextExport",
             // Webpack/bundler internal params
-            "pid", "cid", "uid", "gid", "tid", "sid", "rid", "mid", "fid",
-            "idx", "len", "ptr", "buf", "ctx", "env", "obj", "arr", "str",
-            "val", "tmp", "ret", "res", "err", "evt", "req", "rsp",
+            "pid",
+            "cid",
+            "uid",
+            "gid",
+            "tid",
+            "sid",
+            "rid",
+            "mid",
+            "fid",
+            "idx",
+            "len",
+            "ptr",
+            "buf",
+            "ctx",
+            "env",
+            "obj",
+            "arr",
+            "str",
+            "val",
+            "tmp",
+            "ret",
+            "res",
+            "err",
+            "evt",
+            "req",
+            "rsp",
             // Common minified layer/level names
-            "L1", "L2", "L3", "L4", "L5", "M1", "M2", "M3", "N1", "N2",
-            "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "i1", "j1",
-            "fn", "cb", "el", "ns", "id", "op", "ix", "jx", "kx",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+            "L5",
+            "M1",
+            "M2",
+            "M3",
+            "N1",
+            "N2",
+            "a1",
+            "b1",
+            "c1",
+            "d1",
+            "e1",
+            "f1",
+            "g1",
+            "h1",
+            "i1",
+            "j1",
+            "fn",
+            "cb",
+            "el",
+            "ns",
+            "id",
+            "op",
+            "ix",
+            "jx",
+            "kx",
             // Analytics and tracking params
-            "s", "q", "query", "search",
-            "fmt", "format",
-            "t", "ts", "timestamp", "time",
-            "cachebuster", "cache",
-            "v", "ver", "version",
-            "r", "referrer", "source",
+            "s",
+            "q",
+            "query",
+            "search",
+            "fmt",
+            "format",
+            "t",
+            "ts",
+            "timestamp",
+            "time",
+            "cachebuster",
+            "cache",
+            "v",
+            "ver",
+            "version",
+            "r",
+            "referrer",
+            "source",
             // Apollo GraphQL internals
-            "apollo", "apolloClient", "apolloProvider", "apolloUtil",
-            "_apollo", "_apolloInitData", "apolloState",
+            "apollo",
+            "apolloClient",
+            "apolloProvider",
+            "apolloUtil",
+            "_apollo",
+            "_apolloInitData",
+            "apolloState",
             // Sentry error tracking
-            "_sentrySpans", "_sentryTraceData", "sentryConfig",
-            "_sentryRootSpan", "_sentryRootSpanTimer", "_sentryHub",
+            "_sentrySpans",
+            "_sentryTraceData",
+            "sentryConfig",
+            "_sentryRootSpan",
+            "_sentryRootSpanTimer",
+            "_sentryHub",
             // Vue.js internals
-            "ssrContext", "nuxt", "vuex", "vueRouter", "vueI18n",
-            "morph", "prefetch", "deep", "wrapper", "scopedSlots",
-            "loadingKey", "vueSignature", "skipAllQueries",
-            "vnode", "slots", "render", "functional", "staticClass",
-            "staticStyle", "directives", "keepAlive", "transition",
+            "ssrContext",
+            "nuxt",
+            "vuex",
+            "vueRouter",
+            "vueI18n",
+            "morph",
+            "prefetch",
+            "deep",
+            "wrapper",
+            "scopedSlots",
+            "loadingKey",
+            "vueSignature",
+            "skipAllQueries",
+            "vnode",
+            "slots",
+            "render",
+            "functional",
+            "staticClass",
+            "staticStyle",
+            "directives",
+            "keepAlive",
+            "transition",
             // Vuetify/Vue directives
-            "ripple", "intersect", "intersection", "scroll", "resize",
-            "touch", "mutate", "clickOutside", "lazyload",
+            "ripple",
+            "intersect",
+            "intersection",
+            "scroll",
+            "resize",
+            "touch",
+            "mutate",
+            "clickOutside",
+            "lazyload",
             // Apollo/GraphQL internals
-            "watchLoading", "watchError", "apolloData", "apolloQueries",
-            "_apolloPromises", "apolloSubscriptions", "smartQuery", "variables",
+            "watchLoading",
+            "watchError",
+            "apolloData",
+            "apolloQueries",
+            "_apolloPromises",
+            "apolloSubscriptions",
+            "smartQuery",
+            "variables",
             // Nuxt internals
-            "asyncData", "fetch", "head", "layout", "middleware",
-            "scrollToTop", "watchQuery", "getMetaHTML", "metaInfo",
+            "asyncData",
+            "fetch",
+            "head",
+            "layout",
+            "middleware",
+            "scrollToTop",
+            "watchQuery",
+            "getMetaHTML",
+            "metaInfo",
             // Generic service/provider class names (not params)
-            "authService", "signatureService", "serviceGenerator",
-            "globalSettingsService", "extraServiceService", "configService",
-            "fileService", "bugReportService", "apiService", "httpService",
-            "storageService", "cacheService", "logService", "dataService",
+            "authService",
+            "signatureService",
+            "serviceGenerator",
+            "globalSettingsService",
+            "extraServiceService",
+            "configService",
+            "fileService",
+            "bugReportService",
+            "apiService",
+            "httpService",
+            "storageService",
+            "cacheService",
+            "logService",
+            "dataService",
             // Crypto/algorithm names (not params)
-            "ed25519", "sha256", "sha512", "hmac", "aes", "rsa",
-            "elliptic", "secp256k1", "secp256r1", "curve25519", "p256",
-            "ecdsa", "ecdh", "pbkdf2", "argon2", "bcrypt", "scrypt",
+            "ed25519",
+            "sha256",
+            "sha512",
+            "hmac",
+            "aes",
+            "rsa",
+            "elliptic",
+            "secp256k1",
+            "secp256r1",
+            "curve25519",
+            "p256",
+            "ecdsa",
+            "ecdh",
+            "pbkdf2",
+            "argon2",
+            "bcrypt",
+            "scrypt",
             // Common JS internals
-            "spectrum", "palette", "handleError", "transport", "tune",
-            "App", "Router", "Store", "Provider", "Context", "Normal",
-            "mutation", "subscription", "resolver", "fragment",
+            "spectrum",
+            "palette",
+            "handleError",
+            "transport",
+            "tune",
+            "App",
+            "Router",
+            "Store",
+            "Provider",
+            "Context",
+            "Normal",
+            "mutation",
+            "subscription",
+            "resolver",
+            "fragment",
             // dayjs/moment internals
-            "isDayjsObject", "isMoment", "localOffset", "utcOffset",
-            "isValid", "invalidAt", "parsingFlags", "alarm",
+            "isDayjsObject",
+            "isMoment",
+            "localOffset",
+            "utcOffset",
+            "isValid",
+            "invalidAt",
+            "parsingFlags",
+            "alarm",
             // Generic framework noise
-            "_key", "_times", "defaultWidth", "shortRange", "hasNormal",
-            "defaultHeight", "maxWidth", "maxHeight", "maxDepth", "maxWeight",
-            "col", "row", "mount", "i18n", "isSubcontracting", "archived",
+            "_key",
+            "_times",
+            "defaultWidth",
+            "shortRange",
+            "hasNormal",
+            "defaultHeight",
+            "maxWidth",
+            "maxHeight",
+            "maxDepth",
+            "maxWeight",
+            "col",
+            "row",
+            "mount",
+            "i18n",
+            "isSubcontracting",
+            "archived",
             // Vue internal flags
-            "_isVue", "_watchers", "_data", "_props", "_computed",
-            "_renderProxy", "_self", "_inactive", "_directInactive",
+            "_isVue",
+            "_watchers",
+            "_data",
+            "_props",
+            "_computed",
+            "_renderProxy",
+            "_self",
+            "_inactive",
+            "_directInactive",
         ];
         let name_lower = name.to_lowercase();
         for skip in skip_exact {
@@ -1823,21 +3797,55 @@ impl JsMinerScanner {
 
         // Skip common webpack/framework internal params
         let skip_patterns = [
-            "webpack", "chunk", "module", "__", "$$", "_$", "$_",
-            "WEBPACK", "CHUNK", "MODULE",
+            "webpack",
+            "chunk",
+            "module",
+            "__",
+            "$$",
+            "_$",
+            "$_",
+            "WEBPACK",
+            "CHUNK",
+            "MODULE",
             // Framework name patterns (likely internal)
-            "Service", "Provider", "Factory", "Handler", "Manager",
-            "Controller", "Resolver", "Generator", "Util", "Helper",
-            "Adapter", "Wrapper", "Decorator", "Observer", "Listener",
-            "Subscriber", "Publisher", "Emitter", "Dispatcher", "Reducer",
+            "Service",
+            "Provider",
+            "Factory",
+            "Handler",
+            "Manager",
+            "Controller",
+            "Resolver",
+            "Generator",
+            "Util",
+            "Helper",
+            "Adapter",
+            "Wrapper",
+            "Decorator",
+            "Observer",
+            "Listener",
+            "Subscriber",
+            "Publisher",
+            "Emitter",
+            "Dispatcher",
+            "Reducer",
             // Sentry patterns
-            "sentry", "Sentry", "_sentry", "Sentry",
+            "sentry",
+            "Sentry",
+            "_sentry",
+            "Sentry",
             // Apollo patterns
-            "Apollo", "_apollo", "apollo",
+            "Apollo",
+            "_apollo",
+            "apollo",
             // Vue/Nuxt patterns
-            "Vuex", "Nuxt", "$nuxt", "_nuxt",
+            "Vuex",
+            "Nuxt",
+            "$nuxt",
+            "_nuxt",
             // React patterns
-            "Redux", "Mobx", "Recoil",
+            "Redux",
+            "Mobx",
+            "Recoil",
         ];
         for pattern in skip_patterns {
             if name.contains(pattern) {
@@ -1848,8 +3856,8 @@ impl JsMinerScanner {
         // Check for random-looking short names (mix of upper/lower with no vowels)
         if name.len() <= 4 {
             let has_vowel = name.chars().any(|c| "aeiouAEIOU".contains(c));
-            let has_mixed_case = name.chars().any(|c| c.is_uppercase())
-                && name.chars().any(|c| c.is_lowercase());
+            let has_mixed_case =
+                name.chars().any(|c| c.is_uppercase()) && name.chars().any(|c| c.is_lowercase());
 
             // Short names with mixed case and no vowels are likely minified (e.g., "uG", "lj", "xY")
             if !has_vowel && has_mixed_case {
@@ -1878,9 +3886,9 @@ impl JsMinerScanner {
 
         // Exact language codes (2-3 chars)
         let lang_codes = [
-            "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru",
-            "pl", "cs", "hu", "ro", "bg", "hr", "sk", "sl", "et", "lv", "lt", "da", "no",
-            "en-us", "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es", "pt-br",
+            "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ja", "zh", "ko", "ru", "pl",
+            "cs", "hu", "ro", "bg", "hr", "sk", "sl", "et", "lv", "lt", "da", "no", "en-us",
+            "en-gb", "fi-fi", "sv-se", "de-de", "fr-fr", "es-es", "pt-br",
         ];
 
         // Check if entire path is just a language code
@@ -1910,10 +3918,23 @@ impl JsMinerScanner {
 
         // HTTP headers (not endpoints)
         let http_headers = [
-            "content-type", "content-length", "accept", "authorization",
-            "cache-control", "cookie", "host", "origin", "referer", "user-agent",
-            "x-sentry-rate-limits", "retry-after", "x-requested-with",
-            "x-csrf-token", "x-xsrf-token", "accept-encoding", "accept-language",
+            "content-type",
+            "content-length",
+            "accept",
+            "authorization",
+            "cache-control",
+            "cookie",
+            "host",
+            "origin",
+            "referer",
+            "user-agent",
+            "x-sentry-rate-limits",
+            "retry-after",
+            "x-requested-with",
+            "x-csrf-token",
+            "x-xsrf-token",
+            "accept-encoding",
+            "accept-language",
         ];
         let lower = endpoint_trimmed.to_lowercase();
         for header in http_headers {
@@ -1924,11 +3945,40 @@ impl JsMinerScanner {
 
         // Array/Object methods (not endpoints)
         let js_methods = [
-            "push", "pop", "shift", "unshift", "splice", "slice", "concat",
-            "map", "filter", "reduce", "forEach", "find", "findIndex", "some", "every",
-            "join", "split", "indexOf", "includes", "sort", "reverse", "fill",
-            "keys", "values", "entries", "toString", "valueOf", "hasOwnProperty",
-            "call", "apply", "bind", "then", "catch", "finally",
+            "push",
+            "pop",
+            "shift",
+            "unshift",
+            "splice",
+            "slice",
+            "concat",
+            "map",
+            "filter",
+            "reduce",
+            "forEach",
+            "find",
+            "findIndex",
+            "some",
+            "every",
+            "join",
+            "split",
+            "indexOf",
+            "includes",
+            "sort",
+            "reverse",
+            "fill",
+            "keys",
+            "values",
+            "entries",
+            "toString",
+            "valueOf",
+            "hasOwnProperty",
+            "call",
+            "apply",
+            "bind",
+            "then",
+            "catch",
+            "finally",
         ];
         for method in js_methods {
             if endpoint_trimmed == method {
@@ -1938,9 +3988,19 @@ impl JsMinerScanner {
 
         // Variable/constant names (not endpoints)
         let var_patterns = [
-            "API_ENDPOINT", "BASE_URL", "API_URL", "BACKEND_URL", "SERVER_URL",
-            "fetchRequest", "httpRequest", "ajaxRequest", "apiCall",
-            "transaction", "subscription", "mutation", "resolver",
+            "API_ENDPOINT",
+            "BASE_URL",
+            "API_URL",
+            "BACKEND_URL",
+            "SERVER_URL",
+            "fetchRequest",
+            "httpRequest",
+            "ajaxRequest",
+            "apiCall",
+            "transaction",
+            "subscription",
+            "mutation",
+            "resolver",
         ];
         for pattern in var_patterns {
             if endpoint_trimmed == pattern || endpoint_trimmed.ends_with(':') {
@@ -1990,11 +4050,15 @@ impl JsMinerScanner {
         for cap in param_regex.captures_iter(path) {
             if let Some(param) = cap.get(1) {
                 let param_name = param.as_str();
-                if param_name != "api" && param_name != "v1" && param_name != "v2"
+                if param_name != "api"
+                    && param_name != "v1"
+                    && param_name != "v2"
                     && param_name.len() > 1
                     && !Self::is_minified_param(param_name)
                 {
-                    results.parameters.entry(path.to_string())
+                    results
+                        .parameters
+                        .entry(path.to_string())
                         .or_insert_with(HashSet::new)
                         .insert(param_name.to_string());
                 }
@@ -2005,7 +4069,8 @@ impl JsMinerScanner {
     /// Extract request parameters from fetch/axios/$.ajax calls
     fn extract_request_params(&self, content: &str, results: &mut JsMinerResults) {
         // Pattern for object properties: { key: value } in request bodies
-        let obj_regex = Regex::new(r#"(?:body|data|params|query)\s*[=:]\s*\{([^}]{5,500})\}"#).unwrap();
+        let obj_regex =
+            Regex::new(r#"(?:body|data|params|query)\s*[=:]\s*\{([^}]{5,500})\}"#).unwrap();
         let key_regex = Regex::new(r#"['"]?([a-zA-Z_][a-zA-Z0-9_]{1,30})['"]?\s*:"#).unwrap();
 
         for cap in obj_regex.captures_iter(content) {
@@ -2014,7 +4079,9 @@ impl JsMinerScanner {
                     if let Some(key) = key_cap.get(1) {
                         let param = key.as_str();
                         if param.len() > 2 && param.len() < 30 && !Self::is_minified_param(param) {
-                            results.parameters.entry("*".to_string())
+                            results
+                                .parameters
+                                .entry("*".to_string())
                                 .or_insert_with(HashSet::new)
                                 .insert(param.to_string());
                         }
@@ -2024,7 +4091,10 @@ impl JsMinerScanner {
         }
 
         // Pattern for URL query strings: ?param1=value&param2=value
-        let qs_regex = Regex::new(r#"\?([a-zA-Z_][a-zA-Z0-9_]*=[^&\s'"]*(?:&[a-zA-Z_][a-zA-Z0-9_]*=[^&\s'"]*)*)"#).unwrap();
+        let qs_regex = Regex::new(
+            r#"\?([a-zA-Z_][a-zA-Z0-9_]*=[^&\s'"]*(?:&[a-zA-Z_][a-zA-Z0-9_]*=[^&\s'"]*)*)"#,
+        )
+        .unwrap();
         let param_regex = Regex::new(r"([a-zA-Z_][a-zA-Z0-9_]*)=").unwrap();
 
         for cap in qs_regex.captures_iter(content) {
@@ -2032,8 +4102,13 @@ impl JsMinerScanner {
                 for param_cap in param_regex.captures_iter(qs.as_str()) {
                     if let Some(param) = param_cap.get(1) {
                         let param_name = param.as_str();
-                        if param_name.len() > 2 && param_name.len() < 30 && !Self::is_minified_param(param_name) {
-                            results.parameters.entry("*".to_string())
+                        if param_name.len() > 2
+                            && param_name.len() < 30
+                            && !Self::is_minified_param(param_name)
+                        {
+                            results
+                                .parameters
+                                .entry("*".to_string())
                                 .or_insert_with(HashSet::new)
                                 .insert(param_name.to_string());
                         }
@@ -2044,7 +4119,13 @@ impl JsMinerScanner {
     }
 
     /// Analyze a JavaScript file
-    async fn analyze_js_file(&self, js_url: &str, analyzed_urls: &mut HashSet<String>, vulnerabilities: &mut Vec<Vulnerability>, seen_evidence: &mut HashSet<String>) -> usize {
+    async fn analyze_js_file(
+        &self,
+        js_url: &str,
+        analyzed_urls: &mut HashSet<String>,
+        vulnerabilities: &mut Vec<Vulnerability>,
+        seen_evidence: &mut HashSet<String>,
+    ) -> usize {
         if analyzed_urls.contains(js_url) {
             return 0;
         }
@@ -2054,15 +4135,25 @@ impl JsMinerScanner {
         match self.http_client.get(js_url).await {
             Ok(response) => {
                 // Only analyze if content type is JavaScript
-                let content_type = response.headers.get("content-type")
+                let content_type = response
+                    .headers
+                    .get("content-type")
                     .map(|s| s.to_lowercase())
                     .unwrap_or_default();
 
-                if content_type.contains("javascript") || content_type.contains("application/json") || response.body.len() > 0 {
+                if content_type.contains("javascript")
+                    || content_type.contains("application/json")
+                    || response.body.len() > 0
+                {
                     // Limit file size to 30MB
                     if response.body.len() <= 30 * 1024 * 1024 {
                         let before_count = vulnerabilities.len();
-                        self.analyze_js_content(&response.body, js_url, vulnerabilities, seen_evidence);
+                        self.analyze_js_content(
+                            &response.body,
+                            js_url,
+                            vulnerabilities,
+                            seen_evidence,
+                        );
                         let found = vulnerabilities.len() - before_count;
                         if found > 0 {
                             info!("[JS-Miner] Found {} issues in {}", found, js_url);
@@ -2080,15 +4171,30 @@ impl JsMinerScanner {
     }
 
     /// Add vulnerability only if evidence hasn't been seen before
-    fn add_unique_vuln(&self, vulnerabilities: &mut Vec<Vulnerability>, seen: &mut HashSet<String>, vuln: Vulnerability) {
-        let key = format!("{}:{}", vuln.vuln_type, vuln.evidence.as_ref().unwrap_or(&"".to_string()));
+    fn add_unique_vuln(
+        &self,
+        vulnerabilities: &mut Vec<Vulnerability>,
+        seen: &mut HashSet<String>,
+        vuln: Vulnerability,
+    ) {
+        let key = format!(
+            "{}:{}",
+            vuln.vuln_type,
+            vuln.evidence.as_ref().unwrap_or(&"".to_string())
+        );
         if seen.insert(key) {
             vulnerabilities.push(vuln);
         }
     }
 
     /// Analyze JavaScript content for sensitive data
-    fn analyze_js_content(&self, content: &str, location: &str, vulnerabilities: &mut Vec<Vulnerability>, seen_evidence: &mut HashSet<String>) {
+    fn analyze_js_content(
+        &self,
+        content: &str,
+        location: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+        seen_evidence: &mut HashSet<String>,
+    ) {
         // AWS Keys
         if let Some(findings) = self.scan_pattern(content, r"AKIA[0-9A-Z]{16}", "AWS Access Key") {
             for evidence in findings.into_iter().take(3) {
@@ -2104,7 +4210,9 @@ impl JsMinerScanner {
         }
 
         // Google API Keys
-        if let Some(findings) = self.scan_pattern(content, r"AIza[0-9A-Za-z\-_]{35}", "Google API Key") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"AIza[0-9A-Za-z\-_]{35}", "Google API Key")
+        {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Google API Key Exposed",
@@ -2118,7 +4226,9 @@ impl JsMinerScanner {
         }
 
         // Slack Tokens
-        if let Some(findings) = self.scan_pattern(content, r"xox[baprs]-([0-9a-zA-Z]{10,48})", "Slack Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"xox[baprs]-([0-9a-zA-Z]{10,48})", "Slack Token")
+        {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Slack Token Exposed",
@@ -2132,7 +4242,8 @@ impl JsMinerScanner {
         }
 
         // Stripe Secret Keys
-        if let Some(findings) = self.scan_pattern(content, r"sk_live_[0-9a-zA-Z]{24}", "Stripe Key") {
+        if let Some(findings) = self.scan_pattern(content, r"sk_live_[0-9a-zA-Z]{24}", "Stripe Key")
+        {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Stripe Secret Key Exposed",
@@ -2146,21 +4257,33 @@ impl JsMinerScanner {
         }
 
         // JWT Tokens
-        if let Some(findings) = self.scan_pattern(content, r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]*", "JWT Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]*",
+            "JWT Token",
+        ) {
             for evidence in findings.into_iter().take(3) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "JWT Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Remove hardcoded JWT tokens. Implement secure token storage and rotation.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "JWT Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Remove hardcoded JWT tokens. Implement secure token storage and rotation.",
+                    ),
+                );
             }
         }
 
         // Private Keys
-        if let Some(findings) = self.scan_pattern(content, r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----", "Private Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+            "Private Key",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Private Key Exposed",
@@ -2174,7 +4297,11 @@ impl JsMinerScanner {
         }
 
         // Database Connection Strings
-        if let Some(findings) = self.scan_pattern(content, r#"(mongodb|mysql|postgres|redis)://[^\s"']+""#, "Database Connection") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(mongodb|mysql|postgres|redis)://[^\s"']+""#,
+            "Database Connection",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Database Connection String Exposed",
@@ -2188,7 +4315,9 @@ impl JsMinerScanner {
         }
 
         // API Endpoints (informational)
-        if let Some(findings) = self.scan_pattern(content, r#"['"`](/api/[^'"`\s]+)['"`]"#, "API Endpoint") {
+        if let Some(findings) =
+            self.scan_pattern(content, r#"['"`](/api/[^'"`\s]+)['"`]"#, "API Endpoint")
+        {
             for evidence in findings.into_iter().take(5) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "API Endpoint Discovered",
@@ -2202,7 +4331,11 @@ impl JsMinerScanner {
         }
 
         // S3 Buckets
-        if let Some(findings) = self.scan_pattern(content, r"https?://[a-zA-Z0-9.\-]+\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com", "S3 Bucket") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"https?://[a-zA-Z0-9.\-]+\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com",
+            "S3 Bucket",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "S3 Bucket URL Exposed",
@@ -2216,7 +4349,11 @@ impl JsMinerScanner {
         }
 
         // Bearer Tokens
-        if let Some(findings) = self.scan_pattern(content, r"(?i)bearer\s+[a-zA-Z0-9\-._~+/]+=*", "Bearer Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"(?i)bearer\s+[a-zA-Z0-9\-._~+/]+=*",
+            "Bearer Token",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Bearer Token Exposed",
@@ -2230,7 +4367,11 @@ impl JsMinerScanner {
         }
 
         // API Keys (generic)
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)api[_-]?key["']?\s*[:=]\s*["']([^"']{16,})["']"#, "API Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)api[_-]?key["']?\s*[:=]\s*["']([^"']{16,})["']"#,
+            "API Key",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "API Key Exposed",
@@ -2244,7 +4385,11 @@ impl JsMinerScanner {
         }
 
         // Secrets (generic)
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)secret["']?\s*[:=]\s*["']([^"']{8,})["']"#, "Secret") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)secret["']?\s*[:=]\s*["']([^"']{8,})["']"#,
+            "Secret",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 // Skip SDP/WebRTC parsing code and string concatenation patterns
                 let is_false_positive = evidence.contains("+t.") ||
@@ -2284,19 +4429,28 @@ impl JsMinerScanner {
         }
 
         // Debug Mode
-        if Regex::new(r"(?i)debug\s*[:=]\s*true").unwrap().is_match(content) {
-            self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                "Debug Mode Enabled",
-                location,
-                "debug: true found in JavaScript",
-                Severity::Low,
-                "CWE-489",
-                "Disable debug mode in production builds to prevent information disclosure.",
-            ));
+        if Regex::new(r"(?i)debug\s*[:=]\s*true")
+            .unwrap()
+            .is_match(content)
+        {
+            self.add_unique_vuln(
+                vulnerabilities,
+                seen_evidence,
+                self.create_vulnerability(
+                    "Debug Mode Enabled",
+                    location,
+                    "debug: true found in JavaScript",
+                    Severity::Low,
+                    "CWE-489",
+                    "Disable debug mode in production builds to prevent information disclosure.",
+                ),
+            );
         }
 
         // Environment Variables
-        if let Some(findings) = self.scan_pattern(content, r"process\.env\.[A-Z_]+", "Environment Variable") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"process\.env\.[A-Z_]+", "Environment Variable")
+        {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Environment Variable Reference",
@@ -2326,7 +4480,11 @@ impl JsMinerScanner {
         }
 
         // Pattern 2: Standalone GraphQL operations with typical syntax (query Name { or mutation Name(
-        if let Some(findings) = self.scan_pattern(content, r#"(?:query|mutation|subscription)\s+[A-Za-z_][A-Za-z0-9_]*\s*[\(\{]"#, "GraphQL Operation") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?:query|mutation|subscription)\s+[A-Za-z_][A-Za-z0-9_]*\s*[\(\{]"#,
+            "GraphQL Operation",
+        ) {
             for evidence in findings.into_iter().take(10) {
                 // Skip common false positives
                 if !evidence.contains("querySelector") && !evidence.contains("querystring") {
@@ -2342,7 +4500,11 @@ impl JsMinerScanner {
         // Report all GraphQL operations as a single consolidated finding
         if !graphql_operations.is_empty() {
             let operations_list = graphql_operations.join(", ");
-            let evidence = format!("Found {} GraphQL operations: {}", graphql_operations.len(), operations_list);
+            let evidence = format!(
+                "Found {} GraphQL operations: {}",
+                graphql_operations.len(),
+                operations_list
+            );
             self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                 "GraphQL Operations Discovered",
                 location,
@@ -2354,7 +4516,11 @@ impl JsMinerScanner {
         }
 
         // GraphQL Endpoint URLs (handles various formats)
-        if let Some(findings) = self.scan_pattern(content, r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*graphql"#, "GraphQL Endpoint") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"https?://[a-zA-Z0-9.\-]+[:/][^\s"'<>]*graphql"#,
+            "GraphQL Endpoint",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 // Skip documentation URLs (e.g., github.com/apollographql, docs.graphql.org)
                 if Self::is_documentation_url(&evidence) {
@@ -2372,7 +4538,11 @@ impl JsMinerScanner {
         }
 
         // Sentry DSN (error tracking service credentials - case insensitive)
-        if let Some(findings) = self.scan_pattern(content, r"https://[a-fA-F0-9]+@[a-zA-Z0-9]+\.ingest\.sentry\.io/[0-9]+", "Sentry DSN") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"https://[a-fA-F0-9]+@[a-zA-Z0-9]+\.ingest\.sentry\.io/[0-9]+",
+            "Sentry DSN",
+        ) {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Sentry DSN Exposed",
@@ -2386,7 +4556,11 @@ impl JsMinerScanner {
         }
 
         // External API URLs (any https URL to api.* or */api/ or */v[0-9]/)
-        if let Some(findings) = self.scan_pattern(content, r#"https://[a-zA-Z0-9.\-]+\.[a-z]{2,}/[^\s"'<>]*"#, "External URL") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"https://[a-zA-Z0-9.\-]+\.[a-z]{2,}/[^\s"'<>]*"#,
+            "External URL",
+        ) {
             // Filter to only API-like URLs, skip documentation
             let api_findings: Vec<String> = findings.into_iter()
                 .filter(|url| {
@@ -2412,7 +4586,11 @@ impl JsMinerScanner {
         }
 
         // Firebase/Supabase Configuration
-        if let Some(findings) = self.scan_pattern(content, r#"https://[a-zA-Z0-9\-]+\.(firebaseio\.com|supabase\.co)[^"'\s]*"#, "Firebase/Supabase URL") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"https://[a-zA-Z0-9\-]+\.(firebaseio\.com|supabase\.co)[^"'\s]*"#,
+            "Firebase/Supabase URL",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Backend-as-a-Service URL Discovered",
@@ -2455,7 +4633,11 @@ impl JsMinerScanner {
 
         // Password/credential field names in JS (forms rendered client-side)
         // Require context like field definition (name:, type:, field:) or input element
-        if let Some(findings) = self.scan_pattern(content, r#"(?:name|type|field|id)\s*[=:]\s*["'](password|passwd|pwd|secret|credential)["']"#, "Credential Field") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?:name|type|field|id)\s*[=:]\s*["'](password|passwd|pwd|secret|credential)["']"#,
+            "Credential Field",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Credential Field Discovered",
@@ -2469,7 +4651,11 @@ impl JsMinerScanner {
         }
 
         // Email/username field patterns
-        if let Some(findings) = self.scan_pattern(content, r#"["'](email|e-mail|username|user_name|login|userid|user_id)["']\s*:"#, "User Field") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"["'](email|e-mail|username|user_name|login|userid|user_id)["']\s*:"#,
+            "User Field",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "User Input Field Discovered",
@@ -2483,11 +4669,18 @@ impl JsMinerScanner {
         }
 
         // Form action URLs in JS - must be actual URL paths
-        if let Some(findings) = self.scan_pattern(content, r#"(?:action|formAction|submitUrl|postUrl)\s*[=:]\s*["'](/[^"']+|https?://[^"']+)["']"#, "Form Action") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?:action|formAction|submitUrl|postUrl)\s*[=:]\s*["'](/[^"']+|https?://[^"']+)["']"#,
+            "Form Action",
+        ) {
             for evidence in findings.into_iter().take(5) {
                 // Skip common false positives from consent/tracking scripts
-                if !evidence.contains("consent") && !evidence.contains("cookie") &&
-                   !evidence.contains("tracking") && !evidence.contains("analytics") {
+                if !evidence.contains("consent")
+                    && !evidence.contains("cookie")
+                    && !evidence.contains("tracking")
+                    && !evidence.contains("analytics")
+                {
                     self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                         "Form Action URL Discovered",
                         location,
@@ -2501,7 +4694,11 @@ impl JsMinerScanner {
         }
 
         // Hardcoded credentials (critical)
-        if let Some(findings) = self.scan_pattern(content, r#"(?:password|passwd|pwd|secret)\s*[=:]\s*["']([^"']{4,})["']"#, "Hardcoded Credential") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?:password|passwd|pwd|secret)\s*[=:]\s*["']([^"']{4,})["']"#,
+            "Hardcoded Credential",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 // Skip common false positives:
                 // - placeholder/example values
@@ -2542,7 +4739,11 @@ impl JsMinerScanner {
         // ============================================
 
         // Azure Storage Account Key
-        if let Some(findings) = self.scan_pattern(content, r"(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}", "Azure Storage Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}",
+            "Azure Storage Key",
+        ) {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Azure Storage Key Exposed",
@@ -2556,7 +4757,11 @@ impl JsMinerScanner {
         }
 
         // Azure Connection String
-        if let Some(findings) = self.scan_pattern(content, r"(?i)Server=tcp:[^;]+;.*Password=[^;]+", "Azure SQL Connection") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"(?i)Server=tcp:[^;]+;.*Password=[^;]+",
+            "Azure SQL Connection",
+        ) {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Azure SQL Connection String Exposed",
@@ -2570,7 +4775,11 @@ impl JsMinerScanner {
         }
 
         // GCP Service Account JSON (partial match)
-        if let Some(findings) = self.scan_pattern(content, r#""type"\s*:\s*"service_account"[^}]*"private_key"#, "GCP Service Account") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#""type"\s*:\s*"service_account"[^}]*"private_key"#,
+            "GCP Service Account",
+        ) {
             for evidence in findings.into_iter().take(1) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "GCP Service Account Key Exposed",
@@ -2584,30 +4793,44 @@ impl JsMinerScanner {
         }
 
         // DigitalOcean API Token
-        if let Some(findings) = self.scan_pattern(content, r"dop_v1_[a-f0-9]{64}", "DigitalOcean Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"dop_v1_[a-f0-9]{64}", "DigitalOcean Token")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "DigitalOcean API Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Revoke DigitalOcean API token immediately and rotate.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "DigitalOcean API Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke DigitalOcean API token immediately and rotate.",
+                    ),
+                );
             }
         }
 
         // Heroku API Key
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)heroku[_-]?api[_-]?key\s*[=:]\s*['\"]?[a-f0-9-]{36}"#, "Heroku API Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)heroku[_-]?api[_-]?key\s*[=:]\s*['\"]?[a-f0-9-]{36}"#,
+            "Heroku API Key",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Heroku API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Heroku API key immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Heroku API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Heroku API key immediately.",
+                    ),
+                );
             }
         }
 
@@ -2616,71 +4839,104 @@ impl JsMinerScanner {
         // ============================================
 
         // Twilio Account SID and Auth Token
-        if let Some(findings) = self.scan_pattern(content, r"AC[a-f0-9]{32}", "Twilio Account SID") {
+        if let Some(findings) = self.scan_pattern(content, r"AC[a-f0-9]{32}", "Twilio Account SID")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Twilio Account SID Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-200",
-                    "Twilio Account SID found. Check if Auth Token is also exposed.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Twilio Account SID Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-200",
+                        "Twilio Account SID found. Check if Auth Token is also exposed.",
+                    ),
+                );
             }
         }
 
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)twilio[_-]?auth[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{32}"#, "Twilio Auth Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)twilio[_-]?auth[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{32}"#,
+            "Twilio Auth Token",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Twilio Auth Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Rotate Twilio Auth Token immediately. Never expose in client-side code.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Twilio Auth Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Rotate Twilio Auth Token immediately. Never expose in client-side code.",
+                    ),
+                );
             }
         }
 
         // SendGrid API Key
-        if let Some(findings) = self.scan_pattern(content, r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}", "SendGrid API Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}",
+            "SendGrid API Key",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "SendGrid API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate SendGrid API key. Attackers could send emails on your behalf.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "SendGrid API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate SendGrid API key. Attackers could send emails on your behalf.",
+                    ),
+                );
             }
         }
 
         // Mailgun API Key
         if let Some(findings) = self.scan_pattern(content, r"key-[a-f0-9]{32}", "Mailgun API Key") {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Mailgun API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Mailgun API key immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Mailgun API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Mailgun API key immediately.",
+                    ),
+                );
             }
         }
 
         // Pusher Keys
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)pusher[_-]?(app[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{20}"#, "Pusher Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)pusher[_-]?(app[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{20}"#,
+            "Pusher Key",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Pusher Credentials Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-312",
-                    "Pusher credentials found. Rotate if secret is exposed.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Pusher Credentials Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Pusher credentials found. Rotate if secret is exposed.",
+                    ),
+                );
             }
         }
 
@@ -2691,70 +4947,95 @@ impl JsMinerScanner {
         // GitHub Personal Access Token
         if let Some(findings) = self.scan_pattern(content, r"ghp_[a-zA-Z0-9]{36}", "GitHub PAT") {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "GitHub Personal Access Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Revoke GitHub PAT immediately. Attackers could access your repositories.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "GitHub Personal Access Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke GitHub PAT immediately. Attackers could access your repositories.",
+                    ),
+                );
             }
         }
 
         // GitHub OAuth Token
         if let Some(findings) = self.scan_pattern(content, r"gho_[a-zA-Z0-9]{36}", "GitHub OAuth") {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "GitHub OAuth Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "GitHub OAuth token exposed. Revoke and rotate.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "GitHub OAuth Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "GitHub OAuth token exposed. Revoke and rotate.",
+                    ),
+                );
             }
         }
 
         // GitLab Personal Access Token
-        if let Some(findings) = self.scan_pattern(content, r"glpat-[a-zA-Z0-9_-]{20}", "GitLab PAT") {
+        if let Some(findings) = self.scan_pattern(content, r"glpat-[a-zA-Z0-9_-]{20}", "GitLab PAT")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "GitLab Personal Access Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Revoke GitLab PAT immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "GitLab Personal Access Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke GitLab PAT immediately.",
+                    ),
+                );
             }
         }
 
         // npm Token
         if let Some(findings) = self.scan_pattern(content, r"npm_[a-zA-Z0-9]{36}", "npm Token") {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "npm Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Revoke npm token immediately. Attackers could publish malicious packages.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "npm Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke npm token immediately. Attackers could publish malicious packages.",
+                    ),
+                );
             }
         }
 
         // Cloudflare API Token
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)cloudflare[_-]?api[_-]?(key|token)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{37,}"#, "Cloudflare Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)cloudflare[_-]?api[_-]?(key|token)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{37,}"#,
+            "Cloudflare Token",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Cloudflare API Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Cloudflare API token. Attackers could modify DNS/firewall rules.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Cloudflare API Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Cloudflare API token. Attackers could modify DNS/firewall rules.",
+                    ),
+                );
             }
         }
 
@@ -2763,35 +5044,51 @@ impl JsMinerScanner {
         // ============================================
 
         // Algolia API Key
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)algolia[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{32}"#, "Algolia Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)algolia[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-f0-9]{32}"#,
+            "Algolia Key",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Algolia API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-312",
-                    "Algolia key found. Admin API key should never be in client code.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Algolia API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Algolia key found. Admin API key should never be in client code.",
+                    ),
+                );
             }
         }
 
         // MapBox Public Token
-        if let Some(findings) = self.scan_pattern(content, r"pk\.[a-zA-Z0-9]{60,}", "MapBox Public Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"pk\.[a-zA-Z0-9]{60,}", "MapBox Public Token")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "MapBox Public Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Low,
-                    "CWE-200",
-                    "MapBox public token found. Ensure URL restrictions are configured.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "MapBox Public Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Low,
+                        "CWE-200",
+                        "MapBox public token found. Ensure URL restrictions are configured.",
+                    ),
+                );
             }
         }
 
         // MapBox Secret Token
-        if let Some(findings) = self.scan_pattern(content, r"sk\.[a-zA-Z0-9]{60,}", "MapBox Secret Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"sk\.[a-zA-Z0-9]{60,}", "MapBox Secret Token")
+        {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "MapBox Secret Token Exposed",
@@ -2807,140 +5104,203 @@ impl JsMinerScanner {
         // OpenAI API Key
         if let Some(findings) = self.scan_pattern(content, r"sk-[a-zA-Z0-9]{48}", "OpenAI Key") {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "OpenAI API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Rotate OpenAI API key immediately. Attackers could use your API credits.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "OpenAI API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Rotate OpenAI API key immediately. Attackers could use your API credits.",
+                    ),
+                );
             }
         }
 
         // Anthropic API Key
-        if let Some(findings) = self.scan_pattern(content, r"sk-ant-[a-zA-Z0-9_-]{40,}", "Anthropic Key") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"sk-ant-[a-zA-Z0-9_-]{40,}", "Anthropic Key")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Anthropic API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Rotate Anthropic API key immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Anthropic API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Rotate Anthropic API key immediately.",
+                    ),
+                );
             }
         }
 
         // Hugging Face Token
-        if let Some(findings) = self.scan_pattern(content, r"hf_[a-zA-Z0-9]{34}", "HuggingFace Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"hf_[a-zA-Z0-9]{34}", "HuggingFace Token")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Hugging Face Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Revoke Hugging Face token. Attackers could access your models/datasets.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Hugging Face Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Revoke Hugging Face token. Attackers could access your models/datasets.",
+                    ),
+                );
             }
         }
 
         // Vercel Token
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)vercel[_-]?token\s*[=:]\s*['\"]?[a-zA-Z0-9]{24}"#, "Vercel Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)vercel[_-]?token\s*[=:]\s*['\"]?[a-zA-Z0-9]{24}"#,
+            "Vercel Token",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Vercel Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Vercel token. Attackers could deploy to your projects.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Vercel Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Vercel token. Attackers could deploy to your projects.",
+                    ),
+                );
             }
         }
 
         // Netlify Token
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)netlify[_-]?(auth[_-]?)?token\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{40,}"#, "Netlify Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)netlify[_-]?(auth[_-]?)?token\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{40,}"#,
+            "Netlify Token",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Netlify Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Netlify token. Attackers could deploy to your sites.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Netlify Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Netlify token. Attackers could deploy to your sites.",
+                    ),
+                );
             }
         }
 
         // Datadog API Key
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)datadog[_-]?(api[_-]?)?key\s*[=:]\s*['\"]?[a-f0-9]{32}"#, "Datadog Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)datadog[_-]?(api[_-]?)?key\s*[=:]\s*['\"]?[a-f0-9]{32}"#,
+            "Datadog Key",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Datadog API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-312",
-                    "Datadog API key found. Rotate if it's the application key.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Datadog API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Datadog API key found. Rotate if it's the application key.",
+                    ),
+                );
             }
         }
 
         // New Relic Key
         if let Some(findings) = self.scan_pattern(content, r"NRAK-[A-Z0-9]{27}", "New Relic Key") {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "New Relic API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-312",
-                    "Rotate New Relic API key.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "New Relic API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Rotate New Relic API key.",
+                    ),
+                );
             }
         }
 
         // CircleCI Token
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)circle[_-]?ci[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{40}"#, "CircleCI Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)circle[_-]?ci[_-]?token\s*[=:]\s*['\"]?[a-f0-9]{40}"#,
+            "CircleCI Token",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "CircleCI Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Revoke CircleCI token. Attackers could access your CI/CD pipelines.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "CircleCI Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Revoke CircleCI token. Attackers could access your CI/CD pipelines.",
+                    ),
+                );
             }
         }
 
         // Linear API Key
-        if let Some(findings) = self.scan_pattern(content, r"lin_api_[a-zA-Z0-9]{40}", "Linear API Key") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"lin_api_[a-zA-Z0-9]{40}", "Linear API Key")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Linear API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-312",
-                    "Revoke Linear API key.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Linear API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Revoke Linear API key.",
+                    ),
+                );
             }
         }
 
         // Notion API Key
-        if let Some(findings) = self.scan_pattern(content, r"secret_[a-zA-Z0-9]{43}", "Notion Key") {
+        if let Some(findings) = self.scan_pattern(content, r"secret_[a-zA-Z0-9]{43}", "Notion Key")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Notion API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-312",
-                    "Revoke Notion API key. Attackers could access your workspace.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Notion API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-312",
+                        "Revoke Notion API key. Attackers could access your workspace.",
+                    ),
+                );
             }
         }
 
@@ -2949,36 +5309,49 @@ impl JsMinerScanner {
             for evidence in findings.into_iter().take(2) {
                 // Additional check - must be in context
                 if evidence.len() == 17 {
-                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                        "Potential Airtable API Key",
-                        location,
-                        &evidence,
-                        Severity::Medium,
-                        "CWE-312",
-                        "Possible Airtable API key. Verify and rotate if confirmed.",
-                    ));
+                    self.add_unique_vuln(
+                        vulnerabilities,
+                        seen_evidence,
+                        self.create_vulnerability(
+                            "Potential Airtable API Key",
+                            location,
+                            &evidence,
+                            Severity::Medium,
+                            "CWE-312",
+                            "Possible Airtable API key. Verify and rotate if confirmed.",
+                        ),
+                    );
                 }
             }
         }
 
         // Auth0 Credentials
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)auth0[_-]?(client[_-]?)?(secret|key)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{32,}"#, "Auth0 Secret") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)auth0[_-]?(client[_-]?)?(secret|key)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{32,}"#,
+            "Auth0 Secret",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Auth0 Credentials Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Auth0 credentials exposed. Rotate client secret immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Auth0 Credentials Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Auth0 credentials exposed. Rotate client secret immediately.",
+                    ),
+                );
             }
         }
 
         // Okta API Token - require context to reduce false positives
         // The pattern 00[a-zA-Z0-9_-]{40} is too broad without context
         if content.to_lowercase().contains("okta") {
-            if let Some(findings) = self.scan_pattern(content, r"00[a-zA-Z0-9_-]{40}", "Okta Token") {
+            if let Some(findings) = self.scan_pattern(content, r"00[a-zA-Z0-9_-]{40}", "Okta Token")
+            {
                 for evidence in findings.into_iter().take(2) {
                     // Skip if it looks like a hash or other hex string without okta context nearby
                     // Check if 'okta' appears within 100 chars of the match
@@ -2989,14 +5362,18 @@ impl JsMinerScanner {
                         let end = (pos + evidence.len() + 100).min(content_lower.len());
                         let context = &content_lower[start..end];
                         if context.contains("okta") {
-                            self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                                "Potential Okta API Token",
-                                location,
-                                &evidence,
-                                Severity::High,
-                                "CWE-312",
-                                "Possible Okta API token. Verify and revoke if confirmed.",
-                            ));
+                            self.add_unique_vuln(
+                                vulnerabilities,
+                                seen_evidence,
+                                self.create_vulnerability(
+                                    "Potential Okta API Token",
+                                    location,
+                                    &evidence,
+                                    Severity::High,
+                                    "CWE-312",
+                                    "Possible Okta API token. Verify and revoke if confirmed.",
+                                ),
+                            );
                         }
                     }
                 }
@@ -3004,7 +5381,9 @@ impl JsMinerScanner {
         }
 
         // PyPI Token
-        if let Some(findings) = self.scan_pattern(content, r"pypi-[a-zA-Z0-9_-]{100,}", "PyPI Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"pypi-[a-zA-Z0-9_-]{100,}", "PyPI Token")
+        {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "PyPI Token Exposed",
@@ -3018,80 +5397,122 @@ impl JsMinerScanner {
         }
 
         // Docker Hub Token
-        if let Some(findings) = self.scan_pattern(content, r"dckr_pat_[a-zA-Z0-9_-]{56}", "Docker Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"dckr_pat_[a-zA-Z0-9_-]{56}", "Docker Token")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Docker Hub Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Revoke Docker Hub token. Attackers could push malicious images.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Docker Hub Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke Docker Hub token. Attackers could push malicious images.",
+                    ),
+                );
             }
         }
 
         // Postmark Token
-        if let Some(findings) = self.scan_pattern(content, r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", "Postmark/UUID Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",
+            "Postmark/UUID Token",
+        ) {
             // This is UUID format - only flag if in postmark/email context
             for evidence in findings.into_iter().take(2) {
                 if content.to_lowercase().contains("postmark") {
-                    self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                        "Postmark API Token Exposed",
-                        location,
-                        &evidence,
-                        Severity::High,
-                        "CWE-312",
-                        "Rotate Postmark API token. Attackers could send emails.",
-                    ));
+                    self.add_unique_vuln(
+                        vulnerabilities,
+                        seen_evidence,
+                        self.create_vulnerability(
+                            "Postmark API Token Exposed",
+                            location,
+                            &evidence,
+                            Severity::High,
+                            "CWE-312",
+                            "Rotate Postmark API token. Attackers could send emails.",
+                        ),
+                    );
                 }
             }
         }
 
         // Vonage/Nexmo Key
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)(vonage|nexmo)[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-zA-Z0-9]{8,}"#, "Vonage Key") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)(vonage|nexmo)[_-]?(api[_-]?)?(key|secret)\s*[=:]\s*['\"]?[a-zA-Z0-9]{8,}"#,
+            "Vonage Key",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Vonage/Nexmo Credentials Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Vonage/Nexmo credentials. Attackers could send SMS/calls.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Vonage/Nexmo Credentials Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Vonage/Nexmo credentials. Attackers could send SMS/calls.",
+                    ),
+                );
             }
         }
 
         // Plivo Credentials
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)plivo[_-]?(auth[_-]?)?(id|token)\s*[=:]\s*['\"]?[a-zA-Z0-9]{20,}"#, "Plivo Credential") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)plivo[_-]?(auth[_-]?)?(id|token)\s*[=:]\s*['\"]?[a-zA-Z0-9]{20,}"#,
+            "Plivo Credential",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Plivo Credentials Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Plivo credentials. Attackers could make calls/send SMS.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Plivo Credentials Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Plivo credentials. Attackers could make calls/send SMS.",
+                    ),
+                );
             }
         }
 
         // Telegram Bot Token
-        if let Some(findings) = self.scan_pattern(content, r"[0-9]{8,10}:[a-zA-Z0-9_-]{35}", "Telegram Bot Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"[0-9]{8,10}:[a-zA-Z0-9_-]{35}",
+            "Telegram Bot Token",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Telegram Bot Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Revoke Telegram bot token via @BotFather immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Telegram Bot Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Revoke Telegram bot token via @BotFather immediately.",
+                    ),
+                );
             }
         }
 
         // Discord Webhook
-        if let Some(findings) = self.scan_pattern(content, r"https://discord(?:app)?\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+", "Discord Webhook") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"https://discord(?:app)?\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+",
+            "Discord Webhook",
+        ) {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Discord Webhook URL Exposed",
@@ -3105,86 +5526,126 @@ impl JsMinerScanner {
         }
 
         // Discord Bot Token
-        if let Some(findings) = self.scan_pattern(content, r"[MN][a-zA-Z0-9]{23,}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27}", "Discord Bot Token") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"[MN][a-zA-Z0-9]{23,}\.[a-zA-Z0-9_-]{6}\.[a-zA-Z0-9_-]{27}",
+            "Discord Bot Token",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Discord Bot Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Regenerate Discord bot token immediately via Developer Portal.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Discord Bot Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Regenerate Discord bot token immediately via Developer Portal.",
+                    ),
+                );
             }
         }
 
         // Shopify API Key
-        if let Some(findings) = self.scan_pattern(content, r"shpat_[a-fA-F0-9]{32}", "Shopify Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"shpat_[a-fA-F0-9]{32}", "Shopify Token")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Shopify Access Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Revoke Shopify access token. Attackers could access store data.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Shopify Access Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke Shopify access token. Attackers could access store data.",
+                    ),
+                );
             }
         }
 
         // Shopify Shared Secret
-        if let Some(findings) = self.scan_pattern(content, r"shpss_[a-fA-F0-9]{32}", "Shopify Secret") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"shpss_[a-fA-F0-9]{32}", "Shopify Secret")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Shopify Shared Secret Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Rotate Shopify shared secret immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Shopify Shared Secret Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Rotate Shopify shared secret immediately.",
+                    ),
+                );
             }
         }
 
         // Mailchimp API Key
-        if let Some(findings) = self.scan_pattern(content, r"[a-f0-9]{32}-us[0-9]{1,2}", "Mailchimp Key") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"[a-f0-9]{32}-us[0-9]{1,2}", "Mailchimp Key")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Mailchimp API Key Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "Rotate Mailchimp API key. Attackers could access mailing lists.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Mailchimp API Key Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "Rotate Mailchimp API key. Attackers could access mailing lists.",
+                    ),
+                );
             }
         }
 
         // PayPal Client ID/Secret
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)paypal[_-]?(client[_-]?)?(id|secret)\s*[=:]\s*['\"]?[A-Za-z0-9_-]{20,}"#, "PayPal Credential") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)paypal[_-]?(client[_-]?)?(id|secret)\s*[=:]\s*['\"]?[A-Za-z0-9_-]{20,}"#,
+            "PayPal Credential",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "PayPal Credentials Exposed",
-                    location,
-                    &evidence,
-                    Severity::High,
-                    "CWE-312",
-                    "PayPal credentials found. Secret should never be in client code.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "PayPal Credentials Exposed",
+                        location,
+                        &evidence,
+                        Severity::High,
+                        "CWE-312",
+                        "PayPal credentials found. Secret should never be in client code.",
+                    ),
+                );
             }
         }
 
         // Square Access Token
-        if let Some(findings) = self.scan_pattern(content, r"sq0atp-[a-zA-Z0-9_-]{22}", "Square Token") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"sq0atp-[a-zA-Z0-9_-]{22}", "Square Token")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Square Access Token Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Revoke Square access token immediately.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Square Access Token Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Revoke Square access token immediately.",
+                    ),
+                );
             }
         }
 
@@ -3193,7 +5654,9 @@ impl JsMinerScanner {
         // ============================================
 
         // Laravel APP_KEY
-        if let Some(findings) = self.scan_pattern(content, r"base64:[a-zA-Z0-9+/]{43}=", "Laravel APP_KEY") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"base64:[a-zA-Z0-9+/]{43}=", "Laravel APP_KEY")
+        {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Laravel APP_KEY Exposed",
@@ -3207,7 +5670,11 @@ impl JsMinerScanner {
         }
 
         // Django SECRET_KEY
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)django[_-]?secret[_-]?key\s*[=:]\s*["'][a-zA-Z0-9!@#$%^&*()_+-=]{50,}["']"#, "Django SECRET_KEY") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)django[_-]?secret[_-]?key\s*[=:]\s*["'][a-zA-Z0-9!@#$%^&*()_+-=]{50,}["']"#,
+            "Django SECRET_KEY",
+        ) {
             for evidence in findings.into_iter().take(2) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Django SECRET_KEY Exposed",
@@ -3221,16 +5688,24 @@ impl JsMinerScanner {
         }
 
         // Rails secret_key_base
-        if let Some(findings) = self.scan_pattern(content, r#"(?i)secret_key_base\s*[=:]\s*['\"]?[a-f0-9]{128}"#, "Rails Secret") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"(?i)secret_key_base\s*[=:]\s*['\"]?[a-f0-9]{128}"#,
+            "Rails Secret",
+        ) {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Rails secret_key_base Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-312",
-                    "Rails secret_key_base exposed. Regenerate with 'rails secret'.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Rails secret_key_base Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-312",
+                        "Rails secret_key_base exposed. Regenerate with 'rails secret'.",
+                    ),
+                );
             }
         }
 
@@ -3241,7 +5716,11 @@ impl JsMinerScanner {
         // Finnish HETU (Personal Identity Code) - Format: DDMMYY[-+A]XXXX
         // Day: 01-31, Month: 01-12, Year: 00-99, Century: - (+1900), + (+1800), A (+2000)
         // Last 4: 3 digits + check character
-        if let Some(findings) = self.scan_pattern(content, r"(?:0[1-9]|[12][0-9]|3[01])(?:0[1-9]|1[0-2])[0-9]{2}[-+A][0-9]{3}[0-9A-Y]", "Finnish HETU") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"(?:0[1-9]|[12][0-9]|3[01])(?:0[1-9]|1[0-2])[0-9]{2}[-+A][0-9]{3}[0-9A-Y]",
+            "Finnish HETU",
+        ) {
             for evidence in findings.into_iter().take(3) {
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Finnish Personal Identity Code (HETU) Exposed",
@@ -3268,42 +5747,52 @@ impl JsMinerScanner {
                 if placeholder_values.contains(&evidence.as_str()) {
                     continue;
                 }
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Finnish Business ID (Y-tunnus) Found",
-                    location,
-                    &evidence,
-                    Severity::Info,
-                    "CWE-200",
-                    "Finnish Y-tunnus found. While public, verify it's intentionally exposed.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Finnish Business ID (Y-tunnus) Found",
+                        location,
+                        &evidence,
+                        Severity::Info,
+                        "CWE-200",
+                        "Finnish Y-tunnus found. While public, verify it's intentionally exposed.",
+                    ),
+                );
             }
         }
 
         // Finnish IBAN
-        if let Some(findings) = self.scan_pattern(content, r"FI[0-9]{2}\s?[0-9]{4}\s?[0-9]{4}\s?[0-9]{4}\s?[0-9]{2}", "Finnish IBAN") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r"FI[0-9]{2}\s?[0-9]{4}\s?[0-9]{4}\s?[0-9]{4}\s?[0-9]{2}",
+            "Finnish IBAN",
+        ) {
             for evidence in findings.into_iter().take(3) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Finnish Bank Account (IBAN) Exposed",
-                    location,
-                    &evidence,
-                    Severity::Medium,
-                    "CWE-359",
-                    "Finnish IBAN exposed. Review if this should be in client-side code.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Finnish Bank Account (IBAN) Exposed",
+                        location,
+                        &evidence,
+                        Severity::Medium,
+                        "CWE-359",
+                        "Finnish IBAN exposed. Review if this should be in client-side code.",
+                    ),
+                );
             }
         }
 
         // Finnish Verkkolaskuosoite (E-Invoice Address / OVT Identifier)
         // Format: 0037XXXXXXXXX (0037 = Finland country code + business ID without dash)
         // Total length: 12-17 digits
-        if let Some(findings) = self.scan_pattern(content, r"0037[0-9]{8,13}", "Finnish OVT/Verkkolaskuosoite") {
+        if let Some(findings) =
+            self.scan_pattern(content, r"0037[0-9]{8,13}", "Finnish OVT/Verkkolaskuosoite")
+        {
             for evidence in findings.into_iter().take(3) {
                 // Skip placeholder values
-                let placeholder_values = [
-                    "003700000000",
-                    "003712345678",
-                    "00371234567890",
-                ];
+                let placeholder_values = ["003700000000", "003712345678", "00371234567890"];
                 if placeholder_values.iter().any(|&p| evidence.contains(p)) {
                     continue;
                 }
@@ -3357,24 +5846,39 @@ impl JsMinerScanner {
         }
 
         // Social Security Number (US)
-        if let Some(findings) = self.scan_pattern(content, r"[0-9]{3}-[0-9]{2}-[0-9]{4}", "US SSN") {
+        if let Some(findings) = self.scan_pattern(content, r"[0-9]{3}-[0-9]{2}-[0-9]{4}", "US SSN")
+        {
             for evidence in findings.into_iter().take(2) {
-                self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
-                    "Potential US Social Security Number Exposed",
-                    location,
-                    &evidence,
-                    Severity::Critical,
-                    "CWE-359",
-                    "Possible SSN in code. Remove immediately if confirmed.",
-                ));
+                self.add_unique_vuln(
+                    vulnerabilities,
+                    seen_evidence,
+                    self.create_vulnerability(
+                        "Potential US Social Security Number Exposed",
+                        location,
+                        &evidence,
+                        Severity::Critical,
+                        "CWE-359",
+                        "Possible SSN in code. Remove immediately if confirmed.",
+                    ),
+                );
             }
         }
 
         // Email addresses in config (might indicate test/debug accounts)
-        if let Some(findings) = self.scan_pattern(content, r#"["'][a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}["']"#, "Email") {
+        if let Some(findings) = self.scan_pattern(
+            content,
+            r#"["'][a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}["']"#,
+            "Email",
+        ) {
             // Only report if it looks like a config value
-            let config_emails: Vec<String> = findings.into_iter()
-                .filter(|e| e.contains("admin") || e.contains("test") || e.contains("debug") || e.contains("dev@"))
+            let config_emails: Vec<String> = findings
+                .into_iter()
+                .filter(|e| {
+                    e.contains("admin")
+                        || e.contains("test")
+                        || e.contains("debug")
+                        || e.contains("dev@")
+                })
                 .take(3)
                 .collect();
 
@@ -3485,7 +5989,7 @@ impl JsMinerScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -3518,7 +6022,11 @@ mod tests {
         let scanner = create_test_scanner();
 
         let content = "token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'";
-        let findings = scanner.scan_pattern(content, r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]*", "JWT");
+        let findings = scanner.scan_pattern(
+            content,
+            r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]*",
+            "JWT",
+        );
 
         assert!(findings.is_some());
     }
@@ -3586,7 +6094,9 @@ mod tests {
         "#;
         scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns);
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("GraphQL Operation")));
+        assert!(vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("GraphQL Operation")));
     }
 
     #[test]
@@ -3597,7 +6107,9 @@ mod tests {
         let content = r#"const API_URL = "https://api.example.com/graphql";"#;
         scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("GraphQL Endpoint")));
+        assert!(vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("GraphQL Endpoint")));
     }
 
     #[test]
@@ -3630,7 +6142,9 @@ mod tests {
         let content = r#"const devApi = "http://192.168.1.100:3000/api";"#;
         scanner.analyze_js_content(content, "https://example.com/config.js", &mut vulns);
 
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("Internal Network URL")));
+        assert!(vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("Internal Network URL")));
     }
 
     // ============================================
@@ -3660,7 +6174,12 @@ mod tests {
 
         // Content with JavaScript numeric constants that look like credit cards
         let content = r#"var MAX_VALUE = 4503599627370496; var OTHER = 4801650304020105;"#;
-        scanner.analyze_js_content(content, "https://example.com/math.js", &mut vulns, &mut seen);
+        scanner.analyze_js_content(
+            content,
+            "https://example.com/math.js",
+            &mut vulns,
+            &mut seen,
+        );
 
         // Should NOT detect these as credit cards
         assert!(!vulns.iter().any(|v| v.vuln_type.contains("Credit Card")));
@@ -3688,10 +6207,17 @@ mod tests {
 
         // WebRTC SDP parsing code
         let content = r#"var sdp = "pwd:"+t.password+""; var ice = "secret="+r.pass;"#;
-        scanner.analyze_js_content(content, "https://example.com/webrtc.js", &mut vulns, &mut seen);
+        scanner.analyze_js_content(
+            content,
+            "https://example.com/webrtc.js",
+            &mut vulns,
+            &mut seen,
+        );
 
         // Should NOT detect as hardcoded credential
-        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Hardcoded Credential")));
+        assert!(!vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("Hardcoded Credential")));
     }
 
     #[test]
@@ -3705,8 +6231,13 @@ mod tests {
         scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns, &mut seen);
 
         // Should NOT detect GitHub URL as GraphQL endpoint
-        assert!(!vulns.iter().any(|v| v.vuln_type.contains("GraphQL Endpoint") &&
-                                      v.evidence.as_ref().map(|e| e.contains("github.com")).unwrap_or(false)));
+        assert!(!vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("GraphQL Endpoint")
+                && v.evidence
+                    .as_ref()
+                    .map(|e| e.contains("github.com"))
+                    .unwrap_or(false)));
     }
 
     #[test]
@@ -3731,11 +6262,18 @@ mod tests {
 
         // Real-looking Finnish e-invoice address
         let content = r#"const OVT = "003726994471";"#;
-        scanner.analyze_js_content(content, "https://example.com/invoice.js", &mut vulns, &mut seen);
+        scanner.analyze_js_content(
+            content,
+            "https://example.com/invoice.js",
+            &mut vulns,
+            &mut seen,
+        );
 
         // Should detect as Verkkolaskuosoite
-        assert!(vulns.iter().any(|v| v.vuln_type.contains("E-Invoice Address") ||
-                                     v.vuln_type.contains("Verkkolaskuosoite")));
+        assert!(vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("E-Invoice Address")
+                || v.vuln_type.contains("Verkkolaskuosoite")));
     }
 
     #[test]
@@ -3749,6 +6287,8 @@ mod tests {
         scanner.analyze_js_content(content, "https://example.com/app.js", &mut vulns, &mut seen);
 
         // Should NOT detect placeholder
-        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Verkkolaskuosoite")));
+        assert!(!vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("Verkkolaskuosoite")));
     }
 }

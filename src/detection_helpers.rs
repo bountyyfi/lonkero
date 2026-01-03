@@ -10,11 +10,10 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::http_client::HttpResponse;
+use regex::Regex;
 use std::collections::HashMap;
 use tracing::{debug, info};
-use regex::Regex;
 
 /// Application type detection result
 #[derive(Debug, Clone, PartialEq)]
@@ -105,7 +104,11 @@ impl AppCharacteristics {
             characteristics.is_api = true;
             characteristics.is_api_only = true;
             characteristics.app_type = AppType::Api;
-        } else if url.contains("/api/") || url.contains("/graphql") || url.contains("/v1/") || url.contains("/v2/") {
+        } else if url.contains("/api/")
+            || url.contains("/graphql")
+            || url.contains("/v1/")
+            || url.contains("/v2/")
+        {
             // Likely API endpoint even if not pure JSON
             characteristics.is_api = true;
         }
@@ -130,7 +133,10 @@ impl AppCharacteristics {
         // Detect framework indicators
         characteristics.framework_indicators = detect_framework_indicators(body, headers);
 
-        debug!("[Detection] App characteristics: {:?}", characteristics.app_type);
+        debug!(
+            "[Detection] App characteristics: {:?}",
+            characteristics.app_type
+        );
 
         characteristics
     }
@@ -166,23 +172,32 @@ fn detect_spa_framework(body: &str, _headers: &HashMap<String, String>) -> Optio
     let body_lower = body.to_lowercase();
 
     // Vue.js detection (strong indicators)
-    if (body.contains("data-v-") || body.contains("__NUXT__") || body.contains("Vue.component")) &&
-       (body.contains("app.js") || body.contains("chunk-vendors") || body.contains("vue-router")) {
+    if (body.contains("data-v-") || body.contains("__NUXT__") || body.contains("Vue.component"))
+        && (body.contains("app.js")
+            || body.contains("chunk-vendors")
+            || body.contains("vue-router"))
+    {
         info!("[Detection] Vue.js SPA detected");
         return Some(SpaFramework::Vue);
     }
 
     // React detection (strong indicators)
-    if (body.contains("data-reactroot") || body.contains("data-reactid") ||
-        body.contains("__REACT_") || body.contains("_next/static")) &&
-       (body.contains("react-dom") || body.contains("main.chunk.js") || body.contains("bundle.js")) {
+    if (body.contains("data-reactroot")
+        || body.contains("data-reactid")
+        || body.contains("__REACT_")
+        || body.contains("_next/static"))
+        && (body.contains("react-dom")
+            || body.contains("main.chunk.js")
+            || body.contains("bundle.js"))
+    {
         info!("[Detection] React SPA detected");
         return Some(SpaFramework::React);
     }
 
     // Angular detection (strong indicators)
-    if (body.contains("ng-version") || body.contains("ng-app") || body_lower.contains("angular")) &&
-       (body.contains("main.js") || body.contains("polyfills") || body.contains("runtime.js")) {
+    if (body.contains("ng-version") || body.contains("ng-app") || body_lower.contains("angular"))
+        && (body.contains("main.js") || body.contains("polyfills") || body.contains("runtime.js"))
+    {
         info!("[Detection] Angular SPA detected");
         return Some(SpaFramework::Angular);
     }
@@ -200,19 +215,23 @@ fn detect_spa_framework(body: &str, _headers: &HashMap<String, String>) -> Optio
     }
 
     // Svelte detection
-    if body_lower.contains("svelte") && (body.contains("build/bundle") || body.contains("global.css")) {
+    if body_lower.contains("svelte")
+        && (body.contains("build/bundle") || body.contains("global.css"))
+    {
         info!("[Detection] Svelte SPA detected");
         return Some(SpaFramework::Svelte);
     }
 
     // Generic SPA indicators (fallback)
-    let has_spa_shell = body.contains("<div id=\"app\"") ||
-                        body.contains("<div id=\"root\"") ||
-                        body.contains("<noscript>You need to enable JavaScript") ||
-                        body.contains("This app requires JavaScript");
+    let has_spa_shell = body.contains("<div id=\"app\"")
+        || body.contains("<div id=\"root\"")
+        || body.contains("<noscript>You need to enable JavaScript")
+        || body.contains("This app requires JavaScript");
 
-    let has_js_bundle = body.contains("app.js") || body.contains("main.js") ||
-                        body.contains("bundle.js") || body.contains("chunk");
+    let has_js_bundle = body.contains("app.js")
+        || body.contains("main.js")
+        || body.contains("bundle.js")
+        || body.contains("chunk");
 
     if has_spa_shell && has_js_bundle {
         info!("[Detection] Generic SPA detected");
@@ -226,13 +245,23 @@ fn detect_spa_framework(body: &str, _headers: &HashMap<String, String>) -> Optio
 fn is_static_site(body: &str, headers: &HashMap<String, String>, body_lower: &str) -> bool {
     // Check for static site generators
     let static_generators = [
-        "jekyll", "hugo", "gatsby", "eleventy", "hexo",
-        "gridsome", "vuepress", "docusaurus"
+        "jekyll",
+        "hugo",
+        "gatsby",
+        "eleventy",
+        "hexo",
+        "gridsome",
+        "vuepress",
+        "docusaurus",
     ];
 
     for generator in &static_generators {
-        if body_lower.contains(generator) ||
-           headers.get("x-powered-by").map(|h| h.to_lowercase().contains(generator)).unwrap_or(false) {
+        if body_lower.contains(generator)
+            || headers
+                .get("x-powered-by")
+                .map(|h| h.to_lowercase().contains(generator))
+                .unwrap_or(false)
+        {
             return true;
         }
     }
@@ -240,9 +269,10 @@ fn is_static_site(body: &str, headers: &HashMap<String, String>, body_lower: &st
     // Check for GitHub Pages, Netlify, Vercel (static hosting)
     if let Some(server) = headers.get("server") {
         let server_lower = server.to_lowercase();
-        if server_lower.contains("github.com") ||
-           server_lower.contains("netlify") ||
-           server_lower.contains("vercel") {
+        if server_lower.contains("github.com")
+            || server_lower.contains("netlify")
+            || server_lower.contains("vercel")
+        {
             return true;
         }
     }
@@ -250,7 +280,8 @@ fn is_static_site(body: &str, headers: &HashMap<String, String>, body_lower: &st
     // No dynamic content indicators
     let no_forms = !body.contains("<form");
     let no_csrf_tokens = !body.contains("csrf") && !body.contains("_token");
-    let no_session_cookies = !headers.get("set-cookie")
+    let no_session_cookies = !headers
+        .get("set-cookie")
         .map(|c| c.contains("session") || c.contains("PHPSESSID") || c.contains("JSESSIONID"))
         .unwrap_or(false);
 
@@ -262,9 +293,10 @@ fn is_api_response(body: &str, headers: &HashMap<String, String>, url: &str) -> 
     // Check content-type header
     if let Some(content_type) = headers.get("content-type") {
         let ct_lower = content_type.to_lowercase();
-        if ct_lower.contains("application/json") ||
-           ct_lower.contains("application/xml") ||
-           ct_lower.contains("text/xml") {
+        if ct_lower.contains("application/json")
+            || ct_lower.contains("application/xml")
+            || ct_lower.contains("text/xml")
+        {
             return true;
         }
     }
@@ -276,9 +308,10 @@ fn is_api_response(body: &str, headers: &HashMap<String, String>, url: &str) -> 
         if url_lower.contains(path) {
             // Also check body is JSON/XML, not HTML
             let body_trimmed = body.trim();
-            if (body_trimmed.starts_with('{') && body_trimmed.ends_with('}')) ||
-               (body_trimmed.starts_with('[') && body_trimmed.ends_with(']')) ||
-               (body_trimmed.starts_with('<') && body_trimmed.contains("<?xml")) {
+            if (body_trimmed.starts_with('{') && body_trimmed.ends_with('}'))
+                || (body_trimmed.starts_with('[') && body_trimmed.ends_with(']'))
+                || (body_trimmed.starts_with('<') && body_trimmed.contains("<?xml"))
+            {
                 return true;
             }
         }
@@ -306,15 +339,20 @@ fn has_server_side_rendering(body: &str, body_lower: &str) -> bool {
 }
 
 /// Detect REAL authentication (not just keyword mentions)
-fn has_real_authentication(body: &str, headers: &HashMap<String, String>, body_lower: &str) -> bool {
+fn has_real_authentication(
+    body: &str,
+    headers: &HashMap<String, String>,
+    body_lower: &str,
+) -> bool {
     // Check for auth cookies (strong indicator)
     if let Some(cookies) = headers.get("set-cookie") {
         let cookie_lower = cookies.to_lowercase();
-        if cookie_lower.contains("session") ||
-           cookie_lower.contains("auth") ||
-           cookie_lower.contains("token") ||
-           cookie_lower.contains("phpsessid") ||
-           cookie_lower.contains("jsessionid") {
+        if cookie_lower.contains("session")
+            || cookie_lower.contains("auth")
+            || cookie_lower.contains("token")
+            || cookie_lower.contains("phpsessid")
+            || cookie_lower.contains("jsessionid")
+        {
             info!("[Detection] Real authentication detected: session cookie");
             return true;
         }
@@ -327,11 +365,12 @@ fn has_real_authentication(body: &str, headers: &HashMap<String, String>, body_l
     }
 
     // Check for login forms WITH CSRF protection (real auth, not static demo)
-    let has_login_form = (body_lower.contains("<form") &&
-                          (body_lower.contains("login") || body_lower.contains("sign in"))) &&
-                         (body.contains("password") || body.contains("type=\"password\""));
+    let has_login_form = (body_lower.contains("<form")
+        && (body_lower.contains("login") || body_lower.contains("sign in")))
+        && (body.contains("password") || body.contains("type=\"password\""));
 
-    let has_csrf = body.contains("csrf") || body.contains("_token") || body.contains("authenticity_token");
+    let has_csrf =
+        body.contains("csrf") || body.contains("_token") || body.contains("authenticity_token");
 
     if has_login_form && has_csrf {
         info!("[Detection] Real authentication detected: login form with CSRF");
@@ -339,8 +378,10 @@ fn has_real_authentication(body: &str, headers: &HashMap<String, String>, body_l
     }
 
     // Check for auth API endpoints (in script tags)
-    if body.contains("/api/auth") || body.contains("/auth/login") ||
-       body.contains("authentication") && body.contains("endpoint") {
+    if body.contains("/api/auth")
+        || body.contains("/auth/login")
+        || body.contains("authentication") && body.contains("endpoint")
+    {
         info!("[Detection] Real authentication detected: auth endpoints");
         return true;
     }
@@ -357,7 +398,7 @@ fn has_real_oauth(body: &str, _headers: &HashMap<String, String>, body_lower: &s
         "github.com/login/oauth",
         "facebook.com/v",
         "oauth.twitter.com",
-        "appleid.apple.com/auth"
+        "appleid.apple.com/auth",
     ];
 
     for provider in &oauth_providers {
@@ -368,9 +409,9 @@ fn has_real_oauth(body: &str, _headers: &HashMap<String, String>, body_lower: &s
     }
 
     // Check for OAuth endpoints with actual implementation
-    let has_oauth_endpoint = (body_lower.contains("/oauth/authorize") ||
-                             body_lower.contains("/oauth2/authorize")) &&
-                            (body.contains("client_id") || body.contains("response_type"));
+    let has_oauth_endpoint = (body_lower.contains("/oauth/authorize")
+        || body_lower.contains("/oauth2/authorize"))
+        && (body.contains("client_id") || body.contains("response_type"));
 
     if has_oauth_endpoint {
         info!("[Detection] Real OAuth detected: oauth endpoint with params");
@@ -409,10 +450,14 @@ fn has_real_jwt(body: &str, headers: &HashMap<String, String>, body_lower: &str)
     }
 
     // Check for JWT in localStorage/sessionStorage calls (actual code, not docs)
-    if (body.contains("localStorage.setItem(") || body.contains("sessionStorage.setItem(")) &&
-       (body.contains("\"token\"") || body.contains("'token'") ||
-        body.contains("\"jwt\"") || body.contains("'jwt'")) &&
-       !body_lower.contains("example") && !body_lower.contains("documentation") {
+    if (body.contains("localStorage.setItem(") || body.contains("sessionStorage.setItem("))
+        && (body.contains("\"token\"")
+            || body.contains("'token'")
+            || body.contains("\"jwt\"")
+            || body.contains("'jwt'"))
+        && !body_lower.contains("example")
+        && !body_lower.contains("documentation")
+    {
         info!("[Detection] Real JWT detected: token storage in JS");
         return true;
     }
@@ -432,10 +477,10 @@ fn has_real_jwt(body: &str, headers: &HashMap<String, String>, body_lower: &str)
 /// Detect REAL MFA implementation (not just mentions)
 fn has_real_mfa(body: &str, body_lower: &str) -> bool {
     // Check for MFA enrollment/verification forms (actual implementation)
-    let has_mfa_form = (body_lower.contains("verification code") ||
-                        body_lower.contains("authenticator app") ||
-                        body_lower.contains("totp")) &&
-                       (body.contains("<form") || body.contains("<input"));
+    let has_mfa_form = (body_lower.contains("verification code")
+        || body_lower.contains("authenticator app")
+        || body_lower.contains("totp"))
+        && (body.contains("<form") || body.contains("<input"));
 
     if has_mfa_form && !body_lower.contains("documentation") && !body_lower.contains("learn more") {
         info!("[Detection] Real MFA detected: MFA form");
@@ -443,8 +488,9 @@ fn has_real_mfa(body: &str, body_lower: &str) -> bool {
     }
 
     // Check for QR code generation (actual enrollment)
-    if (body.contains("otpauth://totp/") || body_lower.contains("qr code")) &&
-       body.contains("secret=") {
+    if (body.contains("otpauth://totp/") || body_lower.contains("qr code"))
+        && body.contains("secret=")
+    {
         info!("[Detection] Real MFA detected: TOTP enrollment");
         return true;
     }
@@ -516,19 +562,19 @@ pub fn is_payload_reflected_dangerously(response: &HttpResponse, payload: &str) 
     // Check for EXACT payload in dangerous contexts (not substring matching!)
     let dangerous_contexts = vec![
         // HTML contexts
-        format!(">{}<", payload),           // <tag>PAYLOAD</tag>
-        format!(">{}</", payload),          // <tag>PAYLOAD</tag>
+        format!(">{}<", payload),  // <tag>PAYLOAD</tag>
+        format!(">{}</", payload), // <tag>PAYLOAD</tag>
         // Attribute contexts
-        format!("=\"{}\"", payload),        // attr="PAYLOAD"
-        format!("='{}'", payload),          // attr='PAYLOAD'
-        format!("='{}'>", payload),         // attr='PAYLOAD'>
+        format!("=\"{}\"", payload), // attr="PAYLOAD"
+        format!("='{}'", payload),   // attr='PAYLOAD'
+        format!("='{}'>", payload),  // attr='PAYLOAD'>
         // JavaScript contexts
-        format!("('{}')", payload),         // func('PAYLOAD')
-        format!("(\"{}\")", payload),       // func("PAYLOAD")
+        format!("('{}')", payload),   // func('PAYLOAD')
+        format!("(\"{}\")", payload), // func("PAYLOAD")
         // URL contexts
-        format!("href=\"{}\"", payload),    // href="PAYLOAD"
-        format!("src=\"{}\"", payload),     // src="PAYLOAD"
-        format!("action=\"{}\"", payload),  // action="PAYLOAD"
+        format!("href=\"{}\"", payload),   // href="PAYLOAD"
+        format!("src=\"{}\"", payload),    // src="PAYLOAD"
+        format!("action=\"{}\"", payload), // action="PAYLOAD"
     ];
 
     for context in &dangerous_contexts {
@@ -572,8 +618,9 @@ pub fn endpoint_exists(response: &HttpResponse, expected_status_codes: &[u16]) -
 
     // For SPAs, check if response is just the app shell
     let body = &response.body;
-    let is_spa_shell = (body.contains("<div id=\"app\"") || body.contains("<div id=\"root\"")) &&
-                       body.contains("app.js") || body.contains("main.js");
+    let is_spa_shell = (body.contains("<div id=\"app\"") || body.contains("<div id=\"root\""))
+        && body.contains("app.js")
+        || body.contains("main.js");
 
     if is_spa_shell && response.status_code == 200 {
         debug!("[Detection] Endpoint returns SPA shell - likely doesn't exist");
@@ -611,7 +658,12 @@ pub fn discover_api_endpoints(base_url: &str, html_body: &str) -> Vec<String> {
                     } else if url.starts_with('/') {
                         // Get base domain from base_url
                         if let Ok(parsed) = url::Url::parse(base_url) {
-                            format!("{}://{}{}", parsed.scheme(), parsed.host_str().unwrap_or(""), url)
+                            format!(
+                                "{}://{}{}",
+                                parsed.scheme(),
+                                parsed.host_str().unwrap_or(""),
+                                url
+                            )
                         } else {
                             continue;
                         }
@@ -630,7 +682,10 @@ pub fn discover_api_endpoints(base_url: &str, html_body: &str) -> Vec<String> {
 
     // Only add default paths if URL doesn't already contain them AND we found no endpoints
     if endpoints.is_empty() {
-        if !base_lower.contains("/api") && !base_lower.contains("/graphql") && !base_lower.contains("/v1") {
+        if !base_lower.contains("/api")
+            && !base_lower.contains("/graphql")
+            && !base_lower.contains("/v1")
+        {
             // Might be a traditional site - add common API paths
             endpoints.push(format!("{}/api", base_url.trim_end_matches('/')));
             endpoints.push(format!("{}/graphql", base_url.trim_end_matches('/')));
@@ -645,7 +700,11 @@ pub fn discover_api_endpoints(base_url: &str, html_body: &str) -> Vec<String> {
 
 /// Check if a payload had a measurable effect compared to baseline response
 /// Used to reduce false positives by ensuring payloads actually change behavior
-pub fn did_payload_have_effect(baseline: &HttpResponse, response: &HttpResponse, payload: &str) -> bool {
+pub fn did_payload_have_effect(
+    baseline: &HttpResponse,
+    response: &HttpResponse,
+    payload: &str,
+) -> bool {
     // Different status code is a strong indicator
     if baseline.status_code != response.status_code {
         return true;
@@ -696,37 +755,42 @@ pub fn detect_technology(tech: &str, html_body: &str, headers: &HashMap<String, 
 
     match tech {
         "firebase" => {
-            html_body.contains("firebase") ||
-            html_body.contains("firebaseapp.com") ||
-            html_body.contains("__firebase") ||
-            html_body.contains("/__/firebase/")
-        },
+            html_body.contains("firebase")
+                || html_body.contains("firebaseapp.com")
+                || html_body.contains("__firebase")
+                || html_body.contains("/__/firebase/")
+        }
         "aws" => {
-            html_body.contains("amazonaws.com") ||
-            html_body.contains("aws-amplify") ||
-            html_body.contains("s3.") ||
-            body_lower.contains("cloudfront")
-        },
+            html_body.contains("amazonaws.com")
+                || html_body.contains("aws-amplify")
+                || html_body.contains("s3.")
+                || body_lower.contains("cloudfront")
+        }
         "azure" => {
-            html_body.contains("azure") ||
-            html_body.contains("blob.core.windows.net") ||
-            html_body.contains("azurewebsites.net")
-        },
+            html_body.contains("azure")
+                || html_body.contains("blob.core.windows.net")
+                || html_body.contains("azurewebsites.net")
+        }
         "gcp" | "google-cloud" => {
-            html_body.contains("storage.googleapis.com") ||
-            html_body.contains("cloudrun.app") ||
-            html_body.contains("appspot.com")
-        },
+            html_body.contains("storage.googleapis.com")
+                || html_body.contains("cloudrun.app")
+                || html_body.contains("appspot.com")
+        }
         "docker" | "container" => {
-            headers.get("server").map(|s| s.contains("docker")).unwrap_or(false) ||
-            html_body.contains("/.well-known/docker") ||
-            html_body.contains(":2375") || html_body.contains(":2376")
-        },
+            headers
+                .get("server")
+                .map(|s| s.contains("docker"))
+                .unwrap_or(false)
+                || html_body.contains("/.well-known/docker")
+                || html_body.contains(":2375")
+                || html_body.contains(":2376")
+        }
         "kubernetes" => {
-            html_body.contains("kubernetes") ||
-            html_body.contains("k8s.io") ||
-            html_body.contains(":6443") || html_body.contains(":8001")
-        },
+            html_body.contains("kubernetes")
+                || html_body.contains("k8s.io")
+                || html_body.contains(":6443")
+                || html_body.contains(":8001")
+        }
         _ => true, // Unknown tech - allow scanner to run
     }
 }
@@ -747,7 +811,10 @@ mod tests {
 
         let characteristics = AppCharacteristics::from_response(&response, "https://example.com");
         assert!(characteristics.is_spa);
-        assert!(matches!(characteristics.app_type, AppType::SinglePageApp(SpaFramework::Vue)));
+        assert!(matches!(
+            characteristics.app_type,
+            AppType::SinglePageApp(SpaFramework::Vue)
+        ));
         assert!(characteristics.should_skip_injection_tests());
     }
 
@@ -763,7 +830,10 @@ mod tests {
 
         let characteristics = AppCharacteristics::from_response(&response, "https://example.com");
         assert!(characteristics.is_spa);
-        assert!(matches!(characteristics.app_type, AppType::SinglePageApp(SpaFramework::React)));
+        assert!(matches!(
+            characteristics.app_type,
+            AppType::SinglePageApp(SpaFramework::React)
+        ));
     }
 
     #[test]
@@ -825,28 +895,30 @@ mod tests {
 /// Detect if the site has file upload functionality
 fn has_file_upload(body: &str, body_lower: &str) -> bool {
     // Check for file upload form elements
-    if body_lower.contains("type=\"file\"") ||
-       body_lower.contains("type='file'") ||
-       body_lower.contains("input file") ||
-       body_lower.contains("multipart/form-data") {
+    if body_lower.contains("type=\"file\"")
+        || body_lower.contains("type='file'")
+        || body_lower.contains("input file")
+        || body_lower.contains("multipart/form-data")
+    {
         return true;
     }
 
     // Check for upload-related endpoints/text
-    if body_lower.contains("upload") && (
-        body_lower.contains("drag") ||
-        body_lower.contains("drop") ||
-        body_lower.contains("choose file") ||
-        body_lower.contains("select file")
-    ) {
+    if body_lower.contains("upload")
+        && (body_lower.contains("drag")
+            || body_lower.contains("drop")
+            || body_lower.contains("choose file")
+            || body_lower.contains("select file"))
+    {
         return true;
     }
 
     // Check for file upload libraries
-    if body.contains("dropzone") ||
-       body.contains("filepond") ||
-       body.contains("uppy") ||
-       body.contains("fine-uploader") {
+    if body.contains("dropzone")
+        || body.contains("filepond")
+        || body.contains("uppy")
+        || body.contains("fine-uploader")
+    {
         return true;
     }
 

@@ -215,9 +215,7 @@ impl FormSubmission {
     pub fn to_form_data(&self) -> Vec<(String, String)> {
         self.fields
             .iter()
-            .filter_map(|f| {
-                f.value.as_ref().map(|v| (f.name.clone(), v.clone()))
-            })
+            .filter_map(|f| f.value.as_ref().map(|v| (f.name.clone(), v.clone())))
             .collect()
     }
 
@@ -297,14 +295,30 @@ impl FormField {
 
         // Common CSRF/token patterns
         let token_patterns = [
-            "csrf", "_csrf", "xsrf", "_xsrf",
-            "_token", "authenticity_token", "verification_token",
-            "requestverificationtoken", "__requestverificationtoken",
-            "csrfmiddlewaretoken", "anti-forgery", "antiforgery",
-            "form_token", "formtoken", "security_token",
-            "nonce", "_nonce", "__nonce",
-            "timestamp", "_timestamp", "ts",
-            "captcha", "recaptcha", "hcaptcha",
+            "csrf",
+            "_csrf",
+            "xsrf",
+            "_xsrf",
+            "_token",
+            "authenticity_token",
+            "verification_token",
+            "requestverificationtoken",
+            "__requestverificationtoken",
+            "csrfmiddlewaretoken",
+            "anti-forgery",
+            "antiforgery",
+            "form_token",
+            "formtoken",
+            "security_token",
+            "nonce",
+            "_nonce",
+            "__nonce",
+            "timestamp",
+            "_timestamp",
+            "ts",
+            "captcha",
+            "recaptcha",
+            "hcaptcha",
         ];
 
         // Check name patterns
@@ -329,8 +343,10 @@ impl FormField {
     fn classify_token(name: &str) -> TokenType {
         let name_lower = name.to_lowercase();
 
-        if name_lower.contains("csrf") || name_lower.contains("xsrf")
-            || name_lower.contains("authenticity") || name_lower.contains("verification")
+        if name_lower.contains("csrf")
+            || name_lower.contains("xsrf")
+            || name_lower.contains("authenticity")
+            || name_lower.contains("verification")
             || name_lower.contains("antiforgery")
         {
             TokenType::Csrf
@@ -362,9 +378,15 @@ impl FormField {
 
         if field_type == "email" || name_lower.contains("email") {
             Some("email".to_string())
-        } else if field_type == "tel" || name_lower.contains("phone") || name_lower.contains("mobile") {
+        } else if field_type == "tel"
+            || name_lower.contains("phone")
+            || name_lower.contains("mobile")
+        {
             Some("phone".to_string())
-        } else if field_type == "url" || name_lower.contains("url") || name_lower.contains("website") {
+        } else if field_type == "url"
+            || name_lower.contains("url")
+            || name_lower.contains("website")
+        {
             Some("url".to_string())
         } else if name_lower.contains("zip") || name_lower.contains("postal") {
             Some("postal_code".to_string())
@@ -491,14 +513,18 @@ impl FormSequence {
         self.submissions
             .iter()
             .flat_map(|s| {
-                s.fields.iter().filter(|f| f.is_injectable).map(move |f| (s, f))
+                s.fields
+                    .iter()
+                    .filter(|f| f.is_injectable)
+                    .map(move |f| (s, f))
             })
             .collect()
     }
 
     /// Detect the flow type based on URLs and field patterns
     pub fn detect_flow_type(&mut self) {
-        let all_urls: Vec<&str> = self.submissions
+        let all_urls: Vec<&str> = self
+            .submissions
             .iter()
             .map(|s| s.action_url.as_str())
             .chain(std::iter::once(self.start_url.as_str()))
@@ -507,44 +533,54 @@ impl FormSequence {
         let url_text = all_urls.join(" ").to_lowercase();
 
         // Check field names across all submissions
-        let all_fields: Vec<&str> = self.submissions
+        let all_fields: Vec<&str> = self
+            .submissions
             .iter()
             .flat_map(|s| s.fields.iter().map(|f| f.name.as_str()))
             .collect();
         let field_text = all_fields.join(" ").to_lowercase();
 
         // Detect checkout flow
-        if url_text.contains("checkout") || url_text.contains("cart")
-            || url_text.contains("payment") || url_text.contains("order")
-            || field_text.contains("credit") || field_text.contains("shipping")
+        if url_text.contains("checkout")
+            || url_text.contains("cart")
+            || url_text.contains("payment")
+            || url_text.contains("order")
+            || field_text.contains("credit")
+            || field_text.contains("shipping")
         {
             self.flow_type = Some(FlowType::Checkout);
         }
         // Detect registration flow
-        else if url_text.contains("register") || url_text.contains("signup")
+        else if url_text.contains("register")
+            || url_text.contains("signup")
             || url_text.contains("create-account")
             || (field_text.contains("password") && field_text.contains("confirm"))
         {
             self.flow_type = Some(FlowType::Registration);
         }
         // Detect login flow
-        else if url_text.contains("login") || url_text.contains("signin")
+        else if url_text.contains("login")
+            || url_text.contains("signin")
             || url_text.contains("authenticate")
         {
             self.flow_type = Some(FlowType::Login);
         }
         // Detect password reset
-        else if url_text.contains("password") && (url_text.contains("reset") || url_text.contains("forgot")) {
+        else if url_text.contains("password")
+            && (url_text.contains("reset") || url_text.contains("forgot"))
+        {
             self.flow_type = Some(FlowType::PasswordReset);
         }
         // Detect profile update
-        else if url_text.contains("profile") || url_text.contains("settings")
+        else if url_text.contains("profile")
+            || url_text.contains("settings")
             || url_text.contains("account")
         {
             self.flow_type = Some(FlowType::ProfileUpdate);
         }
         // Detect survey
-        else if url_text.contains("survey") || url_text.contains("questionnaire")
+        else if url_text.contains("survey")
+            || url_text.contains("questionnaire")
             || url_text.contains("quiz")
         {
             self.flow_type = Some(FlowType::Survey);
@@ -552,8 +588,7 @@ impl FormSequence {
         // Multi-step wizard (generic)
         else if self.submissions.len() > 1 && self.is_wizard {
             self.flow_type = Some(FlowType::Wizard);
-        }
-        else {
+        } else {
             self.flow_type = Some(FlowType::Unknown);
         }
     }
@@ -561,9 +596,9 @@ impl FormSequence {
     /// Check if this sequence requires CSRF token refresh between steps
     pub fn requires_csrf_refresh(&self) -> bool {
         self.submissions.iter().any(|s| {
-            s.fields.iter().any(|f| {
-                f.token_type == Some(TokenType::Csrf)
-            })
+            s.fields
+                .iter()
+                .any(|f| f.token_type == Some(TokenType::Csrf))
         })
     }
 }
@@ -689,7 +724,10 @@ impl FormRecorder {
         // Check for duplicate
         let sig = submission.signature();
         if self.seen_signatures.contains(&sig) {
-            debug!("[FormRecorder] Duplicate submission, skipping: {}", submission.action_url);
+            debug!(
+                "[FormRecorder] Duplicate submission, skipping: {}",
+                submission.action_url
+            );
             return false;
         }
 
@@ -713,9 +751,13 @@ impl FormRecorder {
         self.submission_times.push((sig, Instant::now()));
         self.submissions.push(submission);
 
-        info!("[FormRecorder] Recorded submission #{} to {}",
+        info!(
+            "[FormRecorder] Recorded submission #{} to {}",
             self.submissions.len(),
-            self.submissions.last().map(|s| &s.action_url).unwrap_or(&String::new())
+            self.submissions
+                .last()
+                .map(|s| &s.action_url)
+                .unwrap_or(&String::new())
         );
 
         true
@@ -749,12 +791,18 @@ impl FormRecorder {
             let len = v.len();
 
             // Long random-looking strings
-            if len >= 32 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            if len >= 32
+                && v.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
                 return true;
             }
 
             // Base64-encoded tokens
-            if len >= 20 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=') {
+            if len >= 20
+                && v.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+            {
                 // Check for base64 padding or structure
                 if v.ends_with('=') || (len % 4 == 0 && len >= 24) {
                     return true;
@@ -793,7 +841,10 @@ impl FormRecorder {
             if let Some(ref mut flow) = self.active_flow {
                 flow.submissions.push(submission.clone());
                 flow.last_submission_at = now;
-                debug!("[FormRecorder] Continuing wizard flow, step {}", flow.submissions.len());
+                debug!(
+                    "[FormRecorder] Continuing wizard flow, step {}",
+                    flow.submissions.len()
+                );
                 return;
             }
         } else if self.active_flow.is_some() {
@@ -803,7 +854,10 @@ impl FormRecorder {
 
         // Check if this could start a new wizard flow
         if self.could_start_wizard(submission) {
-            debug!("[FormRecorder] Starting potential wizard flow at {}", submission.source_url);
+            debug!(
+                "[FormRecorder] Starting potential wizard flow at {}",
+                submission.source_url
+            );
             self.active_flow = Some(ActiveFlowState {
                 start_url: submission.source_url.clone(),
                 submissions: vec![submission.clone()],
@@ -819,9 +873,12 @@ impl FormRecorder {
         let url_lower = submission.action_url.to_lowercase();
 
         // URLs that often start wizard flows
-        url_lower.contains("step") || url_lower.contains("wizard")
-            || url_lower.contains("checkout") || url_lower.contains("register")
-            || url_lower.contains("signup") || url_lower.contains("onboard")
+        url_lower.contains("step")
+            || url_lower.contains("wizard")
+            || url_lower.contains("checkout")
+            || url_lower.contains("register")
+            || url_lower.contains("signup")
+            || url_lower.contains("onboard")
             || submission.fields.len() <= 5 // Short forms often start wizards
     }
 
@@ -839,8 +896,10 @@ impl FormRecorder {
 
         // Check for step indicators in URL
         let url_lower = submission.action_url.to_lowercase();
-        if url_lower.contains("step") || url_lower.contains("next")
-            || url_lower.contains("continue") || url_lower.contains("proceed")
+        if url_lower.contains("step")
+            || url_lower.contains("next")
+            || url_lower.contains("continue")
+            || url_lower.contains("proceed")
         {
             return true;
         }
@@ -874,7 +933,13 @@ impl FormRecorder {
             // Look for step numbers and increment
             if let Some(idx) = path.find("step") {
                 let after_step = &path[idx + 4..];
-                if let Some(num) = after_step.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok() {
+                if let Some(num) = after_step
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .parse::<u32>()
+                    .ok()
+                {
                     let next_step = format!("step{}", num + 1);
                     patterns.push(next_step);
                 }
@@ -911,8 +976,10 @@ impl FormRecorder {
 
                 sequence.detect_flow_type();
 
-                info!("[FormRecorder] Finalized wizard sequence with {} steps: {:?}",
-                    sequence.step_count, sequence.flow_type);
+                info!(
+                    "[FormRecorder] Finalized wizard sequence with {} steps: {:?}",
+                    sequence.step_count, sequence.flow_type
+                );
 
                 self.sequences.push(sequence);
             }
@@ -925,7 +992,8 @@ impl FormRecorder {
         self.finalize_active_flow();
 
         // Group remaining submissions into single-step sequences
-        let standalone_submissions: Vec<_> = self.submissions
+        let standalone_submissions: Vec<_> = self
+            .submissions
             .iter()
             .filter(|s| s.sequence_index.is_none())
             .cloned()
@@ -957,7 +1025,11 @@ impl FormRecorder {
         FormRecorderStats {
             total_submissions: self.submissions.len(),
             unique_forms: self.seen_signatures.len(),
-            active_flow_steps: self.active_flow.as_ref().map(|f| f.submissions.len()).unwrap_or(0),
+            active_flow_steps: self
+                .active_flow
+                .as_ref()
+                .map(|f| f.submissions.len())
+                .unwrap_or(0),
             sequences_detected: self.sequences.len(),
         }
     }
@@ -1132,7 +1204,10 @@ impl FormReplayer {
 
     /// Replay a sequence exactly as recorded (baseline test)
     pub async fn replay_baseline(&self, sequence: &FormSequence) -> Result<ReplaySequenceResult> {
-        info!("[FormReplayer] Starting baseline replay of sequence: {}", sequence.name);
+        info!(
+            "[FormReplayer] Starting baseline replay of sequence: {}",
+            sequence.name
+        );
         self.replay_sequence_internal(sequence, vec![]).await
     }
 
@@ -1143,7 +1218,10 @@ impl FormReplayer {
         field_name: &str,
         payload: &str,
     ) -> Result<ReplaySequenceResult> {
-        info!("[FormReplayer] Replaying with injection: {} = {}", field_name, payload);
+        info!(
+            "[FormReplayer] Replaying with injection: {} = {}",
+            field_name, payload
+        );
 
         let modification = FieldModification {
             field_name: field_name.to_string(),
@@ -1151,7 +1229,8 @@ impl FormReplayer {
             injected_value: payload.to_string(),
         };
 
-        self.replay_sequence_internal(sequence, vec![modification]).await
+        self.replay_sequence_internal(sequence, vec![modification])
+            .await
     }
 
     /// Replay with multiple field injections
@@ -1160,7 +1239,10 @@ impl FormReplayer {
         sequence: &FormSequence,
         modifications: Vec<FieldModification>,
     ) -> Result<ReplaySequenceResult> {
-        info!("[FormReplayer] Replaying with {} modifications", modifications.len());
+        info!(
+            "[FormReplayer] Replaying with {} modifications",
+            modifications.len()
+        );
         self.replay_sequence_internal(sequence, modifications).await
     }
 
@@ -1182,15 +1264,27 @@ impl FormReplayer {
         }
 
         // Navigate to start URL
-        debug!("[FormReplayer] Navigating to start URL: {}", sequence.start_url);
+        debug!(
+            "[FormReplayer] Navigating to start URL: {}",
+            sequence.start_url
+        );
 
         // Process each submission in order
         for (idx, submission) in sequence.submissions.iter().enumerate() {
-            info!("[FormReplayer] Processing step {}/{}: {}",
-                idx + 1, sequence.submissions.len(), submission.action_url);
+            info!(
+                "[FormReplayer] Processing step {}/{}: {}",
+                idx + 1,
+                sequence.submissions.len(),
+                submission.action_url
+            );
 
             // Refresh CSRF token if needed
-            if self.config.auto_refresh_csrf && submission.fields.iter().any(|f| f.token_type == Some(TokenType::Csrf)) {
+            if self.config.auto_refresh_csrf
+                && submission
+                    .fields
+                    .iter()
+                    .any(|f| f.token_type == Some(TokenType::Csrf))
+            {
                 if let Some(csrf) = self.refresh_csrf_for_submission(submission).await? {
                     refreshed_tokens.push(csrf.field_name.clone());
                 }
@@ -1217,15 +1311,25 @@ impl FormReplayer {
                         has_errors,
                         response_excerpt: None,
                         duration_ms,
-                        modifications: modifications.iter()
-                            .filter(|m| modified_submission.fields.iter().any(|f| f.name == m.field_name))
+                        modifications: modifications
+                            .iter()
+                            .filter(|m| {
+                                modified_submission
+                                    .fields
+                                    .iter()
+                                    .any(|f| f.name == m.field_name)
+                            })
                             .cloned()
                             .collect(),
                     });
 
                     if !submit_result.success {
                         sequence_success = false;
-                        errors.push(format!("Step {} failed: {}", idx + 1, submit_result.submit_status));
+                        errors.push(format!(
+                            "Step {} failed: {}",
+                            idx + 1,
+                            submit_result.submit_status
+                        ));
                     }
                 }
                 Err(e) => {
@@ -1268,8 +1372,11 @@ impl FormReplayer {
 
     /// Restore session state before replay
     async fn restore_state(&self, state: &SequenceState) -> Result<()> {
-        debug!("[FormReplayer] Restoring session state: {} cookies, {} localStorage items",
-            state.cookies.len(), state.local_storage.len());
+        debug!(
+            "[FormReplayer] Restoring session state: {} cookies, {} localStorage items",
+            state.cookies.len(),
+            state.local_storage.len()
+        );
 
         // State restoration is handled by the crawler when navigating
         // The cookies and storage will be injected by the browser context
@@ -1278,9 +1385,14 @@ impl FormReplayer {
     }
 
     /// Refresh CSRF token for a submission
-    async fn refresh_csrf_for_submission(&self, submission: &FormSubmission) -> Result<Option<CsrfTokenInfo>> {
+    async fn refresh_csrf_for_submission(
+        &self,
+        submission: &FormSubmission,
+    ) -> Result<Option<CsrfTokenInfo>> {
         // Find the CSRF field
-        let csrf_field = submission.fields.iter()
+        let csrf_field = submission
+            .fields
+            .iter()
             .find(|f| f.token_type == Some(TokenType::Csrf));
 
         if csrf_field.is_none() {
@@ -1288,18 +1400,28 @@ impl FormReplayer {
         }
 
         // Extract fresh token from the source page
-        let token = self.crawler.extract_csrf_token(&submission.source_url).await?;
+        let token = self
+            .crawler
+            .extract_csrf_token(&submission.source_url)
+            .await?;
 
         if let Some(ref t) = token {
-            debug!("[FormReplayer] Refreshed CSRF token: {} = {}...",
-                t.field_name, &t.value[..t.value.len().min(20)]);
+            debug!(
+                "[FormReplayer] Refreshed CSRF token: {} = {}...",
+                t.field_name,
+                &t.value[..t.value.len().min(20)]
+            );
         }
 
         Ok(token)
     }
 
     /// Apply modifications to a submission
-    fn apply_modifications(&self, submission: &FormSubmission, modifications: &[FieldModification]) -> FormSubmission {
+    fn apply_modifications(
+        &self,
+        submission: &FormSubmission,
+        modifications: &[FieldModification],
+    ) -> FormSubmission {
         let mut modified = submission.clone();
 
         for modification in modifications {
@@ -1317,20 +1439,21 @@ impl FormReplayer {
     async fn submit_form(&self, submission: &FormSubmission) -> Result<FormSubmissionResult> {
         let form_data = submission.to_form_data();
 
-        self.crawler.submit_form_with_csrf(
-            &submission.source_url,
-            &submission.action_url,
-            &form_data,
-        ).await
+        self.crawler
+            .submit_form_with_csrf(&submission.source_url, &submission.action_url, &form_data)
+            .await
     }
 
     /// Get all injectable targets from a sequence
     pub fn get_injection_targets(&self, sequence: &FormSequence) -> Vec<InjectionTarget> {
-        sequence.submissions
+        sequence
+            .submissions
             .iter()
             .enumerate()
             .flat_map(|(step_idx, submission)| {
-                submission.fields.iter()
+                submission
+                    .fields
+                    .iter()
                     .filter(|f| f.is_injectable)
                     .map(move |field| InjectionTarget {
                         sequence_id: sequence.id.clone(),
@@ -1589,8 +1712,14 @@ mod tests {
         // CSRF tokens
         assert!(FormField::detect_token_field("csrf_token", "hidden"));
         assert!(FormField::detect_token_field("_csrf", "hidden"));
-        assert!(FormField::detect_token_field("authenticity_token", "hidden"));
-        assert!(FormField::detect_token_field("__RequestVerificationToken", "hidden"));
+        assert!(FormField::detect_token_field(
+            "authenticity_token",
+            "hidden"
+        ));
+        assert!(FormField::detect_token_field(
+            "__RequestVerificationToken",
+            "hidden"
+        ));
 
         // Non-tokens
         assert!(!FormField::detect_token_field("email", "text"));
@@ -1604,20 +1733,20 @@ mod tests {
         assert_eq!(FormField::classify_token("xsrf-token"), TokenType::Csrf);
         assert_eq!(FormField::classify_token("nonce"), TokenType::Nonce);
         assert_eq!(FormField::classify_token("timestamp"), TokenType::Timestamp);
-        assert_eq!(FormField::classify_token("random_field"), TokenType::Unknown);
+        assert_eq!(
+            FormField::classify_token("random_field"),
+            TokenType::Unknown
+        );
     }
 
     #[test]
     fn test_form_submission_builder() {
-        let submission = FormSubmissionBuilder::new(
-            "https://example.com/login",
-            "POST",
-            "https://example.com/",
-        )
-        .email_field("email", "test@example.com")
-        .password_field("password", "secret123")
-        .csrf_field("_csrf", "abc123")
-        .build();
+        let submission =
+            FormSubmissionBuilder::new("https://example.com/login", "POST", "https://example.com/")
+                .email_field("email", "test@example.com")
+                .password_field("password", "secret123")
+                .csrf_field("_csrf", "abc123")
+                .build();
 
         assert_eq!(submission.fields.len(), 3);
         assert_eq!(submission.get_injectable_fields().len(), 2); // email and password
@@ -1661,15 +1790,13 @@ mod tests {
         let form = DiscoveredForm {
             action: "https://example.com/submit".to_string(),
             method: "POST".to_string(),
-            inputs: vec![
-                FormInput {
-                    name: "email".to_string(),
-                    input_type: "email".to_string(),
-                    value: Some("test@example.com".to_string()),
-                    options: None,
-                    required: true,
-                },
-            ],
+            inputs: vec![FormInput {
+                name: "email".to_string(),
+                input_type: "email".to_string(),
+                value: Some("test@example.com".to_string()),
+                options: None,
+                required: true,
+            }],
             discovered_at: "https://example.com/".to_string(),
         };
 
@@ -1686,13 +1813,19 @@ mod tests {
     #[test]
     fn test_is_token_value() {
         // Long random strings
-        assert!(FormRecorder::is_token_value(&Some("a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6".to_string())));
+        assert!(FormRecorder::is_token_value(&Some(
+            "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6".to_string()
+        )));
 
         // JWT-like
-        assert!(FormRecorder::is_token_value(&Some("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig".to_string())));
+        assert!(FormRecorder::is_token_value(&Some(
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig".to_string()
+        )));
 
         // Base64 with padding
-        assert!(FormRecorder::is_token_value(&Some("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=".to_string())));
+        assert!(FormRecorder::is_token_value(&Some(
+            "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=".to_string()
+        )));
 
         // Short values are not tokens
         assert!(!FormRecorder::is_token_value(&Some("hello".to_string())));
@@ -1753,9 +1886,10 @@ mod tests {
         .text_field("card_number", "4111111111111111")
         .build();
 
-        let mut checkout_seq = FormSequenceBuilder::new("Checkout", "https://shop.example.com/checkout")
-            .add_step(checkout_step)
-            .build();
+        let mut checkout_seq =
+            FormSequenceBuilder::new("Checkout", "https://shop.example.com/checkout")
+                .add_step(checkout_step)
+                .build();
 
         checkout_seq.detect_flow_type();
         assert_eq!(checkout_seq.flow_type, Some(FlowType::Checkout));
@@ -1817,19 +1951,20 @@ mod tests {
 
         let replayer = FormReplayer::new();
 
-        let modifications = vec![
-            FieldModification {
-                field_name: "name".to_string(),
-                original_value: Some("original".to_string()),
-                injected_value: "<script>alert(1)</script>".to_string(),
-            },
-        ];
+        let modifications = vec![FieldModification {
+            field_name: "name".to_string(),
+            original_value: Some("original".to_string()),
+            injected_value: "<script>alert(1)</script>".to_string(),
+        }];
 
         let modified = replayer.apply_modifications(&submission, &modifications);
 
         // Name should be modified
         let name_field = modified.fields.iter().find(|f| f.name == "name").unwrap();
-        assert_eq!(name_field.value, Some("<script>alert(1)</script>".to_string()));
+        assert_eq!(
+            name_field.value,
+            Some("<script>alert(1)</script>".to_string())
+        );
 
         // Email should be unchanged
         let email_field = modified.fields.iter().find(|f| f.name == "email").unwrap();

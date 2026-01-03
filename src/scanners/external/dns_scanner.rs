@@ -7,8 +7,8 @@
 
 use anyhow::{Context, Result};
 use hickory_resolver::config::*;
-use hickory_resolver::TokioResolver;
 use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::TokioResolver;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use tracing::{debug, info};
@@ -149,8 +149,7 @@ impl DnsScanner {
     pub async fn new(config: DnsScanConfig) -> Result<Self> {
         let resolver = if let Some(ref dns_server) = config.dns_server {
             // Use custom DNS server
-            let dns_ip: IpAddr = dns_server.parse()
-                .context("Invalid DNS server IP")?;
+            let dns_ip: IpAddr = dns_server.parse().context("Invalid DNS server IP")?;
 
             let name_server = NameServerConfig::new(
                 std::net::SocketAddr::new(dns_ip, 53),
@@ -288,13 +287,11 @@ impl DnsScanner {
     /// Query A records
     async fn query_a_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.lookup_ip(domain).await {
-            Ok(response) => {
-                Ok(response
-                    .iter()
-                    .filter(|ip| ip.is_ipv4())
-                    .map(|ip| ip.to_string())
-                    .collect())
-            }
+            Ok(response) => Ok(response
+                .iter()
+                .filter(|ip| ip.is_ipv4())
+                .map(|ip| ip.to_string())
+                .collect()),
             Err(_) => Ok(Vec::new()),
         }
     }
@@ -302,13 +299,11 @@ impl DnsScanner {
     /// Query AAAA records
     async fn query_aaaa_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.lookup_ip(domain).await {
-            Ok(response) => {
-                Ok(response
-                    .iter()
-                    .filter(|ip| ip.is_ipv6())
-                    .map(|ip| ip.to_string())
-                    .collect())
-            }
+            Ok(response) => Ok(response
+                .iter()
+                .filter(|ip| ip.is_ipv6())
+                .map(|ip| ip.to_string())
+                .collect()),
             Err(_) => Ok(Vec::new()),
         }
     }
@@ -316,12 +311,10 @@ impl DnsScanner {
     /// Query MX records
     async fn query_mx_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.mx_lookup(domain).await {
-            Ok(response) => {
-                Ok(response
-                    .iter()
-                    .map(|mx| format!("{} {}", mx.preference(), mx.exchange()))
-                    .collect())
-            }
+            Ok(response) => Ok(response
+                .iter()
+                .map(|mx| format!("{} {}", mx.preference(), mx.exchange()))
+                .collect()),
             Err(_) => Ok(Vec::new()),
         }
     }
@@ -329,13 +322,11 @@ impl DnsScanner {
     /// Query TXT records
     async fn query_txt_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.txt_lookup(domain).await {
-            Ok(response) => {
-                Ok(response
-                    .iter()
-                    .flat_map(|txt| txt.iter())
-                    .map(|data| String::from_utf8_lossy(data).to_string())
-                    .collect())
-            }
+            Ok(response) => Ok(response
+                .iter()
+                .flat_map(|txt| txt.iter())
+                .map(|data| String::from_utf8_lossy(data).to_string())
+                .collect()),
             Err(_) => Ok(Vec::new()),
         }
     }
@@ -343,9 +334,7 @@ impl DnsScanner {
     /// Query NS records
     async fn query_ns_records(&self, domain: &str) -> Result<Vec<String>> {
         match self.resolver.ns_lookup(domain).await {
-            Ok(response) => {
-                Ok(response.iter().map(|ns| ns.to_string()).collect())
-            }
+            Ok(response) => Ok(response.iter().map(|ns| ns.to_string()).collect()),
             Err(_) => Ok(Vec::new()),
         }
     }
@@ -398,7 +387,10 @@ impl DnsScanner {
         //
         // This basic implementation reports DNSSEC as disabled with a recommendation
         // to enable it, which is the secure recommendation for most domains.
-        debug!("DNSSEC check for {} - full validation requires specialized DNS client", domain);
+        debug!(
+            "DNSSEC check for {} - full validation requires specialized DNS client",
+            domain
+        );
 
         let mut issues = Vec::new();
         let dnskey_records = Vec::new();
@@ -409,13 +401,19 @@ impl DnsScanner {
         let enabled = !dnskey_records.is_empty();
 
         if !enabled {
-            issues.push("DNSSEC is not enabled - consider enabling for improved DNS security".to_string());
+            issues.push(
+                "DNSSEC is not enabled - consider enabling for improved DNS security".to_string(),
+            );
         }
 
         Ok(DnssecInfo {
             enabled,
             valid: enabled,
-            algorithm: if enabled { Some("RSA/SHA-256".to_string()) } else { None },
+            algorithm: if enabled {
+                Some("RSA/SHA-256".to_string())
+            } else {
+                None
+            },
             ds_records,
             dnskey_records,
             issues,
@@ -425,9 +423,7 @@ impl DnsScanner {
     /// Check SPF record
     async fn check_spf(&self, _domain: &str, txt_records: &[String]) -> Result<Option<SpfRecord>> {
         // Find SPF record
-        let spf_record = txt_records
-            .iter()
-            .find(|r| r.starts_with("v=spf1"));
+        let spf_record = txt_records.iter().find(|r| r.starts_with("v=spf1"));
 
         if let Some(record) = spf_record {
             let mechanisms = self.parse_spf_mechanisms(record);
@@ -483,7 +479,10 @@ impl DnsScanner {
         // Check for too many DNS lookups (SPF limit is 10)
         let include_count = record.matches("include:").count();
         if include_count > 10 {
-            issues.push(format!("Too many includes ({}), SPF limit is 10", include_count));
+            issues.push(format!(
+                "Too many includes ({}), SPF limit is 10",
+                include_count
+            ));
         }
 
         issues
@@ -495,7 +494,16 @@ impl DnsScanner {
 
         // Common DKIM selectors to check
         let selectors = vec![
-            "default", "google", "k1", "s1", "s2", "smtp", "mail", "dkim", "selector1", "selector2",
+            "default",
+            "google",
+            "k1",
+            "s1",
+            "s2",
+            "smtp",
+            "mail",
+            "dkim",
+            "selector1",
+            "selector2",
         ];
 
         for selector in selectors {
@@ -643,7 +651,10 @@ impl DnsScanner {
 
         let percentage = self.parse_dmarc_percentage(record);
         if percentage < 100 {
-            issues.push(format!("DMARC is only applied to {}% of messages", percentage));
+            issues.push(format!(
+                "DMARC is only applied to {}% of messages",
+                percentage
+            ));
         }
 
         issues

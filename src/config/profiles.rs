@@ -404,7 +404,10 @@ impl ProfileRegistry {
         profiles.insert("comprehensive".to_string(), ScanProfile::comprehensive());
         profiles.insert("stealth".to_string(), ScanProfile::stealth());
         profiles.insert("compliance-pci".to_string(), ScanProfile::compliance_pci());
-        profiles.insert("compliance-hipaa".to_string(), ScanProfile::compliance_hipaa());
+        profiles.insert(
+            "compliance-hipaa".to_string(),
+            ScanProfile::compliance_hipaa(),
+        );
 
         Self { profiles }
     }

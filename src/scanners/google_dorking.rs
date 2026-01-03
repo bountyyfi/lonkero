@@ -15,7 +15,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::collections::HashMap;
 use tracing::info;
@@ -56,21 +55,27 @@ impl GoogleDorkingScanner {
         info!("Generating Google dorks for domain: {}", domain);
 
         let mut dorks = Vec::new();
-        let clean_domain = domain.trim().trim_start_matches("http://").trim_start_matches("https://");
+        let clean_domain = domain
+            .trim()
+            .trim_start_matches("http://")
+            .trim_start_matches("https://");
 
         // PHP Extension with Parameters
         dorks.push(GoogleDork {
             category: "PHP Extensions".to_string(),
             query: format!("site:{} ext:php inurl:?", clean_domain),
             description: "Find PHP files with query parameters".to_string(),
-            impact: "May expose PHP endpoints accepting user input, potential injection points".to_string(),
+            impact: "May expose PHP endpoints accepting user input, potential injection points"
+                .to_string(),
         });
 
         // API Endpoints
         dorks.push(GoogleDork {
             category: "API Endpoints".to_string(),
-            query: format!("site:{} inurl:api | site:{}/rest | site:{}/v1 | site:{}/v2 | site:{}/v3",
-                clean_domain, clean_domain, clean_domain, clean_domain, clean_domain),
+            query: format!(
+                "site:{} inurl:api | site:{}/rest | site:{}/v1 | site:{}/v2 | site:{}/v3",
+                clean_domain, clean_domain, clean_domain, clean_domain, clean_domain
+            ),
             description: "Discover API endpoints".to_string(),
             impact: "API endpoints may expose sensitive data or functionality".to_string(),
         });
@@ -254,7 +259,10 @@ impl GoogleDorkingScanner {
         // Disclosed XSS and Open Redirects (OpenBugBounty)
         dorks.push(GoogleDork {
             category: "Known Vulnerabilities".to_string(),
-            query: format!("site:openbugbounty.org inurl:reports intext:\"{}\"", clean_domain),
+            query: format!(
+                "site:openbugbounty.org inurl:reports intext:\"{}\"",
+                clean_domain
+            ),
             description: "Find disclosed vulnerabilities on OpenBugBounty".to_string(),
             impact: "Previously reported vulnerabilities may still be unpatched".to_string(),
         });
@@ -374,7 +382,10 @@ impl GoogleDorkingScanner {
         // Cloud Storage - S3 Dualstack
         dorks.push(GoogleDork {
             category: "Cloud Storage".to_string(),
-            query: format!("site:s3.dualstack.us-east-1.amazonaws.com \"{}\"", clean_domain),
+            query: format!(
+                "site:s3.dualstack.us-east-1.amazonaws.com \"{}\"",
+                clean_domain
+            ),
             description: "Find S3 dualstack buckets".to_string(),
             impact: "IPv6-enabled S3 buckets".to_string(),
         });
@@ -507,10 +518,14 @@ impl GoogleDorkingScanner {
     pub fn format_dorks_for_display(results: &GoogleDorkingResults) -> String {
         let mut output = String::new();
 
-        output.push_str(&format!("\n╔══════════════════════════════════════════════════════════════════╗\n"));
+        output.push_str(&format!(
+            "\n╔══════════════════════════════════════════════════════════════════╗\n"
+        ));
         output.push_str(&format!("║  GOOGLE DORKS FOR: {:<46} ║\n", results.domain));
         output.push_str(&format!("║  Total Dorks: {:<51} ║\n", results.dorks.len()));
-        output.push_str(&format!("╚══════════════════════════════════════════════════════════════════╝\n\n"));
+        output.push_str(&format!(
+            "╚══════════════════════════════════════════════════════════════════╝\n\n"
+        ));
 
         let categories: Vec<&String> = {
             let mut cats: Vec<_> = results.by_category.keys().collect();
@@ -529,7 +544,9 @@ impl GoogleDorkingScanner {
                     output.push_str(&format!("│  ⚠️  Impact: {}\n", dork.impact));
                     output.push_str("│\n");
                 }
-                output.push_str("└────────────────────────────────────────────────────────────────────\n\n");
+                output.push_str(
+                    "└────────────────────────────────────────────────────────────────────\n\n",
+                );
             }
         }
 
@@ -538,14 +555,18 @@ impl GoogleDorkingScanner {
 
     /// Format dorks as JSON for output files
     pub fn format_dorks_as_json(results: &GoogleDorkingResults) -> serde_json::Value {
-        let dorks_json: Vec<serde_json::Value> = results.dorks.iter().map(|d| {
-            serde_json::json!({
-                "category": d.category,
-                "query": d.query,
-                "description": d.description,
-                "impact": d.impact
+        let dorks_json: Vec<serde_json::Value> = results
+            .dorks
+            .iter()
+            .map(|d| {
+                serde_json::json!({
+                    "category": d.category,
+                    "query": d.query,
+                    "description": d.description,
+                    "impact": d.impact
+                })
             })
-        }).collect();
+            .collect();
 
         serde_json::json!({
             "domain": results.domain,
@@ -619,7 +640,9 @@ mod tests {
         let results = scanner.generate_dorks("test.example.org");
 
         // Most dorks should contain the domain
-        let dorks_with_domain = results.dorks.iter()
+        let dorks_with_domain = results
+            .dorks
+            .iter()
             .filter(|d| d.query.contains("test.example.org") || d.query.contains("example"))
             .count();
 

@@ -1,6 +1,11 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use super::auto_learning::{AutoLearner, AutoVerification};
+use super::federated::FederatedClient;
+use super::fp_classifier::FalsePositiveClassifier;
+use super::privacy::PrivacyManager;
+use super::training_data::VerificationStatus;
 /**
  * Bountyy Oy - ML Integration for Scan Pipeline
  * Automatic learning from scan results without user intervention
@@ -14,14 +19,8 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::HttpResponse;
 use crate::types::Vulnerability;
-use super::auto_learning::{AutoLearner, AutoVerification};
-use super::federated::FederatedClient;
-use super::fp_classifier::FalsePositiveClassifier;
-use super::privacy::PrivacyManager;
-use super::training_data::VerificationStatus;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -93,20 +92,26 @@ impl MlPipeline {
                 self.auto_confirmed += 1;
                 debug!(
                     "ML: Auto-confirmed {} at {} (confidence: {:.0}%)",
-                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                    vuln.vuln_type,
+                    vuln.url,
+                    verification.confidence * 100.0
                 );
             }
             VerificationStatus::FalsePositive => {
                 self.auto_rejected += 1;
                 debug!(
                     "ML: Auto-rejected {} at {} as FP (confidence: {:.0}%)",
-                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                    vuln.vuln_type,
+                    vuln.url,
+                    verification.confidence * 100.0
                 );
             }
             VerificationStatus::Unverified => {
                 debug!(
                     "ML: {} at {} needs more data (confidence: {:.0}%)",
-                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                    vuln.vuln_type,
+                    vuln.url,
+                    verification.confidence * 100.0
                 );
             }
         }
@@ -137,20 +142,26 @@ impl MlPipeline {
                 self.auto_confirmed += 1;
                 debug!(
                     "ML: Auto-confirmed {} at {} (confidence: {:.0}%)",
-                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                    vuln.vuln_type,
+                    vuln.url,
+                    verification.confidence * 100.0
                 );
             }
             VerificationStatus::FalsePositive => {
                 self.auto_rejected += 1;
                 debug!(
                     "ML: Auto-rejected {} at {} as FP (confidence: {:.0}%)",
-                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                    vuln.vuln_type,
+                    vuln.url,
+                    verification.confidence * 100.0
                 );
             }
             VerificationStatus::Unverified => {
                 debug!(
                     "ML: {} at {} needs more data (confidence: {:.0}%)",
-                    vuln.vuln_type, vuln.url, verification.confidence * 100.0
+                    vuln.vuln_type,
+                    vuln.url,
+                    verification.confidence * 100.0
                 );
             }
         }
@@ -161,7 +172,12 @@ impl MlPipeline {
     /// Process multiple vulnerabilities at once (batch processing)
     pub async fn process_findings_batch(
         &mut self,
-        findings: &[(Vulnerability, HttpResponse, Option<HttpResponse>, Option<String>)],
+        findings: &[(
+            Vulnerability,
+            HttpResponse,
+            Option<HttpResponse>,
+            Option<String>,
+        )],
     ) -> Result<Vec<AutoVerification>> {
         if !self.enabled {
             return Ok(Vec::new());
@@ -170,12 +186,10 @@ impl MlPipeline {
         let mut verifications = Vec::with_capacity(findings.len());
 
         for (vuln, response, baseline, payload) in findings {
-            if let Some(verification) = self.process_finding(
-                vuln,
-                response,
-                baseline.as_ref(),
-                payload.as_deref(),
-            ).await? {
+            if let Some(verification) = self
+                .process_finding(vuln, response, baseline.as_ref(), payload.as_deref())
+                .await?
+            {
                 verifications.push(verification);
             }
         }
@@ -198,7 +212,9 @@ impl MlPipeline {
 
         // Extract features from response
         let learner = self.auto_learner.read().await;
-        let features = learner.feature_extractor.extract(response, baseline, payload);
+        let features = learner
+            .feature_extractor
+            .extract(response, baseline, payload);
 
         let classifier = self.fp_classifier.read().await;
         let prediction = classifier.predict(&features);
@@ -210,7 +226,12 @@ impl MlPipeline {
     /// Returns only findings below the threshold
     pub async fn filter_likely_true_positives(
         &self,
-        findings: Vec<(Vulnerability, HttpResponse, Option<HttpResponse>, Option<String>)>,
+        findings: Vec<(
+            Vulnerability,
+            HttpResponse,
+            Option<HttpResponse>,
+            Option<String>,
+        )>,
         threshold: f32,
     ) -> Result<Vec<Vulnerability>> {
         if !self.enabled {
@@ -221,19 +242,18 @@ impl MlPipeline {
         let mut filtered = Vec::new();
 
         for (vuln, response, baseline, payload) in findings {
-            let fp_prob = self.predict_false_positive(
-                &vuln,
-                &response,
-                baseline.as_ref(),
-                payload.as_deref(),
-            ).await?;
+            let fp_prob = self
+                .predict_false_positive(&vuln, &response, baseline.as_ref(), payload.as_deref())
+                .await?;
 
             if fp_prob < threshold {
                 filtered.push(vuln);
             } else {
                 debug!(
                     "ML: Filtered {} at {} (FP probability: {:.0}%)",
-                    vuln.vuln_type, vuln.url, fp_prob * 100.0
+                    vuln.vuln_type,
+                    vuln.url,
+                    fp_prob * 100.0
                 );
             }
         }
@@ -275,7 +295,9 @@ impl MlPipeline {
 
         for vuln in vulns {
             if let Some(ref ml_data) = vuln.ml_data {
-                let fp_prob = self.predict_false_positive_from_features(&ml_data.features).await?;
+                let fp_prob = self
+                    .predict_false_positive_from_features(&ml_data.features)
+                    .await?;
 
                 if fp_prob < threshold {
                     filtered.push(vuln);
@@ -283,7 +305,9 @@ impl MlPipeline {
                     filtered_count += 1;
                     debug!(
                         "ML: Filtered {} at {} (FP probability: {:.0}%)",
-                        vuln.vuln_type, vuln.url, fp_prob * 100.0
+                        vuln.vuln_type,
+                        vuln.url,
+                        fp_prob * 100.0
                     );
                 }
             } else {

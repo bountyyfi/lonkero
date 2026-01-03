@@ -85,7 +85,11 @@ impl SessionAnalyzer {
             }
         }
 
-        info!("[Session] Analysis complete: {} tests, {} vulnerabilities", tests_run, vulnerabilities.len());
+        info!(
+            "[Session] Analysis complete: {} tests, {} vulnerabilities",
+            tests_run,
+            vulnerabilities.len()
+        );
         Ok((vulnerabilities, tests_run))
     }
 
@@ -178,11 +182,19 @@ impl SessionAnalyzer {
             });
         }
 
-        Ok(if vulnerabilities.is_empty() { None } else { Some(vulnerabilities) })
+        Ok(if vulnerabilities.is_empty() {
+            None
+        } else {
+            Some(vulnerabilities)
+        })
     }
 
     /// Test if session is regenerated after login (session fixation)
-    async fn test_session_fixation(&self, url: &str, credentials: &LoginCredentials) -> Result<Option<Vec<Vulnerability>>> {
+    async fn test_session_fixation(
+        &self,
+        url: &str,
+        credentials: &LoginCredentials,
+    ) -> Result<Option<Vec<Vulnerability>>> {
         info!("[Session] Testing session fixation");
 
         // Step 1: Get a session before login
@@ -236,7 +248,11 @@ impl SessionAnalyzer {
     }
 
     /// Test if session is actually invalidated after logout
-    async fn test_logout_invalidation(&self, url: &str, session: &AuthSession) -> Result<Option<Vec<Vulnerability>>> {
+    async fn test_logout_invalidation(
+        &self,
+        url: &str,
+        session: &AuthSession,
+    ) -> Result<Option<Vec<Vulnerability>>> {
         info!("[Session] Testing logout invalidation");
 
         // Step 1: Verify session works
@@ -258,11 +274,21 @@ impl SessionAnalyzer {
         let mut logged_out = false;
         for logout_url in &logout_urls {
             // Try GET and POST
-            if self.http_client.get_authenticated(logout_url, session).await.is_ok() {
+            if self
+                .http_client
+                .get_authenticated(logout_url, session)
+                .await
+                .is_ok()
+            {
                 logged_out = true;
                 break;
             }
-            if self.http_client.post_authenticated(logout_url, "", session).await.is_ok() {
+            if self
+                .http_client
+                .post_authenticated(logout_url, "", session)
+                .await
+                .is_ok()
+            {
                 logged_out = true;
                 break;
             }
@@ -282,10 +308,11 @@ impl SessionAnalyzer {
         if post_logout.status_code != 401 && post_logout.status_code != 403 {
             // Check for auth indicators in response
             let body_lower = post_logout.body.to_lowercase();
-            if body_lower.contains("dashboard") ||
-               body_lower.contains("profile") ||
-               body_lower.contains("welcome") ||
-               body_lower.contains("\"authenticated\":true") {
+            if body_lower.contains("dashboard")
+                || body_lower.contains("profile")
+                || body_lower.contains("welcome")
+                || body_lower.contains("\"authenticated\":true")
+            {
                 return Ok(Some(vec![Vulnerability {
                     id: format!("session-logout-{}", uuid::Uuid::new_v4()),
                     vuln_type: "Session Not Invalidated After Logout".to_string(),
@@ -312,7 +339,11 @@ impl SessionAnalyzer {
     }
 
     /// Test concurrent session handling
-    async fn test_concurrent_sessions(&self, url: &str, credentials: &LoginCredentials) -> Result<Option<Vec<Vulnerability>>> {
+    async fn test_concurrent_sessions(
+        &self,
+        url: &str,
+        credentials: &LoginCredentials,
+    ) -> Result<Option<Vec<Vulnerability>>> {
         info!("[Session] Testing concurrent sessions");
 
         let authenticator = Authenticator::new(30);
@@ -341,7 +372,11 @@ impl SessionAnalyzer {
     }
 
     /// Test session timeout configuration
-    async fn test_session_timeout_config(&self, url: &str, session: &AuthSession) -> Result<Option<Vec<Vulnerability>>> {
+    async fn test_session_timeout_config(
+        &self,
+        url: &str,
+        session: &AuthSession,
+    ) -> Result<Option<Vec<Vulnerability>>> {
         info!("[Session] Analyzing session timeout configuration");
 
         let mut vulnerabilities = Vec::new();
@@ -349,7 +384,10 @@ impl SessionAnalyzer {
         // Check for session cookies without expiration (session cookies)
         for (name, _) in &session.cookies {
             let name_lower = name.to_lowercase();
-            if name_lower.contains("session") || name_lower.contains("auth") || name_lower.contains("token") {
+            if name_lower.contains("session")
+                || name_lower.contains("auth")
+                || name_lower.contains("token")
+            {
                 // Session cookies that persist indefinitely are a risk
                 // Can't directly check cookie attributes from our extraction, but we can note the finding
             }
@@ -362,7 +400,8 @@ impl SessionAnalyzer {
                     let now = chrono::Utc::now().timestamp();
                     let hours_until_exp = (exp - now) / 3600;
 
-                    if hours_until_exp > 24 * 7 { // More than a week
+                    if hours_until_exp > 24 * 7 {
+                        // More than a week
                         vulnerabilities.push(Vulnerability {
                             id: format!("session-longlived-{}", uuid::Uuid::new_v4()),
                             vuln_type: "Excessively Long Session Lifetime".to_string(),
@@ -387,14 +426,26 @@ impl SessionAnalyzer {
             }
         }
 
-        Ok(if vulnerabilities.is_empty() { None } else { Some(vulnerabilities) })
+        Ok(if vulnerabilities.is_empty() {
+            None
+        } else {
+            Some(vulnerabilities)
+        })
     }
 
     // Helper functions
 
     fn extract_session_id(cookie_header: &str) -> Option<String> {
         // Parse cookie header and extract session-like values
-        let session_names = ["session", "sess", "sid", "phpsessid", "jsessionid", "aspsessionid", "connect.sid"];
+        let session_names = [
+            "session",
+            "sess",
+            "sid",
+            "phpsessid",
+            "jsessionid",
+            "aspsessionid",
+            "connect.sid",
+        ];
 
         for part in cookie_header.split(';') {
             let trimmed = part.trim();
@@ -412,7 +463,9 @@ impl SessionAnalyzer {
         None
     }
 
-    fn extract_all_session_cookies(headers: &std::collections::HashMap<String, String>) -> Vec<String> {
+    fn extract_all_session_cookies(
+        headers: &std::collections::HashMap<String, String>,
+    ) -> Vec<String> {
         let mut sessions = Vec::new();
         for (key, value) in headers {
             if key.to_lowercase() == "set-cookie" {
@@ -427,7 +480,8 @@ impl SessionAnalyzer {
     fn analyze_entropy(session_ids: &[String]) -> EntropyAnalysis {
         let unique: HashSet<_> = session_ids.iter().collect();
 
-        let avg_length = session_ids.iter().map(|s| s.len()).sum::<usize>() / session_ids.len().max(1);
+        let avg_length =
+            session_ids.iter().map(|s| s.len()).sum::<usize>() / session_ids.len().max(1);
 
         // Count unique characters used across all session IDs
         let all_chars: HashSet<char> = session_ids.iter().flat_map(|s| s.chars()).collect();
@@ -454,7 +508,8 @@ impl SessionAnalyzer {
         }
 
         // Extract numeric portions and check for incrementing
-        let numbers: Vec<Option<i64>> = session_ids.iter()
+        let numbers: Vec<Option<i64>> = session_ids
+            .iter()
             .map(|s| {
                 let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
                 digits.parse().ok()

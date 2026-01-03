@@ -16,7 +16,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -88,7 +87,10 @@ impl XMLInjectionScanner {
     }
 
     /// Test XML structure injection
-    async fn test_xml_structure_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_xml_structure_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 4;
 
@@ -102,16 +104,18 @@ impl XMLInjectionScanner {
         ];
 
         for payload in payloads {
-            let headers = vec![
-                ("Content-Type".to_string(), "application/xml".to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), "application/xml".to_string())];
 
             let xml_body = format!(
                 r#"<?xml version="1.0"?><data><value>{}</value></data>"#,
                 payload
             );
 
-            match self.http_client.post_with_headers(url, &xml_body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &xml_body, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_xml_injection(&response.body) {
                         info!("XML structure injection detected");
@@ -120,7 +124,10 @@ impl XMLInjectionScanner {
                             "XML Structure Injection",
                             &payload,
                             "XML structure can be manipulated via user input",
-                            &format!("XML marker '{}' or structure manipulation detected", self.test_marker),
+                            &format!(
+                                "XML marker '{}' or structure manipulation detected",
+                                self.test_marker
+                            ),
                             Severity::High,
                         ));
                         break;
@@ -167,7 +174,11 @@ impl XMLInjectionScanner {
                 payload
             );
 
-            match self.http_client.post_with_headers(url, &soap_body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &soap_body, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_soap_injection(&response.body) {
                         info!("SOAP injection detected");
@@ -192,7 +203,10 @@ impl XMLInjectionScanner {
     }
 
     /// Test XML attribute injection
-    async fn test_xml_attribute_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_xml_attribute_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -205,16 +219,15 @@ impl XMLInjectionScanner {
         ];
 
         for payload in payloads {
-            let headers = vec![
-                ("Content-Type".to_string(), "application/xml".to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), "application/xml".to_string())];
 
-            let xml_body = format!(
-                r#"<?xml version="1.0"?><user name="{}" /></user>"#,
-                payload
-            );
+            let xml_body = format!(r#"<?xml version="1.0"?><user name="{}" /></user>"#, payload);
 
-            match self.http_client.post_with_headers(url, &xml_body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &xml_body, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_attribute_injection(&response.body) {
                         info!("XML attribute injection detected");
@@ -251,16 +264,18 @@ impl XMLInjectionScanner {
         ];
 
         for payload in payloads {
-            let headers = vec![
-                ("Content-Type".to_string(), "application/xml".to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), "application/xml".to_string())];
 
             let xml_body = format!(
                 r#"<?xml version="1.0"?><data><![CDATA[{}]]></data>"#,
                 payload
             );
 
-            match self.http_client.post_with_headers(url, &xml_body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, &xml_body, headers)
+                .await
+            {
                 Ok(response) => {
                     if self.detect_cdata_injection(&response.body) {
                         info!("CDATA injection detected");
@@ -342,9 +357,9 @@ impl XMLInjectionScanner {
         }
 
         let body_lower = body.to_lowercase();
-        body_lower.contains(r#"admin="true"#) ||
-        body_lower.contains(r#"role="admin"#) ||
-        body_lower.contains("<script>")
+        body_lower.contains(r#"admin="true"#)
+            || body_lower.contains(r#"role="admin"#)
+            || body_lower.contains("<script>")
     }
 
     /// Detect CDATA injection
@@ -354,10 +369,8 @@ impl XMLInjectionScanner {
         }
 
         let body_lower = body.to_lowercase();
-        body_lower.contains("cdata") && (
-            body_lower.contains("]]>") ||
-            body_lower.contains("<admin>")
-        )
+        body_lower.contains("cdata")
+            && (body_lower.contains("]]>") || body_lower.contains("<admin>"))
     }
 
     /// Create a vulnerability record
@@ -401,9 +414,10 @@ impl XMLInjectionScanner {
                          7. Use allowlists for acceptable XML values\n\
                          8. Avoid building XML from user input when possible\n\
                          9. Implement proper error handling without revealing XML structure\n\
-                         10. Use SOAP message validation for web services".to_string(),
+                         10. Use SOAP message validation for web services"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -491,7 +505,9 @@ mod tests {
         let scanner = create_test_scanner();
 
         assert!(scanner.detect_cdata_injection("]]><admin>true</admin><![CDATA["));
-        assert!(scanner.detect_cdata_injection(&format!("CDATA section with {}", scanner.test_marker)));
+        assert!(
+            scanner.detect_cdata_injection(&format!("CDATA section with {}", scanner.test_marker))
+        );
     }
 
     #[test]

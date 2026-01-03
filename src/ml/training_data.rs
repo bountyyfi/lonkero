@@ -11,7 +11,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::types::{Confidence, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -148,9 +147,9 @@ impl TrainingExample {
         let anonymized = id_pattern.replace_all(&path, "/{id}");
 
         // Replace UUIDs with {uuid}
-        let uuid_pattern = regex::Regex::new(
-            r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-        ).unwrap();
+        let uuid_pattern =
+            regex::Regex::new(r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+                .unwrap();
         let anonymized = uuid_pattern.replace_all(&anonymized, "/{uuid}");
 
         // Replace email-like patterns
@@ -163,9 +162,9 @@ impl TrainingExample {
     /// Convert to feature vector for ML training
     pub fn to_feature_vector(&self) -> Vec<f32> {
         let mut features = vec![
-            self.status_code as f32 / 600.0,  // Normalize to 0-1
+            self.status_code as f32 / 600.0,            // Normalize to 0-1
             (self.response_length as f32).ln() / 20.0,  // Log-scale normalize
-            (self.response_time_ms as f32).ln() / 10.0,  // Log-scale normalize
+            (self.response_time_ms as f32).ln() / 10.0, // Log-scale normalize
             if self.payload_reflected { 1.0 } else { 0.0 },
             if self.has_error_patterns { 1.0 } else { 0.0 },
             if self.differs_from_baseline { 1.0 } else { 0.0 },
@@ -200,19 +199,38 @@ impl TrainingExample {
     fn vuln_type_encoding(&self) -> Vec<f32> {
         // Top 20 vulnerability types for one-hot encoding
         let vuln_types = [
-            "SQL Injection", "XSS", "CSRF", "SSRF", "XXE",
-            "Command Injection", "Path Traversal", "IDOR", "Auth Bypass", "JWT",
-            "NoSQL Injection", "CORS", "Open Redirect", "File Upload", "Deserialization",
-            "SSTI", "Prototype Pollution", "Race Condition", "BOLA", "Information Disclosure",
+            "SQL Injection",
+            "XSS",
+            "CSRF",
+            "SSRF",
+            "XXE",
+            "Command Injection",
+            "Path Traversal",
+            "IDOR",
+            "Auth Bypass",
+            "JWT",
+            "NoSQL Injection",
+            "CORS",
+            "Open Redirect",
+            "File Upload",
+            "Deserialization",
+            "SSTI",
+            "Prototype Pollution",
+            "Race Condition",
+            "BOLA",
+            "Information Disclosure",
         ];
 
-        vuln_types.iter().map(|vt| {
-            if self.vuln_type.to_uppercase().contains(&vt.to_uppercase()) {
-                1.0
-            } else {
-                0.0
-            }
-        }).collect()
+        vuln_types
+            .iter()
+            .map(|vt| {
+                if self.vuln_type.to_uppercase().contains(&vt.to_uppercase()) {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect()
     }
 
     /// Get label for supervised learning (1.0 = true positive, 0.0 = false positive)
@@ -241,8 +259,7 @@ impl TrainingDataCollector {
     /// Create new collector with default paths
     pub fn new() -> Result<Self> {
         let data_dir = Self::get_data_dir()?;
-        fs::create_dir_all(&data_dir)
-            .context("Failed to create training data directory")?;
+        fs::create_dir_all(&data_dir).context("Failed to create training data directory")?;
 
         Ok(Self {
             confirmed_file: data_dir.join("confirmed_vulns.jsonl"),
@@ -254,15 +271,17 @@ impl TrainingDataCollector {
 
     /// Get the training data directory path
     fn get_data_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .context("Could not determine home directory")?;
+        let home = dirs::home_dir().context("Could not determine home directory")?;
         Ok(home.join(".lonkero").join("training_data"))
     }
 
     /// Record a new training example (initially unverified)
     pub fn record_example(&self, example: &TrainingExample) -> Result<()> {
         self.append_to_file(&self.unverified_file, example)?;
-        debug!("Recorded training example: {} - {}", example.id, example.vuln_type);
+        debug!(
+            "Recorded training example: {} - {}",
+            example.id, example.vuln_type
+        );
         Ok(())
     }
 
@@ -277,11 +296,7 @@ impl TrainingDataCollector {
 
     /// Mark an example as false positive
     pub fn mark_false_positive(&self, vuln_id: &str) -> Result<bool> {
-        self.move_and_update_verification(
-            vuln_id,
-            VerificationStatus::FalsePositive,
-            &self.fp_file,
-        )
+        self.move_and_update_verification(vuln_id, VerificationStatus::FalsePositive, &self.fp_file)
     }
 
     /// Move example from unverified to target file with updated status
@@ -304,11 +319,7 @@ impl TrainingDataCollector {
                 example.verified_at = Some(Utc::now());
                 self.append_to_file(target_file, &example)?;
                 found = true;
-                info!(
-                    "Marked vulnerability {} as {:?}",
-                    vuln_id,
-                    status
-                );
+                info!("Marked vulnerability {} as {:?}", vuln_id, status);
             } else {
                 remaining.push(example);
             }
@@ -404,13 +415,9 @@ impl TrainingDataCollector {
     pub fn export_for_federated(&self) -> Result<FederatedTrainingData> {
         let examples = self.get_training_data()?;
 
-        let features: Vec<Vec<f32>> = examples.iter()
-            .map(|e| e.to_feature_vector())
-            .collect();
+        let features: Vec<Vec<f32>> = examples.iter().map(|e| e.to_feature_vector()).collect();
 
-        let labels: Vec<f32> = examples.iter()
-            .filter_map(|e| e.get_label())
-            .collect();
+        let labels: Vec<f32> = examples.iter().filter_map(|e| e.get_label()).collect();
 
         Ok(FederatedTrainingData {
             features,
@@ -467,7 +474,9 @@ mod tests {
         );
 
         assert_eq!(
-            TrainingExample::anonymize_url("https://example.com/api/items/550e8400-e29b-41d4-a716-446655440000"),
+            TrainingExample::anonymize_url(
+                "https://example.com/api/items/550e8400-e29b-41d4-a716-446655440000"
+            ),
             "/api/items/{uuid}"
         );
     }

@@ -8,11 +8,10 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::sleep;
-use tracing::{warn, error, debug};
+use tracing::{debug, error, warn};
 
 /// Cloud-specific error types
 #[derive(Error, Debug)]
@@ -94,8 +93,11 @@ impl ExponentialBackoff {
         }
 
         let backoff_ms = (self.config.initial_backoff_ms as f64
-            * self.config.backoff_multiplier.powi(self.current_retry as i32))
-            .min(self.config.max_backoff_ms as f64) as u64;
+            * self
+                .config
+                .backoff_multiplier
+                .powi(self.current_retry as i32))
+        .min(self.config.max_backoff_ms as f64) as u64;
 
         self.current_retry += 1;
 
@@ -144,18 +146,13 @@ where
                 if let Some(delay) = backoff.next_backoff() {
                     warn!(
                         "{} failed (attempt {}): {}. Retrying in {:?}",
-                        operation_name,
-                        backoff.current_retry,
-                        e,
-                        delay
+                        operation_name, backoff.current_retry, e, delay
                     );
                     sleep(delay).await;
                 } else {
                     error!(
                         "{} failed after {} retries: {}",
-                        operation_name,
-                        backoff.current_retry,
-                        e
+                        operation_name, backoff.current_retry, e
                     );
                     return Err(e);
                 }
@@ -174,7 +171,9 @@ impl CloudRateLimiter {
     pub fn new(requests_per_second: u32) -> Self {
         Self {
             requests_per_second,
-            last_request_time: std::sync::Arc::new(tokio::sync::Mutex::new(tokio::time::Instant::now())),
+            last_request_time: std::sync::Arc::new(tokio::sync::Mutex::new(
+                tokio::time::Instant::now(),
+            )),
         }
     }
 

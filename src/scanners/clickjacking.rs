@@ -16,7 +16,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -47,7 +46,9 @@ impl ClickjackingScanner {
             Ok(response) => {
                 // Store characteristics for intelligent detection
                 let _characteristics = AppCharacteristics::from_response(&response, url);
-                let headers_vec: Vec<(String, String)> = response.headers.iter()
+                let headers_vec: Vec<(String, String)> = response
+                    .headers
+                    .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
                 if let Some(vuln) = self.analyze_headers(&headers_vec, &response.body, url) {
@@ -195,7 +196,10 @@ impl ClickjackingScanner {
         }
 
         // Check for JavaScript framebuster (deprecated but still used)
-        if self.check_for_framebuster(body) && !has_valid_x_frame_options && !has_valid_frame_ancestors {
+        if self.check_for_framebuster(body)
+            && !has_valid_x_frame_options
+            && !has_valid_frame_ancestors
+        {
             return Some(self.create_vulnerability(
                 url,
                 "CLICKJACKING_JS_FRAMEBUSTER",
@@ -279,7 +283,7 @@ impl ClickjackingScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -356,7 +360,10 @@ mod tests {
     #[test]
     fn test_invalid_x_frame_options() {
         let scanner = create_test_scanner();
-        let headers = vec![("X-Frame-Options".to_string(), "ALLOW-FROM https://example.com".to_string())];
+        let headers = vec![(
+            "X-Frame-Options".to_string(),
+            "ALLOW-FROM https://example.com".to_string(),
+        )];
         let body = "<html><body>Test</body></html>";
 
         let result = scanner.analyze_headers(&headers, body, "http://example.com");
@@ -369,7 +376,10 @@ mod tests {
     #[test]
     fn test_valid_csp_frame_ancestors_none() {
         let scanner = create_test_scanner();
-        let headers = vec![("Content-Security-Policy".to_string(), "frame-ancestors 'none'".to_string())];
+        let headers = vec![(
+            "Content-Security-Policy".to_string(),
+            "frame-ancestors 'none'".to_string(),
+        )];
         let body = "<html><body>Test</body></html>";
 
         let result = scanner.analyze_headers(&headers, body, "http://example.com");
@@ -380,7 +390,10 @@ mod tests {
     #[test]
     fn test_valid_csp_frame_ancestors_self() {
         let scanner = create_test_scanner();
-        let headers = vec![("Content-Security-Policy".to_string(), "default-src 'self'; frame-ancestors 'self'".to_string())];
+        let headers = vec![(
+            "Content-Security-Policy".to_string(),
+            "default-src 'self'; frame-ancestors 'self'".to_string(),
+        )];
         let body = "<html><body>Test</body></html>";
 
         let result = scanner.analyze_headers(&headers, body, "http://example.com");
@@ -391,7 +404,10 @@ mod tests {
     #[test]
     fn test_csp_wildcard() {
         let scanner = create_test_scanner();
-        let headers = vec![("Content-Security-Policy".to_string(), "frame-ancestors *".to_string())];
+        let headers = vec![(
+            "Content-Security-Policy".to_string(),
+            "frame-ancestors *".to_string(),
+        )];
         let body = "<html><body>Test</body></html>";
 
         let result = scanner.analyze_headers(&headers, body, "http://example.com");
@@ -435,12 +451,18 @@ mod tests {
         let scanner = create_test_scanner();
 
         let csp1 = "default-src 'self'; frame-ancestors 'none'";
-        assert_eq!(scanner.extract_frame_ancestors(csp1), Some("'none'".to_string()));
+        assert_eq!(
+            scanner.extract_frame_ancestors(csp1),
+            Some("'none'".to_string())
+        );
 
         let csp2 = "frame-ancestors *";
         assert_eq!(scanner.extract_frame_ancestors(csp2), Some("*".to_string()));
 
         let csp3 = "frame-ancestors 'self' https://trusted.com";
-        assert_eq!(scanner.extract_frame_ancestors(csp3), Some("'self' https://trusted.com".to_string()));
+        assert_eq!(
+            scanner.extract_frame_ancestors(csp3),
+            Some("'self' https://trusted.com".to_string())
+        );
     }
 }

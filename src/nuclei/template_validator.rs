@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use regex::Regex;
 /**
  * Nuclei Template Validator
  * Production-grade validation for custom Nuclei templates
@@ -14,10 +15,8 @@
  *
  * © 2026 Bountyy Oy
  */
-
 use serde::{Deserialize, Serialize};
 use serde_yaml;
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +24,7 @@ pub struct ValidationResult {
     pub valid: bool,
     pub errors: Vec<ValidationError>,
     pub warnings: Vec<ValidationWarning>,
-    pub security_score: u8, // 0-100
+    pub security_score: u8,    // 0-100
     pub performance_score: u8, // 0-100
     pub metadata: ValidationMetadata,
 }
@@ -292,7 +291,8 @@ impl TemplateValidator {
             "file"
         } else {
             "unknown"
-        }.to_string();
+        }
+        .to_string();
 
         let valid = errors.is_empty();
 
@@ -309,7 +309,12 @@ impl TemplateValidator {
         }
     }
 
-    fn validate_schema(&self, template: &NucleiTemplate, errors: &mut Vec<ValidationError>, warnings: &mut Vec<ValidationWarning>) {
+    fn validate_schema(
+        &self,
+        template: &NucleiTemplate,
+        errors: &mut Vec<ValidationError>,
+        warnings: &mut Vec<ValidationWarning>,
+    ) {
         // Validate ID
         if template.id.is_empty() {
             errors.push(ValidationError {
@@ -321,10 +326,15 @@ impl TemplateValidator {
         }
 
         // Validate ID format (should be lowercase with hyphens)
-        if !template.id.chars().all(|c| c.is_ascii_lowercase() || c == '-' || c.is_ascii_digit()) {
+        if !template
+            .id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c == '-' || c.is_ascii_digit())
+        {
             warnings.push(ValidationWarning {
                 warning_type: "id_format".to_string(),
-                message: "Template ID should use lowercase letters, numbers, and hyphens only".to_string(),
+                message: "Template ID should use lowercase letters, numbers, and hyphens only"
+                    .to_string(),
                 line: None,
                 suggestion: Some(template.id.to_lowercase().replace('_', "-")),
             });
@@ -335,7 +345,10 @@ impl TemplateValidator {
         if !valid_severities.contains(&template.info.severity.as_str()) {
             errors.push(ValidationError {
                 error_type: "invalid_severity".to_string(),
-                message: format!("Invalid severity '{}'. Must be one of: info, low, medium, high, critical", template.info.severity),
+                message: format!(
+                    "Invalid severity '{}'. Must be one of: info, low, medium, high, critical",
+                    template.info.severity
+                ),
                 line: None,
                 severity: ErrorSeverity::Medium,
             });
@@ -352,10 +365,15 @@ impl TemplateValidator {
         }
 
         // Check for at least one request type
-        if template.http.is_none() && template.network.is_none() && template.dns.is_none() && template.file.is_none() {
+        if template.http.is_none()
+            && template.network.is_none()
+            && template.dns.is_none()
+            && template.file.is_none()
+        {
             errors.push(ValidationError {
                 error_type: "no_requests".to_string(),
-                message: "Template must have at least one request (http, network, dns, or file)".to_string(),
+                message: "Template must have at least one request (http, network, dns, or file)"
+                    .to_string(),
                 line: None,
                 severity: ErrorSeverity::Critical,
             });
@@ -367,7 +385,10 @@ impl TemplateValidator {
                 if req.path.is_none() && req.raw.is_none() {
                     errors.push(ValidationError {
                         error_type: "missing_path_or_raw".to_string(),
-                        message: format!("HTTP request {} must have either 'path' or 'raw' defined", idx + 1),
+                        message: format!(
+                            "HTTP request {} must have either 'path' or 'raw' defined",
+                            idx + 1
+                        ),
                         line: None,
                         severity: ErrorSeverity::High,
                     });
@@ -385,7 +406,11 @@ impl TemplateValidator {
         }
     }
 
-    fn validate_security(&self, template: &NucleiTemplate, template_yaml: &str) -> Vec<ValidationError> {
+    fn validate_security(
+        &self,
+        template: &NucleiTemplate,
+        template_yaml: &str,
+    ) -> Vec<ValidationError> {
         let mut errors = Vec::new();
 
         // Check for dangerous patterns in the entire template
@@ -393,7 +418,10 @@ impl TemplateValidator {
             if template_yaml.contains(pattern) {
                 errors.push(ValidationError {
                     error_type: "dangerous_pattern".to_string(),
-                    message: format!("Dangerous pattern detected: '{}'. This could lead to code execution.", pattern),
+                    message: format!(
+                        "Dangerous pattern detected: '{}'. This could lead to code execution.",
+                        pattern
+                    ),
                     line: None,
                     severity: ErrorSeverity::Critical,
                 });
@@ -427,7 +455,10 @@ impl TemplateValidator {
                 if re.is_match(template_yaml) {
                     errors.push(ValidationError {
                         error_type: "credential_leakage".to_string(),
-                        message: format!("Potential {} detected in template. Never hardcode credentials.", name),
+                        message: format!(
+                            "Potential {} detected in template. Never hardcode credentials.",
+                            name
+                        ),
                         line: None,
                         severity: ErrorSeverity::Critical,
                     });
@@ -440,7 +471,9 @@ impl TemplateValidator {
             for req in http_requests {
                 if let Some(paths) = &req.path {
                     for path in paths {
-                        if path.contains("{{") && (path.contains("http://") || path.contains("https://")) {
+                        if path.contains("{{")
+                            && (path.contains("http://") || path.contains("https://"))
+                        {
                             errors.push(ValidationError {
                                 error_type: "potential_ssrf".to_string(),
                                 message: "Template uses user-controlled URLs which could lead to SSRF. Ensure proper validation.".to_string(),
@@ -468,7 +501,10 @@ impl TemplateValidator {
         errors
     }
 
-    fn validate_performance(&self, template: &NucleiTemplate) -> (Vec<ValidationWarning>, ValidationMetadata) {
+    fn validate_performance(
+        &self,
+        template: &NucleiTemplate,
+    ) -> (Vec<ValidationWarning>, ValidationMetadata) {
         let mut warnings = Vec::new();
         let mut request_count = 0;
         let mut matcher_count = 0;
@@ -484,9 +520,15 @@ impl TemplateValidator {
             if request_count > self.max_request_count {
                 warnings.push(ValidationWarning {
                     warning_type: "too_many_requests".to_string(),
-                    message: format!("Template has {} requests. Consider reducing for better performance.", request_count),
+                    message: format!(
+                        "Template has {} requests. Consider reducing for better performance.",
+                        request_count
+                    ),
                     line: None,
-                    suggestion: Some(format!("Recommended maximum: {} requests", self.max_request_count)),
+                    suggestion: Some(format!(
+                        "Recommended maximum: {} requests",
+                        self.max_request_count
+                    )),
                 });
             }
 
@@ -499,9 +541,14 @@ impl TemplateValidator {
                     if paths.len() > 10 {
                         warnings.push(ValidationWarning {
                             warning_type: "path_explosion".to_string(),
-                            message: format!("Request has {} paths. This will multiply execution time.", paths.len()),
+                            message: format!(
+                                "Request has {} paths. This will multiply execution time.",
+                                paths.len()
+                            ),
                             line: None,
-                            suggestion: Some("Consider splitting into multiple templates".to_string()),
+                            suggestion: Some(
+                                "Consider splitting into multiple templates".to_string(),
+                            ),
                         });
                         estimated_time_ms += (paths.len() as u64 - 1) * 1000;
                     }
@@ -515,7 +562,8 @@ impl TemplateValidator {
                     for matcher in matchers {
                         if let Some(regexes) = &matcher.regex {
                             for regex_pattern in regexes {
-                                if regex_pattern.contains(".*.*") || regex_pattern.contains(".+.+") {
+                                if regex_pattern.contains(".*.*") || regex_pattern.contains(".+.+")
+                                {
                                     warnings.push(ValidationWarning {
                                         warning_type: "complex_regex".to_string(),
                                         message: "Complex regex pattern detected. May cause performance issues.".to_string(),
@@ -544,9 +592,14 @@ impl TemplateValidator {
                     if max_redir > 10 {
                         warnings.push(ValidationWarning {
                             warning_type: "excessive_redirects".to_string(),
-                            message: format!("max_redirects set to {}. This may cause slow execution.", max_redir),
+                            message: format!(
+                                "max_redirects set to {}. This may cause slow execution.",
+                                max_redir
+                            ),
                             line: None,
-                            suggestion: Some("Consider limiting redirects to 5 or less".to_string()),
+                            suggestion: Some(
+                                "Consider limiting redirects to 5 or less".to_string(),
+                            ),
                         });
                     }
                 }
@@ -558,9 +611,12 @@ impl TemplateValidator {
         if potential_rate_limit {
             warnings.push(ValidationWarning {
                 warning_type: "rate_limit_risk".to_string(),
-                message: "High request count may trigger rate limiting on target servers.".to_string(),
+                message: "High request count may trigger rate limiting on target servers."
+                    .to_string(),
                 line: None,
-                suggestion: Some("Add delays between requests or use threads carefully".to_string()),
+                suggestion: Some(
+                    "Add delays between requests or use threads carefully".to_string(),
+                ),
             });
         }
 
@@ -568,7 +624,10 @@ impl TemplateValidator {
         if estimated_time_ms > self.max_execution_time_ms {
             warnings.push(ValidationWarning {
                 warning_type: "long_execution".to_string(),
-                message: format!("Estimated execution time: {}s. Consider optimizing.", estimated_time_ms / 1000),
+                message: format!(
+                    "Estimated execution time: {}s. Consider optimizing.",
+                    estimated_time_ms / 1000
+                ),
                 line: None,
                 suggestion: Some("Reduce request count or use stop-at-first-match".to_string()),
             });
@@ -607,7 +666,9 @@ impl TemplateValidator {
                 warning_type: "missing_description".to_string(),
                 message: "Template should include a description".to_string(),
                 line: None,
-                suggestion: Some("Add 'description' field explaining what this template detects".to_string()),
+                suggestion: Some(
+                    "Add 'description' field explaining what this template detects".to_string(),
+                ),
             });
         }
 
@@ -617,7 +678,9 @@ impl TemplateValidator {
                 warning_type: "missing_tags".to_string(),
                 message: "Template should include tags for better organization".to_string(),
                 line: None,
-                suggestion: Some("Add relevant tags (e.g., 'sqli', 'xss', 'cve-2023-xxxx')".to_string()),
+                suggestion: Some(
+                    "Add relevant tags (e.g., 'sqli', 'xss', 'cve-2023-xxxx')".to_string(),
+                ),
             });
         }
 
@@ -625,7 +688,8 @@ impl TemplateValidator {
         if template.info.reference.is_none() {
             warnings.push(ValidationWarning {
                 warning_type: "missing_reference".to_string(),
-                message: "Consider adding references to vulnerability advisories or documentation".to_string(),
+                message: "Consider adding references to vulnerability advisories or documentation"
+                    .to_string(),
                 line: None,
                 suggestion: Some("Add 'reference' field with relevant URLs".to_string()),
             });

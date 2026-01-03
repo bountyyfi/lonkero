@@ -226,7 +226,13 @@ pub fn get_license_signature() -> String {
     if let Some(license) = get_global_license() {
         let mut hasher = Sha256::new();
         hasher.update(format!("{:?}", license.license_type).as_bytes());
-        hasher.update(license.licensee.as_deref().unwrap_or("unlicensed").as_bytes());
+        hasher.update(
+            license
+                .licensee
+                .as_deref()
+                .unwrap_or("unlicensed")
+                .as_bytes(),
+        );
         hasher.update(&chrono::Utc::now().timestamp().to_le_bytes());
         let hash = hasher.finalize();
         format!("LKR-{}", hex::encode(&hash[0..8]))
@@ -314,7 +320,8 @@ pub fn is_feature_available(feature: &str) -> bool {
                 }
                 LicenseType::Professional => {
                     // Professional gets most features except team/enterprise-only
-                    let enterprise_only = &["team_sharing", "custom_integrations", "dedicated_support"];
+                    let enterprise_only =
+                        &["team_sharing", "custom_integrations", "dedicated_support"];
                     if enterprise_only.contains(&feature) {
                         return false;
                     }
@@ -348,7 +355,9 @@ pub fn is_feature_available(feature: &str) -> bool {
 pub fn allows_commercial_use() -> bool {
     if let Some(license) = get_global_license() {
         match license.license_type {
-            Some(LicenseType::Enterprise) | Some(LicenseType::Team) | Some(LicenseType::Professional) => true,
+            Some(LicenseType::Enterprise)
+            | Some(LicenseType::Team)
+            | Some(LicenseType::Professional) => true,
             _ => false,
         }
     } else {
@@ -376,7 +385,11 @@ pub fn has_feature(feature: &str) -> bool {
         }
 
         // Check if feature is explicitly in the features list
-        if license.features.iter().any(|f| f == feature || f == "all_features") {
+        if license
+            .features
+            .iter()
+            .any(|f| f == feature || f == "all_features")
+        {
             return true;
         }
 
@@ -672,7 +685,8 @@ impl LicenseManager {
         let entry = keyring::Entry::new("lonkero", "license_key")
             .map_err(|e| anyhow!("Failed to access OS keychain: {}", e))?;
 
-        entry.set_password(key)
+        entry
+            .set_password(key)
             .map_err(|e| anyhow!("Failed to save license to keychain: {}", e))?;
 
         info!("License key saved to OS keychain (encrypted)");
@@ -714,7 +728,10 @@ impl LicenseManager {
                 }
 
                 if status.killswitch_active {
-                    error!("KILLSWITCH ACTIVE: {}", status.killswitch_reason.as_deref().unwrap_or("Unknown"));
+                    error!(
+                        "KILLSWITCH ACTIVE: {}",
+                        status.killswitch_reason.as_deref().unwrap_or("Unknown")
+                    );
                     // Clear token on killswitch
                     VALIDATION_TOKEN.store(0, Ordering::SeqCst);
                     // Trigger tamper response to lock everything down
@@ -727,7 +744,9 @@ impl LicenseManager {
                 // Server unreachable - FAIL CLOSED (deny premium features)
                 // Security-first: only basic features when server down
                 error!("License server unreachable: {}. Running in OFFLINE MODE with limited features.", e);
-                warn!("Premium features DISABLED. Restore network connection for full functionality.");
+                warn!(
+                    "Premium features DISABLED. Restore network connection for full functionality."
+                );
 
                 KILLSWITCH_CHECKED.store(true, Ordering::SeqCst);
                 KILLSWITCH_ACTIVE.store(false, Ordering::SeqCst);
@@ -781,7 +800,8 @@ impl LicenseManager {
         debug!("Validating license with server: {}", url);
         debug!("License key present: {}", self.license_key.is_some());
 
-        let mut request = self.http_client
+        let mut request = self
+            .http_client
             .post(&url)
             .header("X-Product", "lonkero")
             .header("X-Version", env!("CARGO_PKG_VERSION"));
@@ -809,12 +829,17 @@ impl LicenseManager {
             // Parse the response
             match serde_json::from_str::<LicenseStatus>(&text) {
                 Ok(status) => {
-                    info!("License validated: type={:?}, licensee={:?}",
-                          status.license_type, status.licensee);
+                    info!(
+                        "License validated: type={:?}, licensee={:?}",
+                        status.license_type, status.licensee
+                    );
                     Ok(status)
                 }
                 Err(e) => {
-                    warn!("Failed to parse license response: {}. Response was: {}", e, text);
+                    warn!(
+                        "Failed to parse license response: {}. Response was: {}",
+                        e, text
+                    );
                     Err(anyhow!("Failed to parse license response: {}", e))
                 }
             }
@@ -822,12 +847,13 @@ impl LicenseManager {
             // Explicitly blocked
             let text = response.text().await.unwrap_or_default();
             warn!("License blocked (403): {}", text);
-            let status: LicenseStatus = serde_json::from_str(&text).unwrap_or_else(|_| LicenseStatus {
-                valid: false,
-                killswitch_active: true,
-                killswitch_reason: Some("Access denied".to_string()),
-                ..Default::default()
-            });
+            let status: LicenseStatus =
+                serde_json::from_str(&text).unwrap_or_else(|_| LicenseStatus {
+                    valid: false,
+                    killswitch_active: true,
+                    killswitch_reason: Some("Access denied".to_string()),
+                    ..Default::default()
+                });
             Ok(status)
         } else {
             let text = response.text().await.unwrap_or_default();
@@ -871,7 +897,10 @@ pub async fn verify_license_for_scan(
     if status.killswitch_active {
         return Err(anyhow!(
             "Scanner disabled: {}",
-            status.killswitch_reason.clone().unwrap_or_else(|| "Contact info@bountyy.fi".to_string())
+            status
+                .killswitch_reason
+                .clone()
+                .unwrap_or_else(|| "Contact info@bountyy.fi".to_string())
         ));
     }
 

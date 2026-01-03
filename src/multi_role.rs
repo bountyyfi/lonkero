@@ -179,7 +179,8 @@ impl UserRole {
 
     /// Add extra header
     pub fn with_header(mut self, key: &str, value: &str) -> Self {
-        self.extra_headers.insert(key.to_string(), value.to_string());
+        self.extra_headers
+            .insert(key.to_string(), value.to_string());
         self
     }
 
@@ -230,8 +231,8 @@ pub struct ResponseMetadata {
 impl ResponseMetadata {
     /// Create metadata from an HTTP response
     pub fn from_response(response: &HttpResponse, url: &str) -> Self {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         response.body.hash(&mut hasher);
@@ -261,10 +262,22 @@ impl ResponseMetadata {
     /// Detect if response contains user-specific data
     fn detect_user_data(body: &str) -> bool {
         let patterns = [
-            "\"email\":", "\"username\":", "\"name\":", "\"profile\":",
-            "\"account\":", "\"user_id\":", "\"userId\":", "\"id\":",
-            "\"phone\":", "\"address\":", "\"balance\":", "\"credit\":",
-            "\"ssn\":", "\"password\":", "\"token\":", "\"apiKey\":",
+            "\"email\":",
+            "\"username\":",
+            "\"name\":",
+            "\"profile\":",
+            "\"account\":",
+            "\"user_id\":",
+            "\"userId\":",
+            "\"id\":",
+            "\"phone\":",
+            "\"address\":",
+            "\"balance\":",
+            "\"credit\":",
+            "\"ssn\":",
+            "\"password\":",
+            "\"token\":",
+            "\"apiKey\":",
         ];
 
         patterns.iter().any(|p| body.contains(p))
@@ -295,7 +308,9 @@ impl ResponseMetadata {
         }
 
         // Extract UUIDs
-        let uuid_regex = regex::Regex::new(r#"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#).ok();
+        let uuid_regex =
+            regex::Regex::new(r#"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#)
+                .ok();
         if let Some(re) = uuid_regex {
             for cap in re.captures_iter(body) {
                 if let Some(m) = cap.get(0) {
@@ -477,7 +492,12 @@ impl std::fmt::Display for EscalationType {
 
 impl RoleComparison {
     /// Create a new comparison between two roles
-    pub fn new(role_a: &str, level_a: PermissionLevel, role_b: &str, level_b: PermissionLevel) -> Self {
+    pub fn new(
+        role_a: &str,
+        level_a: PermissionLevel,
+        role_b: &str,
+        level_b: PermissionLevel,
+    ) -> Self {
         Self {
             role_a: role_a.to_string(),
             role_b: role_b.to_string(),
@@ -713,28 +733,18 @@ impl MultiRoleOrchestrator {
                     match authenticator.login(&base_url, &role.credentials).await {
                         Ok(auth_session) => {
                             if auth_session.is_authenticated {
-                                info!(
-                                    "[MultiRole] Successfully authenticated role: {}",
-                                    role.name
-                                );
+                                info!("[MultiRole] Successfully authenticated role: {}", role.name);
                                 RoleSession::new(role.clone(), auth_session)
                             } else {
-                                warn!(
-                                    "[MultiRole] Authentication failed for role: {}",
-                                    role.name
-                                );
+                                warn!("[MultiRole] Authentication failed for role: {}", role.name);
                                 let mut session = RoleSession::new(role.clone(), auth_session);
                                 session.is_active = false;
                                 session
                             }
                         }
                         Err(e) => {
-                            error!(
-                                "[MultiRole] Login error for role {}: {}",
-                                role.name, e
-                            );
-                            let mut session =
-                                RoleSession::new(role.clone(), AuthSession::empty());
+                            error!("[MultiRole] Login error for role {}: {}", role.name, e);
+                            let mut session = RoleSession::new(role.clone(), AuthSession::empty());
                             session.is_active = false;
                             session
                         }
@@ -770,7 +780,10 @@ impl MultiRoleOrchestrator {
     }
 
     /// Perform synchronized crawling across all roles
-    pub async fn synchronized_crawl(&self, base_url: &str) -> Result<HashMap<String, CrawlResults>> {
+    pub async fn synchronized_crawl(
+        &self,
+        base_url: &str,
+    ) -> Result<HashMap<String, CrawlResults>> {
         info!("[MultiRole] Starting synchronized crawl from {}", base_url);
 
         let sessions = self.sessions.read().await;
@@ -856,9 +869,7 @@ impl MultiRoleOrchestrator {
     /// Crawl URLs for a specific role
     async fn crawl_for_role(&self, role_name: &str, base_url: &str) -> Result<CrawlResults> {
         let sessions = self.sessions.read().await;
-        let session = sessions
-            .get(role_name)
-            .context("Role session not found")?;
+        let session = sessions.get(role_name).context("Role session not found")?;
 
         let mut results = CrawlResults::new();
         results.crawled_urls.insert(base_url.to_string());
@@ -869,7 +880,11 @@ impl MultiRoleOrchestrator {
 
             let token = session.auth_session.find_jwt();
             // Include role-specific extra_headers and auth headers for headless crawling
-            let mut headless_headers = session.auth_session.auth_headers().into_iter().collect::<HashMap<_, _>>();
+            let mut headless_headers = session
+                .auth_session
+                .auth_headers()
+                .into_iter()
+                .collect::<HashMap<_, _>>();
             headless_headers.extend(session.role.extra_headers.clone());
 
             let crawler = HeadlessCrawler::with_headers_and_config(
@@ -891,7 +906,10 @@ impl MultiRoleOrchestrator {
         let auth_headers = session.auth_session.auth_headers();
         drop(sessions);
 
-        let response = self.http_client.get_with_headers(base_url, auth_headers).await?;
+        let response = self
+            .http_client
+            .get_with_headers(base_url, auth_headers)
+            .await?;
 
         // Extract links from response
         self.extract_links_from_response(&response.body, base_url, &mut results);
@@ -900,15 +918,9 @@ impl MultiRoleOrchestrator {
     }
 
     /// Test specific URLs for a role
-    async fn test_urls_for_role(
-        &self,
-        role_name: &str,
-        urls: &[String],
-    ) -> Result<CrawlResults> {
+    async fn test_urls_for_role(&self, role_name: &str, urls: &[String]) -> Result<CrawlResults> {
         let sessions = self.sessions.read().await;
-        let session = sessions
-            .get(role_name)
-            .context("Role session not found")?;
+        let session = sessions.get(role_name).context("Role session not found")?;
 
         let auth_headers = session.auth_session.auth_headers();
         let extra_headers: Vec<(String, String)> = session
@@ -924,7 +936,11 @@ impl MultiRoleOrchestrator {
         all_headers.extend(extra_headers);
 
         for url in urls {
-            if let Ok(response) = self.http_client.get_with_headers(url, all_headers.clone()).await {
+            if let Ok(response) = self
+                .http_client
+                .get_with_headers(url, all_headers.clone())
+                .await
+            {
                 results.crawled_urls.insert(url.clone());
 
                 // Store response metadata in session
@@ -986,7 +1002,9 @@ impl MultiRoleOrchestrator {
 
         for (role_name, crawl_results) in results {
             if let Some(session) = sessions.get_mut(role_name) {
-                session.crawled_urls.extend(crawl_results.crawled_urls.iter().cloned());
+                session
+                    .crawled_urls
+                    .extend(crawl_results.crawled_urls.iter().cloned());
             }
         }
     }
@@ -1365,10 +1383,14 @@ impl AccessMatrix {
     /// Prefixes values starting with =, +, -, @, or tab with a single quote
     fn sanitize_csv_field(field: &str) -> String {
         let field = field.replace(',', "%2C").replace('"', "\"\"");
-        if field.starts_with('=') || field.starts_with('+') ||
-           field.starts_with('-') || field.starts_with('@') ||
-           field.starts_with('\t') || field.starts_with('\r') ||
-           field.starts_with('\n') {
+        if field.starts_with('=')
+            || field.starts_with('+')
+            || field.starts_with('-')
+            || field.starts_with('@')
+            || field.starts_with('\t')
+            || field.starts_with('\r')
+            || field.starts_with('\n')
+        {
             format!("'{}", field)
         } else {
             field
@@ -1611,7 +1633,10 @@ mod tests {
     fn test_permission_level_from_str() {
         assert_eq!(PermissionLevel::from_str("guest"), PermissionLevel::Guest);
         assert_eq!(PermissionLevel::from_str("ADMIN"), PermissionLevel::Admin);
-        assert_eq!(PermissionLevel::from_str("superadmin"), PermissionLevel::SuperAdmin);
+        assert_eq!(
+            PermissionLevel::from_str("superadmin"),
+            PermissionLevel::SuperAdmin
+        );
         assert_eq!(PermissionLevel::from_str("unknown"), PermissionLevel::User);
     }
 

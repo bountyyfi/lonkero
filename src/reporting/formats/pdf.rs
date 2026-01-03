@@ -14,7 +14,11 @@ impl PdfReportGenerator {
         Self
     }
 
-    pub async fn generate(&self, report: &EnhancedReport, branding: &BrandingConfig) -> Result<Vec<u8>> {
+    pub async fn generate(
+        &self,
+        report: &EnhancedReport,
+        branding: &BrandingConfig,
+    ) -> Result<Vec<u8>> {
         // Generate PDF-optimized HTML
         let html = self.generate_pdf_html(report, branding);
 
@@ -486,14 +490,20 @@ impl PdfReportGenerator {
     </div>
 </div>"#,
             company = self.escape_html(&branding.company_name),
-            title = branding.report_title.as_ref().unwrap_or(&"Security Assessment Report".to_string()),
+            title = branding
+                .report_title
+                .as_ref()
+                .unwrap_or(&"Security Assessment Report".to_string()),
             target = self.escape_html(&report.scan_results.target),
             scan_id = self.escape_html(&report.scan_results.scan_id),
             date = self.escape_html(&report.executive_summary.scan_date),
         )
     }
 
-    fn generate_executive_summary(&self, summary: &crate::reporting::types::ExecutiveSummary) -> String {
+    fn generate_executive_summary(
+        &self,
+        summary: &crate::reporting::types::ExecutiveSummary,
+    ) -> String {
         let risk_class = match summary.risk_level.to_lowercase().as_str() {
             "critical" => "critical",
             "high" => "high",
@@ -501,12 +511,16 @@ impl PdfReportGenerator {
             _ => "low",
         };
 
-        let findings_html: String = summary.key_findings.iter()
+        let findings_html: String = summary
+            .key_findings
+            .iter()
             .map(|f| format!("<li>{}</li>", self.escape_html(f)))
             .collect::<Vec<_>>()
             .join("\n");
 
-        let recommendations_html: String = summary.recommendations.iter()
+        let recommendations_html: String = summary
+            .recommendations
+            .iter()
             .map(|r| format!("<li>{}</li>", self.escape_html(r)))
             .collect::<Vec<_>>()
             .join("\n");
@@ -567,43 +581,57 @@ impl PdfReportGenerator {
     }
 
     fn generate_vulnerabilities(&self, vulnerabilities: &[crate::types::Vulnerability]) -> String {
-        let vuln_cards: String = vulnerabilities.iter().enumerate().map(|(idx, v)| {
-            let severity_class = match v.severity {
-                Severity::Critical => "critical",
-                Severity::High => "high",
-                Severity::Medium => "medium",
-                Severity::Low => "low",
-                Severity::Info => "info",
-            };
+        let vuln_cards: String = vulnerabilities
+            .iter()
+            .enumerate()
+            .map(|(idx, v)| {
+                let severity_class = match v.severity {
+                    Severity::Critical => "critical",
+                    Severity::High => "high",
+                    Severity::Medium => "medium",
+                    Severity::Low => "low",
+                    Severity::Info => "info",
+                };
 
-            let parameter_html = v.parameter.as_ref().map(|p| {
-                format!(r#"<span><strong>Parameter:</strong> {}</span>"#, self.escape_html(p))
-            }).unwrap_or_default();
+                let parameter_html = v
+                    .parameter
+                    .as_ref()
+                    .map(|p| {
+                        format!(
+                            r#"<span><strong>Parameter:</strong> {}</span>"#,
+                            self.escape_html(p)
+                        )
+                    })
+                    .unwrap_or_default();
 
-            let poc_html = if !v.payload.is_empty() && v.payload != "-" {
-                format!(
-                    r#"<div class="poc-section">
+                let poc_html = if !v.payload.is_empty() && v.payload != "-" {
+                    format!(
+                        r#"<div class="poc-section">
                         <div class="vuln-field-label">Proof of Concept (PoC)</div>
                         <div class="code-block">{}</div>
                     </div>"#,
-                    self.escape_html(&v.payload)
-                )
-            } else {
-                String::new()
-            };
+                        self.escape_html(&v.payload)
+                    )
+                } else {
+                    String::new()
+                };
 
-            let evidence_html = v.evidence.as_ref().map(|e| {
-                format!(
-                    r#"<div class="evidence-section">
+                let evidence_html = v
+                    .evidence
+                    .as_ref()
+                    .map(|e| {
+                        format!(
+                            r#"<div class="evidence-section">
                         <div class="vuln-field-label">Evidence</div>
                         <div class="code-block">{}</div>
                     </div>"#,
-                    self.escape_html(e)
-                )
-            }).unwrap_or_default();
+                            self.escape_html(e)
+                        )
+                    })
+                    .unwrap_or_default();
 
-            format!(
-                r#"<div class="vuln-card">
+                format!(
+                    r#"<div class="vuln-card">
     <div class="vuln-header {severity_class}">
         <span class="vuln-number">#{num}</span>
         <span class="severity-badge {severity_class}">{severity}</span>
@@ -637,22 +665,24 @@ impl PdfReportGenerator {
         </div>
     </div>
 </div>"#,
-                num = idx + 1,
-                severity_class = severity_class,
-                severity = v.severity,
-                title = self.escape_html(&v.vuln_type),
-                category = self.escape_html(&v.category),
-                cwe = self.escape_html(&v.cwe),
-                cvss = v.cvss,
-                confidence = v.confidence,
-                parameter = parameter_html,
-                url = self.escape_html(&v.url),
-                description = self.escape_html(&v.description),
-                poc = poc_html,
-                evidence = evidence_html,
-                remediation = self.escape_html(&v.remediation),
-            )
-        }).collect::<Vec<_>>().join("\n");
+                    num = idx + 1,
+                    severity_class = severity_class,
+                    severity = v.severity,
+                    title = self.escape_html(&v.vuln_type),
+                    category = self.escape_html(&v.category),
+                    cwe = self.escape_html(&v.cwe),
+                    cvss = v.cvss,
+                    confidence = v.confidence,
+                    parameter = parameter_html,
+                    url = self.escape_html(&v.url),
+                    description = self.escape_html(&v.description),
+                    poc = poc_html,
+                    evidence = evidence_html,
+                    remediation = self.escape_html(&v.remediation),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
 
         format!(
             r#"<div class="section">
@@ -665,17 +695,24 @@ impl PdfReportGenerator {
     }
 
     fn generate_owasp_mapping(&self, report: &EnhancedReport) -> String {
-        let items: String = report.owasp_mapping.iter().map(|(category, vulns)| {
-            format!(
-                r#"<div class="owasp-item">
+        let items: String = report
+            .owasp_mapping
+            .iter()
+            .map(|(category, vulns)| {
+                format!(
+                    r#"<div class="owasp-item">
     <h4>{} ({} findings)</h4>
     <p>{}</p>
 </div>"#,
-                self.escape_html(category),
-                vulns.len(),
-                self.escape_html(&crate::reporting::mappings::OWASPMapper::get_owasp_description(category))
-            )
-        }).collect::<Vec<_>>().join("\n");
+                    self.escape_html(category),
+                    vulns.len(),
+                    self.escape_html(
+                        &crate::reporting::mappings::OWASPMapper::get_owasp_description(category)
+                    )
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
 
         format!(
             r#"<div class="section">
@@ -687,18 +724,45 @@ impl PdfReportGenerator {
     }
 
     fn generate_compliance(&self, report: &EnhancedReport) -> String {
-        let pci_items: String = report.compliance_mapping.pci_dss.iter()
-            .map(|(req, vulns)| format!("<li>{} - {} findings</li>", self.escape_html(req), vulns.len()))
+        let pci_items: String = report
+            .compliance_mapping
+            .pci_dss
+            .iter()
+            .map(|(req, vulns)| {
+                format!(
+                    "<li>{} - {} findings</li>",
+                    self.escape_html(req),
+                    vulns.len()
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
-        let hipaa_items: String = report.compliance_mapping.hipaa.iter()
-            .map(|(req, vulns)| format!("<li>{} - {} findings</li>", self.escape_html(req), vulns.len()))
+        let hipaa_items: String = report
+            .compliance_mapping
+            .hipaa
+            .iter()
+            .map(|(req, vulns)| {
+                format!(
+                    "<li>{} - {} findings</li>",
+                    self.escape_html(req),
+                    vulns.len()
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
-        let soc2_items: String = report.compliance_mapping.soc2.iter()
-            .map(|(req, vulns)| format!("<li>{} - {} findings</li>", self.escape_html(req), vulns.len()))
+        let soc2_items: String = report
+            .compliance_mapping
+            .soc2
+            .iter()
+            .map(|(req, vulns)| {
+                format!(
+                    "<li>{} - {} findings</li>",
+                    self.escape_html(req),
+                    vulns.len()
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -760,10 +824,11 @@ impl PdfReportGenerator {
             ..Default::default()
         };
 
-        let browser = Browser::new(launch_options)
-            .map_err(|e| anyhow!("Failed to launch browser: {}", e))?;
+        let browser =
+            Browser::new(launch_options).map_err(|e| anyhow!("Failed to launch browser: {}", e))?;
 
-        let tab = browser.new_tab()
+        let tab = browser
+            .new_tab()
             .map_err(|e| anyhow!("Failed to create tab: {}", e))?;
 
         // Navigate to data URL with HTML content
@@ -779,26 +844,28 @@ impl PdfReportGenerator {
         std::thread::sleep(std::time::Duration::from_millis(800));
 
         // Print to PDF
-        let pdf_data = tab.print_to_pdf(Some(headless_chrome::types::PrintToPdfOptions {
-            landscape: Some(false),
-            display_header_footer: Some(false),
-            print_background: Some(true),
-            scale: Some(1.0),
-            paper_width: Some(8.27),
-            paper_height: Some(11.69),
-            margin_top: Some(0.0),
-            margin_bottom: Some(0.0),
-            margin_left: Some(0.0),
-            margin_right: Some(0.0),
-            page_ranges: None,
-            ignore_invalid_page_ranges: Some(true),
-            header_template: None,
-            footer_template: None,
-            prefer_css_page_size: Some(true),
-            transfer_mode: None,
-            generate_tagged_pdf: None,
-            generate_document_outline: None,
-        })).map_err(|e| anyhow!("Failed to generate PDF: {}", e))?;
+        let pdf_data = tab
+            .print_to_pdf(Some(headless_chrome::types::PrintToPdfOptions {
+                landscape: Some(false),
+                display_header_footer: Some(false),
+                print_background: Some(true),
+                scale: Some(1.0),
+                paper_width: Some(8.27),
+                paper_height: Some(11.69),
+                margin_top: Some(0.0),
+                margin_bottom: Some(0.0),
+                margin_left: Some(0.0),
+                margin_right: Some(0.0),
+                page_ranges: None,
+                ignore_invalid_page_ranges: Some(true),
+                header_template: None,
+                footer_template: None,
+                prefer_css_page_size: Some(true),
+                transfer_mode: None,
+                generate_tagged_pdf: None,
+                generate_document_outline: None,
+            }))
+            .map_err(|e| anyhow!("Failed to generate PDF: {}", e))?;
 
         Ok(pdf_data)
     }

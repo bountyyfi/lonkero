@@ -23,7 +23,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -190,11 +189,7 @@ impl TimingComparison {
         let n_b = group_b.sample_count as f64;
 
         let se = ((var_a / n_a) + (var_b / n_b)).sqrt();
-        let t_statistic = if se > 0.0 {
-            mean_diff / se
-        } else {
-            0.0
-        };
+        let t_statistic = if se > 0.0 { mean_diff / se } else { 0.0 };
 
         // Check if difference is significant
         // Using 2 standard deviations as threshold (approx. 95% confidence)
@@ -273,7 +268,10 @@ impl TimingAttackScanner {
         let characteristics = AppCharacteristics::from_response(&response, url);
 
         // Skip timing tests if no authentication detected
-        if !characteristics.has_authentication && !characteristics.has_jwt && !characteristics.has_oauth {
+        if !characteristics.has_authentication
+            && !characteristics.has_jwt
+            && !characteristics.has_oauth
+        {
             info!("[TimingAttack] No authentication detected - skipping timing attack tests");
             return Ok((vulnerabilities, tests_run));
         }
@@ -288,7 +286,10 @@ impl TimingAttackScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[TimingAttack] Found {} potential auth endpoints", auth_endpoints.len());
+        info!(
+            "[TimingAttack] Found {} potential auth endpoints",
+            auth_endpoints.len()
+        );
 
         // Determine sample count based on scan mode
         let sample_count = match config.scan_mode.as_str() {
@@ -309,33 +310,26 @@ impl TimingAttackScanner {
                     tests_run += tests;
 
                     // Test password verification timing
-                    let (vulns, tests) = self
-                        .test_password_timing(&endpoint, sample_count)
-                        .await?;
+                    let (vulns, tests) = self.test_password_timing(&endpoint, sample_count).await?;
                     vulnerabilities.extend(vulns);
                     tests_run += tests;
                 }
                 AuthEndpointType::TokenVerification | AuthEndpointType::OtpVerification => {
                     // Test token validation timing
-                    let (vulns, tests) = self
-                        .test_token_timing(&endpoint, sample_count)
-                        .await?;
+                    let (vulns, tests) = self.test_token_timing(&endpoint, sample_count).await?;
                     vulnerabilities.extend(vulns);
                     tests_run += tests;
                 }
                 AuthEndpointType::ApiAuthentication => {
                     // Test API key validation timing
-                    let (vulns, tests) = self
-                        .test_api_key_timing(&endpoint, sample_count)
-                        .await?;
+                    let (vulns, tests) = self.test_api_key_timing(&endpoint, sample_count).await?;
                     vulnerabilities.extend(vulns);
                     tests_run += tests;
                 }
                 AuthEndpointType::PasswordReset => {
                     // Test email enumeration via timing
-                    let (vulns, tests) = self
-                        .test_email_enumeration(&endpoint, sample_count)
-                        .await?;
+                    let (vulns, tests) =
+                        self.test_email_enumeration(&endpoint, sample_count).await?;
                     vulnerabilities.extend(vulns);
                     tests_run += tests;
                 }
@@ -365,7 +359,9 @@ impl TimingAttackScanner {
         }
 
         // Test database query timing on search/filter endpoints
-        let (vulns, tests) = self.test_database_timing(url, &response.body, sample_count).await?;
+        let (vulns, tests) = self
+            .test_database_timing(url, &response.body, sample_count)
+            .await?;
         vulnerabilities.extend(vulns);
         tests_run += tests;
 
@@ -384,9 +380,8 @@ impl TimingAttackScanner {
         let html_lower = html.to_lowercase();
 
         // Pattern to find forms
-        let form_regex = Regex::new(
-            r#"<form[^>]*action=["']([^"']+)["'][^>]*>([\s\S]*?)</form>"#
-        ).unwrap();
+        let form_regex =
+            Regex::new(r#"<form[^>]*action=["']([^"']+)["'][^>]*>([\s\S]*?)</form>"#).unwrap();
 
         for cap in form_regex.captures_iter(html) {
             let action = cap.get(1).map(|m| m.as_str()).unwrap_or("");
@@ -446,15 +441,42 @@ impl TimingAttackScanner {
 
         // Look for API endpoints in JavaScript
         let api_patterns = vec![
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?login)['\"]"#, AuthEndpointType::Login),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?signin)['\"]"#, AuthEndpointType::Login),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?authenticate)['\"]"#, AuthEndpointType::Login),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?register)['\"]"#, AuthEndpointType::Register),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?signup)['\"]"#, AuthEndpointType::Register),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?forgot-password)['\"]"#, AuthEndpointType::PasswordReset),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?reset-password)['\"]"#, AuthEndpointType::PasswordReset),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?verify)['\"]"#, AuthEndpointType::TokenVerification),
-            (r#"['"](/api/(?:v\d+/)?(?:auth/)?token)['\"]"#, AuthEndpointType::ApiAuthentication),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?login)['\"]"#,
+                AuthEndpointType::Login,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?signin)['\"]"#,
+                AuthEndpointType::Login,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?authenticate)['\"]"#,
+                AuthEndpointType::Login,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?register)['\"]"#,
+                AuthEndpointType::Register,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?signup)['\"]"#,
+                AuthEndpointType::Register,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?forgot-password)['\"]"#,
+                AuthEndpointType::PasswordReset,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?reset-password)['\"]"#,
+                AuthEndpointType::PasswordReset,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?verify)['\"]"#,
+                AuthEndpointType::TokenVerification,
+            ),
+            (
+                r#"['"](/api/(?:v\d+/)?(?:auth/)?token)['\"]"#,
+                AuthEndpointType::ApiAuthentication,
+            ),
         ];
 
         for (pattern, endpoint_type) in api_patterns {
@@ -489,15 +511,24 @@ impl TimingAttackScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = sample_count * 2;
 
-        info!("[TimingAttack] Testing username enumeration on {}", endpoint.url);
+        info!(
+            "[TimingAttack] Testing username enumeration on {}",
+            endpoint.url
+        );
 
         let username_field = endpoint.username_field.as_deref().unwrap_or("email");
         let password_field = endpoint.password_field.as_deref().unwrap_or("password");
 
         // Test with likely valid username patterns
         let valid_usernames = vec![
-            "admin", "user", "test", "administrator", "root",
-            "admin@test.com", "user@test.com", "test@test.com",
+            "admin",
+            "user",
+            "test",
+            "administrator",
+            "root",
+            "admin@test.com",
+            "user@test.com",
+            "test@test.com",
         ];
 
         // Test with random/invalid usernames
@@ -544,7 +575,8 @@ impl TimingAttackScanner {
             TimingStatistics::from_samples(&valid_times),
             TimingStatistics::from_samples(&invalid_times),
         ) {
-            let comparison = TimingComparison::from_stats(valid_stats.clone(), invalid_stats.clone());
+            let comparison =
+                TimingComparison::from_stats(valid_stats.clone(), invalid_stats.clone());
 
             if comparison.is_significant {
                 info!(
@@ -559,7 +591,11 @@ impl TimingAttackScanner {
                     &format!(
                         "Valid usernames responded {:.2}ms {} than invalid usernames",
                         comparison.leak_magnitude_ms,
-                        if valid_stats.mean_ms > invalid_stats.mean_ms { "slower" } else { "faster" }
+                        if valid_stats.mean_ms > invalid_stats.mean_ms {
+                            "slower"
+                        } else {
+                            "faster"
+                        }
                     ),
                 ));
             }
@@ -577,17 +613,22 @@ impl TimingAttackScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = sample_count * 2;
 
-        info!("[TimingAttack] Testing password verification timing on {}", endpoint.url);
+        info!(
+            "[TimingAttack] Testing password verification timing on {}",
+            endpoint.url
+        );
 
         let username_field = endpoint.username_field.as_deref().unwrap_or("email");
         let password_field = endpoint.password_field.as_deref().unwrap_or("password");
         let test_username = "timing-test-user@bountyy-scanner.invalid";
 
         // Test with short passwords (early exit detection)
-        let short_passwords: Vec<String> = (0..5).map(|_| Self::generate_random_string(2)).collect();
+        let short_passwords: Vec<String> =
+            (0..5).map(|_| Self::generate_random_string(2)).collect();
 
         // Test with long passwords (full bcrypt computation)
-        let long_passwords: Vec<String> = (0..5).map(|_| Self::generate_random_string(72)).collect();
+        let long_passwords: Vec<String> =
+            (0..5).map(|_| Self::generate_random_string(72)).collect();
 
         // Collect timing for short passwords
         let mut short_times = Vec::new();
@@ -670,15 +711,17 @@ impl TimingAttackScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = sample_count * 3;
 
-        info!("[TimingAttack] Testing token validation timing on {}", endpoint.url);
+        info!(
+            "[TimingAttack] Testing token validation timing on {}",
+            endpoint.url
+        );
 
         let token_field = endpoint.token_field.as_deref().unwrap_or("token");
 
         // Test with various token formats
         let short_tokens: Vec<String> = (0..5).map(|_| Self::generate_random_string(6)).collect();
-        let correct_format_tokens: Vec<String> = (0..5)
-            .map(|_| Self::generate_random_string(32))
-            .collect();
+        let correct_format_tokens: Vec<String> =
+            (0..5).map(|_| Self::generate_random_string(32)).collect();
         let long_tokens: Vec<String> = (0..5).map(|_| Self::generate_random_string(128)).collect();
 
         let mut short_times = Vec::new();
@@ -735,7 +778,10 @@ impl TimingAttackScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = sample_count * 2;
 
-        info!("[TimingAttack] Testing API key validation timing on {}", endpoint.url);
+        info!(
+            "[TimingAttack] Testing API key validation timing on {}",
+            endpoint.url
+        );
 
         // Test with different API key formats
         let invalid_keys: Vec<String> = (0..sample_count)
@@ -788,7 +834,10 @@ impl TimingAttackScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = sample_count * 2;
 
-        info!("[TimingAttack] Testing email enumeration on password reset: {}", endpoint.url);
+        info!(
+            "[TimingAttack] Testing email enumeration on password reset: {}",
+            endpoint.url
+        );
 
         let email_field = endpoint.username_field.as_deref().unwrap_or("email");
 
@@ -803,7 +852,12 @@ impl TimingAttackScanner {
 
         // Random emails that shouldn't exist
         let random_emails: Vec<String> = (0..5)
-            .map(|_| format!("{}@bountyy-scanner.invalid", Self::generate_random_string(24)))
+            .map(|_| {
+                format!(
+                    "{}@bountyy-scanner.invalid",
+                    Self::generate_random_string(24)
+                )
+            })
             .collect();
 
         let mut common_times = Vec::new();
@@ -811,14 +865,22 @@ impl TimingAttackScanner {
 
         for email in &common_emails {
             let timing = self
-                .measure_form_timing(&endpoint.url, vec![(email_field.to_string(), email.to_string())], sample_count / 5)
+                .measure_form_timing(
+                    &endpoint.url,
+                    vec![(email_field.to_string(), email.to_string())],
+                    sample_count / 5,
+                )
                 .await?;
             common_times.extend(timing);
         }
 
         for email in &random_emails {
             let timing = self
-                .measure_form_timing(&endpoint.url, vec![(email_field.to_string(), email.to_string())], sample_count / 5)
+                .measure_form_timing(
+                    &endpoint.url,
+                    vec![(email_field.to_string(), email.to_string())],
+                    sample_count / 5,
+                )
                 .await?;
             random_times.extend(timing);
         }
@@ -851,7 +913,10 @@ impl TimingAttackScanner {
         let mut vulnerabilities = Vec::new();
         let tests_run = sample_count * 2;
 
-        info!("[TimingAttack] Testing registration timing on {}", endpoint.url);
+        info!(
+            "[TimingAttack] Testing registration timing on {}",
+            endpoint.url
+        );
 
         let username_field = endpoint.username_field.as_deref().unwrap_or("email");
         let password_field = endpoint.password_field.as_deref().unwrap_or("password");
@@ -1037,11 +1102,8 @@ impl TimingAttackScanner {
             tests_run += sample_count * 2;
 
             // Test LIKE vs exact match timing
-            let like_queries: Vec<String> = vec![
-                "a%".to_string(),
-                "%a".to_string(),
-                "%test%".to_string(),
-            ];
+            let like_queries: Vec<String> =
+                vec!["a%".to_string(), "%a".to_string(), "%test%".to_string()];
 
             let exact_queries: Vec<String> = vec![
                 "exact_value".to_string(),
@@ -1070,7 +1132,8 @@ impl TimingAttackScanner {
                 TimingStatistics::from_samples(&like_times),
                 TimingStatistics::from_samples(&exact_times),
             ) {
-                let comparison = TimingComparison::from_stats(like_stats.clone(), exact_stats.clone());
+                let comparison =
+                    TimingComparison::from_stats(like_stats.clone(), exact_stats.clone());
 
                 // Database timing typically shows larger differences
                 if comparison.is_significant && comparison.leak_magnitude_ms > 20.0 {
@@ -1162,7 +1225,10 @@ impl TimingAttackScanner {
 
         for _ in 0..3 {
             let start = Instant::now();
-            let _ = self.http_client.get_with_headers(url, headers.clone()).await;
+            let _ = self
+                .http_client
+                .get_with_headers(url, headers.clone())
+                .await;
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             timings.push(elapsed);
 
@@ -1205,7 +1271,10 @@ impl TimingAttackScanner {
 
         for _ in 0..3 {
             let start = Instant::now();
-            let _ = self.http_client.get_with_headers(url, headers.clone()).await;
+            let _ = self
+                .http_client
+                .get_with_headers(url, headers.clone())
+                .await;
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             timings.push(elapsed);
 
@@ -1225,7 +1294,10 @@ impl TimingAttackScanner {
 
         for _ in 0..3 {
             let start = Instant::now();
-            let _ = self.http_client.post_with_headers(url, "{}", headers.clone()).await;
+            let _ = self
+                .http_client
+                .post_with_headers(url, "{}", headers.clone())
+                .await;
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             timings.push(elapsed);
 
@@ -1261,8 +1333,16 @@ impl TimingAttackScanner {
 
     fn is_login_form(&self, action: &str, content: &str) -> bool {
         let login_indicators = [
-            "login", "signin", "sign-in", "sign_in", "authenticate", "auth",
-            "kirjaudu", "anmelden", "connexion", "accedi",
+            "login",
+            "signin",
+            "sign-in",
+            "sign_in",
+            "authenticate",
+            "auth",
+            "kirjaudu",
+            "anmelden",
+            "connexion",
+            "accedi",
         ];
 
         for indicator in &login_indicators {
@@ -1271,7 +1351,8 @@ impl TimingAttackScanner {
             }
         }
 
-        let has_username = content.contains("email") || content.contains("username") || content.contains("user");
+        let has_username =
+            content.contains("email") || content.contains("username") || content.contains("user");
         let has_password = content.contains("password") || content.contains("type=\"password\"");
         let has_confirm = content.contains("confirm") || content.contains("repeat");
 
@@ -1280,8 +1361,14 @@ impl TimingAttackScanner {
 
     fn is_registration_form(&self, action: &str, content: &str) -> bool {
         let register_indicators = [
-            "register", "signup", "sign-up", "sign_up", "create-account",
-            "rekisteröidy", "registrieren", "inscription",
+            "register",
+            "signup",
+            "sign-up",
+            "sign_up",
+            "create-account",
+            "rekisteröidy",
+            "registrieren",
+            "inscription",
         ];
 
         for indicator in &register_indicators {
@@ -1292,15 +1379,20 @@ impl TimingAttackScanner {
 
         let has_email = content.contains("email");
         let has_password = content.contains("password");
-        let has_confirm = content.contains("confirm") || content.contains("repeat") || content.contains("retype");
+        let has_confirm =
+            content.contains("confirm") || content.contains("repeat") || content.contains("retype");
 
         has_email && has_password && has_confirm
     }
 
     fn is_password_reset_form(&self, action: &str, content: &str) -> bool {
         let reset_indicators = [
-            "password-reset", "password_reset", "forgot", "reset-password",
-            "recover", "unohdin",
+            "password-reset",
+            "password_reset",
+            "forgot",
+            "reset-password",
+            "recover",
+            "unohdin",
         ];
 
         for indicator in &reset_indicators {
@@ -1314,8 +1406,14 @@ impl TimingAttackScanner {
 
     fn is_token_verification_form(&self, action: &str, content: &str) -> bool {
         let token_indicators = [
-            "verify", "verification", "otp", "2fa", "mfa", "code",
-            "vahvistus", "bestätigung",
+            "verify",
+            "verification",
+            "otp",
+            "2fa",
+            "mfa",
+            "code",
+            "vahvistus",
+            "bestätigung",
         ];
 
         for indicator in &token_indicators {
@@ -1324,14 +1422,15 @@ impl TimingAttackScanner {
             }
         }
 
-        content.contains("code") || content.contains("otp") ||
-            content.contains("maxlength=\"6\"") || content.contains("maxlength=\"4\"")
+        content.contains("code")
+            || content.contains("otp")
+            || content.contains("maxlength=\"6\"")
+            || content.contains("maxlength=\"4\"")
     }
 
     fn extract_credential_fields(&self, form_content: &str) -> (Option<String>, Option<String>) {
-        let input_regex = Regex::new(
-            r#"<input[^>]*name=["']([^"']+)["'][^>]*type=["']([^"']+)["']"#
-        ).unwrap();
+        let input_regex =
+            Regex::new(r#"<input[^>]*name=["']([^"']+)["'][^>]*type=["']([^"']+)["']"#).unwrap();
 
         let mut username_field = None;
         let mut password_field = None;
@@ -1351,9 +1450,9 @@ impl TimingAttackScanner {
 
         // Try alternative pattern
         if username_field.is_none() || password_field.is_none() {
-            let alt_regex = Regex::new(
-                r#"<input[^>]*type=["']([^"']+)["'][^>]*name=["']([^"']+)["']"#
-            ).unwrap();
+            let alt_regex =
+                Regex::new(r#"<input[^>]*type=["']([^"']+)["'][^>]*name=["']([^"']+)["']"#)
+                    .unwrap();
 
             for cap in alt_regex.captures_iter(form_content) {
                 let input_type = cap.get(1).map(|m| m.as_str()).unwrap_or("");
@@ -1361,7 +1460,9 @@ impl TimingAttackScanner {
 
                 if input_type == "password" && password_field.is_none() {
                     password_field = Some(name.to_string());
-                } else if (input_type == "email" || input_type == "text") && username_field.is_none() {
+                } else if (input_type == "email" || input_type == "text")
+                    && username_field.is_none()
+                {
                     if name.contains("email") || name.contains("user") || name.contains("login") {
                         username_field = Some(name.to_string());
                     }
@@ -1373,9 +1474,7 @@ impl TimingAttackScanner {
     }
 
     fn extract_email_field(&self, form_content: &str) -> Option<String> {
-        let input_regex = Regex::new(
-            r#"<input[^>]*name=["']([^"']+)["'][^>]*"#
-        ).unwrap();
+        let input_regex = Regex::new(r#"<input[^>]*name=["']([^"']+)["'][^>]*"#).unwrap();
 
         for cap in input_regex.captures_iter(form_content) {
             let name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
@@ -1388,9 +1487,7 @@ impl TimingAttackScanner {
     }
 
     fn extract_token_field(&self, form_content: &str) -> Option<String> {
-        let input_regex = Regex::new(
-            r#"<input[^>]*name=["']([^"']+)["'][^>]*"#
-        ).unwrap();
+        let input_regex = Regex::new(r#"<input[^>]*name=["']([^"']+)["'][^>]*"#).unwrap();
 
         for cap in input_regex.captures_iter(form_content) {
             let name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
@@ -1408,8 +1505,15 @@ impl TimingAttackScanner {
 
         // Look for search forms
         let search_indicators = [
-            "search", "query", "find", "filter", "lookup",
-            "haku", "suche", "recherche", "cerca",
+            "search",
+            "query",
+            "find",
+            "filter",
+            "lookup",
+            "haku",
+            "suche",
+            "recherche",
+            "cerca",
         ];
 
         for indicator in &search_indicators {
@@ -1422,7 +1526,10 @@ impl TimingAttackScanner {
 
         // Check for autocomplete endpoints
         if html_lower.contains("autocomplete") || html_lower.contains("suggest") {
-            endpoints.push(format!("{}/api/autocomplete", base_url.trim_end_matches('/')));
+            endpoints.push(format!(
+                "{}/api/autocomplete",
+                base_url.trim_end_matches('/')
+            ));
             endpoints.push(format!("{}/api/suggest", base_url.trim_end_matches('/')));
         }
 
@@ -1602,7 +1709,11 @@ impl TimingAttackScanner {
             comparison.mean_diff_ms,
             comparison.t_statistic,
             SIGNIFICANCE_THRESHOLD,
-            if comparison.is_significant { "DETECTED" } else { "No" },
+            if comparison.is_significant {
+                "DETECTED"
+            } else {
+                "No"
+            },
             description
         );
 
@@ -1636,7 +1747,7 @@ impl TimingAttackScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -1653,7 +1764,9 @@ mod tests {
 
     #[test]
     fn test_timing_statistics() {
-        let samples = vec![100.0, 102.0, 98.0, 101.0, 99.0, 103.0, 97.0, 100.5, 101.5, 99.5];
+        let samples = vec![
+            100.0, 102.0, 98.0, 101.0, 99.0, 103.0, 97.0, 100.5, 101.5, 99.5,
+        ];
         let stats = TimingStatistics::from_samples(&samples).unwrap();
 
         assert!(stats.mean_ms > 99.0 && stats.mean_ms < 102.0);
@@ -1663,7 +1776,9 @@ mod tests {
 
     #[test]
     fn test_timing_statistics_outlier_removal() {
-        let samples = vec![100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 500.0, 5.0];
+        let samples = vec![
+            100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 500.0, 5.0,
+        ];
         let stats = TimingStatistics::from_samples(&samples).unwrap();
 
         // Outliers should be removed
@@ -1672,8 +1787,12 @@ mod tests {
 
     #[test]
     fn test_timing_comparison_significant() {
-        let samples_a = vec![150.0, 155.0, 148.0, 152.0, 151.0, 149.0, 153.0, 147.0, 154.0, 150.0];
-        let samples_b = vec![100.0, 102.0, 98.0, 101.0, 99.0, 103.0, 97.0, 100.5, 101.5, 99.5];
+        let samples_a = vec![
+            150.0, 155.0, 148.0, 152.0, 151.0, 149.0, 153.0, 147.0, 154.0, 150.0,
+        ];
+        let samples_b = vec![
+            100.0, 102.0, 98.0, 101.0, 99.0, 103.0, 97.0, 100.5, 101.5, 99.5,
+        ];
 
         let stats_a = TimingStatistics::from_samples(&samples_a).unwrap();
         let stats_b = TimingStatistics::from_samples(&samples_b).unwrap();
@@ -1686,8 +1805,12 @@ mod tests {
 
     #[test]
     fn test_timing_comparison_not_significant() {
-        let samples_a = vec![100.0, 102.0, 98.0, 101.0, 99.0, 103.0, 97.0, 100.5, 101.5, 99.5];
-        let samples_b = vec![101.0, 99.0, 102.0, 100.0, 98.0, 101.5, 100.5, 99.5, 102.5, 100.0];
+        let samples_a = vec![
+            100.0, 102.0, 98.0, 101.0, 99.0, 103.0, 97.0, 100.5, 101.5, 99.5,
+        ];
+        let samples_b = vec![
+            101.0, 99.0, 102.0, 100.0, 98.0, 101.5, 100.5, 99.5, 102.5, 100.0,
+        ];
 
         let stats_a = TimingStatistics::from_samples(&samples_a).unwrap();
         let stats_b = TimingStatistics::from_samples(&samples_b).unwrap();

@@ -59,12 +59,18 @@ impl JoomlaScanner {
             },
         ];
         for vuln in vulnerabilities {
-            db.entry(vuln.name.clone()).or_insert_with(Vec::new).push(vuln);
+            db.entry(vuln.name.clone())
+                .or_insert_with(Vec::new)
+                .push(vuln);
         }
         db
     }
 
-    pub async fn scan(&self, target: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(
+        &self,
+        target: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
@@ -131,13 +137,28 @@ impl JoomlaScanner {
 
         if let Ok(response) = self.http_client.get(target).await {
             if response.status_code == 200 && response.body.to_lowercase().contains("joomla") {
-                let version_regex = Regex::new(r#"generator"[^>]*content="Joomla!\s*(\d+)\.(\d+)(?:\.(\d+))?"#).ok();
+                let version_regex =
+                    Regex::new(r#"generator"[^>]*content="Joomla!\s*(\d+)\.(\d+)(?:\.(\d+))?"#)
+                        .ok();
                 if let Some(re) = version_regex {
                     if let Some(caps) = re.captures(&response.body) {
-                        let major = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                        let minor = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                        let patch = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-                        version = Some(JoomlaVersion { major, minor, patch });
+                        let major = caps
+                            .get(1)
+                            .and_then(|m| m.as_str().parse().ok())
+                            .unwrap_or(0);
+                        let minor = caps
+                            .get(2)
+                            .and_then(|m| m.as_str().parse().ok())
+                            .unwrap_or(0);
+                        let patch = caps
+                            .get(3)
+                            .and_then(|m| m.as_str().parse().ok())
+                            .unwrap_or(0);
+                        version = Some(JoomlaVersion {
+                            major,
+                            minor,
+                            patch,
+                        });
                     }
                 }
                 return Ok((true, version));
@@ -150,15 +171,32 @@ impl JoomlaScanner {
     fn extract_version_from_xml(&self, content: &str) -> Option<JoomlaVersion> {
         let version_regex = Regex::new(r"<version>(\d+)\.(\d+)(?:\.(\d+))?</version>").ok()?;
         if let Some(caps) = version_regex.captures(content) {
-            let major = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-            let minor = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-            let patch = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-            return Some(JoomlaVersion { major, minor, patch });
+            let major = caps
+                .get(1)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let minor = caps
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let patch = caps
+                .get(3)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            return Some(JoomlaVersion {
+                major,
+                minor,
+                patch,
+            });
         }
         None
     }
 
-    async fn check_version_vulnerabilities(&self, target: &str, version: &Option<JoomlaVersion>) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn check_version_vulnerabilities(
+        &self,
+        target: &str,
+        version: &Option<JoomlaVersion>,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests = 1;
 
@@ -177,15 +215,20 @@ impl JoomlaScanner {
                             url: api_url,
                             parameter: None,
                             payload: "CVE-2023-23752".to_string(),
-                            description: "CVE-2023-23752: Joomla REST API exposes database credentials".to_string(),
-                            evidence: Some("Database configuration accessible without authentication".to_string()),
+                            description:
+                                "CVE-2023-23752: Joomla REST API exposes database credentials"
+                                    .to_string(),
+                            evidence: Some(
+                                "Database configuration accessible without authentication"
+                                    .to_string(),
+                            ),
                             cwe: "CWE-284".to_string(),
                             cvss: 7.5,
                             verified: true,
                             false_positive: false,
                             remediation: "Upgrade to Joomla 4.2.8 or later".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -203,14 +246,17 @@ impl JoomlaScanner {
                     parameter: Some("list[fullordering]".to_string()),
                     payload: "CVE-2017-8917".to_string(),
                     description: "CVE-2017-8917: Joomla 3.7.0 com_fields SQL injection".to_string(),
-                    evidence: Some(format!("Detected vulnerable version {}.{}.{}", v.major, v.minor, v.patch)),
+                    evidence: Some(format!(
+                        "Detected vulnerable version {}.{}.{}",
+                        v.major, v.minor, v.patch
+                    )),
                     cwe: "CWE-89".to_string(),
                     cvss: 9.8,
                     verified: false,
                     false_positive: false,
                     remediation: "Upgrade to Joomla 3.7.1 or later".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -240,9 +286,11 @@ impl JoomlaScanner {
                     cvss: 3.7,
                     verified: true,
                     false_positive: false,
-                    remediation: "Restrict access to administrator panel using .htaccess or firewall".to_string(),
+                    remediation:
+                        "Restrict access to administrator panel using .htaccess or firewall"
+                            .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -254,15 +302,22 @@ impl JoomlaScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
-        let config_paths = vec!["/configuration.php~", "/configuration.php.bak", "/configuration.php.old"];
+        let config_paths = vec![
+            "/configuration.php~",
+            "/configuration.php.bak",
+            "/configuration.php.old",
+        ];
 
         for path in config_paths {
             let url = format!("{}{}", target, path);
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("$host") || response.body.contains("$db") || response.body.contains("$password")) {
+                if response.status_code == 200
+                    && (response.body.contains("$host")
+                        || response.body.contains("$db")
+                        || response.body.contains("$password"))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: generate_vuln_id(),
                         vuln_type: "Information Disclosure".to_string(),
@@ -273,14 +328,18 @@ impl JoomlaScanner {
                         parameter: None,
                         payload: path.to_string(),
                         description: format!("Joomla configuration backup file exposed: {}", path),
-                        evidence: Some("Configuration file contains database credentials".to_string()),
+                        evidence: Some(
+                            "Configuration file contains database credentials".to_string(),
+                        ),
                         cwe: "CWE-538".to_string(),
                         cvss: 9.1,
                         verified: true,
                         false_positive: false,
-                        remediation: "Remove backup configuration files from web-accessible directories".to_string(),
+                        remediation:
+                            "Remove backup configuration files from web-accessible directories"
+                                .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -314,15 +373,20 @@ impl JoomlaScanner {
                             url: url.clone(),
                             parameter: None,
                             payload: endpoint.to_string(),
-                            description: "Joomla REST API exposes application configuration".to_string(),
-                            evidence: Some("Database configuration exposed without authentication".to_string()),
+                            description: "Joomla REST API exposes application configuration"
+                                .to_string(),
+                            evidence: Some(
+                                "Database configuration exposed without authentication".to_string(),
+                            ),
                             cwe: "CWE-284".to_string(),
                             cvss: 7.5,
                             verified: true,
                             false_positive: false,
-                            remediation: "Restrict API access and upgrade to patched Joomla version".to_string(),
+                            remediation:
+                                "Restrict API access and upgrade to patched Joomla version"
+                                    .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     } else if endpoint.contains("users") && response.body.contains("email") {
                         vulnerabilities.push(Vulnerability {
@@ -340,9 +404,10 @@ impl JoomlaScanner {
                             cvss: 5.3,
                             verified: true,
                             false_positive: false,
-                            remediation: "Restrict API access with proper authentication".to_string(),
+                            remediation: "Restrict API access with proper authentication"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -352,7 +417,10 @@ impl JoomlaScanner {
         Ok((vulnerabilities, tests))
     }
 
-    async fn check_extension_vulnerabilities(&self, target: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn check_extension_vulnerabilities(
+        &self,
+        target: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
@@ -378,7 +446,10 @@ impl JoomlaScanner {
                                 url: url.clone(),
                                 parameter: None,
                                 payload: ext_name.to_string(),
-                                description: format!("Potentially vulnerable Joomla extension: {} - {}", ext_name, vuln.description),
+                                description: format!(
+                                    "Potentially vulnerable Joomla extension: {} - {}",
+                                    ext_name, vuln.description
+                                ),
                                 evidence: Some(format!("Extension {} detected", ext_name)),
                                 cwe: "CWE-1035".to_string(),
                                 cvss: 7.5,
@@ -386,7 +457,7 @@ impl JoomlaScanner {
                                 false_positive: false,
                                 remediation: format!("Update {} to the latest version", ext_name),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                ml_data: None,
                             });
                         }
                     }
@@ -413,7 +484,9 @@ impl JoomlaScanner {
                     url: url.clone(),
                     parameter: None,
                     payload: "/installation/".to_string(),
-                    description: "Joomla installation directory accessible - site may be reinstallable".to_string(),
+                    description:
+                        "Joomla installation directory accessible - site may be reinstallable"
+                            .to_string(),
                     evidence: Some("Installation wizard accessible".to_string()),
                     cwe: "CWE-284".to_string(),
                     cvss: 9.8,
@@ -421,7 +494,7 @@ impl JoomlaScanner {
                     false_positive: false,
                     remediation: "Remove the installation directory after setup".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }

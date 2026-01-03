@@ -16,7 +16,11 @@ impl SpringScanner {
         Self { http_client }
     }
 
-    pub async fn scan(&self, target: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(
+        &self,
+        target: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
@@ -77,7 +81,9 @@ impl SpringScanner {
 
         let error_url = format!("{}/this-path-does-not-exist-12345", target);
         if let Ok(response) = self.http_client.get(&error_url).await {
-            if response.body.contains("Whitelabel Error Page") || response.body.contains("springframework") {
+            if response.body.contains("Whitelabel Error Page")
+                || response.body.contains("springframework")
+            {
                 return Ok(true);
             }
         }
@@ -90,15 +96,60 @@ impl SpringScanner {
         let mut tests = 0;
 
         let actuator_endpoints = vec![
-            ("/actuator/env", "Environment Variables", Severity::Critical, "Exposes all environment variables including secrets"),
-            ("/actuator/heapdump", "Heap Dump", Severity::Critical, "Allows downloading JVM heap dump - contains secrets"),
-            ("/actuator/mappings", "URL Mappings", Severity::Medium, "Exposes all URL mappings"),
-            ("/actuator/loggers", "Loggers", Severity::High, "Can modify log levels at runtime"),
-            ("/actuator/jolokia", "Jolokia JMX", Severity::Critical, "JMX over HTTP - can lead to RCE"),
-            ("/actuator/shutdown", "Application Shutdown", Severity::Critical, "Can shutdown the application"),
-            ("/actuator/health", "Health", Severity::Low, "Exposes health status"),
-            ("/env", "Environment (Legacy)", Severity::Critical, "Legacy environment endpoint"),
-            ("/heapdump", "Heap Dump (Legacy)", Severity::Critical, "Legacy heap dump endpoint"),
+            (
+                "/actuator/env",
+                "Environment Variables",
+                Severity::Critical,
+                "Exposes all environment variables including secrets",
+            ),
+            (
+                "/actuator/heapdump",
+                "Heap Dump",
+                Severity::Critical,
+                "Allows downloading JVM heap dump - contains secrets",
+            ),
+            (
+                "/actuator/mappings",
+                "URL Mappings",
+                Severity::Medium,
+                "Exposes all URL mappings",
+            ),
+            (
+                "/actuator/loggers",
+                "Loggers",
+                Severity::High,
+                "Can modify log levels at runtime",
+            ),
+            (
+                "/actuator/jolokia",
+                "Jolokia JMX",
+                Severity::Critical,
+                "JMX over HTTP - can lead to RCE",
+            ),
+            (
+                "/actuator/shutdown",
+                "Application Shutdown",
+                Severity::Critical,
+                "Can shutdown the application",
+            ),
+            (
+                "/actuator/health",
+                "Health",
+                Severity::Low,
+                "Exposes health status",
+            ),
+            (
+                "/env",
+                "Environment (Legacy)",
+                Severity::Critical,
+                "Legacy environment endpoint",
+            ),
+            (
+                "/heapdump",
+                "Heap Dump (Legacy)",
+                Severity::Critical,
+                "Legacy heap dump endpoint",
+            ),
         ];
 
         for (path, name, severity, description) in actuator_endpoints {
@@ -107,10 +158,10 @@ impl SpringScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
-                    let is_actuator = path.contains("heapdump") ||
-                        response.body.contains("{") ||
-                        response.body.contains("status") ||
-                        response.body.len() > 10;
+                    let is_actuator = path.contains("heapdump")
+                        || response.body.contains("{")
+                        || response.body.contains("status")
+                        || response.body.len() > 10;
 
                     if is_actuator {
                         let cvss = match severity {
@@ -158,8 +209,10 @@ impl SpringScanner {
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("H2 Console") || response.body.contains("h2-console")) {
+                if response.status_code == 200
+                    && (response.body.contains("H2 Console")
+                        || response.body.contains("h2-console"))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: generate_vuln_id(),
                         vuln_type: "Remote Code Execution".to_string(),
@@ -205,9 +258,9 @@ impl SpringScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
-                    let is_swagger = response.body.contains("swagger") ||
-                                    response.body.contains("openapi") ||
-                                    response.body.contains("\"paths\"");
+                    let is_swagger = response.body.contains("swagger")
+                        || response.body.contains("openapi")
+                        || response.body.contains("\"paths\"");
 
                     if is_swagger {
                         vulnerabilities.push(Vulnerability {
@@ -220,14 +273,18 @@ impl SpringScanner {
                             parameter: None,
                             payload: path.to_string(),
                             description: format!("Swagger/OpenAPI documentation exposed: {}", path),
-                            evidence: Some("API documentation accessible without authentication".to_string()),
+                            evidence: Some(
+                                "API documentation accessible without authentication".to_string(),
+                            ),
                             cwe: "CWE-200".to_string(),
                             cvss: 5.3,
                             verified: true,
                             false_positive: false,
-                            remediation: "Secure Swagger UI with authentication or disable in production".to_string(),
+                            remediation:
+                                "Secure Swagger UI with authentication or disable in production"
+                                    .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -250,9 +307,14 @@ impl SpringScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
-                    let sensitive_patterns = vec!["spring.datasource", "jdbc:", "password", "secret"];
+                    let sensitive_patterns =
+                        vec!["spring.datasource", "jdbc:", "password", "secret"];
                     for pattern in &sensitive_patterns {
-                        if response.body.to_lowercase().contains(&pattern.to_lowercase()) {
+                        if response
+                            .body
+                            .to_lowercase()
+                            .contains(&pattern.to_lowercase())
+                        {
                             vulnerabilities.push(Vulnerability {
                                 id: generate_vuln_id(),
                                 vuln_type: "Information Disclosure".to_string(),
@@ -268,9 +330,10 @@ impl SpringScanner {
                                 cvss: 9.1,
                                 verified: true,
                                 false_positive: false,
-                                remediation: "Remove configuration files from web-accessible paths".to_string(),
+                                remediation: "Remove configuration files from web-accessible paths"
+                                    .to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                ml_data: None,
                             });
                             break;
                         }
@@ -293,8 +356,9 @@ impl SpringScanner {
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("jolokia") || response.body.contains("MBeanServer")) {
+                if response.status_code == 200
+                    && (response.body.contains("jolokia") || response.body.contains("MBeanServer"))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: generate_vuln_id(),
                         vuln_type: "Remote Code Execution".to_string(),

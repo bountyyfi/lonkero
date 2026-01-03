@@ -40,27 +40,39 @@ impl CloudSecurityScanner {
         let mut tests_run = 0;
 
         // Only test URL-like parameters
-        let url_params = ["url", "uri", "path", "redirect", "target", "dest", "link", "site", "file", "page", "src", "href", "callback", "return", "next"];
+        let url_params = [
+            "url", "uri", "path", "redirect", "target", "dest", "link", "site", "file", "page",
+            "src", "href", "callback", "return", "next",
+        ];
         let param_lower = param_name.to_lowercase();
         if !url_params.iter().any(|p| param_lower.contains(p)) {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[Cloud] Testing cloud metadata SSRF on parameter: {}", param_name);
+        info!(
+            "[Cloud] Testing cloud metadata SSRF on parameter: {}",
+            param_name
+        );
 
         // Test AWS metadata
-        let (vulns, tests) = self.test_metadata_ssrf_on_param(url, param_name, "aws").await?;
+        let (vulns, tests) = self
+            .test_metadata_ssrf_on_param(url, param_name, "aws")
+            .await?;
         vulnerabilities.extend(vulns);
         tests_run += tests;
 
         if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_metadata_ssrf_on_param(url, param_name, "gcp").await?;
+            let (vulns, tests) = self
+                .test_metadata_ssrf_on_param(url, param_name, "gcp")
+                .await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
 
         if vulnerabilities.is_empty() {
-            let (vulns, tests) = self.test_metadata_ssrf_on_param(url, param_name, "azure").await?;
+            let (vulns, tests) = self
+                .test_metadata_ssrf_on_param(url, param_name, "azure")
+                .await?;
             vulnerabilities.extend(vulns);
             tests_run += tests;
         }
@@ -112,7 +124,10 @@ impl CloudSecurityScanner {
                     };
                     if detected {
                         let cloud_upper = cloud.to_uppercase();
-                        info!("{} metadata SSRF detected via parameter: {}", cloud_upper, param_name);
+                        info!(
+                            "{} metadata SSRF detected via parameter: {}",
+                            cloud_upper, param_name
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             &format!("{} Metadata Service SSRF", cloud_upper),
@@ -138,7 +153,10 @@ impl CloudSecurityScanner {
     /// DEPRECATED: Old spray-and-pray methods below (kept for reference)
 
     /// Test AWS metadata service SSRF
-    async fn test_aws_metadata_ssrf(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_aws_metadata_ssrf(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
@@ -157,7 +175,16 @@ impl CloudSecurityScanner {
             "http://0xA9.0xFE.0xA9.0xFE/latest/meta-data/",
         ];
 
-        let test_params = vec!["url".to_string(), "uri".to_string(), "path".to_string(), "redirect".to_string(), "target".to_string(), "dest".to_string(), "link".to_string(), "site".to_string()];
+        let test_params = vec![
+            "url".to_string(),
+            "uri".to_string(),
+            "path".to_string(),
+            "redirect".to_string(),
+            "target".to_string(),
+            "dest".to_string(),
+            "link".to_string(),
+            "site".to_string(),
+        ];
 
         for param in test_params {
             for metadata_url in &aws_metadata_payloads {
@@ -195,7 +222,10 @@ impl CloudSecurityScanner {
     }
 
     /// Test GCP metadata service SSRF
-    async fn test_gcp_metadata_ssrf(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_gcp_metadata_ssrf(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 10;
 
@@ -211,7 +241,13 @@ impl CloudSecurityScanner {
             "http://169.254.169.254/computeMetadata/v1/",
         ];
 
-        let test_params = vec!["url".to_string(), "uri".to_string(), "path".to_string(), "redirect".to_string(), "target".to_string()];
+        let test_params = vec![
+            "url".to_string(),
+            "uri".to_string(),
+            "path".to_string(),
+            "redirect".to_string(),
+            "target".to_string(),
+        ];
 
         for param in test_params {
             for metadata_url in &gcp_metadata_payloads {
@@ -221,9 +257,7 @@ impl CloudSecurityScanner {
                     format!("{}?{}={}", url, param, urlencoding::encode(metadata_url))
                 };
 
-                let headers = vec![
-                    ("Metadata-Flavor".to_string(), "Google".to_string()),
-                ];
+                let headers = vec![("Metadata-Flavor".to_string(), "Google".to_string())];
 
                 match self.http_client.get_with_headers(&test_url, headers).await {
                     Ok(response) => {
@@ -267,7 +301,13 @@ impl CloudSecurityScanner {
             "http://169.254.169.254/metadata/identity?api-version=2018-02-01",
         ];
 
-        let test_params = vec!["url".to_string(), "uri".to_string(), "path".to_string(), "redirect".to_string(), "target".to_string()];
+        let test_params = vec![
+            "url".to_string(),
+            "uri".to_string(),
+            "path".to_string(),
+            "redirect".to_string(),
+            "target".to_string(),
+        ];
 
         for param in test_params {
             for metadata_url in &azure_metadata_payloads {
@@ -277,9 +317,7 @@ impl CloudSecurityScanner {
                     format!("{}?{}={}", url, param, urlencoding::encode(metadata_url))
                 };
 
-                let headers = vec![
-                    ("Metadata".to_string(), "true".to_string()),
-                ];
+                let headers = vec![("Metadata".to_string(), "true".to_string())];
 
                 match self.http_client.get_with_headers(&test_url, headers).await {
                     Ok(response) => {
@@ -309,7 +347,10 @@ impl CloudSecurityScanner {
     }
 
     /// Test for cloud credential exposure
-    async fn test_cloud_credential_exposure(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_cloud_credential_exposure(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 15;
 
@@ -346,7 +387,10 @@ impl CloudSecurityScanner {
                                 "Cloud Credentials Exposure",
                                 "",
                                 &format!("{} exposed at {}", cred_type, endpoint),
-                                &format!("Sensitive {} found in publicly accessible file", cred_type),
+                                &format!(
+                                    "Sensitive {} found in publicly accessible file",
+                                    cred_type
+                                ),
                                 Severity::Critical,
                                 "CWE-798",
                                 9.8,
@@ -448,12 +492,21 @@ impl CloudSecurityScanner {
             (r"aws_access_key_id\s*=", "AWS Credentials"),
             (r"aws_secret_access_key\s*=", "AWS Secret Key"),
             (r#""type"\s*:\s*"service_account""#, "GCP Service Account"),
-            (r#""private_key"\s*:\s*"-----BEGIN PRIVATE KEY-----"#, "GCP Private Key"),
+            (
+                r#""private_key"\s*:\s*"-----BEGIN PRIVATE KEY-----"#,
+                "GCP Private Key",
+            ),
             (r"azure_client_id", "Azure Client ID"),
             (r"azure_client_secret", "Azure Client Secret"),
             (r"azure_tenant_id", "Azure Tenant ID"),
-            (r"AZURE_STORAGE_CONNECTION_STRING", "Azure Storage Connection"),
-            (r"DefaultEndpointsProtocol=https;AccountName=", "Azure Storage Account"),
+            (
+                r"AZURE_STORAGE_CONNECTION_STRING",
+                "Azure Storage Connection",
+            ),
+            (
+                r"DefaultEndpointsProtocol=https;AccountName=",
+                "Azure Storage Account",
+            ),
         ];
 
         for (pattern, cred_type) in patterns {
@@ -510,7 +563,7 @@ impl CloudSecurityScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -599,7 +652,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CloudSecurityScanner {
@@ -633,7 +686,8 @@ use crate::http_client::HttpClient;
     fn test_detect_azure_metadata() {
         let scanner = create_test_scanner();
 
-        let azure_response = r#"{"vmId":"abc-123","subscriptionId":"sub-456","resourceGroupName":"rg-test"}"#;
+        let azure_response =
+            r#"{"vmId":"abc-123","subscriptionId":"sub-456","resourceGroupName":"rg-test"}"#;
         assert!(scanner.detect_azure_metadata(azure_response));
 
         let azure_compute = r#"{"compute":{"osProfile":{}}}"#;
@@ -647,7 +701,8 @@ use crate::http_client::HttpClient;
         let aws_creds = "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = secret";
         assert!(scanner.detect_cloud_credentials(aws_creds).is_some());
 
-        let gcp_sa = r#"{"type": "service_account", "private_key": "-----BEGIN PRIVATE KEY-----\n..."}"#;
+        let gcp_sa =
+            r#"{"type": "service_account", "private_key": "-----BEGIN PRIVATE KEY-----\n..."}"#;
         assert!(scanner.detect_cloud_credentials(gcp_sa).is_some());
 
         let azure_creds = "azure_client_id=abc123";
@@ -661,7 +716,9 @@ use crate::http_client::HttpClient;
         assert!(!scanner.detect_aws_metadata("Normal web page content"));
         assert!(!scanner.detect_gcp_metadata("Regular JSON response"));
         assert!(!scanner.detect_azure_metadata("Plain text content"));
-        assert!(scanner.detect_cloud_credentials("No credentials here").is_none());
+        assert!(scanner
+            .detect_cloud_credentials("No credentials here")
+            .is_none());
     }
 
     #[test]

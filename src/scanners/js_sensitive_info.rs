@@ -1421,7 +1421,11 @@ impl JsSensitiveInfoScanner {
         info!("Found {} JavaScript files to scan", js_urls.len());
 
         // Limit JS files in fast mode
-        let js_limit = if config.scan_mode.as_str() == "fast" { 5 } else { 20 };
+        let js_limit = if config.scan_mode.as_str() == "fast" {
+            5
+        } else {
+            20
+        };
 
         for js_url in js_urls.iter().take(js_limit) {
             tests_run += 1;
@@ -1441,7 +1445,8 @@ impl JsSensitiveInfoScanner {
             }
 
             // Determine overall severity (highest among matches)
-            let max_severity = matches.iter()
+            let max_severity = matches
+                .iter()
                 .map(|m| &m.severity)
                 .max_by_key(|s| match s {
                     Severity::Critical => 4,
@@ -1454,15 +1459,18 @@ impl JsSensitiveInfoScanner {
                 .unwrap_or(Severity::Low);
 
             // Build evidence
-            let evidence = matches.iter()
-                .take(10)  // Limit evidence items
-                .map(|m| format!(
-                    "- {} (line {}): {}\n  Context: {}",
-                    m.pattern_name,
-                    m.line_number,
-                    Self::truncate(&m.matched_value, 100),
-                    Self::truncate(&m.context, 150)
-                ))
+            let evidence = matches
+                .iter()
+                .take(10) // Limit evidence items
+                .map(|m| {
+                    format!(
+                        "- {} (line {}): {}\n  Context: {}",
+                        m.pattern_name,
+                        m.line_number,
+                        Self::truncate(&m.matched_value, 100),
+                        Self::truncate(&m.context, 150)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n\n");
 
@@ -1473,7 +1481,10 @@ impl JsSensitiveInfoScanner {
             };
 
             // Get CWE from first match
-            let cwe = matches.first().map(|m| m.cwe.clone()).unwrap_or_else(|| "CWE-200".to_string());
+            let cwe = matches
+                .first()
+                .map(|m| m.cwe.clone())
+                .unwrap_or_else(|| "CWE-200".to_string());
 
             let cvss = match max_severity {
                 Severity::Critical => 9.0,
@@ -1529,15 +1540,78 @@ impl JsSensitiveInfoScanner {
         }
 
         // Scan each category of patterns
-        self.scan_patterns(&self.patterns.credential_patterns, content, &lines, source, "Credentials", &mut matches);
-        self.scan_patterns(&self.patterns.admin_debug_patterns, content, &lines, source, "Admin/Debug", &mut matches);
-        self.scan_patterns(&self.patterns.jira_patterns, content, &lines, source, "Issue Tracking", &mut matches);
-        self.scan_patterns(&self.patterns.internal_tools, content, &lines, source, "Internal Tools", &mut matches);
-        self.scan_patterns(&self.patterns.document_patterns, content, &lines, source, "Documents", &mut matches);
-        self.scan_patterns(&self.patterns.comment_patterns, content, &lines, source, "Comments", &mut matches);
-        self.scan_patterns(&self.patterns.environment_patterns, content, &lines, source, "Environment", &mut matches);
-        self.scan_patterns(&self.patterns.analytics_patterns, content, &lines, source, "Analytics", &mut matches);
-        self.scan_patterns(&self.patterns.employee_patterns, content, &lines, source, "Employee Info", &mut matches);
+        self.scan_patterns(
+            &self.patterns.credential_patterns,
+            content,
+            &lines,
+            source,
+            "Credentials",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.admin_debug_patterns,
+            content,
+            &lines,
+            source,
+            "Admin/Debug",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.jira_patterns,
+            content,
+            &lines,
+            source,
+            "Issue Tracking",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.internal_tools,
+            content,
+            &lines,
+            source,
+            "Internal Tools",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.document_patterns,
+            content,
+            &lines,
+            source,
+            "Documents",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.comment_patterns,
+            content,
+            &lines,
+            source,
+            "Comments",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.environment_patterns,
+            content,
+            &lines,
+            source,
+            "Environment",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.analytics_patterns,
+            content,
+            &lines,
+            source,
+            "Analytics",
+            &mut matches,
+        );
+        self.scan_patterns(
+            &self.patterns.employee_patterns,
+            content,
+            &lines,
+            source,
+            "Employee Info",
+            &mut matches,
+        );
 
         matches
     }
@@ -1591,11 +1665,28 @@ impl JsSensitiveInfoScanner {
         let matched_lower = matched.to_lowercase();
 
         // Generic API key - skip if it's a placeholder/example
-        if pattern_name.contains("API Key") || pattern_name.contains("Secret") || pattern_name.contains("Password") {
+        if pattern_name.contains("API Key")
+            || pattern_name.contains("Secret")
+            || pattern_name.contains("Password")
+        {
             let placeholder_patterns = [
-                "your_", "example", "xxx", "placeholder", "change_me", "insert_",
-                "todo", "fixme", "replace", "dummy", "test_", "sample",
-                "<your", "{your", "[your", "api_key_here", "secret_here",
+                "your_",
+                "example",
+                "xxx",
+                "placeholder",
+                "change_me",
+                "insert_",
+                "todo",
+                "fixme",
+                "replace",
+                "dummy",
+                "test_",
+                "sample",
+                "<your",
+                "{your",
+                "[your",
+                "api_key_here",
+                "secret_here",
             ];
             for p in placeholder_patterns {
                 if matched_lower.contains(p) {
@@ -1620,21 +1711,56 @@ impl JsSensitiveInfoScanner {
 
                 // Skip common false positives like ISO codes, CSS classes, etc.
                 let common_fp_prefixes = [
-                    "UTF", "ISO", "ASCII", "EUC", // Character encodings
-                    "CSS", "HTML", "SVG", "XML",   // Web standards
-                    "RGB", "HSL", "HEX",           // Color formats
-                    "GET", "POST", "PUT", "DELETE", // HTTP methods
-                    "PNG", "JPG", "GIF", "WEBP",   // Image formats
-                    "MP3", "MP4", "WAV", "AVI",    // Media formats
-                    "NORTH", "SOUTH", "EAST", "WEST", // Directions
-                    "TOP", "BOTTOM", "LEFT", "RIGHT", // Positions
-                    "SCRIPT", "STYLE", "LINK",     // HTML tags
-                    "INSET", "OUTSET",             // CSS values
-                    "INDEX", "LENGTH", "LAST", "LASTINDEX", // JS properties
-                    "PANOSE",                       // Font metadata
-                    "SEC", "MIN", "MAX",           // Time/math abbreviations
-                    "FI", "FL", "FF",              // Font ligatures
-                    "ID", "REF", "KEY",            // Generic identifiers
+                    "UTF",
+                    "ISO",
+                    "ASCII",
+                    "EUC", // Character encodings
+                    "CSS",
+                    "HTML",
+                    "SVG",
+                    "XML", // Web standards
+                    "RGB",
+                    "HSL",
+                    "HEX", // Color formats
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "DELETE", // HTTP methods
+                    "PNG",
+                    "JPG",
+                    "GIF",
+                    "WEBP", // Image formats
+                    "MP3",
+                    "MP4",
+                    "WAV",
+                    "AVI", // Media formats
+                    "NORTH",
+                    "SOUTH",
+                    "EAST",
+                    "WEST", // Directions
+                    "TOP",
+                    "BOTTOM",
+                    "LEFT",
+                    "RIGHT", // Positions
+                    "SCRIPT",
+                    "STYLE",
+                    "LINK", // HTML tags
+                    "INSET",
+                    "OUTSET", // CSS values
+                    "INDEX",
+                    "LENGTH",
+                    "LAST",
+                    "LASTINDEX", // JS properties
+                    "PANOSE",    // Font metadata
+                    "SEC",
+                    "MIN",
+                    "MAX", // Time/math abbreviations
+                    "FI",
+                    "FL",
+                    "FF", // Font ligatures
+                    "ID",
+                    "REF",
+                    "KEY", // Generic identifiers
                 ];
                 if common_fp_prefixes.iter().any(|fp| prefix == *fp) {
                     return true;
@@ -1642,15 +1768,61 @@ impl JsSensitiveInfoScanner {
 
                 // Also check for common CSS/Tailwind patterns (case insensitive)
                 let css_patterns = [
-                    "col-", "row-", "flex-", "grid-", "gap-", "space-",
-                    "text-", "font-", "bg-", "border-", "rounded-",
-                    "px-", "py-", "pt-", "pb-", "pl-", "pr-", "mx-", "my-",
-                    "w-", "h-", "min-", "max-", "z-", "top-", "left-", "right-", "bottom-",
-                    "inset-", "opacity-", "scale-", "rotate-", "translate-",
-                    "duration-", "delay-", "ease-", "transition-",
-                    "sr-", "not-", "group-", "peer-", "focus-", "hover-",
-                    "active-", "disabled-", "checked-", "first-", "last-",
-                    "odd-", "even-", "xs-", "sm-", "md-", "lg-", "xl-",
+                    "col-",
+                    "row-",
+                    "flex-",
+                    "grid-",
+                    "gap-",
+                    "space-",
+                    "text-",
+                    "font-",
+                    "bg-",
+                    "border-",
+                    "rounded-",
+                    "px-",
+                    "py-",
+                    "pt-",
+                    "pb-",
+                    "pl-",
+                    "pr-",
+                    "mx-",
+                    "my-",
+                    "w-",
+                    "h-",
+                    "min-",
+                    "max-",
+                    "z-",
+                    "top-",
+                    "left-",
+                    "right-",
+                    "bottom-",
+                    "inset-",
+                    "opacity-",
+                    "scale-",
+                    "rotate-",
+                    "translate-",
+                    "duration-",
+                    "delay-",
+                    "ease-",
+                    "transition-",
+                    "sr-",
+                    "not-",
+                    "group-",
+                    "peer-",
+                    "focus-",
+                    "hover-",
+                    "active-",
+                    "disabled-",
+                    "checked-",
+                    "first-",
+                    "last-",
+                    "odd-",
+                    "even-",
+                    "xs-",
+                    "sm-",
+                    "md-",
+                    "lg-",
+                    "xl-",
                 ];
                 if css_patterns.iter().any(|p| matched_lower.starts_with(p)) {
                     return true;
@@ -1658,10 +1830,27 @@ impl JsSensitiveInfoScanner {
 
                 // Skip common JS property patterns
                 let js_patterns = [
-                    "length-", "index-", "count-", "size-", "width-", "height-",
-                    "offset-", "margin-", "padding-", "border-", "radius-",
-                    "timeout-", "interval-", "delay-", "version-", "revision-",
-                    "lastindex-", "script-", "style-", "class-", "data-",
+                    "length-",
+                    "index-",
+                    "count-",
+                    "size-",
+                    "width-",
+                    "height-",
+                    "offset-",
+                    "margin-",
+                    "padding-",
+                    "border-",
+                    "radius-",
+                    "timeout-",
+                    "interval-",
+                    "delay-",
+                    "version-",
+                    "revision-",
+                    "lastindex-",
+                    "script-",
+                    "style-",
+                    "class-",
+                    "data-",
                 ];
                 if js_patterns.iter().any(|p| matched_lower.starts_with(p)) {
                     return true;
@@ -1671,16 +1860,37 @@ impl JsSensitiveInfoScanner {
 
         // Skip email patterns that are examples or public contact emails
         if pattern_name.contains("Email") || pattern_name.contains("Corporate Email") {
-            let example_domains = ["example.com", "example.org", "test.com", "localhost", "domain.com"];
+            let example_domains = [
+                "example.com",
+                "example.org",
+                "test.com",
+                "localhost",
+                "domain.com",
+            ];
             for domain in example_domains {
                 if matched_lower.contains(domain) {
                     return true;
                 }
             }
             // Skip public contact emails - these are intentionally public
-            let public_prefixes = ["info@", "contact@", "support@", "help@", "sales@", "hello@",
-                                   "press@", "media@", "feedback@", "enquiries@", "team@",
-                                   "mail@", "office@", "admin@", "noreply@", "no-reply@"];
+            let public_prefixes = [
+                "info@",
+                "contact@",
+                "support@",
+                "help@",
+                "sales@",
+                "hello@",
+                "press@",
+                "media@",
+                "feedback@",
+                "enquiries@",
+                "team@",
+                "mail@",
+                "office@",
+                "admin@",
+                "noreply@",
+                "no-reply@",
+            ];
             for prefix in public_prefixes {
                 if matched_lower.starts_with(prefix) {
                     return true;
@@ -1694,14 +1904,23 @@ impl JsSensitiveInfoScanner {
             let pos = content.find(matched).unwrap_or(0);
             let context_start = pos.saturating_sub(100);
             let context = &content[context_start..pos.min(content.len())];
-            if context.contains("isDev") || context.contains("isDebug") || context.contains("NODE_ENV") {
+            if context.contains("isDev")
+                || context.contains("isDebug")
+                || context.contains("NODE_ENV")
+            {
                 return true;
             }
         }
 
         // Skip PDF patterns that are clearly public/intended
         if pattern_name.contains("PDF") {
-            let public_paths = ["/public/", "/assets/", "/static/", "/docs/", "documentation"];
+            let public_paths = [
+                "/public/",
+                "/assets/",
+                "/static/",
+                "/docs/",
+                "documentation",
+            ];
             for path in public_paths {
                 if matched_lower.contains(path) {
                     return true;
@@ -1724,11 +1943,12 @@ impl JsSensitiveInfoScanner {
                 let src_str = src.as_str();
 
                 // Skip external CDNs we don't need to scan
-                if src_str.contains("cdn") ||
-                   src_str.contains("googleapis.com") ||
-                   src_str.contains("cloudflare") ||
-                   src_str.contains("unpkg.com") ||
-                   src_str.contains("jsdelivr") {
+                if src_str.contains("cdn")
+                    || src_str.contains("googleapis.com")
+                    || src_str.contains("cloudflare")
+                    || src_str.contains("unpkg.com")
+                    || src_str.contains("jsdelivr")
+                {
                     continue;
                 }
 
@@ -1738,7 +1958,8 @@ impl JsSensitiveInfoScanner {
         }
 
         // Also look for dynamically loaded scripts
-        let import_pattern = Regex::new(r#"import\s*\(\s*["']([^"']+\.js[^"']*)["']\s*\)"#).unwrap();
+        let import_pattern =
+            Regex::new(r#"import\s*\(\s*["']([^"']+\.js[^"']*)["']\s*\)"#).unwrap();
         for cap in import_pattern.captures_iter(html) {
             if let Some(path) = cap.get(1) {
                 let full_url = self.resolve_url(path.as_str(), base_url);
@@ -1778,7 +1999,10 @@ impl JsSensitiveInfoScanner {
     }
 
     /// Group matches by category
-    fn group_matches<'a>(&self, matches: &'a [SensitiveMatch]) -> HashMap<String, Vec<&'a SensitiveMatch>> {
+    fn group_matches<'a>(
+        &self,
+        matches: &'a [SensitiveMatch],
+    ) -> HashMap<String, Vec<&'a SensitiveMatch>> {
         let mut grouped: HashMap<String, Vec<&SensitiveMatch>> = HashMap::new();
 
         for m in matches {
@@ -1801,44 +2025,54 @@ impl JsSensitiveInfoScanner {
                               2. Remove hardcoded secrets from source code\n\
                               3. Use environment variables or secret managers\n\
                               4. Implement proper secret scanning in CI/CD\n\
-                              5. Review git history for exposed secrets".to_string(),
+                              5. Review git history for exposed secrets"
+                .to_string(),
             "Admin/Debug" => "1. Remove debug flags and code before production deployment\n\
                               2. Use build-time environment checks to strip debug code\n\
                               3. Implement proper feature flags with server-side control\n\
                               4. Remove console.log statements with sensitive data\n\
-                              5. Use production builds that strip development code".to_string(),
+                              5. Use production builds that strip development code"
+                .to_string(),
             "Issue Tracking" => "1. Remove internal issue tracker references from client code\n\
                                  2. Use generic error messages instead of ticket numbers\n\
                                  3. Implement server-side error logging with correlation IDs\n\
-                                 4. Review what internal information is exposed".to_string(),
+                                 4. Review what internal information is exposed"
+                .to_string(),
             "Internal Tools" => "1. Remove internal tool URLs from client-side code\n\
                                  2. Ensure internal tools require authentication\n\
                                  3. Use network segmentation to protect internal resources\n\
-                                 4. Audit for webhook/integration URL exposure".to_string(),
+                                 4. Audit for webhook/integration URL exposure"
+                .to_string(),
             "Documents" => "1. Move sensitive documents behind authentication\n\
                             2. Remove internal document paths from client code\n\
                             3. Implement access controls on document servers\n\
-                            4. Use pre-signed URLs with expiration for document access".to_string(),
+                            4. Use pre-signed URLs with expiration for document access"
+                .to_string(),
             "Comments" => "1. Strip comments from production JavaScript builds\n\
                            2. Use minification/uglification in build process\n\
                            3. Review TODO/FIXME comments for sensitive information\n\
-                           4. Implement code review process for comment content".to_string(),
+                           4. Implement code review process for comment content"
+                .to_string(),
             "Environment" => "1. Remove staging/dev URLs from production code\n\
                               2. Use environment-specific configuration\n\
                               3. Implement proper network isolation between environments\n\
-                              4. Remove database connection strings from client code".to_string(),
+                              4. Remove database connection strings from client code"
+                .to_string(),
             "Analytics" => "1. Review which analytics dashboards are referenced\n\
                             2. Ensure PowerBI/Tableau dashboards require authentication\n\
                             3. Use row-level security in BI tools\n\
-                            4. Audit analytics data for sensitive information".to_string(),
+                            4. Audit analytics data for sensitive information"
+                .to_string(),
             "Employee Info" => "1. Remove internal email addresses from client code\n\
                                 2. Use role-based contact forms instead of direct emails\n\
                                 3. Audit code for PII exposure\n\
-                                4. Implement proper contact management".to_string(),
+                                4. Implement proper contact management"
+                .to_string(),
             _ => "1. Review and remove sensitive information from client-side code\n\
                   2. Implement proper access controls\n\
                   3. Use server-side processing for sensitive operations\n\
-                  4. Conduct regular security audits".to_string(),
+                  4. Conduct regular security audits"
+                .to_string(),
         }
     }
 
@@ -1887,7 +2121,8 @@ mod tests {
 
     #[test]
     fn test_jwt_pattern() {
-        let pattern = Regex::new(r#"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*"#).unwrap();
+        let pattern =
+            Regex::new(r#"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*"#).unwrap();
 
         // Example JWT (not real)
         let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
@@ -1903,7 +2138,10 @@ mod tests {
 
     #[test]
     fn test_is_dev_pattern() {
-        let pattern = Regex::new(r#"(?i)(isDev|isDebug|isTest|debugMode|devMode|testMode)\s*[=:]\s*(true|1|!0)"#).unwrap();
+        let pattern = Regex::new(
+            r#"(?i)(isDev|isDebug|isTest|debugMode|devMode|testMode)\s*[=:]\s*(true|1|!0)"#,
+        )
+        .unwrap();
 
         assert!(pattern.is_match("isDev = true"));
         assert!(pattern.is_match("isDebug: true"));

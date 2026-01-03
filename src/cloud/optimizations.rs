@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use parking_lot::RwLock;
 /**
  * Bountyy Oy - Cloud Performance Optimizations
  * Connection pooling, caching, and parallel processing for cloud operations
@@ -8,11 +9,9 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 use tracing::info;
 
 /// Cache for cloud metadata to reduce API calls
@@ -101,7 +100,8 @@ impl CloudConnectionPool {
     }
 
     pub fn available(&self) -> usize {
-        self.max_connections.saturating_sub(*self.active_connections.read())
+        self.max_connections
+            .saturating_sub(*self.active_connections.read())
     }
 }
 

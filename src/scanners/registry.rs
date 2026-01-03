@@ -27,8 +27,8 @@
 //! @copyright 2026 Bountyy Oy
 //! @license Proprietary
 
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 // ============================================================================
 // Technology Category Definitions
@@ -310,8 +310,9 @@ impl TechCategory {
     pub fn is_backend(&self) -> bool {
         matches!(
             self,
-            TechCategory::JavaScript(JsFramework::Node | JsFramework::Express | JsFramework::NextJs | JsFramework::Nuxt)
-                | TechCategory::Php(_)
+            TechCategory::JavaScript(
+                JsFramework::Node | JsFramework::Express | JsFramework::NextJs | JsFramework::Nuxt
+            ) | TechCategory::Php(_)
                 | TechCategory::Python(_)
                 | TechCategory::Java(_)
                 | TechCategory::DotNet(_)
@@ -371,7 +372,11 @@ impl TechCategory {
         }
 
         // PHP frameworks
-        if category == "Language" && name_lower.contains("php") || name_lower.contains("wordpress") || name_lower.contains("laravel") || name_lower.contains("drupal") {
+        if category == "Language" && name_lower.contains("php")
+            || name_lower.contains("wordpress")
+            || name_lower.contains("laravel")
+            || name_lower.contains("drupal")
+        {
             if name_lower.contains("wordpress") {
                 return TechCategory::Php(PhpFramework::WordPress);
             } else if name_lower.contains("laravel") {
@@ -389,7 +394,11 @@ impl TechCategory {
         }
 
         // Python frameworks
-        if name_lower.contains("python") || name_lower.contains("django") || name_lower.contains("flask") || name_lower.contains("fastapi") {
+        if name_lower.contains("python")
+            || name_lower.contains("django")
+            || name_lower.contains("flask")
+            || name_lower.contains("fastapi")
+        {
             if name_lower.contains("django") {
                 return TechCategory::Python(PythonFramework::Django);
             } else if name_lower.contains("flask") {
@@ -401,7 +410,10 @@ impl TechCategory {
         }
 
         // Java frameworks
-        if name_lower.contains("java") || name_lower.contains("spring") || name_lower.contains("tomcat") {
+        if name_lower.contains("java")
+            || name_lower.contains("spring")
+            || name_lower.contains("tomcat")
+        {
             if name_lower.contains("spring") {
                 return TechCategory::Java(JavaFramework::Spring);
             } else if name_lower.contains("struts") {
@@ -411,7 +423,10 @@ impl TechCategory {
         }
 
         // .NET frameworks
-        if name_lower.contains("asp.net") || name_lower.contains("dotnet") || name_lower.contains(".net") {
+        if name_lower.contains("asp.net")
+            || name_lower.contains("dotnet")
+            || name_lower.contains(".net")
+        {
             if name_lower.contains("core") {
                 return TechCategory::DotNet(DotNetFramework::Core);
             }
@@ -444,7 +459,12 @@ impl TechCategory {
         }
 
         // Cloud providers
-        if category == "CloudProvider" || name_lower.contains("aws") || name_lower.contains("azure") || name_lower.contains("gcp") || name_lower.contains("google cloud") {
+        if category == "CloudProvider"
+            || name_lower.contains("aws")
+            || name_lower.contains("azure")
+            || name_lower.contains("gcp")
+            || name_lower.contains("google cloud")
+        {
             if name_lower.contains("aws") || name_lower.contains("amazon") {
                 return TechCategory::Cloud(CloudProvider::Aws);
             } else if name_lower.contains("azure") {
@@ -457,7 +477,11 @@ impl TechCategory {
         }
 
         // Static site platforms
-        if name_lower.contains("vercel") || name_lower.contains("netlify") || name_lower.contains("cloudflare pages") || name_lower.contains("github pages") {
+        if name_lower.contains("vercel")
+            || name_lower.contains("netlify")
+            || name_lower.contains("cloudflare pages")
+            || name_lower.contains("github pages")
+        {
             if name_lower.contains("vercel") {
                 return TechCategory::StaticSite(StaticPlatform::Vercel);
             } else if name_lower.contains("netlify") {
@@ -971,9 +995,9 @@ impl ScannerRegistry {
                 for (scanner, mapping) in tech_scanners {
                     if !mapping.skip && !self.should_skip(scanner, tech) {
                         scanners.insert(*scanner);
-                        let priority = mapping.priority.max(
-                            *scanner_priorities.get(scanner).unwrap_or(&0)
-                        );
+                        let priority = mapping
+                            .priority
+                            .max(*scanner_priorities.get(scanner).unwrap_or(&0));
                         scanner_priorities.insert(*scanner, priority);
                     }
                 }
@@ -1111,7 +1135,9 @@ impl ScannerRegistry {
         }
 
         // Check if we have any known technology
-        let has_known_tech = tech_categories.iter().any(|t| !matches!(t, TechCategory::Unknown));
+        let has_known_tech = tech_categories
+            .iter()
+            .any(|t| !matches!(t, TechCategory::Unknown));
 
         if has_known_tech {
             // LAYER 3: Tech-specific scanners - run when tech is detected
@@ -1120,9 +1146,9 @@ impl ScannerRegistry {
                     for (scanner, mapping) in tech_scanners {
                         if !mapping.skip && !self.should_skip(scanner, tech) {
                             scanners.insert(*scanner);
-                            let priority = mapping.priority.max(
-                                *scanner_priorities.get(scanner).unwrap_or(&0)
-                            );
+                            let priority = mapping
+                                .priority
+                                .max(*scanner_priorities.get(scanner).unwrap_or(&0));
                             scanner_priorities.insert(*scanner, priority);
                         }
                     }
@@ -1316,10 +1342,12 @@ impl ScannerRegistry {
     fn initialize_default_priorities(&mut self) {
         // Critical injection scanners - highest priority
         self.default_priorities.insert(ScannerType::SqlI, 10);
-        self.default_priorities.insert(ScannerType::CommandInjection, 10);
+        self.default_priorities
+            .insert(ScannerType::CommandInjection, 10);
         self.default_priorities.insert(ScannerType::Ssrf, 9);
         self.default_priorities.insert(ScannerType::SsrfBlind, 9);
-        self.default_priorities.insert(ScannerType::PathTraversal, 9);
+        self.default_priorities
+            .insert(ScannerType::PathTraversal, 9);
         self.default_priorities.insert(ScannerType::Log4j, 10);
 
         // XSS and other injection
@@ -1331,7 +1359,8 @@ impl ScannerRegistry {
 
         // Authentication - high priority
         self.default_priorities.insert(ScannerType::Jwt, 8);
-        self.default_priorities.insert(ScannerType::JwtVulnerabilities, 8);
+        self.default_priorities
+            .insert(ScannerType::JwtVulnerabilities, 8);
         self.default_priorities.insert(ScannerType::AuthBypass, 8);
         self.default_priorities.insert(ScannerType::OAuth, 7);
         self.default_priorities.insert(ScannerType::Saml, 7);
@@ -1342,7 +1371,8 @@ impl ScannerRegistry {
 
         // Configuration - medium-high priority
         self.default_priorities.insert(ScannerType::Cors, 6);
-        self.default_priorities.insert(ScannerType::SecurityHeaders, 6);
+        self.default_priorities
+            .insert(ScannerType::SecurityHeaders, 6);
         self.default_priorities.insert(ScannerType::Clickjacking, 6);
 
         // Framework-specific - medium priority
@@ -1354,7 +1384,8 @@ impl ScannerRegistry {
 
         // API scanners
         self.default_priorities.insert(ScannerType::GraphQL, 7);
-        self.default_priorities.insert(ScannerType::GraphQLSecurity, 7);
+        self.default_priorities
+            .insert(ScannerType::GraphQLSecurity, 7);
         self.default_priorities.insert(ScannerType::GrpC, 6);
 
         // Cloud scanners
@@ -1371,273 +1402,1291 @@ impl ScannerRegistry {
         self.default_priorities.insert(ScannerType::FaviconHash, 4);
 
         // Default for unspecified
-        self.default_priorities.insert(ScannerType::InformationDisclosure, 5);
+        self.default_priorities
+            .insert(ScannerType::InformationDisclosure, 5);
     }
 
     /// Initialize JavaScript/Node.js technology mappings
     fn initialize_javascript_mappings(&mut self) {
         // Node.js/Express specific scanners
         let node_scanners = vec![
-            (ScannerType::PrototypePollution, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::NoSqlI, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CommandInjection, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssrf, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Express, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::JsMiner, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::JsSensitiveInfo, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::ReDoS, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::PrototypePollution,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::NoSqlI,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CommandInjection,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssrf,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Express,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::JsMiner,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::JsSensitiveInfo,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::ReDoS,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::JavaScript(JsFramework::Node), node_scanners.clone());
-        self.tech_scanner_map.insert(TechCategory::JavaScript(JsFramework::Express), node_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::JavaScript(JsFramework::Node),
+            node_scanners.clone(),
+        );
+        self.tech_scanner_map.insert(
+            TechCategory::JavaScript(JsFramework::Express),
+            node_scanners,
+        );
 
         // React specific
         let react_scanners = vec![
-            (ScannerType::PrototypePollution, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::React, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::ClientRouteAuthBypass, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::JsMiner, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::JsSensitiveInfo, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::SourceMap, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::PrototypePollution,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::React,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::ClientRouteAuthBypass,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::JsMiner,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::JsSensitiveInfo,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SourceMap,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::JavaScript(JsFramework::React), react_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::JavaScript(JsFramework::React), react_scanners);
 
         // Next.js specific
         let nextjs_scanners = vec![
-            (ScannerType::NextJs, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::PrototypePollution, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssrf, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::ClientRouteAuthBypass, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::JsMiner, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::JsSensitiveInfo, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::SourceMap, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::NextJs,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PrototypePollution,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssrf,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::ClientRouteAuthBypass,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::JsMiner,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::JsSensitiveInfo,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SourceMap,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::JavaScript(JsFramework::NextJs), nextjs_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::JavaScript(JsFramework::NextJs),
+            nextjs_scanners,
+        );
 
         // SvelteKit specific
         let sveltekit_scanners = vec![
-            (ScannerType::SvelteKit, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::PrototypePollution, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::ClientRouteAuthBypass, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::JsMiner, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::SvelteKit,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PrototypePollution,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::ClientRouteAuthBypass,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::JsMiner,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::JavaScript(JsFramework::SvelteKit), sveltekit_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::JavaScript(JsFramework::SvelteKit),
+            sveltekit_scanners,
+        );
     }
 
     /// Initialize PHP technology mappings
     fn initialize_php_mappings(&mut self) {
         // WordPress specific scanners
         let wordpress_scanners = vec![
-            (ScannerType::WordPress, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::FileUpload, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::FileUploadVulnerabilities, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::PathTraversal, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Xxe, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Csrf, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::WordPress,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::FileUpload,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::FileUploadVulnerabilities,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PathTraversal,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xxe,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Csrf,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Php(PhpFramework::WordPress), wordpress_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::Php(PhpFramework::WordPress),
+            wordpress_scanners,
+        );
 
         // Laravel specific scanners
         let laravel_scanners = vec![
-            (ScannerType::Laravel, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::MassAssignment, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssti, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::FileUpload, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Csrf, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::Laravel,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::MassAssignment,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::FileUpload,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Csrf,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Php(PhpFramework::Laravel), laravel_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Php(PhpFramework::Laravel), laravel_scanners);
 
         // Drupal specific scanners
         let drupal_scanners = vec![
-            (ScannerType::Drupal, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::FileUpload, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::PathTraversal, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::Drupal,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::FileUpload,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PathTraversal,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Php(PhpFramework::Drupal), drupal_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Php(PhpFramework::Drupal), drupal_scanners);
 
         // Generic PHP scanners
         let php_generic_scanners = vec![
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CommandInjection, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::FileUpload, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::PathTraversal, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Xxe, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::LdapInjection, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
-            (ScannerType::Ssti, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CommandInjection,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::FileUpload,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PathTraversal,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xxe,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::LdapInjection,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Php(PhpFramework::Generic), php_generic_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::Php(PhpFramework::Generic),
+            php_generic_scanners,
+        );
     }
 
     /// Initialize Python technology mappings
     fn initialize_python_mappings(&mut self) {
         // Django specific scanners
         let django_scanners = vec![
-            (ScannerType::Django, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssti, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::SstiAdvanced, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Csrf, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
-            (ScannerType::MassAssignment, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::Django,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SstiAdvanced,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Csrf,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::MassAssignment,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Python(PythonFramework::Django), django_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::Python(PythonFramework::Django),
+            django_scanners,
+        );
 
         // Flask specific scanners
         let flask_scanners = vec![
-            (ScannerType::Ssti, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SstiAdvanced, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CommandInjection, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SstiAdvanced,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CommandInjection,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Python(PythonFramework::Flask), flask_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Python(PythonFramework::Flask), flask_scanners);
 
         // FastAPI specific scanners
         let fastapi_scanners = vec![
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::ApiFuzzer, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Idor, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Bola, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::MassAssignment, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::ApiFuzzer,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Idor,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Bola,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::MassAssignment,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Python(PythonFramework::FastAPI), fastapi_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::Python(PythonFramework::FastAPI),
+            fastapi_scanners,
+        );
 
         // Jinja2 specific (SSTI is critical)
         let jinja2_scanners = vec![
-            (ScannerType::Ssti, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SstiAdvanced, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SstiAdvanced,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Python(PythonFramework::Jinja2), jinja2_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::Python(PythonFramework::Jinja2),
+            jinja2_scanners,
+        );
     }
 
     /// Initialize Java technology mappings
     fn initialize_java_mappings(&mut self) {
         // Spring specific scanners
         let spring_scanners = vec![
-            (ScannerType::Log4j, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Xxe, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::XmlInjection, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::LdapInjection, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Ssti, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
-            (ScannerType::MassAssignment, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::Log4j,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xxe,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::XmlInjection,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::LdapInjection,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::MassAssignment,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Java(JavaFramework::Spring), spring_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Java(JavaFramework::Spring), spring_scanners);
 
         // Tomcat specific scanners
         let tomcat_scanners = vec![
-            (ScannerType::TomcatMisconfig, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::Log4j, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::PathTraversal, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Xxe, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
+            (
+                ScannerType::TomcatMisconfig,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Log4j,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PathTraversal,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xxe,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Java(JavaFramework::Tomcat), tomcat_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Java(JavaFramework::Tomcat), tomcat_scanners);
 
         // Struts specific scanners
         let struts_scanners = vec![
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::Log4j, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::CommandInjection, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xxe, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Log4j,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CommandInjection,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xxe,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Java(JavaFramework::Struts), struts_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Java(JavaFramework::Struts), struts_scanners);
 
         // Liferay specific
         let liferay_scanners = vec![
-            (ScannerType::Liferay, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Log4j, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
+            (
+                ScannerType::Liferay,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Log4j,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Java(JavaFramework::Liferay), liferay_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Java(JavaFramework::Liferay), liferay_scanners);
     }
 
     /// Initialize .NET technology mappings
     fn initialize_dotnet_mappings(&mut self) {
         // ASP.NET specific scanners
         let aspnet_scanners = vec![
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Xxe, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::PathTraversal, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::XmlInjection, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::MassAssignment, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
-            (ScannerType::Csrf, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xxe,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PathTraversal,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::XmlInjection,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::MassAssignment,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Csrf,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::DotNet(DotNetFramework::AspNet), aspnet_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::DotNet(DotNetFramework::AspNet),
+            aspnet_scanners,
+        );
 
         // Blazor specific scanners
         let blazor_scanners = vec![
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::ClientRouteAuthBypass, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::WebSocket, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::ClientRouteAuthBypass,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::WebSocket,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::DotNet(DotNetFramework::Blazor), blazor_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::DotNet(DotNetFramework::Blazor),
+            blazor_scanners,
+        );
     }
 
     /// Initialize Ruby technology mappings
     fn initialize_ruby_mappings(&mut self) {
         // Rails specific scanners
         let rails_scanners = vec![
-            (ScannerType::Deserialization, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::MassAssignment, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Ssti, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::CommandInjection, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Csrf, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
-            (ScannerType::FileUpload, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::Deserialization,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::MassAssignment,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CommandInjection,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Csrf,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::FileUpload,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Ruby(RubyFramework::Rails), rails_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Ruby(RubyFramework::Rails), rails_scanners);
 
         // Sinatra specific scanners
         let sinatra_scanners = vec![
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssti, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CommandInjection, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CommandInjection,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Ruby(RubyFramework::Sinatra), sinatra_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Ruby(RubyFramework::Sinatra), sinatra_scanners);
     }
 
     /// Initialize Go technology mappings
     fn initialize_go_mappings(&mut self) {
         let go_scanners = vec![
-            (ScannerType::SqlI, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CommandInjection, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssrf, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::PathTraversal, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Ssti, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CommandInjection,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssrf,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PathTraversal,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssti,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
 
-        for framework in [GoFramework::Gin, GoFramework::Echo, GoFramework::Fiber, GoFramework::Chi, GoFramework::Gorilla, GoFramework::Generic] {
-            self.tech_scanner_map.insert(TechCategory::Go(framework), go_scanners.clone());
+        for framework in [
+            GoFramework::Gin,
+            GoFramework::Echo,
+            GoFramework::Fiber,
+            GoFramework::Chi,
+            GoFramework::Gorilla,
+            GoFramework::Generic,
+        ] {
+            self.tech_scanner_map
+                .insert(TechCategory::Go(framework), go_scanners.clone());
         }
     }
 
@@ -1645,16 +2694,65 @@ impl ScannerRegistry {
     fn initialize_rust_mappings(&mut self) {
         // Rust is generally memory-safe, focus on logic bugs
         let rust_scanners = vec![
-            (ScannerType::SqlI, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Xss, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssrf, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::PathTraversal, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Idor, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::Bola, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::SqlI,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssrf,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::PathTraversal,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Idor,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Bola,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
 
-        for framework in [RustFramework::Actix, RustFramework::Rocket, RustFramework::Axum, RustFramework::Warp, RustFramework::Generic] {
-            self.tech_scanner_map.insert(TechCategory::Rust(framework), rust_scanners.clone());
+        for framework in [
+            RustFramework::Actix,
+            RustFramework::Rocket,
+            RustFramework::Axum,
+            RustFramework::Warp,
+            RustFramework::Generic,
+        ] {
+            self.tech_scanner_map
+                .insert(TechCategory::Rust(framework), rust_scanners.clone());
         }
     }
 
@@ -1663,13 +2761,41 @@ impl ScannerRegistry {
         // Static sites have limited attack surface
         let static_scanners = vec![
             // XSS can still occur in client-side JavaScript
-            (ScannerType::Xss, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::Xss,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
             // Source maps might be exposed
-            (ScannerType::SourceMap, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::SourceMap,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
             // JS secrets might be exposed
-            (ScannerType::JsSensitiveInfo, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::JsSensitiveInfo,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
             // Configuration issues
-            (ScannerType::InformationDisclosure, ScannerTechMapping { priority: 5, skip: false, skip_reason: None }),
+            (
+                ScannerType::InformationDisclosure,
+                ScannerTechMapping {
+                    priority: 5,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
 
         for platform in [
@@ -1684,117 +2810,368 @@ impl ScannerRegistry {
             StaticPlatform::Surge,
             StaticPlatform::Generic,
         ] {
-            self.tech_scanner_map.insert(TechCategory::StaticSite(platform), static_scanners.clone());
+            self.tech_scanner_map
+                .insert(TechCategory::StaticSite(platform), static_scanners.clone());
         }
     }
 
     /// Initialize GraphQL-specific mappings
     fn initialize_graphql_mappings(&mut self) {
         let graphql_scanners = vec![
-            (ScannerType::GraphQL, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::GraphQLSecurity, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::Idor, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Bola, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::InformationDisclosure, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
-            (ScannerType::RateLimiting, ScannerTechMapping { priority: 6, skip: false, skip_reason: None }),
+            (
+                ScannerType::GraphQL,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::GraphQLSecurity,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Idor,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Bola,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::InformationDisclosure,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::RateLimiting,
+                ScannerTechMapping {
+                    priority: 6,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::GraphQL, graphql_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::GraphQL, graphql_scanners);
     }
 
     /// Initialize cloud provider mappings
     fn initialize_cloud_mappings(&mut self) {
         // AWS specific
         let aws_scanners = vec![
-            (ScannerType::Aws, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::S3, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::CloudStorage, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CognitoEnum, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssrf, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::CloudSecurity, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::Aws,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::S3,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CloudStorage,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CognitoEnum,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssrf,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CloudSecurity,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Cloud(CloudProvider::Aws), aws_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Cloud(CloudProvider::Aws), aws_scanners);
 
         // Azure specific
         let azure_scanners = vec![
-            (ScannerType::Azure, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::AzureApim, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CloudStorage, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssrf, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CloudSecurity, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::Azure,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::AzureApim,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CloudStorage,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssrf,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CloudSecurity,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Cloud(CloudProvider::Azure), azure_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Cloud(CloudProvider::Azure), azure_scanners);
 
         // GCP specific
         let gcp_scanners = vec![
-            (ScannerType::Gcp, ScannerTechMapping { priority: 9, skip: false, skip_reason: None }),
-            (ScannerType::CloudStorage, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Ssrf, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::CloudSecurity, ScannerTechMapping { priority: 7, skip: false, skip_reason: None }),
+            (
+                ScannerType::Gcp,
+                ScannerTechMapping {
+                    priority: 9,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CloudStorage,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Ssrf,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::CloudSecurity,
+                ScannerTechMapping {
+                    priority: 7,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Cloud(CloudProvider::Gcp), gcp_scanners);
+        self.tech_scanner_map
+            .insert(TechCategory::Cloud(CloudProvider::Gcp), gcp_scanners);
 
         // Firebase specific
         let firebase_scanners = vec![
-            (ScannerType::Firebase, ScannerTechMapping { priority: 10, skip: false, skip_reason: None }),
-            (ScannerType::NoSqlI, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::Idor, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
-            (ScannerType::AuthBypass, ScannerTechMapping { priority: 8, skip: false, skip_reason: None }),
+            (
+                ScannerType::Firebase,
+                ScannerTechMapping {
+                    priority: 10,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::NoSqlI,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::Idor,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
+            (
+                ScannerType::AuthBypass,
+                ScannerTechMapping {
+                    priority: 8,
+                    skip: false,
+                    skip_reason: None,
+                },
+            ),
         ];
-        self.tech_scanner_map.insert(TechCategory::Cloud(CloudProvider::Firebase), firebase_scanners);
+        self.tech_scanner_map.insert(
+            TechCategory::Cloud(CloudProvider::Firebase),
+            firebase_scanners,
+        );
     }
 
     /// Initialize explicit skip rules for incompatible combinations
     fn initialize_skip_rules(&mut self) {
         // Skip PHP-specific scanners for non-PHP technologies
-        for js_framework in [JsFramework::Node, JsFramework::React, JsFramework::Vue, JsFramework::Angular, JsFramework::NextJs, JsFramework::Express] {
+        for js_framework in [
+            JsFramework::Node,
+            JsFramework::React,
+            JsFramework::Vue,
+            JsFramework::Angular,
+            JsFramework::NextJs,
+            JsFramework::Express,
+        ] {
             self.skip_rules.insert(
-                (TechCategory::JavaScript(js_framework), ScannerType::WordPress),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("WordPress scanner not applicable to JavaScript".into()) }
+                (
+                    TechCategory::JavaScript(js_framework),
+                    ScannerType::WordPress,
+                ),
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("WordPress scanner not applicable to JavaScript".into()),
+                },
             );
             self.skip_rules.insert(
                 (TechCategory::JavaScript(js_framework), ScannerType::Laravel),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Laravel scanner not applicable to JavaScript".into()) }
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Laravel scanner not applicable to JavaScript".into()),
+                },
             );
             self.skip_rules.insert(
                 (TechCategory::JavaScript(js_framework), ScannerType::Drupal),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Drupal scanner not applicable to JavaScript".into()) }
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Drupal scanner not applicable to JavaScript".into()),
+                },
             );
         }
 
         // Skip Java-specific scanners for non-Java technologies
-        for php_framework in [PhpFramework::WordPress, PhpFramework::Laravel, PhpFramework::Drupal, PhpFramework::Generic] {
+        for php_framework in [
+            PhpFramework::WordPress,
+            PhpFramework::Laravel,
+            PhpFramework::Drupal,
+            PhpFramework::Generic,
+        ] {
             self.skip_rules.insert(
-                (TechCategory::Php(php_framework), ScannerType::TomcatMisconfig),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Tomcat scanner not applicable to PHP".into()) }
+                (
+                    TechCategory::Php(php_framework),
+                    ScannerType::TomcatMisconfig,
+                ),
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Tomcat scanner not applicable to PHP".into()),
+                },
             );
             self.skip_rules.insert(
                 (TechCategory::Php(php_framework), ScannerType::Log4j),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Log4j scanner not applicable to PHP".into()) }
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Log4j scanner not applicable to PHP".into()),
+                },
             );
             self.skip_rules.insert(
                 (TechCategory::Php(php_framework), ScannerType::Liferay),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Liferay scanner not applicable to PHP".into()) }
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Liferay scanner not applicable to PHP".into()),
+                },
             );
         }
 
         // Skip Node.js specific scanners for non-JS technologies
-        for java_framework in [JavaFramework::Spring, JavaFramework::Tomcat, JavaFramework::Struts, JavaFramework::Generic] {
+        for java_framework in [
+            JavaFramework::Spring,
+            JavaFramework::Tomcat,
+            JavaFramework::Struts,
+            JavaFramework::Generic,
+        ] {
             self.skip_rules.insert(
-                (TechCategory::Java(java_framework), ScannerType::PrototypePollution),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Prototype pollution not applicable to Java".into()) }
+                (
+                    TechCategory::Java(java_framework),
+                    ScannerType::PrototypePollution,
+                ),
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Prototype pollution not applicable to Java".into()),
+                },
             );
             self.skip_rules.insert(
                 (TechCategory::Java(java_framework), ScannerType::Express),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Express scanner not applicable to Java".into()) }
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Express scanner not applicable to Java".into()),
+                },
             );
             self.skip_rules.insert(
                 (TechCategory::Java(java_framework), ScannerType::NextJs),
-                ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Next.js scanner not applicable to Java".into()) }
+                ScannerTechMapping {
+                    priority: 0,
+                    skip: true,
+                    skip_reason: Some("Next.js scanner not applicable to Java".into()),
+                },
             );
         }
 
         // Skip server-side injection scanners for static sites
-        for platform in [StaticPlatform::CloudflarePages, StaticPlatform::Vercel, StaticPlatform::Netlify, StaticPlatform::GitHubPages, StaticPlatform::Generic] {
+        for platform in [
+            StaticPlatform::CloudflarePages,
+            StaticPlatform::Vercel,
+            StaticPlatform::Netlify,
+            StaticPlatform::GitHubPages,
+            StaticPlatform::Generic,
+        ] {
             for scanner in [
                 ScannerType::SqlI,
                 ScannerType::NoSqlI,
@@ -1806,7 +3183,13 @@ impl ScannerRegistry {
             ] {
                 self.skip_rules.insert(
                     (TechCategory::StaticSite(platform), scanner),
-                    ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("Server-side scanner not applicable to static sites".into()) }
+                    ScannerTechMapping {
+                        priority: 0,
+                        skip: true,
+                        skip_reason: Some(
+                            "Server-side scanner not applicable to static sites".into(),
+                        ),
+                    },
                 );
             }
         }
@@ -1814,7 +3197,11 @@ impl ScannerRegistry {
         // Skip form-based injection tests for GraphQL
         self.skip_rules.insert(
             (TechCategory::GraphQL, ScannerType::Csrf),
-            ScannerTechMapping { priority: 0, skip: true, skip_reason: Some("CSRF testing not applicable to GraphQL APIs".into()) }
+            ScannerTechMapping {
+                priority: 0,
+                skip: true,
+                skip_reason: Some("CSRF testing not applicable to GraphQL APIs".into()),
+            },
         );
     }
 
@@ -1830,7 +3217,9 @@ impl ScannerRegistry {
                 // All JS gets prototype pollution and JS-specific scanners
                 if !self.should_skip(&ScannerType::PrototypePollution, tech) {
                     scanners.insert(ScannerType::PrototypePollution);
-                    priorities.entry(ScannerType::PrototypePollution).or_insert(8);
+                    priorities
+                        .entry(ScannerType::PrototypePollution)
+                        .or_insert(8);
                 }
                 scanners.insert(ScannerType::JsMiner);
                 priorities.entry(ScannerType::JsMiner).or_insert(6);
@@ -1872,35 +3261,50 @@ impl ScannerRegistry {
         match (scanner, tech) {
             // Skip PHP CMS scanners for non-PHP
             (ScannerType::WordPress | ScannerType::Drupal | ScannerType::Laravel, tech)
-                if !matches!(tech, TechCategory::Php(_)) => true,
+                if !matches!(tech, TechCategory::Php(_)) =>
+            {
+                true
+            }
 
             // Skip Java-specific scanners for non-Java
             (ScannerType::TomcatMisconfig | ScannerType::Log4j | ScannerType::Liferay, tech)
-                if !matches!(tech, TechCategory::Java(_)) => true,
+                if !matches!(tech, TechCategory::Java(_)) =>
+            {
+                true
+            }
 
             // Skip Node.js specific for non-JS
-            (ScannerType::PrototypePollution | ScannerType::Express | ScannerType::NextJs | ScannerType::React, tech)
-                if !matches!(tech, TechCategory::JavaScript(_)) => true,
+            (
+                ScannerType::PrototypePollution
+                | ScannerType::Express
+                | ScannerType::NextJs
+                | ScannerType::React,
+                tech,
+            ) if !matches!(tech, TechCategory::JavaScript(_)) => true,
 
             // Skip Django for non-Python
-            (ScannerType::Django, tech)
-                if !matches!(tech, TechCategory::Python(_)) => true,
+            (ScannerType::Django, tech) if !matches!(tech, TechCategory::Python(_)) => true,
 
             // Skip server-side injection for static sites
             (scanner, TechCategory::StaticSite(_))
-                if scanner.is_injection() && !matches!(scanner, ScannerType::Xss | ScannerType::HtmlInjection) => true,
+                if scanner.is_injection()
+                    && !matches!(scanner, ScannerType::Xss | ScannerType::HtmlInjection) =>
+            {
+                true
+            }
 
             // Skip GraphQL scanners for non-GraphQL
             (ScannerType::GraphQL | ScannerType::GraphQLSecurity, tech)
-                if !matches!(tech, TechCategory::GraphQL) => true,
+                if !matches!(tech, TechCategory::GraphQL) =>
+            {
+                true
+            }
 
             // Skip gRPC scanner for non-gRPC
-            (ScannerType::GrpC, tech)
-                if !matches!(tech, TechCategory::GrpC) => true,
+            (ScannerType::GrpC, tech) if !matches!(tech, TechCategory::GrpC) => true,
 
             // Skip WebSocket scanner for non-WebSocket
-            (ScannerType::WebSocket, tech)
-                if !matches!(tech, TechCategory::WebSocket) => true,
+            (ScannerType::WebSocket, tech) if !matches!(tech, TechCategory::WebSocket) => true,
 
             _ => false,
         }
@@ -2015,9 +3419,18 @@ mod tests {
 
     #[test]
     fn test_tech_category_base_name() {
-        assert_eq!(TechCategory::JavaScript(JsFramework::React).base_name(), "JavaScript");
-        assert_eq!(TechCategory::Php(PhpFramework::WordPress).base_name(), "PHP");
-        assert_eq!(TechCategory::Python(PythonFramework::Django).base_name(), "Python");
+        assert_eq!(
+            TechCategory::JavaScript(JsFramework::React).base_name(),
+            "JavaScript"
+        );
+        assert_eq!(
+            TechCategory::Php(PhpFramework::WordPress).base_name(),
+            "PHP"
+        );
+        assert_eq!(
+            TechCategory::Python(PythonFramework::Django).base_name(),
+            "Python"
+        );
     }
 
     #[test]
@@ -2032,7 +3445,10 @@ mod tests {
     fn test_scanner_type_display_name() {
         assert_eq!(ScannerType::Xss.display_name(), "XSS Scanner");
         assert_eq!(ScannerType::SqlI.display_name(), "SQL Injection Scanner");
-        assert_eq!(ScannerType::WordPress.display_name(), "WordPress Security Scanner");
+        assert_eq!(
+            ScannerType::WordPress.display_name(),
+            "WordPress Security Scanner"
+        );
     }
 
     #[test]
@@ -2121,14 +3537,38 @@ mod tests {
 
     #[test]
     fn test_payload_intensity_from_risk_score() {
-        assert_eq!(PayloadIntensity::from_risk_score(10), PayloadIntensity::Minimal);
-        assert_eq!(PayloadIntensity::from_risk_score(25), PayloadIntensity::Minimal);
-        assert_eq!(PayloadIntensity::from_risk_score(30), PayloadIntensity::Standard);
-        assert_eq!(PayloadIntensity::from_risk_score(50), PayloadIntensity::Standard);
-        assert_eq!(PayloadIntensity::from_risk_score(60), PayloadIntensity::Extended);
-        assert_eq!(PayloadIntensity::from_risk_score(75), PayloadIntensity::Extended);
-        assert_eq!(PayloadIntensity::from_risk_score(80), PayloadIntensity::Maximum);
-        assert_eq!(PayloadIntensity::from_risk_score(100), PayloadIntensity::Maximum);
+        assert_eq!(
+            PayloadIntensity::from_risk_score(10),
+            PayloadIntensity::Minimal
+        );
+        assert_eq!(
+            PayloadIntensity::from_risk_score(25),
+            PayloadIntensity::Minimal
+        );
+        assert_eq!(
+            PayloadIntensity::from_risk_score(30),
+            PayloadIntensity::Standard
+        );
+        assert_eq!(
+            PayloadIntensity::from_risk_score(50),
+            PayloadIntensity::Standard
+        );
+        assert_eq!(
+            PayloadIntensity::from_risk_score(60),
+            PayloadIntensity::Extended
+        );
+        assert_eq!(
+            PayloadIntensity::from_risk_score(75),
+            PayloadIntensity::Extended
+        );
+        assert_eq!(
+            PayloadIntensity::from_risk_score(80),
+            PayloadIntensity::Maximum
+        );
+        assert_eq!(
+            PayloadIntensity::from_risk_score(100),
+            PayloadIntensity::Maximum
+        );
     }
 
     #[test]
@@ -2153,13 +3593,12 @@ mod tests {
         let registry = ScannerRegistry::new();
 
         // Unknown tech should get fallback expansion
-        let (unknown_scanners, _) = registry.get_intelligent_scan_config(&[TechCategory::Unknown], 50);
+        let (unknown_scanners, _) =
+            registry.get_intelligent_scan_config(&[TechCategory::Unknown], 50);
 
         // Static site should get minimal scanners (skip server-side)
-        let (static_scanners, _) = registry.get_intelligent_scan_config(
-            &[TechCategory::StaticSite(StaticPlatform::Vercel)],
-            50
-        );
+        let (static_scanners, _) = registry
+            .get_intelligent_scan_config(&[TechCategory::StaticSite(StaticPlatform::Vercel)], 50);
 
         // Unknown should have more scanners due to fallback expansion
         assert!(unknown_scanners.len() > static_scanners.len());

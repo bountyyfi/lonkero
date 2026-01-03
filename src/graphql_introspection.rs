@@ -7,9 +7,9 @@
 use crate::http_client::HttpClient;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Full introspection query - discovers entire schema
 const FULL_INTROSPECTION_QUERY: &str = r#"{
@@ -203,9 +203,7 @@ impl GraphQLIntrospector {
             "query": FULL_INTROSPECTION_QUERY
         });
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         let response = self
             .http_client
@@ -434,7 +432,11 @@ impl GraphQLIntrospector {
             .and_then(|e| e.as_array())
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .filter_map(|v| {
+                        v.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -445,7 +447,11 @@ impl GraphQLIntrospector {
             .and_then(|i| i.as_array())
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .filter_map(|v| {
+                        v.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -456,7 +462,11 @@ impl GraphQLIntrospector {
             .and_then(|p| p.as_array())
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .filter_map(|v| {
+                        v.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();

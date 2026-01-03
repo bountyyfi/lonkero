@@ -30,7 +30,10 @@ static SQL_MSSQL: Lazy<Regex> = Lazy::new(|| {
 });
 
 static SQL_ORACLE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:oracle|ora-).*(?:error|syntax)|ORA-\d{5}|Oracle error|oracle\.jdbc|PLS-\d{5}").unwrap()
+    Regex::new(
+        r"(?i)(?:oracle|ora-).*(?:error|syntax)|ORA-\d{5}|Oracle error|oracle\.jdbc|PLS-\d{5}",
+    )
+    .unwrap()
 });
 
 static SQL_SQLITE: Lazy<Regex> = Lazy::new(|| {
@@ -65,12 +68,12 @@ static STACK_RUBY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?s)(?:\.rb:\d+:in\s+`|Rails\.root|ActionController|ActiveRecord|NoMethodError|NameError|ArgumentError.*from)").unwrap()
 });
 
-static STACK_GO: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)(?:goroutine\s+\d+|runtime error:|panic:|\.go:\d+)").unwrap()
-});
+static STACK_GO: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)(?:goroutine\s+\d+|runtime error:|panic:|\.go:\d+)").unwrap());
 
 static STACK_RUST: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)(?:panicked at|thread '.*' panicked|\.rs:\d+:\d+|backtrace:|RUST_BACKTRACE)").unwrap()
+    Regex::new(r"(?s)(?:panicked at|thread '.*' panicked|\.rs:\d+:\d+|backtrace:|RUST_BACKTRACE)")
+        .unwrap()
 });
 
 // =============================================================================
@@ -106,11 +109,15 @@ static AUTH_LOGGED_IN: Lazy<Regex> = Lazy::new(|| {
 // =============================================================================
 
 static PATH_LINUX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:/(?:home|var|etc|usr|opt|tmp|root)/[\w./-]+|/var/www/[\w./-]+|/app/[\w./-]+)").unwrap()
+    Regex::new(r"(?:/(?:home|var|etc|usr|opt|tmp|root)/[\w./-]+|/var/www/[\w./-]+|/app/[\w./-]+)")
+        .unwrap()
 });
 
 static PATH_WINDOWS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:[A-Z]:\\(?:Users|Program Files(?: \(x86\))?|Windows|inetpub|wwwroot)\\[\w\\./-]+)").unwrap()
+    Regex::new(
+        r"(?i)(?:[A-Z]:\\(?:Users|Program Files(?: \(x86\))?|Windows|inetpub|wwwroot)\\[\w\\./-]+)",
+    )
+    .unwrap()
 });
 
 static PATH_FRAMEWORK: Lazy<Regex> = Lazy::new(|| {
@@ -137,37 +144,35 @@ static WAF_AKAMAI: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(?:akamai|ak_bmsc|akam/|ghost|access\s+denied.*akamai)").unwrap()
 });
 
-static WAF_AWS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:awswaf|aws-waf|x-amzn-waf|request\s+blocked.*aws)").unwrap()
-});
+static WAF_AWS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:awswaf|aws-waf|x-amzn-waf|request\s+blocked.*aws)").unwrap());
 
 static WAF_MODSECURITY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:mod_security|modsecurity|owasp.*crs|not\s+acceptable.*406|request\s+blocked\s+by)").unwrap()
+    Regex::new(
+        r"(?i)(?:mod_security|modsecurity|owasp.*crs|not\s+acceptable.*406|request\s+blocked\s+by)",
+    )
+    .unwrap()
 });
 
-static WAF_IMPERVA: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:incapsula|imperva|visid_incap|incap_ses)").unwrap()
-});
+static WAF_IMPERVA: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:incapsula|imperva|visid_incap|incap_ses)").unwrap());
 
 static WAF_F5: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(?:big-?ip|f5\s+networks|asm|request\s+rejected.*security)").unwrap()
 });
 
-static WAF_SUCURI: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:sucuri|cloudproxy|access\s+denied.*sucuri)").unwrap()
-});
+static WAF_SUCURI: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:sucuri|cloudproxy|access\s+denied.*sucuri)").unwrap());
 
-static WAF_FORTIWEB: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:fortiweb|fortigate|.fgtauth|fortitoken)").unwrap()
-});
+static WAF_FORTIWEB: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:fortiweb|fortigate|.fgtauth|fortitoken)").unwrap());
 
 // =============================================================================
 // Sensitive Data Patterns
 // =============================================================================
 
-static DATA_EMAIL: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap()
-});
+static DATA_EMAIL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap());
 
 static DATA_API_KEY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)(?:api[_-]?key|apikey|api[_-]?secret|access[_-]?token)['"]?\s*[:=]\s*['"]?([a-zA-Z0-9_-]{20,})"#).unwrap()
@@ -185,9 +190,8 @@ static DATA_AWS_KEY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?:AKIA|A3T|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}").unwrap()
 });
 
-static DATA_PRIVATE_KEY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----").unwrap()
-});
+static DATA_PRIVATE_KEY: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----").unwrap());
 
 // =============================================================================
 // Error Type Patterns
@@ -226,7 +230,8 @@ static CONTEXT_PAYMENT: Lazy<Regex> = Lazy::new(|| {
 });
 
 static CONTEXT_FILE_MANAGEMENT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:upload|download|file|attachment|document|media|image|storage|bucket)").unwrap()
+    Regex::new(r"(?i)(?:upload|download|file|attachment|document|media|image|storage|bucket)")
+        .unwrap()
 });
 
 static CONTEXT_ADMIN: Lazy<Regex> = Lazy::new(|| {
@@ -238,7 +243,10 @@ static CONTEXT_API: Lazy<Regex> = Lazy::new(|| {
 });
 
 static CONTEXT_SEARCH: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:search|query|filter|find|results?\s+for|no\s+(?:results?|matches?)\s+found)").unwrap()
+    Regex::new(
+        r"(?i)(?:search|query|filter|find|results?\s+for|no\s+(?:results?|matches?)\s+found)",
+    )
+    .unwrap()
 });
 
 static CONTEXT_REPORTING: Lazy<Regex> = Lazy::new(|| {
@@ -254,11 +262,15 @@ static SECURITY_CSRF: Lazy<Regex> = Lazy::new(|| {
 });
 
 static SECURITY_RATE_LIMIT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:rate\s*limit|too\s+many\s+requests|throttl|slow\s+down|retry\s+after|429)").unwrap()
+    Regex::new(r"(?i)(?:rate\s*limit|too\s+many\s+requests|throttl|slow\s+down|retry\s+after|429)")
+        .unwrap()
 });
 
 static SECURITY_DEBUG_MODE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:debug\s*=\s*true|DEBUG_MODE|development\s+mode|stack\s+trace|exception\s+details)").unwrap()
+    Regex::new(
+        r"(?i)(?:debug\s*=\s*true|DEBUG_MODE|development\s+mode|stack\s+trace|exception\s+details)",
+    )
+    .unwrap()
 });
 
 // =============================================================================
@@ -701,7 +713,11 @@ impl ResponseAnalyzer {
         headers: &HashMap<String, String>,
         body: &str,
     ) -> ResponseSemantics {
-        debug!("Analyzing response with status {} and body length {}", status, body.len());
+        debug!(
+            "Analyzing response with status {} and body length {}",
+            status,
+            body.len()
+        );
 
         let response_type = self.determine_response_type(status, headers, body);
         let auth_state = self.detect_auth_state(status, headers, body);
@@ -747,9 +763,15 @@ impl ResponseAnalyzer {
                     .map(|(_, v)| v.as_str())
                     .unwrap_or("");
 
-                if content_type.contains("application/json") || body.trim_start().starts_with('{') || body.trim_start().starts_with('[') {
+                if content_type.contains("application/json")
+                    || body.trim_start().starts_with('{')
+                    || body.trim_start().starts_with('[')
+                {
                     ResponseType::ApiResponse
-                } else if content_type.contains("text/html") || body.contains("<!DOCTYPE") || body.contains("<html") {
+                } else if content_type.contains("text/html")
+                    || body.contains("<!DOCTYPE")
+                    || body.contains("<html")
+                {
                     ResponseType::HtmlPage
                 } else {
                     ResponseType::Success
@@ -995,21 +1017,27 @@ impl ResponseAnalyzer {
     /// Extract error message from body
     fn extract_error_message(&self, body: &str) -> Option<String> {
         // Try JSON error format first
-        let json_error = Regex::new(r#"["\'](?:error|message|msg)["\']:\s*["\']([^"\']+)["\']"#).unwrap();
+        let json_error =
+            Regex::new(r#"["\'](?:error|message|msg)["\']:\s*["\']([^"\']+)["\']"#).unwrap();
         if let Some(cap) = json_error.captures(body) {
             return cap.get(1).map(|m| self.truncate_sample(m.as_str(), 100));
         }
 
         // Try HTML error format
-        let html_error = Regex::new(r"(?i)<(?:div|p|span)[^>]*class=[^>]*error[^>]*>([^<]+)").unwrap();
+        let html_error =
+            Regex::new(r"(?i)<(?:div|p|span)[^>]*class=[^>]*error[^>]*>([^<]+)").unwrap();
         if let Some(cap) = html_error.captures(body) {
-            return cap.get(1).map(|m| self.truncate_sample(m.as_str().trim(), 100));
+            return cap
+                .get(1)
+                .map(|m| self.truncate_sample(m.as_str().trim(), 100));
         }
 
         // Try generic error patterns
         let generic_error = Regex::new(r"(?i)(?:error|exception|warning):\s*(.{10,100})").unwrap();
         if let Some(cap) = generic_error.captures(body) {
-            return cap.get(1).map(|m| self.truncate_sample(m.as_str().trim(), 100));
+            return cap
+                .get(1)
+                .map(|m| self.truncate_sample(m.as_str().trim(), 100));
         }
 
         None
@@ -1338,16 +1366,25 @@ impl ResponseAnalyzer {
     /// Detect WAF from headers and body
     fn detect_waf(&self, headers: &HashMap<String, String>, body: &str) -> Option<String> {
         // Check headers first
-        if headers.contains_key("cf-ray") || headers.get("server").map_or(false, |v| v.to_lowercase().contains("cloudflare")) {
+        if headers.contains_key("cf-ray")
+            || headers
+                .get("server")
+                .map_or(false, |v| v.to_lowercase().contains("cloudflare"))
+        {
             return Some("Cloudflare".to_string());
         }
-        if headers.contains_key("x-akamai-transformed") || headers.contains_key("x-akamai-request-id") {
+        if headers.contains_key("x-akamai-transformed")
+            || headers.contains_key("x-akamai-request-id")
+        {
             return Some("Akamai".to_string());
         }
         if headers.contains_key("x-amzn-waf-action") || headers.contains_key("x-amzn-requestid") {
             return Some("AWS WAF".to_string());
         }
-        if headers.get("server").map_or(false, |v| v.contains("BigIP") || v.contains("F5")) {
+        if headers
+            .get("server")
+            .map_or(false, |v| v.contains("BigIP") || v.contains("F5"))
+        {
             return Some("F5 BIG-IP".to_string());
         }
 
@@ -1405,7 +1442,9 @@ impl ResponseAnalyzer {
         }
 
         // Check for error type changes
-        if let (Some(baseline_error), Some(current_error)) = (&baseline.error_info, &current.error_info) {
+        if let (Some(baseline_error), Some(current_error)) =
+            (&baseline.error_info, &current.error_info)
+        {
             if baseline_error.error_type != current_error.error_type {
                 differences.push(SemanticDifference::ErrorTypeChanged {
                     from: baseline_error.error_type.clone(),
@@ -1416,9 +1455,10 @@ impl ResponseAnalyzer {
 
         // Check for new data exposures
         for exposure in &current.data_exposure {
-            let is_new = !baseline.data_exposure.iter().any(|e| {
-                e.exposure_type == exposure.exposure_type && e.sample == exposure.sample
-            });
+            let is_new = !baseline
+                .data_exposure
+                .iter()
+                .any(|e| e.exposure_type == exposure.exposure_type && e.sample == exposure.sample);
             if is_new {
                 differences.push(SemanticDifference::NewDataExposed {
                     exposure: exposure.clone(),
@@ -1462,7 +1502,10 @@ impl ResponseAnalyzer {
     }
 
     /// Check if response indicates a vulnerability
-    pub fn indicates_vulnerability(&self, semantics: &ResponseSemantics) -> Option<VulnerabilityHint> {
+    pub fn indicates_vulnerability(
+        &self,
+        semantics: &ResponseSemantics,
+    ) -> Option<VulnerabilityHint> {
         // SQL injection indicators
         if let Some(ref error_info) = semantics.error_info {
             if let ErrorType::Database { ref db_type } = error_info.error_type {
@@ -1624,11 +1667,7 @@ impl ResponseAnalyzer {
         if length <= 4 {
             "*".repeat(length)
         } else {
-            format!(
-                "{}{}",
-                &sample[..4],
-                "*".repeat((length - 4).min(16))
-            )
+            format!("{}{}", &sample[..4], "*".repeat((length - 4).min(16)))
         }
     }
 
@@ -1715,7 +1754,8 @@ ValueError: test"#;
     #[test]
     fn test_stack_trace_detection_java() {
         let analyzer = ResponseAnalyzer::new();
-        let body = "java.lang.NullPointerException\n\tat com.example.Service.process(Service.java:123)";
+        let body =
+            "java.lang.NullPointerException\n\tat com.example.Service.process(Service.java:123)";
         assert_eq!(analyzer.has_stack_trace(body), Some("Java".to_string()));
     }
 
@@ -1774,7 +1814,8 @@ ValueError: test"#;
     fn test_auth_state_mfa_required() {
         let analyzer = ResponseAnalyzer::new();
         let headers = create_headers();
-        let body = "Two-factor authentication required. Enter the code from your authenticator app.";
+        let body =
+            "Two-factor authentication required. Enter the code from your authenticator app.";
 
         let state = analyzer.detect_auth_state(200, &headers, body);
         assert_eq!(state, AuthState::MfaRequired);
@@ -1796,7 +1837,9 @@ ValueError: test"#;
         let body = "Connected to database at 10.0.0.15:5432";
 
         let exposures = analyzer.detect_data_exposure(body);
-        assert!(exposures.iter().any(|e| e.exposure_type == ExposureType::InternalIp));
+        assert!(exposures
+            .iter()
+            .any(|e| e.exposure_type == ExposureType::InternalIp));
     }
 
     #[test]
@@ -1805,7 +1848,9 @@ ValueError: test"#;
         let body = "Error reading file: /var/www/html/config/database.yml";
 
         let exposures = analyzer.detect_data_exposure(body);
-        assert!(exposures.iter().any(|e| e.exposure_type == ExposureType::FilePath));
+        assert!(exposures
+            .iter()
+            .any(|e| e.exposure_type == ExposureType::FilePath));
     }
 
     #[test]
@@ -1814,7 +1859,9 @@ ValueError: test"#;
         let body = "Cannot access C:\\inetpub\\wwwroot\\web.config";
 
         let exposures = analyzer.detect_data_exposure(body);
-        assert!(exposures.iter().any(|e| e.exposure_type == ExposureType::FilePath));
+        assert!(exposures
+            .iter()
+            .any(|e| e.exposure_type == ExposureType::FilePath));
     }
 
     #[test]
@@ -1823,7 +1870,9 @@ ValueError: test"#;
         let body = "Contact admin at admin@example.com for support";
 
         let exposures = analyzer.detect_data_exposure(body);
-        let email_exposure = exposures.iter().find(|e| e.exposure_type == ExposureType::Email);
+        let email_exposure = exposures
+            .iter()
+            .find(|e| e.exposure_type == ExposureType::Email);
         assert!(email_exposure.is_some());
         // Check email is masked
         assert!(email_exposure.unwrap().sample.contains("***"));
@@ -1835,7 +1884,9 @@ ValueError: test"#;
         let body = "AWS Access Key: AKIAIOSFODNN7EXAMPLE";
 
         let exposures = analyzer.detect_data_exposure(body);
-        assert!(exposures.iter().any(|e| e.exposure_type == ExposureType::AwsCredentials));
+        assert!(exposures
+            .iter()
+            .any(|e| e.exposure_type == ExposureType::AwsCredentials));
     }
 
     #[test]
@@ -1844,7 +1895,9 @@ ValueError: test"#;
         let body = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...";
 
         let exposures = analyzer.detect_data_exposure(body);
-        assert!(exposures.iter().any(|e| e.exposure_type == ExposureType::PrivateKey));
+        assert!(exposures
+            .iter()
+            .any(|e| e.exposure_type == ExposureType::PrivateKey));
     }
 
     #[test]
@@ -1855,17 +1908,24 @@ ValueError: test"#;
         headers.insert("server".to_string(), "cloudflare".to_string());
 
         let indicators = analyzer.detect_security_indicators(&headers, "");
-        assert!(indicators.iter().any(|i| matches!(i, SecurityIndicator::WafPresent { waf_type } if waf_type == "Cloudflare")));
+        assert!(indicators.iter().any(
+            |i| matches!(i, SecurityIndicator::WafPresent { waf_type } if waf_type == "Cloudflare")
+        ));
     }
 
     #[test]
     fn test_waf_detection_akamai() {
         let analyzer = ResponseAnalyzer::new();
         let mut headers = HashMap::new();
-        headers.insert("x-akamai-transformed".to_string(), "9 - 0 pmb=mRUM,3".to_string());
+        headers.insert(
+            "x-akamai-transformed".to_string(),
+            "9 - 0 pmb=mRUM,3".to_string(),
+        );
 
         let indicators = analyzer.detect_security_indicators(&headers, "");
-        assert!(indicators.iter().any(|i| matches!(i, SecurityIndicator::WafPresent { waf_type } if waf_type == "Akamai")));
+        assert!(indicators.iter().any(
+            |i| matches!(i, SecurityIndicator::WafPresent { waf_type } if waf_type == "Akamai")
+        ));
     }
 
     #[test]
@@ -1875,7 +1935,9 @@ ValueError: test"#;
         let body = r#"<input type="hidden" name="csrf_token" value="abc123">"#;
 
         let indicators = analyzer.detect_security_indicators(&headers, body);
-        assert!(indicators.iter().any(|i| matches!(i, SecurityIndicator::CsrfProtection)));
+        assert!(indicators
+            .iter()
+            .any(|i| matches!(i, SecurityIndicator::CsrfProtection)));
     }
 
     #[test]
@@ -1885,7 +1947,9 @@ ValueError: test"#;
         headers.insert("x-ratelimit-limit".to_string(), "100".to_string());
 
         let indicators = analyzer.detect_security_indicators(&headers, "");
-        assert!(indicators.iter().any(|i| matches!(i, SecurityIndicator::RateLimiting)));
+        assert!(indicators
+            .iter()
+            .any(|i| matches!(i, SecurityIndicator::RateLimiting)));
     }
 
     #[test]
@@ -1895,7 +1959,9 @@ ValueError: test"#;
         let body = "DEBUG = True, showing exception details";
 
         let indicators = analyzer.detect_security_indicators(&headers, body);
-        assert!(indicators.iter().any(|i| matches!(i, SecurityIndicator::DebugMode)));
+        assert!(indicators
+            .iter()
+            .any(|i| matches!(i, SecurityIndicator::DebugMode)));
     }
 
     #[test]
@@ -1949,7 +2015,8 @@ ValueError: test"#;
         let analyzer = ResponseAnalyzer::new();
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "text/html".to_string());
-        let body = "Your payment has been processed. Order #12345 confirmed. Stripe transaction ID: xyz";
+        let body =
+            "Your payment has been processed. Order #12345 confirmed. Stripe transaction ID: xyz";
 
         let semantics = analyzer.analyze(200, &headers, body);
         assert!(semantics.business_context.is_some());
@@ -2013,8 +2080,12 @@ ValueError: test"#;
 
         let differences = analyzer.compare_responses(&baseline, &current);
 
-        assert!(differences.iter().any(|d| matches!(d, SemanticDifference::AuthStateChanged { .. })));
-        assert!(differences.iter().any(|d| matches!(d, SemanticDifference::ResponseTypeChanged { .. })));
+        assert!(differences
+            .iter()
+            .any(|d| matches!(d, SemanticDifference::AuthStateChanged { .. })));
+        assert!(differences
+            .iter()
+            .any(|d| matches!(d, SemanticDifference::ResponseTypeChanged { .. })));
     }
 
     #[test]
@@ -2045,7 +2116,9 @@ ValueError: test"#;
 
         let differences = analyzer.compare_responses(&baseline, &current);
 
-        assert!(differences.iter().any(|d| matches!(d, SemanticDifference::SecurityBypassIndicator { .. })));
+        assert!(differences
+            .iter()
+            .any(|d| matches!(d, SemanticDifference::SecurityBypassIndicator { .. })));
     }
 
     #[test]
@@ -2071,7 +2144,8 @@ ValueError: test"#;
     #[test]
     fn test_extract_error_info_with_file_path() {
         let analyzer = ResponseAnalyzer::new();
-        let body = "Fatal error: Call to undefined function foo() in /var/www/html/app.php on line 42";
+        let body =
+            "Fatal error: Call to undefined function foo() in /var/www/html/app.php on line 42";
 
         let error_info = analyzer.extract_error_info(body);
         assert!(error_info.is_some());
@@ -2088,9 +2162,15 @@ ValueError: test"#;
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "text/html".to_string());
         headers.insert("x-frame-options".to_string(), "DENY".to_string());
-        headers.insert("content-security-policy".to_string(), "default-src 'self'".to_string());
+        headers.insert(
+            "content-security-policy".to_string(),
+            "default-src 'self'".to_string(),
+        );
         headers.insert("x-content-type-options".to_string(), "nosniff".to_string());
-        headers.insert("strict-transport-security".to_string(), "max-age=31536000".to_string());
+        headers.insert(
+            "strict-transport-security".to_string(),
+            "max-age=31536000".to_string(),
+        );
 
         let body = r#"<!DOCTYPE html>
 <html>
@@ -2106,9 +2186,18 @@ ValueError: test"#;
         let semantics = analyzer.analyze(200, &headers, body);
 
         assert_eq!(semantics.response_type, ResponseType::HtmlPage);
-        assert!(matches!(semantics.auth_state, AuthState::Authenticated { .. }));
-        assert!(semantics.security_indicators.iter().any(|i| matches!(i, SecurityIndicator::CsrfProtection)));
-        assert!(semantics.security_indicators.iter().any(|i| matches!(i, SecurityIndicator::StrictHeaders)));
+        assert!(matches!(
+            semantics.auth_state,
+            AuthState::Authenticated { .. }
+        ));
+        assert!(semantics
+            .security_indicators
+            .iter()
+            .any(|i| matches!(i, SecurityIndicator::CsrfProtection)));
+        assert!(semantics
+            .security_indicators
+            .iter()
+            .any(|i| matches!(i, SecurityIndicator::StrictHeaders)));
         assert!(semantics.confidence > 0.5);
     }
 

@@ -46,7 +46,10 @@ impl RaceConditionScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[RaceCondition] Dynamic site detected, proceeding with tests. Evidence: {:?}", site_type.evidence);
+        info!(
+            "[RaceCondition] Dynamic site detected, proceeding with tests. Evidence: {:?}",
+            site_type.evidence
+        );
 
         // Test transaction race conditions (only if transaction endpoints found)
         if site_type.has_transaction_endpoints {
@@ -123,7 +126,9 @@ impl RaceConditionScanner {
             if body_lower.contains(indicator) {
                 site_type.has_transaction_endpoints = true;
                 site_type.has_dynamic_endpoints = true;
-                site_type.evidence.push(format!("Transaction: {}", indicator));
+                site_type
+                    .evidence
+                    .push(format!("Transaction: {}", indicator));
                 break;
             }
         }
@@ -141,7 +146,9 @@ impl RaceConditionScanner {
             if body_lower.contains(indicator) {
                 site_type.has_ecommerce = true;
                 site_type.has_dynamic_endpoints = true;
-                site_type.evidence.push(format!("E-commerce: {}", indicator));
+                site_type
+                    .evidence
+                    .push(format!("E-commerce: {}", indicator));
                 break;
             }
         }
@@ -156,7 +163,10 @@ impl RaceConditionScanner {
     }
 
     /// Test transaction race conditions (TOCTOU)
-    async fn test_transaction_race(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_transaction_race(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 20;
 
@@ -188,9 +198,7 @@ impl RaceConditionScanner {
                 let http_client = Arc::clone(&self.http_client);
                 let url_clone = test_url.clone();
 
-                join_set.spawn(async move {
-                    http_client.get(&url_clone).await
-                });
+                join_set.spawn(async move { http_client.get(&url_clone).await });
             }
 
             // Collect results
@@ -211,8 +219,10 @@ impl RaceConditionScanner {
                     "Transaction Race Condition",
                     "Concurrent POST requests",
                     "Race condition allows multiple concurrent transactions",
-                    &format!("{} successful responses in concurrent execution",
-                        responses.iter().filter(|&&s| s == 200).count()),
+                    &format!(
+                        "{} successful responses in concurrent execution",
+                        responses.iter().filter(|&&s| s == 200).count()
+                    ),
                     Severity::High,
                     "CWE-362",
                 ));
@@ -254,18 +264,17 @@ impl RaceConditionScanner {
                 let http_client = Arc::clone(&self.http_client);
                 let url_clone = test_url.clone();
 
-                join_set.spawn(async move {
-                    http_client.get(&url_clone).await
-                });
+                join_set.spawn(async move { http_client.get(&url_clone).await });
             }
 
             // Count successful redemptions
             while let Some(result) = join_set.join_next().await {
                 match result {
                     Ok(Ok(response)) => {
-                        if response.status_code == 200 &&
-                           !response.body.to_lowercase().contains("already used") &&
-                           !response.body.to_lowercase().contains("invalid") {
+                        if response.status_code == 200
+                            && !response.body.to_lowercase().contains("already used")
+                            && !response.body.to_lowercase().contains("invalid")
+                        {
                             success_count += 1;
                         }
                     }
@@ -275,13 +284,19 @@ impl RaceConditionScanner {
 
             // If more than 1 success, race condition exists
             if success_count > 1 {
-                info!("Coupon race condition detected: {} concurrent redemptions", success_count);
+                info!(
+                    "Coupon race condition detected: {} concurrent redemptions",
+                    success_count
+                );
                 vulnerabilities.push(self.create_vulnerability(
                     &test_url,
                     "Coupon/Discount Race Condition",
                     "Concurrent coupon redemption",
                     "Race condition allows multiple uses of single-use coupons",
-                    &format!("{} concurrent successful redemptions detected", success_count),
+                    &format!(
+                        "{} concurrent successful redemptions detected",
+                        success_count
+                    ),
                     Severity::High,
                     "CWE-362",
                 ));
@@ -308,9 +323,7 @@ impl RaceConditionScanner {
             let http_client = Arc::clone(&self.http_client);
             let url_clone = url.to_string();
 
-            join_set.spawn(async move {
-                http_client.get(&url_clone).await
-            });
+            join_set.spawn(async move { http_client.get(&url_clone).await });
         }
 
         // Count how many succeeded
@@ -327,14 +340,19 @@ impl RaceConditionScanner {
 
         // If most requests succeeded, rate limiting might be bypassable via race
         if success_count >= concurrent_requests - 2 {
-            info!("Rate limit bypass via race condition: {}/{} succeeded",
-                success_count, concurrent_requests);
+            info!(
+                "Rate limit bypass via race condition: {}/{} succeeded",
+                success_count, concurrent_requests
+            );
             vulnerabilities.push(self.create_vulnerability(
                 url,
                 "Rate Limit Bypass via Race Condition",
                 "Concurrent requests",
                 "Rate limiting can be bypassed with concurrent requests",
-                &format!("{}/{} concurrent requests succeeded", success_count, concurrent_requests),
+                &format!(
+                    "{}/{} concurrent requests succeeded",
+                    success_count, concurrent_requests
+                ),
                 Severity::Medium,
                 "CWE-362",
             ));
@@ -397,9 +415,10 @@ impl RaceConditionScanner {
                          9. Add version/timestamp checks for optimistic locking\n\
                          10. Use database row-level locking for critical updates\n\
                          11. Implement rate limiting at application AND infrastructure level\n\
-                         12. Test with high concurrency scenarios".to_string(),
+                         12. Test with high concurrency scenarios"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -433,7 +452,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> RaceConditionScanner {
@@ -476,7 +495,10 @@ use crate::http_client::HttpClient;
             "CWE-362",
         );
 
-        assert_eq!(vuln.vuln_type, "Race Condition (Transaction Race Condition)");
+        assert_eq!(
+            vuln.vuln_type,
+            "Race Condition (Transaction Race Condition)"
+        );
         assert_eq!(vuln.severity, Severity::High);
         assert_eq!(vuln.cwe, "CWE-362");
         assert_eq!(vuln.cvss, 7.5);

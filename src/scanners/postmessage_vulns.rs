@@ -18,7 +18,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -158,10 +157,15 @@ impl PostMessageVulnsScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
-        info!("[PostMessage] Scanning for postMessage vulnerabilities: {}", url);
+        info!(
+            "[PostMessage] Scanning for postMessage vulnerabilities: {}",
+            url
+        );
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
@@ -228,8 +232,10 @@ impl PostMessageVulnsScanner {
         for vuln in &mut all_vulnerabilities {
             if vuln.verified {
                 if let Some(poc) = self.generate_exploit_poc(&vuln) {
-                    vuln.description = format!("{}\n\n**Proof of Concept:**\n```html\n{}\n```",
-                        vuln.description, poc);
+                    vuln.description = format!(
+                        "{}\n\n**Proof of Concept:**\n```html\n{}\n```",
+                        vuln.description, poc
+                    );
                 }
             }
         }
@@ -252,7 +258,9 @@ impl PostMessageVulnsScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         let (mut vulns, mut tests) = self.scan(url, _config).await?;
@@ -289,7 +297,11 @@ impl PostMessageVulnsScanner {
     }
 
     /// Analyze inline scripts in HTML
-    fn analyze_inline_scripts(&self, html: &str, source_url: &str) -> (Vec<Vulnerability>, Vec<MessageHandler>) {
+    fn analyze_inline_scripts(
+        &self,
+        html: &str,
+        source_url: &str,
+    ) -> (Vec<Vulnerability>, Vec<MessageHandler>) {
         let mut vulnerabilities = Vec::new();
         let mut handlers = Vec::new();
 
@@ -298,7 +310,8 @@ impl PostMessageVulnsScanner {
 
         for capture in script_regex.captures_iter(html) {
             if let Some(script_content) = capture.get(1) {
-                let (vulns, script_handlers) = self.analyze_javascript(script_content.as_str(), source_url);
+                let (vulns, script_handlers) =
+                    self.analyze_javascript(script_content.as_str(), source_url);
                 vulnerabilities.extend(vulns);
                 handlers.extend(script_handlers);
             }
@@ -308,7 +321,11 @@ impl PostMessageVulnsScanner {
     }
 
     /// Core JavaScript analysis for postMessage patterns
-    fn analyze_javascript(&self, js: &str, source: &str) -> (Vec<Vulnerability>, Vec<MessageHandler>) {
+    fn analyze_javascript(
+        &self,
+        js: &str,
+        source: &str,
+    ) -> (Vec<Vulnerability>, Vec<MessageHandler>) {
         let mut vulnerabilities = Vec::new();
         let mut handlers = Vec::new();
 
@@ -345,9 +362,8 @@ impl PostMessageVulnsScanner {
         ).unwrap();
 
         // Extended pattern for more complex handlers
-        let extended_handler_regex = Regex::new(
-            r#"(?is)addEventListener\s*\(\s*['"]message['"][^)]*\)"#
-        ).unwrap();
+        let extended_handler_regex =
+            Regex::new(r#"(?is)addEventListener\s*\(\s*['"]message['"][^)]*\)"#).unwrap();
 
         // Find addEventListener handlers
         for cap in add_listener_regex.captures_iter(js) {
@@ -357,11 +373,8 @@ impl PostMessageVulnsScanner {
             // Get surrounding context for better analysis
             let context = self.get_handler_context(js, full_match);
 
-            let handler = self.create_handler_analysis(
-                &context,
-                HandlerType::AddEventListener,
-                source,
-            );
+            let handler =
+                self.create_handler_analysis(&context, HandlerType::AddEventListener, source);
             handlers.push(handler);
         }
 
@@ -371,11 +384,8 @@ impl PostMessageVulnsScanner {
                 let position = cap.get(0).map(|m| m.start()).unwrap_or(0);
                 let context = self.get_context_at_position(js, position, 2000);
 
-                let handler = self.create_handler_analysis(
-                    &context,
-                    HandlerType::AddEventListener,
-                    source,
-                );
+                let handler =
+                    self.create_handler_analysis(&context, HandlerType::AddEventListener, source);
                 handlers.push(handler);
             }
         }
@@ -385,11 +395,8 @@ impl PostMessageVulnsScanner {
             let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or("");
             let context = self.get_handler_context(js, full_match);
 
-            let handler = self.create_handler_analysis(
-                &context,
-                HandlerType::WindowOnMessage,
-                source,
-            );
+            let handler =
+                self.create_handler_analysis(&context, HandlerType::WindowOnMessage, source);
             handlers.push(handler);
         }
 
@@ -413,7 +420,12 @@ impl PostMessageVulnsScanner {
     }
 
     /// Create a handler analysis from code
-    fn create_handler_analysis(&self, code: &str, handler_type: HandlerType, source: &str) -> MessageHandler {
+    fn create_handler_analysis(
+        &self,
+        code: &str,
+        handler_type: HandlerType,
+        source: &str,
+    ) -> MessageHandler {
         let code_lower = code.to_lowercase();
 
         // Check for origin validation
@@ -443,47 +455,74 @@ impl PostMessageVulnsScanner {
         }
 
         // Pattern: e.origin === "https://..." or event.origin === "..."
-        if Regex::new(r#"(?i)\.origin\s*===\s*['"]https?://"#).unwrap().is_match(code) {
+        if Regex::new(r#"(?i)\.origin\s*===\s*['"]https?://"#)
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::StrictEquality));
         }
 
         // Pattern: e.origin == "https://..." (loose equality)
-        if Regex::new(r#"(?i)\.origin\s*==\s*['"]https?://"#).unwrap().is_match(code) {
+        if Regex::new(r#"(?i)\.origin\s*==\s*['"]https?://"#)
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::LooseEquality));
         }
 
         // Pattern: e.origin.indexOf(...) - VULNERABLE
-        if Regex::new(r"(?i)\.origin\.indexOf\s*\(").unwrap().is_match(code) {
+        if Regex::new(r"(?i)\.origin\.indexOf\s*\(")
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::IndexOf));
         }
 
         // Pattern: e.origin.includes(...) - VULNERABLE
-        if Regex::new(r"(?i)\.origin\.includes\s*\(").unwrap().is_match(code) {
+        if Regex::new(r"(?i)\.origin\.includes\s*\(")
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::Includes));
         }
 
         // Pattern: e.origin.startsWith(...) - POTENTIALLY VULNERABLE
-        if Regex::new(r"(?i)\.origin\.startsWith\s*\(").unwrap().is_match(code) {
+        if Regex::new(r"(?i)\.origin\.startsWith\s*\(")
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::StartsWith));
         }
 
         // Pattern: e.origin.endsWith(...) - VULNERABLE
-        if Regex::new(r"(?i)\.origin\.endsWith\s*\(").unwrap().is_match(code) {
+        if Regex::new(r"(?i)\.origin\.endsWith\s*\(")
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::EndsWith));
         }
 
         // Pattern: /regex/.test(e.origin) - MAY BE VULNERABLE
-        if Regex::new(r"(?i)/[^/]+/\.test\s*\([^)]*\.origin").unwrap().is_match(code) {
+        if Regex::new(r"(?i)/[^/]+/\.test\s*\([^)]*\.origin")
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::RegexTest));
         }
 
         // Pattern: allowedOrigins.includes(e.origin) or whitelist check
-        if Regex::new(r"(?i)(allowed|whitelist|trusted)[a-zA-Z]*\.includes\s*\([^)]*\.origin").unwrap().is_match(code) {
+        if Regex::new(r"(?i)(allowed|whitelist|trusted)[a-zA-Z]*\.includes\s*\([^)]*\.origin")
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::WhitelistArray));
         }
 
         // Pattern: origin === "null" or origin === null - VULNERABLE
-        if Regex::new(r#"(?i)\.origin\s*===?\s*['"]?null['"]?"#).unwrap().is_match(code) {
+        if Regex::new(r#"(?i)\.origin\s*===?\s*['"]?null['"]?"#)
+            .unwrap()
+            .is_match(code)
+        {
             return (true, Some(OriginValidationType::AcceptsNull));
         }
 
@@ -501,8 +540,12 @@ impl PostMessageVulnsScanner {
         let code_lower = code.to_lowercase();
 
         // eval() with message data
-        if Regex::new(r"(?i)eval\s*\([^)]*\.(data|message)").unwrap().is_match(code)
-            || Regex::new(r"(?i)eval\s*\(\s*e\s*\)").unwrap().is_match(code)
+        if Regex::new(r"(?i)eval\s*\([^)]*\.(data|message)")
+            .unwrap()
+            .is_match(code)
+            || Regex::new(r"(?i)eval\s*\(\s*e\s*\)")
+                .unwrap()
+                .is_match(code)
             || (code_lower.contains("eval(") && code_lower.contains(".data"))
         {
             sinks.push(DangerousSink::Eval);
@@ -528,7 +571,9 @@ impl PostMessageVulnsScanner {
         }
 
         // location.href with message data
-        if Regex::new(r"(?i)location\s*\.\s*href\s*=").unwrap().is_match(code)
+        if Regex::new(r"(?i)location\s*\.\s*href\s*=")
+            .unwrap()
+            .is_match(code)
             && code_lower.contains(".data")
         {
             sinks.push(DangerousSink::LocationHref);
@@ -550,12 +595,18 @@ impl PostMessageVulnsScanner {
         }
 
         // setTimeout with message data (string eval)
-        if Regex::new(r"(?i)setTimeout\s*\([^)]*\.(data|message)").unwrap().is_match(code) {
+        if Regex::new(r"(?i)setTimeout\s*\([^)]*\.(data|message)")
+            .unwrap()
+            .is_match(code)
+        {
             sinks.push(DangerousSink::SetTimeout);
         }
 
         // setInterval with message data
-        if Regex::new(r"(?i)setInterval\s*\([^)]*\.(data|message)").unwrap().is_match(code) {
+        if Regex::new(r"(?i)setInterval\s*\([^)]*\.(data|message)")
+            .unwrap()
+            .is_match(code)
+        {
             sinks.push(DangerousSink::SetInterval);
         }
 
@@ -580,14 +631,18 @@ impl PostMessageVulnsScanner {
         }
 
         // script.src with message data
-        if Regex::new(r"(?i)script\s*\.\s*src\s*=").unwrap().is_match(code)
+        if Regex::new(r"(?i)script\s*\.\s*src\s*=")
+            .unwrap()
+            .is_match(code)
             && code_lower.contains(".data")
         {
             sinks.push(DangerousSink::ScriptSrc);
         }
 
         // iframe.src with message data
-        if Regex::new(r"(?i)iframe\s*\.\s*src\s*=").unwrap().is_match(code)
+        if Regex::new(r"(?i)iframe\s*\.\s*src\s*=")
+            .unwrap()
+            .is_match(code)
             && code_lower.contains(".data")
         {
             sinks.push(DangerousSink::IframeSrc);
@@ -620,7 +675,10 @@ impl PostMessageVulnsScanner {
                     severity = Severity::High;
                 }
                 OriginValidationType::EndsWith => {
-                    issues.push("Weak origin check using endsWith() - bypassable with attackertrusted.com".to_string());
+                    issues.push(
+                        "Weak origin check using endsWith() - bypassable with attackertrusted.com"
+                            .to_string(),
+                    );
                     severity = Severity::High;
                 }
                 OriginValidationType::StartsWith => {
@@ -632,7 +690,10 @@ impl PostMessageVulnsScanner {
                     severity = Severity::Medium;
                 }
                 OriginValidationType::AcceptsNull => {
-                    issues.push("Accepts 'null' origin - exploitable via sandboxed iframe or data: URL".to_string());
+                    issues.push(
+                        "Accepts 'null' origin - exploitable via sandboxed iframe or data: URL"
+                            .to_string(),
+                    );
                     severity = Severity::High;
                 }
                 OriginValidationType::LooseEquality => {
@@ -649,24 +710,46 @@ impl PostMessageVulnsScanner {
 
         // Check 3: Dangerous sinks (escalates severity)
         if !handler.dangerous_sinks.is_empty() {
-            let sink_names: Vec<String> = handler.dangerous_sinks.iter().map(|s| format!("{:?}", s)).collect();
-            issues.push(format!("Dangerous data sinks detected: {}", sink_names.join(", ")));
+            let sink_names: Vec<String> = handler
+                .dangerous_sinks
+                .iter()
+                .map(|s| format!("{:?}", s))
+                .collect();
+            issues.push(format!(
+                "Dangerous data sinks detected: {}",
+                sink_names.join(", ")
+            ));
 
             // Eval or innerHTML with no/weak origin check = Critical
             if handler.dangerous_sinks.contains(&DangerousSink::Eval)
                 || handler.dangerous_sinks.contains(&DangerousSink::InnerHtml)
-                || handler.dangerous_sinks.contains(&DangerousSink::DocumentWrite)
+                || handler
+                    .dangerous_sinks
+                    .contains(&DangerousSink::DocumentWrite)
             {
-                if !handler.has_origin_check || matches!(handler.origin_validation, Some(OriginValidationType::IndexOf) | Some(OriginValidationType::Includes) | Some(OriginValidationType::None)) {
+                if !handler.has_origin_check
+                    || matches!(
+                        handler.origin_validation,
+                        Some(OriginValidationType::IndexOf)
+                            | Some(OriginValidationType::Includes)
+                            | Some(OriginValidationType::None)
+                    )
+                {
                     severity = Severity::Critical;
                     cwe = "CWE-79"; // XSS
                 }
             }
 
             // Location-based sinks can lead to open redirect
-            if handler.dangerous_sinks.contains(&DangerousSink::LocationHref)
-                || handler.dangerous_sinks.contains(&DangerousSink::LocationAssign)
-                || handler.dangerous_sinks.contains(&DangerousSink::LocationReplace)
+            if handler
+                .dangerous_sinks
+                .contains(&DangerousSink::LocationHref)
+                || handler
+                    .dangerous_sinks
+                    .contains(&DangerousSink::LocationAssign)
+                || handler
+                    .dangerous_sinks
+                    .contains(&DangerousSink::LocationReplace)
             {
                 if severity != Severity::Critical {
                     severity = Severity::High;
@@ -700,7 +783,8 @@ impl PostMessageVulnsScanner {
         let mut vulnerabilities = Vec::new();
 
         // Pattern: .postMessage(..., "*")
-        let wildcard_regex = Regex::new(r#"(?i)\.postMessage\s*\([^)]+,\s*['"]?\*['"]?\s*\)"#).unwrap();
+        let wildcard_regex =
+            Regex::new(r#"(?i)\.postMessage\s*\([^)]+,\s*['"]?\*['"]?\s*\)"#).unwrap();
 
         for cap in wildcard_regex.captures_iter(js) {
             let matched = cap.get(0).map(|m| m.as_str()).unwrap_or("");
@@ -783,17 +867,22 @@ impl PostMessageVulnsScanner {
     fn analyze_iframe_tag(&self, iframe_tag: &str, parent_url: &str) -> IframeAnalysis {
         // Extract src
         let src_regex = Regex::new(r#"(?i)src\s*=\s*['"]([^'"]+)['"]"#).unwrap();
-        let src = src_regex.captures(iframe_tag)
+        let src = src_regex
+            .captures(iframe_tag)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
 
         // Extract sandbox
         let sandbox_regex = Regex::new(r#"(?i)sandbox\s*=\s*['"]([^'"]*)['"#).unwrap();
-        let sandbox = sandbox_regex.captures(iframe_tag)
+        let sandbox = sandbox_regex
+            .captures(iframe_tag)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
 
-        let sandbox_lower = sandbox.as_ref().map(|s| s.to_lowercase()).unwrap_or_default();
+        let sandbox_lower = sandbox
+            .as_ref()
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
         let allows_scripts = sandbox_lower.contains("allow-scripts");
         let allows_same_origin = sandbox_lower.contains("allow-same-origin");
 
@@ -856,10 +945,13 @@ impl PostMessageVulnsScanner {
                 }
 
                 // Resolve relative URLs
-                let full_url = if src_str.starts_with("http://") || src_str.starts_with("https://") {
+                let full_url = if src_str.starts_with("http://") || src_str.starts_with("https://")
+                {
                     src_str.to_string()
                 } else if let Some(ref base) = base {
-                    base.join(src_str).map(|u| u.to_string()).unwrap_or_default()
+                    base.join(src_str)
+                        .map(|u| u.to_string())
+                        .unwrap_or_default()
                 } else {
                     continue;
                 };
@@ -938,8 +1030,12 @@ impl PostMessageVulnsScanner {
                     }
 
                     // Check for weak origin validation
-                    if Regex::new(r"(?i)origin\s*\.\s*indexOf").unwrap().is_match(body)
-                        || Regex::new(r"(?i)origin\s*\.\s*includes").unwrap().is_match(body)
+                    if Regex::new(r"(?i)origin\s*\.\s*indexOf")
+                        .unwrap()
+                        .is_match(body)
+                        || Regex::new(r"(?i)origin\s*\.\s*includes")
+                            .unwrap()
+                            .is_match(body)
                     {
                         vulnerabilities.push(self.create_vulnerability(
                             &callback_url,
@@ -964,7 +1060,8 @@ impl PostMessageVulnsScanner {
 
         if vuln.vuln_type.contains("XSS") {
             // XSS PoC
-            Some(format!(r#"<!DOCTYPE html>
+            Some(format!(
+                r#"<!DOCTYPE html>
 <html>
 <head><title>PostMessage XSS PoC</title></head>
 <body>
@@ -980,10 +1077,13 @@ document.getElementById('target').onload = function() {{
 }};
 </script>
 </body>
-</html>"#, target_url))
+</html>"#,
+                target_url
+            ))
         } else if vuln.vuln_type.contains("OAuth") {
             // OAuth token theft PoC
-            Some(format!(r#"<!DOCTYPE html>
+            Some(format!(
+                r#"<!DOCTYPE html>
 <html>
 <head><title>OAuth Token Theft PoC</title></head>
 <body>
@@ -1005,10 +1105,13 @@ window.addEventListener('message', function(e) {{
 }});
 </script>
 </body>
-</html>"#, target_url))
+</html>"#,
+                target_url
+            ))
         } else if vuln.vuln_type.contains("Wildcard") {
             // Data exfiltration PoC
-            Some(format!(r#"<!DOCTYPE html>
+            Some(format!(
+                r#"<!DOCTYPE html>
 <html>
 <head><title>PostMessage Data Capture PoC</title></head>
 <body>
@@ -1029,7 +1132,9 @@ window.addEventListener('message', function(e) {{
 }});
 </script>
 </body>
-</html>"#, target_url))
+</html>"#,
+                target_url
+            ))
         } else {
             None
         }
@@ -1046,7 +1151,11 @@ window.addEventListener('message', function(e) {{
         cwe: &str,
         verified: bool,
     ) -> Vulnerability {
-        let confidence = if verified { Confidence::High } else { Confidence::Medium };
+        let confidence = if verified {
+            Confidence::High
+        } else {
+            Confidence::Medium
+        };
 
         let cvss = match &severity {
             Severity::Critical => 9.8,
@@ -1067,10 +1176,7 @@ window.addEventListener('message', function(e) {{
             url: url.to_string(),
             parameter: Some("postMessage".to_string()),
             payload: "N/A".to_string(),
-            description: format!("{}\n\n**Impact:**\n{}",
-                description,
-                impact_desc
-            ),
+            description: format!("{}\n\n**Impact:**\n{}", description, impact_desc),
             evidence: Some(evidence.chars().take(1000).collect()),
             cwe: cwe.to_string(),
             cvss: cvss as f32,
@@ -1078,7 +1184,7 @@ window.addEventListener('message', function(e) {{
             false_positive: false,
             remediation: self.get_remediation(vuln_type, cwe),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1125,8 +1231,7 @@ window.addEventListener('message', function(e) {{
     /// Get remediation advice
     fn get_remediation(&self, vuln_type: &str, cwe: &str) -> String {
         let base_remediation = match vuln_type {
-            "PostMessage XSS" => {
-                r#"**CRITICAL - Immediate Action Required:**
+            "PostMessage XSS" => r#"**CRITICAL - Immediate Action Required:**
 
 1. **Validate Origin Strictly**
 ```javascript
@@ -1161,10 +1266,9 @@ const allowedTypes = ['resize', 'close', 'update'];
 if (!allowedTypes.includes(e.data.type)) {
     return;
 }
-```"#.to_string()
-            }
-            "PostMessage Origin Validation" => {
-                r#"**Required: Implement Strict Origin Validation**
+```"#
+                .to_string(),
+            "PostMessage Origin Validation" => r#"**Required: Implement Strict Origin Validation**
 
 1. **Use Strict Equality (===)**
 ```javascript
@@ -1199,8 +1303,8 @@ window.addEventListener('message', function(e) {
 ```javascript
 // NEVER do this - null origin can be spoofed!
 if (e.origin === 'null' || e.origin === null) { }
-```"#.to_string()
-            }
+```"#
+                .to_string(),
             "OAuth Token Leak via PostMessage" | "OAuth Token Leak - Weak Origin Validation" => {
                 r#"**CRITICAL - OAuth Token Security**
 
@@ -1236,7 +1340,8 @@ if (window.opener && window.opener.origin === ALLOWED_ORIGIN) {
     window.opener.postMessage({token: accessToken}, ALLOWED_ORIGIN);
     window.close();
 }
-```"#.to_string()
+```"#
+                    .to_string()
             }
             "PostMessage Wildcard Target" | "Sensitive Data via PostMessage Wildcard" => {
                 r#"**Required: Specify Target Origin**
@@ -1260,10 +1365,12 @@ frame.contentWindow.postMessage(data, targetOrigin);
 3. **Don't Send Sensitive Data via PostMessage**
 - Consider using server-side communication
 - If required, encrypt sensitive payloads
-- Use one-time tokens instead of persistent credentials"#.to_string()
+- Use one-time tokens instead of persistent credentials"#
+                    .to_string()
             }
             _ => {
-                format!(r#"**General PostMessage Security Guidelines:**
+                format!(
+                    r#"**General PostMessage Security Guidelines:**
 
 1. Always validate message origin using strict equality (===)
 2. Never use eval(), innerHTML, or document.write() with message data
@@ -1275,7 +1382,9 @@ frame.contentWindow.postMessage(data, targetOrigin);
 
 Reference: https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage#security_concerns
 
-CWE: {}"#, cwe)
+CWE: {}"#,
+                    cwe
+                )
             }
         };
 
@@ -1323,7 +1432,10 @@ mod tests {
 
         let (has_check, validation) = scanner.detect_origin_validation(safe_code);
         assert!(has_check);
-        assert!(matches!(validation, Some(OriginValidationType::StrictEquality)));
+        assert!(matches!(
+            validation,
+            Some(OriginValidationType::StrictEquality)
+        ));
     }
 
     #[test]
@@ -1374,7 +1486,10 @@ mod tests {
 
         let (has_check, validation) = scanner.detect_origin_validation(null_accept_code);
         assert!(has_check);
-        assert!(matches!(validation, Some(OriginValidationType::AcceptsNull)));
+        assert!(matches!(
+            validation,
+            Some(OriginValidationType::AcceptsNull)
+        ));
     }
 
     #[test]
@@ -1392,7 +1507,8 @@ mod tests {
         assert!(sinks.contains(&DangerousSink::InnerHtml));
 
         // Test location.href detection
-        let location_code = "window.addEventListener('message', (e) => { location.href = e.data.url; });";
+        let location_code =
+            "window.addEventListener('message', (e) => { location.href = e.data.url; });";
         let sinks = scanner.detect_dangerous_sinks(location_code);
         assert!(sinks.contains(&DangerousSink::LocationHref));
     }
@@ -1455,7 +1571,9 @@ mod tests {
         // Safe sandbox
         let safe_html = r#"<iframe src="https://external.com" sandbox="allow-scripts"></iframe>"#;
         let vulns = scanner.analyze_iframes(safe_html, "http://example.com");
-        assert!(!vulns.iter().any(|v| v.vuln_type.contains("Misconfiguration")));
+        assert!(!vulns
+            .iter()
+            .any(|v| v.vuln_type.contains("Misconfiguration")));
     }
 
     #[test]

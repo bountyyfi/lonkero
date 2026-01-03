@@ -3,7 +3,7 @@
 
 use crate::reporting::{
     deduplication::VulnerabilityDeduplicator,
-    mappings::{ComplianceMapper, CWEMapper, OWASPMapper},
+    mappings::{CWEMapper, ComplianceMapper, OWASPMapper},
     types::*,
 };
 use crate::types::{ScanResults, Severity, Vulnerability};
@@ -47,7 +47,9 @@ impl ReportEngine {
                 .filter_by_severity(processed_results.vulnerabilities, min_severity);
         }
 
-        let enhanced_report = self.create_enhanced_report(processed_results, &config).await?;
+        let enhanced_report = self
+            .create_enhanced_report(processed_results, &config)
+            .await?;
 
         match config.format {
             ReportFormat::Pdf => self.generate_pdf_report(&enhanced_report, &config).await,
@@ -57,7 +59,10 @@ impl ReportEngine {
             ReportFormat::Sarif => self.generate_sarif_report(&enhanced_report).await,
             ReportFormat::JunitXml => self.generate_junit_report(&enhanced_report).await,
             ReportFormat::Xlsx => self.generate_xlsx_report(&enhanced_report).await,
-            ReportFormat::Markdown => self.generate_markdown_report(&enhanced_report, &config).await,
+            ReportFormat::Markdown => {
+                self.generate_markdown_report(&enhanced_report, &config)
+                    .await
+            }
         }
     }
 
@@ -67,7 +72,8 @@ impl ReportEngine {
         config: &ReportConfig,
     ) -> Result<EnhancedReport> {
         let executive_summary = self.generate_executive_summary(&scan_results);
-        let vulnerability_breakdown = self.generate_vulnerability_breakdown(&scan_results.vulnerabilities);
+        let vulnerability_breakdown =
+            self.generate_vulnerability_breakdown(&scan_results.vulnerabilities);
         let owasp_mapping = if config.include_owasp_mapping {
             OWASPMapper::map_to_owasp_top10(&scan_results.vulnerabilities)
         } else {
@@ -145,7 +151,10 @@ impl ReportEngine {
         }
     }
 
-    fn generate_vulnerability_breakdown(&self, vulnerabilities: &[Vulnerability]) -> VulnerabilityBreakdown {
+    fn generate_vulnerability_breakdown(
+        &self,
+        vulnerabilities: &[Vulnerability],
+    ) -> VulnerabilityBreakdown {
         let mut by_severity = HashMap::new();
         let mut by_category = HashMap::new();
         let mut by_confidence = HashMap::new();
@@ -154,7 +163,9 @@ impl ReportEngine {
         for vuln in vulnerabilities {
             *by_severity.entry(vuln.severity.to_string()).or_insert(0) += 1;
             *by_category.entry(vuln.category.clone()).or_insert(0) += 1;
-            *by_confidence.entry(vuln.confidence.to_string()).or_insert(0) += 1;
+            *by_confidence
+                .entry(vuln.confidence.to_string())
+                .or_insert(0) += 1;
             if vuln.verified {
                 verified_count += 1;
             }
@@ -294,7 +305,8 @@ impl ReportEngine {
             .filter(|v| v.confidence == crate::types::Confidence::High)
             .count();
 
-        ((verified_count + high_confidence) as f64 / (vulnerabilities.len() * 2) as f64 * 10.0).min(10.0)
+        ((verified_count + high_confidence) as f64 / (vulnerabilities.len() * 2) as f64 * 10.0)
+            .min(10.0)
     }
 
     fn calculate_business_impact_score(&self, vulnerabilities: &[Vulnerability]) -> f64 {
@@ -329,9 +341,8 @@ impl ReportEngine {
             ));
         }
 
-        let vuln_types: std::collections::HashMap<_, usize> = vulnerabilities
-            .iter()
-            .fold(HashMap::new(), |mut map, v| {
+        let vuln_types: std::collections::HashMap<_, usize> =
+            vulnerabilities.iter().fold(HashMap::new(), |mut map, v| {
                 *map.entry(&v.vuln_type).or_insert(0) += 1;
                 map
             });
@@ -346,7 +357,10 @@ impl ReportEngine {
         let injection_vulns: Vec<_> = vulnerabilities
             .iter()
             .filter(|v| {
-                v.category == "Injection" || v.vuln_type.contains("Injection") || v.vuln_type.contains("SQL") || v.vuln_type.contains("XSS")
+                v.category == "Injection"
+                    || v.vuln_type.contains("Injection")
+                    || v.vuln_type.contains("SQL")
+                    || v.vuln_type.contains("XSS")
             })
             .collect();
 
@@ -398,12 +412,10 @@ impl ReportEngine {
             );
         }
 
-        recommendations.push(
-            "Conduct regular security assessments and penetration testing".to_string(),
-        );
-        recommendations.push(
-            "Implement a security awareness training program for developers".to_string(),
-        );
+        recommendations
+            .push("Conduct regular security assessments and penetration testing".to_string());
+        recommendations
+            .push("Implement a security awareness training program for developers".to_string());
 
         recommendations
     }
@@ -415,7 +427,9 @@ impl ReportEngine {
     ) -> Result<ReportOutput> {
         let pdf_generator = crate::reporting::formats::pdf::PdfReportGenerator::new();
         let branding = config.branding.clone().unwrap_or_default();
-        let data = pdf_generator.generate(report, &branding).await
+        let data = pdf_generator
+            .generate(report, &branding)
+            .await
             .context("Failed to generate PDF report")?;
 
         Ok(ReportOutput {
@@ -433,7 +447,9 @@ impl ReportEngine {
     ) -> Result<ReportOutput> {
         let html_generator = crate::reporting::formats::html::HtmlReportGenerator::new();
         let branding = config.branding.clone().unwrap_or_default();
-        let data = html_generator.generate(report, &branding).await
+        let data = html_generator
+            .generate(report, &branding)
+            .await
             .context("Failed to generate HTML report")?;
 
         Ok(ReportOutput {
@@ -446,7 +462,9 @@ impl ReportEngine {
 
     async fn generate_json_report(&self, report: &EnhancedReport) -> Result<ReportOutput> {
         let json_generator = crate::reporting::formats::json::JsonReportGenerator::new();
-        let data = json_generator.generate(report).await
+        let data = json_generator
+            .generate(report)
+            .await
             .context("Failed to generate JSON report")?;
 
         Ok(ReportOutput {
@@ -459,7 +477,9 @@ impl ReportEngine {
 
     async fn generate_csv_report(&self, report: &EnhancedReport) -> Result<ReportOutput> {
         let csv_generator = crate::reporting::formats::csv::CsvReportGenerator::new();
-        let data = csv_generator.generate(report).await
+        let data = csv_generator
+            .generate(report)
+            .await
             .context("Failed to generate CSV report")?;
 
         Ok(ReportOutput {
@@ -472,7 +492,9 @@ impl ReportEngine {
 
     async fn generate_sarif_report(&self, report: &EnhancedReport) -> Result<ReportOutput> {
         let sarif_generator = crate::reporting::formats::sarif::SarifReportGenerator::new();
-        let data = sarif_generator.generate(report).await
+        let data = sarif_generator
+            .generate(report)
+            .await
             .context("Failed to generate SARIF report")?;
 
         Ok(ReportOutput {
@@ -485,7 +507,9 @@ impl ReportEngine {
 
     async fn generate_junit_report(&self, report: &EnhancedReport) -> Result<ReportOutput> {
         let junit_generator = crate::reporting::formats::junit::JunitReportGenerator::new();
-        let data = junit_generator.generate(report).await
+        let data = junit_generator
+            .generate(report)
+            .await
             .context("Failed to generate JUnit XML report")?;
 
         Ok(ReportOutput {
@@ -498,14 +522,17 @@ impl ReportEngine {
 
     async fn generate_xlsx_report(&self, report: &EnhancedReport) -> Result<ReportOutput> {
         let xlsx_generator = crate::reporting::formats::xlsx::XlsxReportGenerator::new();
-        let data = xlsx_generator.generate(report).await
+        let data = xlsx_generator
+            .generate(report)
+            .await
             .context("Failed to generate XLSX report")?;
 
         Ok(ReportOutput {
             format: ReportFormat::Xlsx,
             data,
             filename: format!("security-report-{}.xlsx", report.scan_results.scan_id),
-            mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string(),
+            mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                .to_string(),
         })
     }
 
@@ -516,7 +543,9 @@ impl ReportEngine {
     ) -> Result<ReportOutput> {
         let md_generator = crate::reporting::formats::markdown::MarkdownReportGenerator::new();
         let branding = config.branding.clone().unwrap_or_default();
-        let data = md_generator.generate(report, &branding).await
+        let data = md_generator
+            .generate(report, &branding)
+            .await
             .context("Failed to generate Markdown report")?;
 
         Ok(ReportOutput {

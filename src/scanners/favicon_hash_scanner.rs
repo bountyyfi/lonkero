@@ -13,7 +13,7 @@
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use regex::Regex;
 use std::sync::Arc;
 use tracing::info;
@@ -44,7 +44,9 @@ impl FaviconHashScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         info!("Scanning for favicon hash fingerprinting");
@@ -78,7 +80,12 @@ impl FaviconHashScanner {
             let favicon_url = format!("{}{}", base_url, path);
             if let Some(vuln) = self.check_favicon(&favicon_url, &mut tests_run).await {
                 // Avoid duplicates
-                if !vulnerabilities.iter().any(|v| v.evidence.as_ref().map(|e| e.contains(&vuln.url.clone())).unwrap_or(false)) {
+                if !vulnerabilities.iter().any(|v| {
+                    v.evidence
+                        .as_ref()
+                        .map(|e| e.contains(&vuln.url.clone()))
+                        .unwrap_or(false)
+                }) {
                     vulnerabilities.push(vuln);
                 }
             }
@@ -104,7 +111,8 @@ impl FaviconHashScanner {
         }
 
         // Check content type
-        let content_type = response.headers
+        let content_type = response
+            .headers
             .iter()
             .find(|(k, _)| k.to_lowercase() == "content-type")
             .map(|(_, v)| v.to_lowercase())
@@ -157,12 +165,7 @@ impl FaviconHashScanner {
         // Body
         for i in 0..n_blocks {
             let i4 = i * 4;
-            let k1 = u32::from_le_bytes([
-                data[i4],
-                data[i4 + 1],
-                data[i4 + 2],
-                data[i4 + 3],
-            ]);
+            let k1 = u32::from_le_bytes([data[i4], data[i4 + 1], data[i4 + 2], data[i4 + 3]]);
 
             let k1 = k1.wrapping_mul(C1);
             let k1 = k1.rotate_left(R1);
@@ -205,7 +208,9 @@ impl FaviconHashScanner {
     /// Extract favicon URL from HTML link tags
     fn extract_favicon_from_html(&self, html: &str, base_url: &str) -> Option<String> {
         // Look for <link rel="icon" or <link rel="shortcut icon"
-        let re = Regex::new(r#"<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']"#).ok()?;
+        let re =
+            Regex::new(r#"<link[^>]*rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']"#)
+                .ok()?;
 
         if let Some(cap) = re.captures(html) {
             if let Some(href) = cap.get(1) {
@@ -214,7 +219,9 @@ impl FaviconHashScanner {
         }
 
         // Try alternate format: href before rel
-        let re2 = Regex::new(r#"<link[^>]*href=["']([^"']+)["'][^>]*rel=["'](?:shortcut )?icon["']"#).ok()?;
+        let re2 =
+            Regex::new(r#"<link[^>]*href=["']([^"']+)["'][^>]*rel=["'](?:shortcut )?icon["']"#)
+                .ok()?;
 
         if let Some(cap) = re2.captures(html) {
             if let Some(href) = cap.get(1) {
@@ -466,7 +473,12 @@ impl FaviconHashScanner {
     }
 
     /// Create vulnerability for known favicon
-    fn create_vulnerability_known(&self, url: &str, hash: i32, sig: FaviconSignature) -> Vulnerability {
+    fn create_vulnerability_known(
+        &self,
+        url: &str,
+        hash: i32,
+        sig: FaviconSignature,
+    ) -> Vulnerability {
         let cvss = match &sig.severity {
             Severity::Medium => 5.3,
             Severity::Low => 3.1,
@@ -496,9 +508,10 @@ impl FaviconHashScanner {
             remediation: "1. Consider using a custom favicon instead of defaults\n\
                 2. If this is an internal application, restrict access\n\
                 3. Ensure the identified technology is up to date\n\
-                4. Review security configuration for the detected technology".to_string(),
+                4. Review security configuration for the detected technology"
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -527,9 +540,10 @@ impl FaviconHashScanner {
             verified: true,
             false_positive: false,
             remediation: "Informational finding - the favicon hash can be used for \
-                reconnaissance to find related infrastructure.".to_string(),
+                reconnaissance to find related infrastructure."
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -576,7 +590,7 @@ mod tests {
     fn test_mmh3_hash() {
         // Test with known value
         let scanner = FaviconHashScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(5000, 3).unwrap()
+            crate::http_client::HttpClient::new(5000, 3).unwrap(),
         ));
 
         // Simple test - ensure hash is computed consistently
@@ -597,7 +611,7 @@ mod tests {
         "#;
 
         let scanner = FaviconHashScanner::new(Arc::new(
-            crate::http_client::HttpClient::new(5000, 3).unwrap()
+            crate::http_client::HttpClient::new(5000, 3).unwrap(),
         ));
 
         let favicon = scanner.extract_favicon_from_html(html, "https://example.com");

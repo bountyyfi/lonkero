@@ -43,7 +43,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -266,7 +265,9 @@ impl DomClobberingScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         info!("[DOMClobbering] Starting DOM clobbering scan on {}", url);
@@ -293,7 +294,9 @@ impl DomClobberingScanner {
         }
 
         // Phase 1: Analyze JavaScript for global variable access patterns
-        let (vulns, tests) = self.analyze_javascript(&response.body, url, &app_characteristics).await;
+        let (vulns, tests) = self
+            .analyze_javascript(&response.body, url, &app_characteristics)
+            .await;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
@@ -314,7 +317,9 @@ impl DomClobberingScanner {
 
         // Phase 5: Context-specific testing based on detected framework
         if app_characteristics.is_spa {
-            let (vulns, tests) = self.test_spa_specific_clobbering(url, &response.body, &app_characteristics).await;
+            let (vulns, tests) = self
+                .test_spa_specific_clobbering(url, &response.body, &app_characteristics)
+                .await;
             all_vulnerabilities.extend(vulns);
             total_tests += tests;
         }
@@ -352,16 +357,16 @@ impl DomClobberingScanner {
         // Correlate clobberable globals with dangerous sinks
         for pattern in &clobberable_patterns {
             for sink in &sink_usages {
-                if self.can_reach_sink(&pattern.name, &pattern.nested_property, &sink.source_variable) {
+                if self.can_reach_sink(
+                    &pattern.name,
+                    &pattern.nested_property,
+                    &sink.source_variable,
+                ) {
                     // Found a potential exploitation path
                     let exploitation_paths = self.generate_exploitation_paths(pattern, sink);
 
                     for path in exploitation_paths {
-                        let vuln = self.create_vulnerability(
-                            url,
-                            &path,
-                            Confidence::Medium,
-                        );
+                        let vuln = self.create_vulnerability(url, &path, Confidence::Medium);
                         vulnerabilities.push(vuln);
                     }
                 }
@@ -432,13 +437,39 @@ impl DomClobberingScanner {
         // Pattern 2: document.X access (excluding common DOM methods)
         let document_access_re = Regex::new(r"document\.([a-zA-Z_$][a-zA-Z0-9_$]*)").unwrap();
         let dom_methods: HashSet<&str> = [
-            "getElementById", "getElementsByClassName", "getElementsByTagName",
-            "querySelector", "querySelectorAll", "createElement", "createTextNode",
-            "write", "writeln", "body", "head", "documentElement", "cookie",
-            "title", "domain", "referrer", "URL", "forms", "images", "links",
-            "scripts", "anchors", "embeds", "plugins", "styleSheets", "readyState",
-            "addEventListener", "removeEventListener", "dispatchEvent",
-        ].iter().cloned().collect();
+            "getElementById",
+            "getElementsByClassName",
+            "getElementsByTagName",
+            "querySelector",
+            "querySelectorAll",
+            "createElement",
+            "createTextNode",
+            "write",
+            "writeln",
+            "body",
+            "head",
+            "documentElement",
+            "cookie",
+            "title",
+            "domain",
+            "referrer",
+            "URL",
+            "forms",
+            "images",
+            "links",
+            "scripts",
+            "anchors",
+            "embeds",
+            "plugins",
+            "styleSheets",
+            "readyState",
+            "addEventListener",
+            "removeEventListener",
+            "dispatchEvent",
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         for cap in document_access_re.captures_iter(js_content) {
             if let Some(name_match) = cap.get(1) {
@@ -472,7 +503,8 @@ impl DomClobberingScanner {
             let direct_access_re = Regex::new(&format!(
                 r"(?<![a-zA-Z0-9_$.]){}\s*\.",
                 regex::escape(target)
-            )).ok();
+            ))
+            .ok();
 
             if let Some(re) = direct_access_re {
                 if re.is_match(js_content) && !seen.contains(*target) {
@@ -497,7 +529,10 @@ impl DomClobberingScanner {
         }
 
         // Pattern 4: typeof checks (often indicate optional global)
-        let typeof_re = Regex::new(r#"typeof\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:===?|!==?)\s*["']undefined["']"#).unwrap();
+        let typeof_re = Regex::new(
+            r#"typeof\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:===?|!==?)\s*["']undefined["']"#,
+        )
+        .unwrap();
         for cap in typeof_re.captures_iter(js_content) {
             if let Some(name_match) = cap.get(1) {
                 let name = name_match.as_str().to_string();
@@ -526,13 +561,46 @@ impl DomClobberingScanner {
     fn is_potentially_clobberable(&self, name: &str) -> bool {
         // Skip common built-ins
         let builtins: HashSet<&str> = [
-            "undefined", "null", "NaN", "Infinity", "Object", "Array", "String",
-            "Number", "Boolean", "Function", "Symbol", "Error", "JSON", "Math",
-            "Date", "RegExp", "Promise", "Map", "Set", "WeakMap", "WeakSet",
-            "console", "setTimeout", "setInterval", "clearTimeout", "clearInterval",
-            "fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage",
-            "navigator", "location", "history", "screen", "performance",
-        ].iter().cloned().collect();
+            "undefined",
+            "null",
+            "NaN",
+            "Infinity",
+            "Object",
+            "Array",
+            "String",
+            "Number",
+            "Boolean",
+            "Function",
+            "Symbol",
+            "Error",
+            "JSON",
+            "Math",
+            "Date",
+            "RegExp",
+            "Promise",
+            "Map",
+            "Set",
+            "WeakMap",
+            "WeakSet",
+            "console",
+            "setTimeout",
+            "setInterval",
+            "clearTimeout",
+            "clearInterval",
+            "fetch",
+            "XMLHttpRequest",
+            "WebSocket",
+            "localStorage",
+            "sessionStorage",
+            "navigator",
+            "location",
+            "history",
+            "screen",
+            "performance",
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         if builtins.contains(name) {
             return false;
@@ -544,7 +612,9 @@ impl DomClobberingScanner {
         }
 
         // Consider variables that look like configuration
-        let config_patterns = ["config", "setting", "option", "data", "param", "prop", "state", "env"];
+        let config_patterns = [
+            "config", "setting", "option", "data", "param", "prop", "state", "env",
+        ];
         let name_lower = name.to_lowercase();
         for pattern in config_patterns {
             if name_lower.contains(pattern) {
@@ -553,7 +623,13 @@ impl DomClobberingScanner {
         }
 
         // Generic names that might be undefined and clobberable
-        name.len() >= 2 && !name.starts_with('_') && name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false)
+        name.len() >= 2
+            && !name.starts_with('_')
+            && name
+                .chars()
+                .next()
+                .map(|c| c.is_lowercase())
+                .unwrap_or(false)
     }
 
     /// Extract nested property access (e.g., .url from window.config.url)
@@ -575,7 +651,8 @@ impl DomClobberingScanner {
             let sink_re = Regex::new(&format!(
                 r"([a-zA-Z_$][a-zA-Z0-9_$.]*)\s*{}\s*",
                 regex::escape(sink)
-            )).ok();
+            ))
+            .ok();
 
             if let Some(re) = sink_re {
                 for cap in re.captures_iter(js_content) {
@@ -630,7 +707,12 @@ impl DomClobberingScanner {
     }
 
     /// Check if a clobbered variable can reach a dangerous sink
-    fn can_reach_sink(&self, global_name: &str, nested_prop: &Option<String>, source_var: &Option<String>) -> bool {
+    fn can_reach_sink(
+        &self,
+        global_name: &str,
+        nested_prop: &Option<String>,
+        source_var: &Option<String>,
+    ) -> bool {
         if let Some(source) = source_var {
             // Direct match
             if source == global_name {
@@ -644,8 +726,9 @@ impl DomClobberingScanner {
 
             // Match with nested property
             if let Some(prop) = nested_prop {
-                if source == &format!("{}.{}", global_name, prop) ||
-                   source == &format!("window.{}.{}", global_name, prop) {
+                if source == &format!("{}.{}", global_name, prop)
+                    || source == &format!("window.{}.{}", global_name, prop)
+                {
                     return true;
                 }
             }
@@ -681,7 +764,8 @@ impl DomClobberingScanner {
         };
 
         for technique in techniques {
-            let poc_html = self.generate_poc_html(&clobberable.name, &clobberable.nested_property, &technique);
+            let poc_html =
+                self.generate_poc_html(&clobberable.name, &clobberable.nested_property, &technique);
             let impact = self.determine_impact(&sink.sink);
 
             paths.push(ExploitationPath {
@@ -697,13 +781,24 @@ impl DomClobberingScanner {
     }
 
     /// Generate proof-of-concept HTML for DOM clobbering
-    fn generate_poc_html(&self, global_name: &str, nested_prop: &Option<String>, technique: &ClobberTechnique) -> String {
+    fn generate_poc_html(
+        &self,
+        global_name: &str,
+        nested_prop: &Option<String>,
+        technique: &ClobberTechnique,
+    ) -> String {
         match technique {
             ClobberTechnique::IdAttribute => {
-                format!(r#"<img id="{}" src="javascript:alert('XSS via DOM Clobbering')">"#, global_name)
+                format!(
+                    r#"<img id="{}" src="javascript:alert('XSS via DOM Clobbering')">"#,
+                    global_name
+                )
             }
             ClobberTechnique::NameAttribute => {
-                format!(r#"<img name="{}" src="javascript:alert('XSS via DOM Clobbering')">"#, global_name)
+                format!(
+                    r#"<img name="{}" src="javascript:alert('XSS via DOM Clobbering')">"#,
+                    global_name
+                )
             }
             ClobberTechnique::FormInputNested => {
                 if let Some(prop) = nested_prop {
@@ -719,7 +814,10 @@ impl DomClobberingScanner {
                 }
             }
             ClobberTechnique::AnchorToString => {
-                format!(r#"<a id="{}" href="javascript:alert('XSS')">click</a>"#, global_name)
+                format!(
+                    r#"<a id="{}" href="javascript:alert('XSS')">click</a>"#,
+                    global_name
+                )
             }
             ClobberTechnique::Collection => {
                 format!(
@@ -738,9 +836,16 @@ impl DomClobberingScanner {
 
     /// Determine impact based on the dangerous sink
     fn determine_impact(&self, sink: &str) -> String {
-        if sink.contains("eval") || sink.contains("Function") || sink.contains("setTimeout") || sink.contains("setInterval") {
+        if sink.contains("eval")
+            || sink.contains("Function")
+            || sink.contains("setTimeout")
+            || sink.contains("setInterval")
+        {
             "Critical: Direct JavaScript execution".to_string()
-        } else if sink.contains("innerHTML") || sink.contains("outerHTML") || sink.contains("document.write") {
+        } else if sink.contains("innerHTML")
+            || sink.contains("outerHTML")
+            || sink.contains("document.write")
+        {
             "High: HTML injection leading to XSS".to_string()
         } else if sink.contains("location") || sink.contains("href") || sink.contains("src") {
             "High: URL manipulation for open redirect or script injection".to_string()
@@ -764,22 +869,34 @@ impl DomClobberingScanner {
         let test_payloads = vec![
             // Simple ID clobbering test
             (
-                format!(r#"<img id="{}config{}">"#, self.test_marker, self.test_marker),
+                format!(
+                    r#"<img id="{}config{}">"#,
+                    self.test_marker, self.test_marker
+                ),
                 "id_clobber",
             ),
             // Name clobbering test
             (
-                format!(r#"<img name="{}settings{}">"#, self.test_marker, self.test_marker),
+                format!(
+                    r#"<img name="{}settings{}">"#,
+                    self.test_marker, self.test_marker
+                ),
                 "name_clobber",
             ),
             // Form nested clobbering test
             (
-                format!(r#"<form id="{}form{}"><input name="url">"#, self.test_marker, self.test_marker),
+                format!(
+                    r#"<form id="{}form{}"><input name="url">"#,
+                    self.test_marker, self.test_marker
+                ),
                 "form_clobber",
             ),
             // Anchor toString clobbering test
             (
-                format!(r#"<a id="{}anchor{}" href="javascript:1">"#, self.test_marker, self.test_marker),
+                format!(
+                    r#"<a id="{}anchor{}" href="javascript:1">"#,
+                    self.test_marker, self.test_marker
+                ),
                 "anchor_clobber",
             ),
         ];
@@ -826,7 +943,11 @@ impl DomClobberingScanner {
     fn check_html_injection_success(&self, body: &str, payload: &str) -> bool {
         // Check for id attribute preservation
         if payload.contains("id=\"") {
-            let id_re = Regex::new(&format!(r#"id="[^"]*{}[^"]*""#, regex::escape(&self.test_marker))).unwrap();
+            let id_re = Regex::new(&format!(
+                r#"id="[^"]*{}[^"]*""#,
+                regex::escape(&self.test_marker)
+            ))
+            .unwrap();
             if id_re.is_match(body) {
                 return true;
             }
@@ -834,14 +955,22 @@ impl DomClobberingScanner {
 
         // Check for name attribute preservation
         if payload.contains("name=\"") {
-            let name_re = Regex::new(&format!(r#"name="[^"]*{}[^"]*""#, regex::escape(&self.test_marker))).unwrap();
+            let name_re = Regex::new(&format!(
+                r#"name="[^"]*{}[^"]*""#,
+                regex::escape(&self.test_marker)
+            ))
+            .unwrap();
             if name_re.is_match(body) {
                 return true;
             }
         }
 
         // Check for unencoded tag presence
-        let tag_re = Regex::new(&format!(r"<[^>]*{}[^>]*>", regex::escape(&self.test_marker))).unwrap();
+        let tag_re = Regex::new(&format!(
+            r"<[^>]*{}[^>]*>",
+            regex::escape(&self.test_marker)
+        ))
+        .unwrap();
         tag_re.is_match(body)
     }
 
@@ -868,7 +997,11 @@ impl DomClobberingScanner {
                             // Check if it flows to a dangerous sink
                             for sink in DANGEROUS_SINKS {
                                 if script.contains(sink) {
-                                    let poc_html = self.generate_poc_html(target, &None, &ClobberTechnique::IdAttribute);
+                                    let poc_html = self.generate_poc_html(
+                                        target,
+                                        &None,
+                                        &ClobberTechnique::IdAttribute,
+                                    );
 
                                     vulnerabilities.push(Vulnerability {
                                         id: format!("dom_clobber_{}", Self::generate_id()),
@@ -911,7 +1044,11 @@ impl DomClobberingScanner {
     }
 
     /// Analyze external JavaScript files
-    async fn analyze_external_scripts(&self, url: &str, html_body: &str) -> (Vec<Vulnerability>, usize) {
+    async fn analyze_external_scripts(
+        &self,
+        url: &str,
+        html_body: &str,
+    ) -> (Vec<Vulnerability>, usize) {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -929,8 +1066,11 @@ impl DomClobberingScanner {
                 let src_str = src.as_str();
 
                 // Skip third-party scripts
-                if src_str.contains("cdn") || src_str.contains("googleapis") ||
-                   src_str.contains("cloudflare") || src_str.contains("jsdelivr") {
+                if src_str.contains("cdn")
+                    || src_str.contains("googleapis")
+                    || src_str.contains("cloudflare")
+                    || src_str.contains("jsdelivr")
+                {
                     continue;
                 }
 
@@ -940,7 +1080,12 @@ impl DomClobberingScanner {
                 } else if src_str.starts_with("//") {
                     format!("{}:{}", base_url.scheme(), src_str)
                 } else if src_str.starts_with('/') {
-                    format!("{}://{}{}", base_url.scheme(), base_url.host_str().unwrap_or(""), src_str)
+                    format!(
+                        "{}://{}{}",
+                        base_url.scheme(),
+                        base_url.host_str().unwrap_or(""),
+                        src_str
+                    )
                 } else {
                     format!("{}/{}", url.trim_end_matches('/'), src_str)
                 };
@@ -965,7 +1110,11 @@ impl DomClobberingScanner {
 
                     for pattern in &patterns {
                         for sink in &sinks {
-                            if self.can_reach_sink(&pattern.name, &pattern.nested_property, &sink.source_variable) {
+                            if self.can_reach_sink(
+                                &pattern.name,
+                                &pattern.nested_property,
+                                &sink.source_variable,
+                            ) {
                                 let paths = self.generate_exploitation_paths(pattern, sink);
 
                                 for path in paths {
@@ -982,11 +1131,18 @@ impl DomClobberingScanner {
                                             "Potential DOM clobbering in external script {}. \
                                             Variable {} can be clobbered and reaches sink: {}. \
                                             Technique: {}. {}",
-                                            js_url, pattern.name, sink.sink, path.technique, path.impact
+                                            js_url,
+                                            pattern.name,
+                                            sink.sink,
+                                            path.technique,
+                                            path.impact
                                         ),
                                         evidence: Some(format!(
                                             "Script: {}\nPattern: {}\nSink: {}\nSnippet: {}",
-                                            js_url, pattern.access_pattern, sink.sink, pattern.source_snippet
+                                            js_url,
+                                            pattern.access_pattern,
+                                            sink.sink,
+                                            pattern.source_snippet
                                         )),
                                         cwe: "CWE-79".to_string(),
                                         cvss: 5.4,
@@ -994,7 +1150,7 @@ impl DomClobberingScanner {
                                         false_positive: false,
                                         remediation: self.get_remediation(),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                        ml_data: None,
                                     });
                                 }
                             }
@@ -1022,31 +1178,34 @@ impl DomClobberingScanner {
 
         // Determine framework-specific targets
         let framework_targets: Vec<&str> = match &app_characteristics.app_type {
-            crate::detection_helpers::AppType::SinglePageApp(framework) => {
-                match framework {
-                    crate::detection_helpers::SpaFramework::Vue => {
-                        vec!["Vue", "$options", "$data", "$props", "$refs"]
-                    }
-                    crate::detection_helpers::SpaFramework::React => {
-                        vec!["React", "ReactDOM", "__REACT_DEVTOOLS_GLOBAL_HOOK__", "__NEXT_DATA__"]
-                    }
-                    crate::detection_helpers::SpaFramework::Angular => {
-                        vec!["angular", "ng", "$scope", "$rootScope"]
-                    }
-                    crate::detection_helpers::SpaFramework::Next => {
-                        vec!["__NEXT_DATA__", "__NEXT_P", "next"]
-                    }
-                    crate::detection_helpers::SpaFramework::Nuxt => {
-                        vec!["__NUXT__", "$nuxt", "Nuxt"]
-                    }
-                    crate::detection_helpers::SpaFramework::Svelte => {
-                        vec!["Svelte", "__svelte__"]
-                    }
-                    crate::detection_helpers::SpaFramework::Other => {
-                        vec!["app", "App", "config", "CONFIG"]
-                    }
+            crate::detection_helpers::AppType::SinglePageApp(framework) => match framework {
+                crate::detection_helpers::SpaFramework::Vue => {
+                    vec!["Vue", "$options", "$data", "$props", "$refs"]
                 }
-            }
+                crate::detection_helpers::SpaFramework::React => {
+                    vec![
+                        "React",
+                        "ReactDOM",
+                        "__REACT_DEVTOOLS_GLOBAL_HOOK__",
+                        "__NEXT_DATA__",
+                    ]
+                }
+                crate::detection_helpers::SpaFramework::Angular => {
+                    vec!["angular", "ng", "$scope", "$rootScope"]
+                }
+                crate::detection_helpers::SpaFramework::Next => {
+                    vec!["__NEXT_DATA__", "__NEXT_P", "next"]
+                }
+                crate::detection_helpers::SpaFramework::Nuxt => {
+                    vec!["__NUXT__", "$nuxt", "Nuxt"]
+                }
+                crate::detection_helpers::SpaFramework::Svelte => {
+                    vec!["Svelte", "__svelte__"]
+                }
+                crate::detection_helpers::SpaFramework::Other => {
+                    vec!["app", "App", "config", "CONFIG"]
+                }
+            },
             _ => vec!["app", "config"],
         };
 
@@ -1157,7 +1316,7 @@ impl DomClobberingScanner {
             false_positive: false,
             remediation: self.get_remediation(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1195,7 +1354,7 @@ impl DomClobberingScanner {
             false_positive: false,
             remediation: self.get_remediation(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1264,7 +1423,8 @@ impl DomClobberingScanner {
 References:
 - https://portswigger.net/web-security/dom-based/dom-clobbering
 - https://html.spec.whatwg.org/multipage/window-object.html#named-access-on-the-window-object
-- https://owasp.org/www-community/attacks/DOM_Clobbering"#.to_string()
+- https://owasp.org/www-community/attacks/DOM_Clobbering"#
+            .to_string()
     }
 }
 
@@ -1316,12 +1476,17 @@ mod tests {
     fn test_generate_poc_html() {
         let scanner = create_test_scanner();
 
-        let poc = scanner.generate_poc_html("config", &Some("url".to_string()), &ClobberTechnique::FormInputNested);
+        let poc = scanner.generate_poc_html(
+            "config",
+            &Some("url".to_string()),
+            &ClobberTechnique::FormInputNested,
+        );
         assert!(poc.contains("<form"));
         assert!(poc.contains("id=\"config\""));
         assert!(poc.contains("name=\"url\""));
 
-        let poc_anchor = scanner.generate_poc_html("config", &None, &ClobberTechnique::AnchorToString);
+        let poc_anchor =
+            scanner.generate_poc_html("config", &None, &ClobberTechnique::AnchorToString);
         assert!(poc_anchor.contains("<a"));
         assert!(poc_anchor.contains("href=\"javascript:"));
     }
@@ -1345,9 +1510,18 @@ mod tests {
 
     #[test]
     fn test_clobber_technique_display() {
-        assert_eq!(format!("{}", ClobberTechnique::IdAttribute), "ID Attribute Clobbering");
-        assert_eq!(format!("{}", ClobberTechnique::FormInputNested), "Form+Input Nested Clobbering");
-        assert_eq!(format!("{}", ClobberTechnique::AnchorToString), "Anchor toString Override");
+        assert_eq!(
+            format!("{}", ClobberTechnique::IdAttribute),
+            "ID Attribute Clobbering"
+        );
+        assert_eq!(
+            format!("{}", ClobberTechnique::FormInputNested),
+            "Form+Input Nested Clobbering"
+        );
+        assert_eq!(
+            format!("{}", ClobberTechnique::AnchorToString),
+            "Anchor toString Override"
+        );
     }
 
     #[test]
@@ -1375,8 +1549,14 @@ mod tests {
     fn test_extract_nested_property() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.extract_nested_property(".url"), Some("url".to_string()));
-        assert_eq!(scanner.extract_nested_property(".href = value"), Some("href".to_string()));
+        assert_eq!(
+            scanner.extract_nested_property(".url"),
+            Some("url".to_string())
+        );
+        assert_eq!(
+            scanner.extract_nested_property(".href = value"),
+            Some("href".to_string())
+        );
         assert_eq!(scanner.extract_nested_property(" = value"), None);
     }
 

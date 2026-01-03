@@ -11,7 +11,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::cdn_detector::is_waf_protected_against_cve;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -79,7 +78,10 @@ impl Cve202555182Scanner {
             if is_vulnerable {
                 // Check if WAF protection mitigates the vulnerability
                 if let Some(ref waf) = waf_protection {
-                    info!("[NOTE] CVE-2025-55182: Vulnerable version detected but protected by {}", waf);
+                    info!(
+                        "[NOTE] CVE-2025-55182: Vulnerable version detected but protected by {}",
+                        waf
+                    );
 
                     vulnerabilities.push(Vulnerability {
                         id: generate_uuid(),
@@ -200,8 +202,11 @@ impl Cve202555182Scanner {
             }
         }
 
-        info!("[SUCCESS] [CVE-2025-55182] Completed {} tests, found {} issues",
-            tests_run, vulnerabilities.len());
+        info!(
+            "[SUCCESS] [CVE-2025-55182] Completed {} tests, found {} issues",
+            tests_run,
+            vulnerabilities.len()
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -230,7 +235,9 @@ impl Cve202555182Scanner {
             "_ssgManifest.js",
         ];
 
-        nextjs_indicators.iter().any(|indicator| body.contains(indicator))
+        nextjs_indicators
+            .iter()
+            .any(|indicator| body.contains(indicator))
     }
 
     /// Detect React Server Components usage
@@ -239,17 +246,19 @@ impl Cve202555182Scanner {
 
         // RSC indicators
         let rsc_indicators = [
-            "__next_f",           // Next.js RSC Flight data
-            "self.__next_f",      // RSC hydration
-            "react-server",       // React server module
-            "use server",         // Server actions directive
-            "rsc=",               // RSC query parameter
-            "Flight",             // Flight protocol references
-            "createFromFetch",    // RSC fetch creation
-            "__RSC_MANIFEST",     // RSC manifest
+            "__next_f",        // Next.js RSC Flight data
+            "self.__next_f",   // RSC hydration
+            "react-server",    // React server module
+            "use server",      // Server actions directive
+            "rsc=",            // RSC query parameter
+            "Flight",          // Flight protocol references
+            "createFromFetch", // RSC fetch creation
+            "__RSC_MANIFEST",  // RSC manifest
         ];
 
-        rsc_indicators.iter().any(|indicator| body.contains(indicator))
+        rsc_indicators
+            .iter()
+            .any(|indicator| body.contains(indicator))
     }
 
     /// Try to detect Next.js version
@@ -309,20 +318,18 @@ impl Cve202555182Scanner {
         );
 
         // RSC endpoints to check
-        let rsc_paths = [
-            "/?_rsc=1",
-            "/_rsc",
-            "/?__flight__=1",
-        ];
+        let rsc_paths = ["/?_rsc=1", "/_rsc", "/?__flight__=1"];
 
         for path in &rsc_paths {
             let test_url = format!("{}{}", origin, path);
             if let Ok(response) = self.http_client.get(&test_url).await {
                 // RSC responses typically have specific content types or Flight data
                 let is_rsc_response = response.headers.iter().any(|(k, v)| {
-                    (k.to_lowercase() == "content-type" && v.contains("text/x-component")) ||
-                    (k.to_lowercase() == "content-type" && v.contains("application/octet-stream"))
-                }) || response.body.starts_with("0:") || response.body.contains("$");
+                    (k.to_lowercase() == "content-type" && v.contains("text/x-component"))
+                        || (k.to_lowercase() == "content-type"
+                            && v.contains("application/octet-stream"))
+                }) || response.body.starts_with("0:")
+                    || response.body.contains("$");
 
                 if is_rsc_response {
                     return true;
@@ -336,13 +343,19 @@ impl Cve202555182Scanner {
     /// Check if detected version is vulnerable
     fn check_vulnerability_status(&self, version: &Option<String>) -> (bool, String) {
         let Some(ver) = version else {
-            return (true, "Version could not be determined - assume vulnerable until verified.".to_string());
+            return (
+                true,
+                "Version could not be determined - assume vulnerable until verified.".to_string(),
+            );
         };
 
         // Parse version
         let parts: Vec<&str> = ver.split('.').collect();
         if parts.len() < 2 {
-            return (true, format!("Invalid version format: {} - assume vulnerable.", ver));
+            return (
+                true,
+                format!("Invalid version format: {} - assume vulnerable.", ver),
+            );
         }
 
         let major: u32 = parts[0].parse().unwrap_or(0);
@@ -365,9 +378,18 @@ impl Cve202555182Scanner {
         };
 
         if is_patched {
-            (false, format!("Detected version {} appears to be patched.", ver))
+            (
+                false,
+                format!("Detected version {} appears to be patched.", ver),
+            )
         } else {
-            (true, format!("Detected version {} is VULNERABLE! Immediate upgrade required.", ver))
+            (
+                true,
+                format!(
+                    "Detected version {} is VULNERABLE! Immediate upgrade required.",
+                    ver
+                ),
+            )
         }
     }
 }
@@ -392,26 +414,58 @@ mod tests {
     #[test]
     fn test_version_check_vulnerable() {
         let scanner = Cve202555182Scanner::new(Arc::new(
-            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap()
+            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap(),
         ));
 
         // Vulnerable versions
-        assert!(scanner.check_vulnerability_status(&Some("15.0.0".to_string())).0);
-        assert!(scanner.check_vulnerability_status(&Some("15.1.0".to_string())).0);
-        assert!(scanner.check_vulnerability_status(&Some("15.5.0".to_string())).0);
-        assert!(scanner.check_vulnerability_status(&Some("16.0.0".to_string())).0);
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("15.0.0".to_string()))
+                .0
+        );
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("15.1.0".to_string()))
+                .0
+        );
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("15.5.0".to_string()))
+                .0
+        );
+        assert!(
+            scanner
+                .check_vulnerability_status(&Some("16.0.0".to_string()))
+                .0
+        );
     }
 
     #[test]
     fn test_version_check_patched() {
         let scanner = Cve202555182Scanner::new(Arc::new(
-            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap()
+            HttpClient::with_config(30, 2, false, false, 100, 10).unwrap(),
         ));
 
         // Patched versions
-        assert!(!scanner.check_vulnerability_status(&Some("15.0.5".to_string())).0);
-        assert!(!scanner.check_vulnerability_status(&Some("15.1.9".to_string())).0);
-        assert!(!scanner.check_vulnerability_status(&Some("15.5.7".to_string())).0);
-        assert!(!scanner.check_vulnerability_status(&Some("16.0.7".to_string())).0);
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("15.0.5".to_string()))
+                .0
+        );
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("15.1.9".to_string()))
+                .0
+        );
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("15.5.7".to_string()))
+                .0
+        );
+        assert!(
+            !scanner
+                .check_vulnerability_status(&Some("16.0.7".to_string()))
+                .0
+        );
     }
 }

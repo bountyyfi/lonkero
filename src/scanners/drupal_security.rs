@@ -51,7 +51,8 @@ impl DrupalSecurityScanner {
                 sa_id: Some("SA-CORE-2014-005".to_string()),
                 cve: Some("CVE-2014-3704".to_string()),
                 severity: Severity::Critical,
-                description: "Drupalgeddon - SQL injection allowing arbitrary PHP execution".to_string(),
+                description: "Drupalgeddon - SQL injection allowing arbitrary PHP execution"
+                    .to_string(),
             },
             ModuleVulnerability {
                 name: "drupal_core".to_string(),
@@ -212,7 +213,10 @@ impl DrupalSecurityScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[Drupal] Drupal detected (version: {:?}), running comprehensive scan", version);
+        info!(
+            "[Drupal] Drupal detected (version: {:?}), running comprehensive scan",
+            version
+        );
 
         // Test 1: Drupalgeddon vulnerabilities (based on version)
         tests_run += 1;
@@ -344,9 +348,18 @@ impl DrupalSecurityScanner {
                     if let Some(re) = version_re {
                         if let Some(cap) = re.captures(generator) {
                             version = Some(DrupalVersion {
-                                major: cap.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                                minor: cap.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                                patch: cap.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
+                                major: cap
+                                    .get(1)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(0),
+                                minor: cap
+                                    .get(2)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(0),
+                                patch: cap
+                                    .get(3)
+                                    .and_then(|m| m.as_str().parse().ok())
+                                    .unwrap_or(0),
                             });
                         }
                     }
@@ -363,9 +376,18 @@ impl DrupalSecurityScanner {
                 if let Some(re) = version_re {
                     if let Some(cap) = re.captures(&response.body) {
                         version = Some(DrupalVersion {
-                            major: cap.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                            minor: cap.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                            patch: cap.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
+                            major: cap
+                                .get(1)
+                                .and_then(|m| m.as_str().parse().ok())
+                                .unwrap_or(0),
+                            minor: cap
+                                .get(2)
+                                .and_then(|m| m.as_str().parse().ok())
+                                .unwrap_or(0),
+                            patch: cap
+                                .get(3)
+                                .and_then(|m| m.as_str().parse().ok())
+                                .unwrap_or(0),
                         });
                     }
                 }
@@ -376,8 +398,9 @@ impl DrupalSecurityScanner {
         // Try user/login path
         let login_url = format!("{}/user/login", base_url);
         if let Ok(response) = self.http_client.get(&login_url).await {
-            if response.status_code == 200 &&
-               (response.body.contains("drupal") || response.body.contains("Drupal")) {
+            if response.status_code == 200
+                && (response.body.contains("drupal") || response.body.contains("Drupal"))
+            {
                 return Some((true, version));
             }
         }
@@ -386,7 +409,11 @@ impl DrupalSecurityScanner {
     }
 
     /// Test for Drupalgeddon vulnerabilities
-    async fn test_drupalgeddon(&self, url: &str, version: &Option<DrupalVersion>) -> Vec<Vulnerability> {
+    async fn test_drupalgeddon(
+        &self,
+        url: &str,
+        version: &Option<DrupalVersion>,
+    ) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
@@ -409,19 +436,24 @@ impl DrupalSecurityScanner {
                         This is one of the most critical Drupal vulnerabilities ever discovered.",
                         ver.major, ver.minor, ver.patch
                     ),
-                    evidence: Some(format!("Drupal version {}.{}.{} detected", ver.major, ver.minor, ver.patch)),
+                    evidence: Some(format!(
+                        "Drupal version {}.{}.{} detected",
+                        ver.major, ver.minor, ver.patch
+                    )),
                     cwe: "CWE-89".to_string(),
                     cvss: 10.0,
                     verified: true,
                     false_positive: false,
-                    remediation: "CRITICAL: Update Drupal core to version 7.32 or later IMMEDIATELY.\n\
+                    remediation:
+                        "CRITICAL: Update Drupal core to version 7.32 or later IMMEDIATELY.\n\
                                   1. Backup your database and files\n\
                                   2. Update Drupal core: drush up drupal\n\
                                   3. Check for signs of compromise\n\
                                   4. Review user accounts for unauthorized additions\n\
-                                  Reference: https://www.drupal.org/SA-CORE-2014-005".to_string(),
+                                  Reference: https://www.drupal.org/SA-CORE-2014-005"
+                            .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
 
@@ -429,10 +461,10 @@ impl DrupalSecurityScanner {
             let drupalgeddon2_vulnerable = match ver.major {
                 7 => ver.minor < 58,
                 8 => {
-                    (ver.minor < 3) ||
-                    (ver.minor == 3 && ver.patch < 9) ||
-                    (ver.minor == 4 && ver.patch < 6) ||
-                    (ver.minor == 5 && ver.patch < 1)
+                    (ver.minor < 3)
+                        || (ver.minor == 3 && ver.patch < 9)
+                        || (ver.minor == 4 && ver.patch < 6)
+                        || (ver.minor == 5 && ver.patch < 1)
                 }
                 _ => false,
             };
@@ -454,7 +486,10 @@ impl DrupalSecurityScanner {
                         Exploit code is publicly available and actively exploited in the wild.",
                         ver.major, ver.minor, ver.patch
                     ),
-                    evidence: Some(format!("Drupal version {}.{}.{} detected", ver.major, ver.minor, ver.patch)),
+                    evidence: Some(format!(
+                        "Drupal version {}.{}.{} detected",
+                        ver.major, ver.minor, ver.patch
+                    )),
                     cwe: "CWE-94".to_string(),
                     cvss: 10.0,
                     verified: true,
@@ -464,9 +499,10 @@ impl DrupalSecurityScanner {
                                   Drupal 8.3.x: Update to 8.3.9\n\
                                   Drupal 8.4.x: Update to 8.4.6\n\
                                   Drupal 8.5.x: Update to 8.5.1 or later\n\
-                                  Reference: https://www.drupal.org/SA-CORE-2018-002".to_string(),
+                                  Reference: https://www.drupal.org/SA-CORE-2018-002"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
 
@@ -474,9 +510,9 @@ impl DrupalSecurityScanner {
             let drupalgeddon3_vulnerable = match ver.major {
                 7 => ver.minor < 59,
                 8 => {
-                    (ver.minor < 4) ||
-                    (ver.minor == 4 && ver.patch < 8) ||
-                    (ver.minor == 5 && ver.patch < 3)
+                    (ver.minor < 4)
+                        || (ver.minor == 4 && ver.patch < 8)
+                        || (ver.minor == 5 && ver.patch < 3)
                 }
                 _ => false,
             };
@@ -497,7 +533,10 @@ impl DrupalSecurityScanner {
                         content to execute arbitrary code.",
                         ver.major, ver.minor, ver.patch
                     ),
-                    evidence: Some(format!("Drupal version {}.{}.{} detected", ver.major, ver.minor, ver.patch)),
+                    evidence: Some(format!(
+                        "Drupal version {}.{}.{} detected",
+                        ver.major, ver.minor, ver.patch
+                    )),
                     cwe: "CWE-94".to_string(),
                     cvss: 9.0,
                     verified: true,
@@ -506,9 +545,10 @@ impl DrupalSecurityScanner {
                                   Drupal 7: Update to 7.59 or later\n\
                                   Drupal 8.4.x: Update to 8.4.8\n\
                                   Drupal 8.5.x: Update to 8.5.3 or later\n\
-                                  Reference: https://www.drupal.org/SA-CORE-2018-004".to_string(),
+                                  Reference: https://www.drupal.org/SA-CORE-2018-004"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -517,7 +557,11 @@ impl DrupalSecurityScanner {
     }
 
     /// Test user enumeration
-    async fn test_user_enumeration(&self, url: &str, version: &Option<DrupalVersion>) -> Vec<Vulnerability> {
+    async fn test_user_enumeration(
+        &self,
+        url: &str,
+        version: &Option<DrupalVersion>,
+    ) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
         let mut found_users = Vec::new();
@@ -608,9 +652,11 @@ impl DrupalSecurityScanner {
                     let form_data = format!("name={}&form_id=user_pass", test_user);
                     if let Ok(reset_response) = self.http_client.post(&reset_url, form_data).await {
                         // Different error messages can indicate if user exists
-                        if reset_response.body.contains("Further instructions") ||
-                           reset_response.body.contains("sent to") ||
-                           (reset_response.status_code == 302 && !reset_response.body.contains("not recognized")) {
+                        if reset_response.body.contains("Further instructions")
+                            || reset_response.body.contains("sent to")
+                            || (reset_response.status_code == 302
+                                && !reset_response.body.contains("not recognized"))
+                        {
                             found_users.push(test_user.to_string());
                         }
                     }
@@ -638,9 +684,11 @@ impl DrupalSecurityScanner {
                 cvss: 5.3,
                 verified: true,
                 false_positive: false,
-                remediation: "1. Install and configure the Username Enumeration Prevention module\n\
+                remediation:
+                    "1. Install and configure the Username Enumeration Prevention module\n\
                               2. Configure permissions to restrict user profile access\n\
-                              3. Use the Rabbit Hole module to control access to user pages".to_string(),
+                              3. Use the Rabbit Hole module to control access to user pages"
+                        .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_data: None,
             });
@@ -690,7 +738,10 @@ impl DrupalSecurityScanner {
                             "Drupal {} exposed: {}\n{}",
                             description,
                             file,
-                            version.as_ref().map(|v| format!("Detected version: {}", v)).unwrap_or_default()
+                            version
+                                .as_ref()
+                                .map(|v| format!("Detected version: {}", v))
+                                .unwrap_or_default()
                         ),
                         evidence: Some(format!(
                             "File content preview: {}...",
@@ -705,9 +756,10 @@ impl DrupalSecurityScanner {
                                       <FilesMatch \"\\.(txt|md)$\">\n\
                                         Order Allow,Deny\n\
                                         Deny from all\n\
-                                      </FilesMatch>".to_string(),
+                                      </FilesMatch>"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break; // Found one, no need to continue
                 }
@@ -738,11 +790,11 @@ impl DrupalSecurityScanner {
             let test_url = format!("{}{}", base_url, file);
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
-                    let has_sensitive = response.body.contains("database") ||
-                                        response.body.contains("password") ||
-                                        response.body.contains("DB_") ||
-                                        response.body.contains("$databases") ||
-                                        response.body.contains("hash_salt");
+                    let has_sensitive = response.body.contains("database")
+                        || response.body.contains("password")
+                        || response.body.contains("DB_")
+                        || response.body.contains("$databases")
+                        || response.body.contains("hash_salt");
 
                     if has_sensitive {
                         vulnerabilities.push(Vulnerability {
@@ -760,18 +812,22 @@ impl DrupalSecurityScanner {
                                 and other sensitive configuration values.",
                                 file
                             ),
-                            evidence: Some("Configuration file contains sensitive settings".to_string()),
+                            evidence: Some(
+                                "Configuration file contains sensitive settings".to_string(),
+                            ),
                             cwe: "CWE-200".to_string(),
                             cvss: 9.8,
                             verified: true,
                             false_positive: false,
-                            remediation: "1. CRITICAL: Change all exposed credentials immediately!\n\
+                            remediation:
+                                "1. CRITICAL: Change all exposed credentials immediately!\n\
                                           2. Remove backup configuration files\n\
                                           3. Ensure settings.php is not publicly accessible\n\
                                           4. Regenerate hash_salt\n\
-                                          5. Check for signs of compromise".to_string(),
+                                          5. Check for signs of compromise"
+                                    .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -801,10 +857,10 @@ impl DrupalSecurityScanner {
             let test_url = format!("{}{}", base_url, path);
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
-                    let has_admin_content = response.body.contains("Administration") ||
-                                            response.body.contains("admin-menu") ||
-                                            response.body.contains("system-admin") ||
-                                            response.body.contains("toolbar-menu");
+                    let has_admin_content = response.body.contains("Administration")
+                        || response.body.contains("admin-menu")
+                        || response.body.contains("system-admin")
+                        || response.body.contains("toolbar-menu");
 
                     if has_admin_content {
                         vulnerabilities.push(Vulnerability {
@@ -826,13 +882,15 @@ impl DrupalSecurityScanner {
                             cvss: 9.8,
                             verified: true,
                             false_positive: false,
-                            remediation: "1. CRITICAL: Review and fix user permissions immediately\n\
+                            remediation:
+                                "1. CRITICAL: Review and fix user permissions immediately\n\
                                           2. Check for unauthorized admin accounts\n\
                                           3. Review recent changes to the site\n\
                                           4. Check for signs of compromise\n\
-                                          5. Ensure anonymous user role has no admin permissions".to_string(),
+                                          5. Ensure anonymous user role has no admin permissions"
+                                    .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -852,9 +910,9 @@ impl DrupalSecurityScanner {
         let install_url = format!("{}/install.php", base_url);
         if let Ok(response) = self.http_client.get(&install_url).await {
             if response.status_code == 200 {
-                let is_installer = response.body.contains("Install Drupal") ||
-                                   response.body.contains("installation") ||
-                                   response.body.contains("Choose language");
+                let is_installer = response.body.contains("Install Drupal")
+                    || response.body.contains("installation")
+                    || response.body.contains("Choose language");
 
                 if is_installer {
                     vulnerabilities.push(Vulnerability {
@@ -868,8 +926,11 @@ impl DrupalSecurityScanner {
                         payload: "/install.php".to_string(),
                         description: "Drupal installation script is accessible. \
                             While Drupal prevents reinstallation if already configured, \
-                            this script should be removed or protected.".to_string(),
-                        evidence: Some("Installation script responds with installer page".to_string()),
+                            this script should be removed or protected."
+                            .to_string(),
+                        evidence: Some(
+                            "Installation script responds with installer page".to_string(),
+                        ),
                         cwe: "CWE-16".to_string(),
                         cvss: 7.5,
                         verified: true,
@@ -879,9 +940,10 @@ impl DrupalSecurityScanner {
                                       <Files install.php>\n\
                                         Order Allow,Deny\n\
                                         Deny from all\n\
-                                      </Files>".to_string(),
+                                      </Files>"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -901,16 +963,18 @@ impl DrupalSecurityScanner {
                     parameter: None,
                     payload: "/update.php".to_string(),
                     description: "Drupal update.php script is accessible. \
-                        This script should be protected to prevent unauthorized database updates.".to_string(),
+                        This script should be protected to prevent unauthorized database updates."
+                        .to_string(),
                     evidence: Some("Update script accessible".to_string()),
                     cwe: "CWE-16".to_string(),
                     cvss: 7.5,
                     verified: true,
                     false_positive: false,
                     remediation: "1. Set $settings['update_free_access'] = FALSE in settings.php\n\
-                                  2. Block access via .htaccess when not needed".to_string(),
+                                  2. Block access via .htaccess when not needed"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -937,7 +1001,8 @@ impl DrupalSecurityScanner {
                     parameter: None,
                     payload: "/cron.php".to_string(),
                     description: "Drupal cron.php is accessible without cron key. \
-                        This can be used to trigger cron tasks externally or for DoS attacks.".to_string(),
+                        This can be used to trigger cron tasks externally or for DoS attacks."
+                        .to_string(),
                     evidence: Some("Cron script accessible without authentication".to_string()),
                     cwe: "CWE-16".to_string(),
                     cvss: 3.7,
@@ -945,9 +1010,10 @@ impl DrupalSecurityScanner {
                     false_positive: false,
                     remediation: "Configure cron key in settings.php and update cron URL:\n\
                                   $settings['cron_key'] = 'YOUR_SECRET_KEY';\n\
-                                  Then use: /cron/YOUR_SECRET_KEY".to_string(),
+                                  Then use: /cron/YOUR_SECRET_KEY"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -956,7 +1022,11 @@ impl DrupalSecurityScanner {
     }
 
     /// Test REST/JSON API exposure
-    async fn test_api_exposure(&self, url: &str, _version: &Option<DrupalVersion>) -> Vec<Vulnerability> {
+    async fn test_api_exposure(
+        &self,
+        url: &str,
+        _version: &Option<DrupalVersion>,
+    ) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
@@ -972,12 +1042,12 @@ impl DrupalSecurityScanner {
         for (endpoint, name) in api_endpoints {
             let test_url = format!("{}{}", base_url, endpoint);
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("\"data\"") ||
-                    response.body.contains("\"links\"") ||
-                    response.body.contains("\"jsonapi\"") ||
-                    response.body.contains("services")) {
-
+                if response.status_code == 200
+                    && (response.body.contains("\"data\"")
+                        || response.body.contains("\"links\"")
+                        || response.body.contains("\"jsonapi\"")
+                        || response.body.contains("services"))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: format!("drupal_api_exposed_{}", Self::generate_id()),
                         vuln_type: format!("Drupal {} Exposed", name),
@@ -1016,7 +1086,11 @@ impl DrupalSecurityScanner {
     }
 
     /// Test for vulnerable modules
-    async fn test_module_vulnerabilities(&self, url: &str, version: &Option<DrupalVersion>) -> Vec<Vulnerability> {
+    async fn test_module_vulnerabilities(
+        &self,
+        url: &str,
+        version: &Option<DrupalVersion>,
+    ) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
@@ -1030,7 +1104,10 @@ impl DrupalSecurityScanner {
         for (module_name, vulns) in &self.known_vulnerable_modules {
             for base in &modules_base {
                 let info_path = format!("{}{}{}/{}.info", base_url, base, module_name, module_name);
-                let info_yml_path = format!("{}{}{}/{}.info.yml", base_url, base, module_name, module_name);
+                let info_yml_path = format!(
+                    "{}{}{}/{}.info.yml",
+                    base_url, base, module_name, module_name
+                );
 
                 for path in [info_path, info_yml_path] {
                     if let Ok(response) = self.http_client.get(&path).await {
@@ -1046,8 +1123,14 @@ impl DrupalSecurityScanner {
                                 for vuln in vulns {
                                     if Self::is_version_vulnerable(&ver, &vuln.vulnerable_version) {
                                         vulnerabilities.push(Vulnerability {
-                                            id: format!("drupal_module_vuln_{}", Self::generate_id()),
-                                            vuln_type: format!("Vulnerable Drupal Module: {}", module_name),
+                                            id: format!(
+                                                "drupal_module_vuln_{}",
+                                                Self::generate_id()
+                                            ),
+                                            vuln_type: format!(
+                                                "Vulnerable Drupal Module: {}",
+                                                module_name
+                                            ),
                                             severity: vuln.severity.clone(),
                                             confidence: Confidence::High,
                                             category: "Known Vulnerability".to_string(),
@@ -1059,12 +1142,16 @@ impl DrupalSecurityScanner {
                                                 Vulnerability: {}\n\
                                                 SA ID: {}\n\
                                                 CVE: {}",
-                                                module_name, ver,
+                                                module_name,
+                                                ver,
                                                 vuln.description,
                                                 vuln.sa_id.as_ref().unwrap_or(&"N/A".to_string()),
                                                 vuln.cve.as_ref().unwrap_or(&"N/A".to_string())
                                             ),
-                                            evidence: Some(format!("Module {} version {} detected", module_name, ver)),
+                                            evidence: Some(format!(
+                                                "Module {} version {} detected",
+                                                module_name, ver
+                                            )),
                                             cwe: "CWE-1035".to_string(),
                                             cvss: match vuln.severity {
                                                 Severity::Critical => 9.8,
@@ -1081,7 +1168,7 @@ impl DrupalSecurityScanner {
                                                 module_name, module_name, module_name
                                             ),
                                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                            ml_data: None,
                                         });
                                     }
                                 }
@@ -1114,8 +1201,8 @@ impl DrupalSecurityScanner {
             let test_url = format!("{}{}", base_url, dir);
             if let Ok(response) = self.http_client.get(&test_url).await {
                 if response.status_code == 200 {
-                    let has_listing = response.body.contains("Index of") ||
-                                      response.body.contains("Parent Directory");
+                    let has_listing = response.body.contains("Index of")
+                        || response.body.contains("Parent Directory");
 
                     if has_listing {
                         vulnerabilities.push(Vulnerability {
@@ -1135,7 +1222,7 @@ impl DrupalSecurityScanner {
                             false_positive: false,
                             remediation: "Add to .htaccess: Options -Indexes".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -1161,11 +1248,11 @@ impl DrupalSecurityScanner {
         for pattern in backup_patterns {
             let test_url = format!("{}{}", base_url, pattern);
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 &&
-                   (response.body.contains("CREATE TABLE") ||
-                    response.body.contains("INSERT INTO") ||
-                    response.body.contains("Index of")) {
-
+                if response.status_code == 200
+                    && (response.body.contains("CREATE TABLE")
+                        || response.body.contains("INSERT INTO")
+                        || response.body.contains("Index of"))
+                {
                     let severity = if response.body.contains("CREATE TABLE") {
                         Severity::Critical
                     } else {
@@ -1181,7 +1268,8 @@ impl DrupalSecurityScanner {
                         url: test_url,
                         parameter: None,
                         payload: pattern.to_string(),
-                        description: "Database backup or backup directory exposed publicly.".to_string(),
+                        description: "Database backup or backup directory exposed publicly."
+                            .to_string(),
                         evidence: Some("Backup file/directory accessible".to_string()),
                         cwe: "CWE-200".to_string(),
                         cvss: 9.8,
@@ -1189,9 +1277,10 @@ impl DrupalSecurityScanner {
                         false_positive: false,
                         remediation: "1. Remove backup files immediately\n\
                                       2. Change all credentials\n\
-                                      3. Never store backups in web-accessible directories".to_string(),
+                                      3. Never store backups in web-accessible directories"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -1263,16 +1352,20 @@ impl DrupalSecurityScanner {
                     payload: "/admin/reports/status".to_string(),
                     description: "Drupal status report page is publicly accessible. \
                         This page reveals detailed system information including PHP version, \
-                        database info, and security issues.".to_string(),
-                    evidence: Some("Status report page accessible without authentication".to_string()),
+                        database info, and security issues."
+                        .to_string(),
+                    evidence: Some(
+                        "Status report page accessible without authentication".to_string(),
+                    ),
                     cwe: "CWE-200".to_string(),
                     cvss: 7.5,
                     verified: true,
                     false_positive: false,
                     remediation: "Review and fix permissions for administrator role. \
-                        Status report should only be accessible to authenticated admins.".to_string(),
+                        Status report should only be accessible to authenticated admins."
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -1329,26 +1422,27 @@ impl DrupalSecurityScanner {
     }
 
     /// Test Form API vulnerabilities
-    async fn test_form_api_vulnerabilities(&self, url: &str, version: &Option<DrupalVersion>) -> Vec<Vulnerability> {
+    async fn test_form_api_vulnerabilities(
+        &self,
+        url: &str,
+        version: &Option<DrupalVersion>,
+    ) -> Vec<Vulnerability> {
         let mut vulnerabilities = Vec::new();
         let base_url = self.get_base_url(url);
 
         // Test Drupalgeddon2 style payloads (non-destructive test)
         if version.as_ref().map(|v| v.major >= 8).unwrap_or(true) {
-            let test_paths = vec![
-                "/user/register",
-                "/user/password",
-                "/contact",
-            ];
+            let test_paths = vec!["/user/register", "/user/password", "/contact"];
 
             for path in test_paths {
                 let test_url = format!("{}{}", base_url, path);
                 if let Ok(response) = self.http_client.get(&test_url).await {
                     if response.status_code == 200 && response.body.contains("form") {
                         // Check for unprotected form elements
-                        if response.body.contains("mail[#post_render]") ||
-                           response.body.contains("account[mail]") ||
-                           response.body.contains("#lazy_builder") {
+                        if response.body.contains("mail[#post_render]")
+                            || response.body.contains("account[mail]")
+                            || response.body.contains("#lazy_builder")
+                        {
                             vulnerabilities.push(Vulnerability {
                                 id: format!("drupal_form_api_{}", Self::generate_id()),
                                 vuln_type: "Potentially Vulnerable Form API Usage".to_string(),
@@ -1432,7 +1526,11 @@ mod tests {
     #[test]
     fn test_version_comparison() {
         assert!(DrupalSecurityScanner::is_version_vulnerable("7.31", "7.32"));
-        assert!(DrupalSecurityScanner::is_version_vulnerable("8.4.5", "8.4.6"));
-        assert!(!DrupalSecurityScanner::is_version_vulnerable("7.58", "7.32"));
+        assert!(DrupalSecurityScanner::is_version_vulnerable(
+            "8.4.5", "8.4.6"
+        ));
+        assert!(!DrupalSecurityScanner::is_version_vulnerable(
+            "7.58", "7.32"
+        ));
     }
 }

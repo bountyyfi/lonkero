@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use moka::future::Cache;
 /**
  * Bountyy Oy - DNS Caching Module
  * Optimized caching with moka, TTL, and metrics
@@ -8,10 +9,8 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use std::net::IpAddr;
 use std::time::Duration;
-use moka::future::Cache;
 use tracing::{debug, info};
 
 /// Default TTL for DNS cache entries (5 minutes)
@@ -62,7 +61,8 @@ impl DnsCache {
         }
 
         // Cache miss
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         debug!("DNS cache miss for: {}, using system resolver", hostname);
 
         // Use tokio's built-in DNS resolution (async)

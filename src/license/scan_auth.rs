@@ -78,7 +78,9 @@ impl ScanAuthorization {
     pub fn new(response: ModuleAuthorizeResponse) -> Result<Self, String> {
         // Check if authorized
         if !response.authorized {
-            let error = response.error.unwrap_or_else(|| "Authorization failed".to_string());
+            let error = response
+                .error
+                .unwrap_or_else(|| "Authorization failed".to_string());
             return Err(error);
         }
 
@@ -88,11 +90,13 @@ impl ScanAuthorization {
         }
 
         // Extract scan token
-        let scan_token = response.scan_token
+        let scan_token = response
+            .scan_token
             .ok_or_else(|| "No scan token in response".to_string())?;
 
         // Extract expiration
-        let expires_at = response.token_expires_at
+        let expires_at = response
+            .token_expires_at
             .ok_or_else(|| "No token expiration in response".to_string())?;
 
         // Build authorized modules set
@@ -105,7 +109,10 @@ impl ScanAuthorization {
         // Log denied modules summary (individual denials at debug level)
         if let Some(denied) = &response.denied_modules {
             if !denied.is_empty() {
-                debug!("[Auth] {} modules denied (requires license upgrade)", denied.len());
+                debug!(
+                    "[Auth] {} modules denied (requires license upgrade)",
+                    denied.len()
+                );
                 for d in denied {
                     debug!("[Auth] Module '{}' denied: {}", d.module, d.reason);
                 }
@@ -113,7 +120,9 @@ impl ScanAuthorization {
         }
 
         let max_targets = response.max_targets.unwrap_or(10);
-        let license_type = response.license_type.unwrap_or_else(|| "Personal".to_string());
+        let license_type = response
+            .license_type
+            .unwrap_or_else(|| "Personal".to_string());
 
         info!(
             "[Auth] Authorized: {} modules, license={}, max_targets={}",
@@ -248,15 +257,10 @@ mod tests {
         let response = ModuleAuthorizeResponse {
             authorized: true,
             scan_token: Some("test_token".to_string()),
-            token_expires_at: Some(
-                (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
-            ),
+            token_expires_at: Some((chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339()),
             max_targets: Some(100),
             license_type: Some("Professional".to_string()),
-            authorized_modules: Some(vec![
-                "sqli_scanner".to_string(),
-                "xss_scanner".to_string(),
-            ]),
+            authorized_modules: Some(vec!["sqli_scanner".to_string(), "xss_scanner".to_string()]),
             denied_modules: None,
             error: None,
             ban_reason: None,

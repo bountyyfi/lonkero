@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use anyhow::Result;
 use governor::{
     clock::DefaultClock,
@@ -49,12 +48,12 @@ pub struct RateLimiterConfig {
 impl Default for RateLimiterConfig {
     fn default() -> Self {
         Self {
-            default_rps: 100,      // 100 requests/second default
-            min_rps: 10,           // Minimum 10 req/s after backoff
-            max_rps: 1000,         // Maximum 1000 req/s
-            backoff_multiplier: 0.5, // Reduce to 50% on rate limit
+            default_rps: 100,         // 100 requests/second default
+            min_rps: 10,              // Minimum 10 req/s after backoff
+            max_rps: 1000,            // Maximum 1000 req/s
+            backoff_multiplier: 0.5,  // Reduce to 50% on rate limit
             recovery_multiplier: 1.1, // Increase by 10% on success
-            adaptive: true,        // Enable adaptive rate limiting
+            adaptive: true,           // Enable adaptive rate limiting
         }
     }
 }
@@ -117,9 +116,8 @@ pub struct AdaptiveRateLimiter {
 impl AdaptiveRateLimiter {
     /// Create a new adaptive rate limiter
     pub fn new(config: RateLimiterConfig) -> Self {
-        let global_quota = Quota::per_second(
-            NonZeroU32::new(config.default_rps).unwrap_or(nonzero!(100u32))
-        );
+        let global_quota =
+            Quota::per_second(NonZeroU32::new(config.default_rps).unwrap_or(nonzero!(100u32)));
         let global_limiter = Arc::new(GovernorRateLimiter::direct(global_quota));
 
         info!(
@@ -225,9 +223,9 @@ impl AdaptiveRateLimiter {
 
         // Add additional backoff delay for 429/503 errors
         let backoff_duration = match status_code {
-            429 => Duration::from_secs(2),  // 2 second backoff for 429
-            503 => Duration::from_secs(5),  // 5 second backoff for 503
-            _ => Duration::from_secs(1),    // 1 second for other errors
+            429 => Duration::from_secs(2), // 2 second backoff for 429
+            503 => Duration::from_secs(5), // 5 second backoff for 503
+            _ => Duration::from_secs(1),   // 1 second for other errors
         };
 
         tokio::time::sleep(backoff_duration).await;
@@ -250,9 +248,7 @@ impl AdaptiveRateLimiter {
 
         targets
             .iter()
-            .map(|(domain, state)| {
-                (domain.clone(), state.current_rps, state.rate_limit_count)
-            })
+            .map(|(domain, state)| (domain.clone(), state.current_rps, state.rate_limit_count))
             .collect()
     }
 
@@ -288,7 +284,10 @@ mod tests {
         let limiter = AdaptiveRateLimiter::new(config);
 
         // Should allow request
-        assert!(limiter.wait_for_slot("https://example.com/test").await.is_ok());
+        assert!(limiter
+            .wait_for_slot("https://example.com/test")
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -338,7 +337,11 @@ mod tests {
 
         // Should have increased rate limit after 100 successes
         let current_rps = limiter.get_current_rps(url).await;
-        assert!(current_rps >= 50, "Rate limit should not decrease: {}", current_rps);
+        assert!(
+            current_rps >= 50,
+            "Rate limit should not decrease: {}",
+            current_rps
+        );
 
         // With recovery_multiplier of 1.2, should be at least 60 (50 * 1.2)
         // But check that it increased or stayed the same (due to capping at max_rps)

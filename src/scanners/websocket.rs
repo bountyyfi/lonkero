@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -142,7 +141,11 @@ impl WebSocketScanner {
     }
 
     /// Detect WebSocket endpoint
-    fn detect_websocket_endpoint(&self, response: &crate::http_client::HttpResponse, url: &str) -> bool {
+    fn detect_websocket_endpoint(
+        &self,
+        response: &crate::http_client::HttpResponse,
+        url: &str,
+    ) -> bool {
         let body_lower = response.body.to_lowercase();
 
         // Check URL for ws:// or wss://
@@ -157,7 +160,9 @@ impl WebSocketScanner {
             || body_lower.contains("wss://")
             || body_lower.contains("socket.io")
             || body_lower.contains("sockjs")
-            || response.header("upgrade").map_or(false, |h| h.to_lowercase() == "websocket")
+            || response
+                .header("upgrade")
+                .map_or(false, |h| h.to_lowercase() == "websocket")
     }
 
     /// Check origin validation
@@ -179,9 +184,7 @@ impl WebSocketScanner {
                 || body_lower.contains("whitelist"));
 
         // Check for WebSocket upgrade without origin validation
-        if (body_lower.contains("websocket") || body_lower.contains("upgrade"))
-            && !checks_origin
-        {
+        if (body_lower.contains("websocket") || body_lower.contains("upgrade")) && !checks_origin {
             vulnerabilities.push(self.create_vulnerability(
                 "Missing WebSocket Origin Validation",
                 url,
@@ -210,9 +213,7 @@ impl WebSocketScanner {
             || body_lower.contains("session");
 
         // If WebSocket but no auth indicators
-        if (body_lower.contains("websocket") || body_lower.contains("socket.io"))
-            && !has_auth
-        {
+        if (body_lower.contains("websocket") || body_lower.contains("socket.io")) && !has_auth {
             vulnerabilities.push(self.create_vulnerability(
                 "WebSocket Missing Authentication",
                 url,
@@ -262,8 +263,15 @@ impl WebSocketScanner {
 
         // Check for sensitive parameters in URL
         let sensitive_params = vec![
-            "token=", "api_key=", "apikey=", "secret=", "password=",
-            "session=", "auth=", "key=", "access_token="
+            "token=",
+            "api_key=",
+            "apikey=",
+            "secret=",
+            "password=",
+            "session=",
+            "auth=",
+            "key=",
+            "access_token=",
         ];
 
         for param in &sensitive_params {
@@ -342,9 +350,7 @@ impl WebSocketScanner {
             || body_lower.contains("limit")
             || body_lower.contains("quota");
 
-        if (body_lower.contains("websocket") || body_lower.contains("socket"))
-            && !has_rate_limit
-        {
+        if (body_lower.contains("websocket") || body_lower.contains("socket")) && !has_rate_limit {
             vulnerabilities.push(self.create_vulnerability(
                 "WebSocket Missing Rate Limiting",
                 url,
@@ -426,14 +432,14 @@ impl WebSocketScanner {
         info!("[WebSocket CSRF] Testing: {}", ws_url);
 
         // Try to connect WITHOUT cookies/auth
-        let connect_result = timeout(
-            Duration::from_secs(5),
-            connect_async(ws_url)
-        ).await;
+        let connect_result = timeout(Duration::from_secs(5), connect_async(ws_url)).await;
 
         let (ws_stream, _) = match connect_result {
             Ok(Ok((stream, response))) => {
-                debug!("[WebSocket CSRF] Connected successfully: {:?}", response.status());
+                debug!(
+                    "[WebSocket CSRF] Connected successfully: {:?}",
+                    response.status()
+                );
                 (stream, response)
             }
             Ok(Err(e)) => {
@@ -451,7 +457,9 @@ impl WebSocketScanner {
         // Test privileged commands that should require authentication
         let test_payloads = vec![
             format!(r#"{{"action":"deleteUser","userId":"1","marker":"ws_{marker}"}}"#),
-            format!(r#"{{"action":"updateProfile","email":"attacker@evil.com","marker":"ws_{marker}"}}"#),
+            format!(
+                r#"{{"action":"updateProfile","email":"attacker@evil.com","marker":"ws_{marker}"}}"#
+            ),
             format!(r#"{{"action":"transferFunds","amount":1000,"marker":"ws_{marker}"}}"#),
             format!(r#"{{"command":"admin","operation":"delete","marker":"ws_{marker}"}}"#),
             format!(r#"{{"type":"privileged","action":"execute","marker":"ws_{marker}"}}"#),
@@ -506,10 +514,7 @@ impl WebSocketScanner {
 
         info!("[WebSocket Injection] Testing: {}", ws_url);
 
-        let connect_result = timeout(
-            Duration::from_secs(5),
-            connect_async(ws_url)
-        ).await;
+        let connect_result = timeout(Duration::from_secs(5), connect_async(ws_url)).await;
 
         let (ws_stream, _) = match connect_result {
             Ok(Ok((stream, response))) => (stream, response),
@@ -532,8 +537,11 @@ impl WebSocketScanner {
                     let response = msg.to_text().unwrap_or("");
 
                     // Check if payload is reflected without sanitization
-                    if response.contains("<script>") || response.contains("onerror=")
-                        || response.contains("onload=") || response.contains("javascript:") {
+                    if response.contains("<script>")
+                        || response.contains("onerror=")
+                        || response.contains("onload=")
+                        || response.contains("javascript:")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket XSS - Unsanitized Message Reflection",
                             ws_url,
@@ -562,10 +570,14 @@ impl WebSocketScanner {
                     let response = msg.to_text().unwrap_or("");
 
                     // Check for SQL error messages
-                    if response.contains("SQL") || response.contains("syntax error")
-                        || response.contains("mysql") || response.contains("postgresql")
-                        || response.contains("sqlite") || response.contains("ORA-")
-                        || response.contains("syntax") {
+                    if response.contains("SQL")
+                        || response.contains("syntax error")
+                        || response.contains("mysql")
+                        || response.contains("postgresql")
+                        || response.contains("sqlite")
+                        || response.contains("ORA-")
+                        || response.contains("syntax")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket SQL Injection",
                             ws_url,
@@ -594,9 +606,12 @@ impl WebSocketScanner {
                     let response = msg.to_text().unwrap_or("");
 
                     // Check for command execution indicators
-                    if response.contains("uid=") || response.contains("gid=")
-                        || response.contains("root") || response.contains("/bin/")
-                        || response.contains("total ") {
+                    if response.contains("uid=")
+                        || response.contains("gid=")
+                        || response.contains("root")
+                        || response.contains("/bin/")
+                        || response.contains("total ")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket Command Injection",
                             ws_url,
@@ -623,12 +638,7 @@ impl WebSocketScanner {
         info!("[WebSocket Origin] Testing: {}", ws_url);
 
         // Test with malicious origin
-        let evil_origins = vec![
-            "https://evil.com",
-            "http://attacker.evil",
-            "null",
-            "",
-        ];
+        let evil_origins = vec!["https://evil.com", "http://attacker.evil", "null", ""];
 
         for origin in &evil_origins {
             // Create custom request with Origin header
@@ -643,7 +653,10 @@ impl WebSocketScanner {
                         .header("Connection", "Upgrade")
                         .header("Upgrade", "websocket")
                         .header("Sec-WebSocket-Version", "13")
-                        .header("Sec-WebSocket-Key", tungstenite::handshake::client::generate_key());
+                        .header(
+                            "Sec-WebSocket-Key",
+                            tungstenite::handshake::client::generate_key(),
+                        );
 
                     if !origin.is_empty() {
                         request = request.header("Origin", *origin);
@@ -658,22 +671,30 @@ impl WebSocketScanner {
             };
 
             // Try to connect with malicious origin
-            let connect_result = timeout(
-                Duration::from_secs(5),
-                connect_async(request)
-            ).await;
+            let connect_result = timeout(Duration::from_secs(5), connect_async(request)).await;
 
             if let Ok(Ok((ws_stream, response))) = connect_result {
                 // Connection accepted with malicious origin
-                let origin_display = if origin.is_empty() { "no origin" } else { origin };
+                let origin_display = if origin.is_empty() {
+                    "no origin"
+                } else {
+                    origin
+                };
 
                 vulnerabilities.push(self.create_vulnerability(
                     "WebSocket Origin Validation Bypass",
                     ws_url,
                     Severity::High,
                     Confidence::High,
-                    &format!("WebSocket accepts connections from malicious origin: {}", origin_display),
-                    format!("Connected with Origin: {}\nStatus: {}", origin_display, response.status()),
+                    &format!(
+                        "WebSocket accepts connections from malicious origin: {}",
+                        origin_display
+                    ),
+                    format!(
+                        "Connected with Origin: {}\nStatus: {}",
+                        origin_display,
+                        response.status()
+                    ),
                     7.5,
                 ));
 
@@ -713,10 +734,7 @@ impl WebSocketScanner {
         }
 
         // Test if WebSocket uses predictable connection IDs
-        let connect_result = timeout(
-            Duration::from_secs(5),
-            connect_async(ws_url)
-        ).await;
+        let connect_result = timeout(Duration::from_secs(5), connect_async(ws_url)).await;
 
         if let Ok(Ok((ws_stream, _))) = connect_result {
             let (mut write, mut read) = ws_stream.split();
@@ -728,11 +746,16 @@ impl WebSocketScanner {
                     let response = msg.to_text().unwrap_or("");
 
                     // Check for sequential or predictable IDs
-                    if response.contains("\"id\":") || response.contains("\"connectionId\":")
-                        || response.contains("\"sessId\":") {
+                    if response.contains("\"id\":")
+                        || response.contains("\"connectionId\":")
+                        || response.contains("\"sessId\":")
+                    {
                         // Try to extract the ID pattern
-                        if response.contains("\"id\":1") || response.contains("\"id\":\"1\"")
-                            || response.contains("\"id\":12") || response.contains("\"id\":123") {
+                        if response.contains("\"id\":1")
+                            || response.contains("\"id\":\"1\"")
+                            || response.contains("\"id\":12")
+                            || response.contains("\"id\":123")
+                        {
                             vulnerabilities.push(self.create_vulnerability(
                                 "WebSocket Predictable Connection IDs",
                                 ws_url,
@@ -759,10 +782,7 @@ impl WebSocketScanner {
 
         info!("[WebSocket DoS] Testing: {}", ws_url);
 
-        let connect_result = timeout(
-            Duration::from_secs(5),
-            connect_async(ws_url)
-        ).await;
+        let connect_result = timeout(Duration::from_secs(5), connect_async(ws_url)).await;
 
         let (ws_stream, _) = match connect_result {
             Ok(Ok((stream, response))) => (stream, response),
@@ -782,8 +802,10 @@ impl WebSocketScanner {
                 let response = msg.to_text().unwrap_or("");
 
                 // If server accepts and processes large message without error
-                if !response.contains("error") && !response.contains("too large")
-                    && !response.contains("limit exceeded") {
+                if !response.contains("error")
+                    && !response.contains("too large")
+                    && !response.contains("limit exceeded")
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "WebSocket Large Message DoS",
                         ws_url,
@@ -819,7 +841,10 @@ impl WebSocketScanner {
                 Severity::Medium,
                 Confidence::High,
                 "WebSocket accepts rapid messages without rate limiting - DoS possible",
-                format!("Sent {} messages in {:?} without rejection", rapid_success, duration),
+                format!(
+                    "Sent {} messages in {:?} without rejection",
+                    rapid_success, duration
+                ),
                 6.5,
             ));
         }
@@ -838,8 +863,11 @@ impl WebSocketScanner {
                     let response = msg.to_text().unwrap_or("");
 
                     // Check for crash indicators or verbose errors
-                    if response.contains("panic") || response.contains("exception")
-                        || response.contains("stack trace") || response.contains("internal error") {
+                    if response.contains("panic")
+                        || response.contains("exception")
+                        || response.contains("stack trace")
+                        || response.contains("internal error")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket Malformed Message Crash",
                             ws_url,
@@ -865,10 +893,7 @@ impl WebSocketScanner {
 
         info!("[WebSocket Protocol] Testing: {}", ws_url);
 
-        let connect_result = timeout(
-            Duration::from_secs(5),
-            connect_async(ws_url)
-        ).await;
+        let connect_result = timeout(Duration::from_secs(5), connect_async(ws_url)).await;
 
         let (ws_stream, _) = match connect_result {
             Ok(Ok((stream, response))) => (stream, response),
@@ -889,8 +914,10 @@ impl WebSocketScanner {
                     let response = msg.to_text().unwrap_or("");
 
                     // Check if HTTP request was processed
-                    if response.contains("HTTP/") || response.contains("200 OK")
-                        || response.contains("Content-Type") {
+                    if response.contains("HTTP/")
+                        || response.contains("200 OK")
+                        || response.contains("Content-Type")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket Protocol Confusion - HTTP Processing",
                             ws_url,
@@ -919,9 +946,13 @@ impl WebSocketScanner {
                     let response = msg.to_text().unwrap_or("");
 
                     // Check for verbose error disclosure
-                    if response.contains("JSON.parse") || response.contains("unexpected token")
-                        || response.contains("SyntaxError") || response.contains("at position")
-                        || response.contains("line ") || response.contains("column ") {
+                    if response.contains("JSON.parse")
+                        || response.contains("unexpected token")
+                        || response.contains("SyntaxError")
+                        || response.contains("at position")
+                        || response.contains("line ")
+                        || response.contains("column ")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket Verbose Error Disclosure",
                             ws_url,
@@ -938,7 +969,10 @@ impl WebSocketScanner {
         }
 
         // Test 3: Binary frames when text expected
-        if let Ok(_) = write.send(Message::Binary(vec![0x00, 0x01, 0x02, 0xFF].into())).await {
+        if let Ok(_) = write
+            .send(Message::Binary(vec![0x00, 0x01, 0x02, 0xFF].into()))
+            .await
+        {
             if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                 let response_str = format!("{:?}", msg);
 
@@ -1234,9 +1268,10 @@ References:
 - OWASP WebSocket Security: https://owasp.org/www-community/vulnerabilities/WebSocket_security
 - WebSocket RFC 6455: https://datatracker.ietf.org/doc/html/rfc6455
 - PortSwigger WebSocket Security: https://portswigger.net/web-security/websockets
-"#.to_string(),
+"#
+            .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }

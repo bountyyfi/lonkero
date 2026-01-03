@@ -30,14 +30,14 @@ impl TomcatMisconfigScanner {
         // Send malformed query parameter to trigger error page
         tests_run += 1;
         let stack_trace_payloads = vec![
-            "?f=\\[",           // Malformed bracket to trigger parse error
-            "?f=%5b",           // URL encoded bracket
-            "?f={{",            // Template syntax
-            "?%00=test",        // Null byte
-            "?test[]=",         // Array syntax
-            "/?<>=",            // XML-like syntax
-            "/..\\..\\",        // Path traversal attempt
-            "/%c0%ae%c0%ae",    // Overlong UTF-8
+            "?f=\\[",        // Malformed bracket to trigger parse error
+            "?f=%5b",        // URL encoded bracket
+            "?f={{",         // Template syntax
+            "?%00=test",     // Null byte
+            "?test[]=",      // Array syntax
+            "/?<>=",         // XML-like syntax
+            "/..\\..\\",     // Path traversal attempt
+            "/%c0%ae%c0%ae", // Overlong UTF-8
         ];
 
         for payload in &stack_trace_payloads {
@@ -49,8 +49,8 @@ impl TomcatMisconfigScanner {
                     // Check for Tomcat stack trace indicators
                     let body_lower = response.body.to_lowercase();
 
-                    let has_tomcat = body_lower.contains("tomcat")
-                        || body_lower.contains("apache tomcat");
+                    let has_tomcat =
+                        body_lower.contains("tomcat") || body_lower.contains("apache tomcat");
                     let has_org_apache = body_lower.contains("org.apache.");
                     let has_java_stack = body_lower.contains("java.lang.")
                         || body_lower.contains("javax.")
@@ -229,11 +229,7 @@ impl TomcatMisconfigScanner {
 
         // Test 4: Version Detection via Error Pages
         tests_run += 1;
-        let version_paths = vec![
-            "/nonexistent_path_12345",
-            "/WEB-INF/",
-            "/META-INF/",
-        ];
+        let version_paths = vec!["/nonexistent_path_12345", "/WEB-INF/", "/META-INF/"];
 
         for path in &version_paths {
             tests_run += 1;
@@ -244,13 +240,18 @@ impl TomcatMisconfigScanner {
                     if response.status_code == 404 || response.status_code == 403 {
                         // Check for version disclosure in error page
                         let version_regex = regex::Regex::new(
-                            r"(?i)(apache\s+tomcat|tomcat)\s*/?\s*(\d+\.\d+(?:\.\d+)?)"
-                        ).ok();
+                            r"(?i)(apache\s+tomcat|tomcat)\s*/?\s*(\d+\.\d+(?:\.\d+)?)",
+                        )
+                        .ok();
 
                         if let Some(re) = version_regex {
                             if let Some(caps) = re.captures(&response.body) {
                                 if let Some(version) = caps.get(2) {
-                                    info!("Tomcat version {} disclosed at {}", version.as_str(), version_url);
+                                    info!(
+                                        "Tomcat version {} disclosed at {}",
+                                        version.as_str(),
+                                        version_url
+                                    );
                                     vulnerabilities.push(self.create_vulnerability(
                                         url,
                                         "TOMCAT_VERSION_DISCLOSURE",
@@ -286,7 +287,9 @@ impl TomcatMisconfigScanner {
         match self.http_client.get(url).await {
             Ok(response) => {
                 // Check for AJP-related headers or info
-                let server_header = response.headers.get("server")
+                let server_header = response
+                    .headers
+                    .get("server")
                     .or_else(|| response.headers.get("Server"));
 
                 if let Some(server) = server_header {
@@ -347,7 +350,7 @@ impl TomcatMisconfigScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -377,7 +380,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> TomcatMisconfigScanner {

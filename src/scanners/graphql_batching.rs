@@ -14,7 +14,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -143,10 +142,7 @@ impl GraphQlBatchingScanner {
         let batch_results = self.test_array_batching(&graphql_endpoint, config).await;
         for result in batch_results {
             if result.accepted && result.batch_size >= 10 {
-                vulnerabilities.push(self.create_batch_dos_vulnerability(
-                    &result,
-                    url,
-                ));
+                vulnerabilities.push(self.create_batch_dos_vulnerability(&result, url));
             }
         }
 
@@ -155,16 +151,16 @@ impl GraphQlBatchingScanner {
         let alias_results = self.test_alias_abuse(&graphql_endpoint, config).await;
         for result in alias_results {
             if result.accepted && result.alias_count >= 50 {
-                vulnerabilities.push(self.create_alias_abuse_vulnerability(
-                    &result,
-                    url,
-                ));
+                vulnerabilities.push(self.create_alias_abuse_vulnerability(&result, url));
             }
         }
 
         // Step 4: Test query complexity via batching
         tests_run += 3;
-        if let Some(vuln) = self.test_complexity_abuse(&graphql_endpoint, url, config).await {
+        if let Some(vuln) = self
+            .test_complexity_abuse(&graphql_endpoint, url, config)
+            .await
+        {
             vulnerabilities.push(vuln);
         }
 
@@ -173,10 +169,7 @@ impl GraphQlBatchingScanner {
         let rate_limit_result = self.test_rate_limit_bypass(&graphql_endpoint, config).await;
         if let Some(result) = rate_limit_result {
             if result.bypass_successful {
-                vulnerabilities.push(self.create_rate_limit_bypass_vulnerability(
-                    &result,
-                    url,
-                ));
+                vulnerabilities.push(self.create_rate_limit_bypass_vulnerability(&result, url));
             }
         }
 
@@ -185,22 +178,25 @@ impl GraphQlBatchingScanner {
         let auth_bypass_result = self.test_auth_bypass(&graphql_endpoint, config).await;
         if let Some(result) = auth_bypass_result {
             if result.partial_execution || result.mixed_auth_allowed {
-                vulnerabilities.push(self.create_auth_bypass_vulnerability(
-                    &result,
-                    url,
-                ));
+                vulnerabilities.push(self.create_auth_bypass_vulnerability(&result, url));
             }
         }
 
         // Step 7: Test fragment spreading via batching
         tests_run += 2;
-        if let Some(vuln) = self.test_fragment_spreading(&graphql_endpoint, url, config).await {
+        if let Some(vuln) = self
+            .test_fragment_spreading(&graphql_endpoint, url, config)
+            .await
+        {
             vulnerabilities.push(vuln);
         }
 
         // Step 8: Test mutation batching
         tests_run += 2;
-        if let Some(vuln) = self.test_mutation_batching(&graphql_endpoint, url, config).await {
+        if let Some(vuln) = self
+            .test_mutation_batching(&graphql_endpoint, url, config)
+            .await
+        {
             vulnerabilities.push(vuln);
         }
 
@@ -239,11 +235,13 @@ impl GraphQlBatchingScanner {
             "query": "query { __typename }"
         });
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(url, &introspection_query.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &introspection_query.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 // Check for GraphQL-like response
                 let body = &response.body;
@@ -299,12 +297,14 @@ impl GraphQlBatchingScanner {
 
         let batch_payload = Value::Array(queries);
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         let start = Instant::now();
-        match self.http_client.post_with_headers(endpoint, &batch_payload.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(endpoint, &batch_payload.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let elapsed = start.elapsed().as_millis() as u64;
                 let body = &response.body;
@@ -338,25 +338,19 @@ impl GraphQlBatchingScanner {
                     error_message,
                 }
             }
-            Err(e) => {
-                BatchTestResult {
-                    endpoint: endpoint.to_string(),
-                    batch_size: count,
-                    accepted: false,
-                    response_time_ms: start.elapsed().as_millis() as u64,
-                    response_count: 0,
-                    error_message: Some(e.to_string()),
-                }
-            }
+            Err(e) => BatchTestResult {
+                endpoint: endpoint.to_string(),
+                batch_size: count,
+                accepted: false,
+                response_time_ms: start.elapsed().as_millis() as u64,
+                response_count: 0,
+                error_message: Some(e.to_string()),
+            },
         }
     }
 
     /// Test alias-based query amplification
-    async fn test_alias_abuse(
-        &self,
-        endpoint: &str,
-        _config: &ScanConfig,
-    ) -> Vec<AliasTestResult> {
+    async fn test_alias_abuse(&self, endpoint: &str, _config: &ScanConfig) -> Vec<AliasTestResult> {
         let mut results = Vec::new();
         let alias_counts = vec![10, 50, 100, 500];
 
@@ -375,25 +369,28 @@ impl GraphQlBatchingScanner {
     /// Send a query with multiple aliases for the same field
     async fn send_aliased_query(&self, endpoint: &str, count: usize) -> AliasTestResult {
         // Build query with many aliases
-        let aliases: Vec<String> = (0..count)
-            .map(|i| format!("a{}: __typename", i))
-            .collect();
+        let aliases: Vec<String> = (0..count).map(|i| format!("a{}: __typename", i)).collect();
 
         let query = format!("query AliasTest {{ {} }}", aliases.join(" "));
         let payload = json!({ "query": query });
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         // Also measure baseline for comparison
         let baseline_start = Instant::now();
         let baseline_query = json!({ "query": "query { __typename }" });
-        let _ = self.http_client.post_with_headers(endpoint, &baseline_query.to_string(), headers.clone()).await;
+        let _ = self
+            .http_client
+            .post_with_headers(endpoint, &baseline_query.to_string(), headers.clone())
+            .await;
         let baseline_time = baseline_start.elapsed().as_millis() as u64;
 
         let start = Instant::now();
-        match self.http_client.post_with_headers(endpoint, &payload.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(endpoint, &payload.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let elapsed = start.elapsed().as_millis() as u64;
                 let body = &response.body;
@@ -411,15 +408,13 @@ impl GraphQlBatchingScanner {
                     multiplier_detected,
                 }
             }
-            Err(_) => {
-                AliasTestResult {
-                    endpoint: endpoint.to_string(),
-                    alias_count: count,
-                    accepted: false,
-                    response_time_ms: start.elapsed().as_millis() as u64,
-                    multiplier_detected: false,
-                }
-            }
+            Err(_) => AliasTestResult {
+                endpoint: endpoint.to_string(),
+                alias_count: count,
+                accepted: false,
+                response_time_ms: start.elapsed().as_millis() as u64,
+                multiplier_detected: false,
+            },
         }
     }
 
@@ -433,7 +428,8 @@ impl GraphQlBatchingScanner {
         // Test deep nesting via batched operations
         let deep_queries: Vec<Value> = (0..10)
             .map(|i| {
-                let nested = "user { posts { author { posts { author { posts { author { id } } } } } } }";
+                let nested =
+                    "user { posts { author { posts { author { posts { author { id } } } } } } }";
                 json!({
                     "query": format!("query Deep{} {{ {} }}", i, nested),
                     "operationName": format!("Deep{}", i)
@@ -443,12 +439,14 @@ impl GraphQlBatchingScanner {
 
         let payload = Value::Array(deep_queries);
 
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         let start = Instant::now();
-        match self.http_client.post_with_headers(endpoint, &payload.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(endpoint, &payload.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let elapsed = start.elapsed();
                 let body = &response.body;
@@ -485,11 +483,13 @@ impl GraphQlBatchingScanner {
         let mut individual_count = 0;
         for _ in 0..5 {
             let query = json!({ "query": "query { __typename }" });
-            let headers = vec![
-                ("Content-Type".to_string(), "application/json".to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-            if let Ok(response) = self.http_client.post_with_headers(endpoint, &query.to_string(), headers).await {
+            if let Ok(response) = self
+                .http_client
+                .post_with_headers(endpoint, &query.to_string(), headers)
+                .await
+            {
                 if response.status_code == 429 {
                     break;
                 }
@@ -504,11 +504,13 @@ impl GraphQlBatchingScanner {
             .collect();
 
         let batch_payload = Value::Array(batch_queries);
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(endpoint, &batch_payload.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(endpoint, &batch_payload.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let body = &response.body;
                 let responses_in_batch = body.matches("__typename").count();
@@ -522,8 +524,8 @@ impl GraphQlBatchingScanner {
                     CountMethod::Unknown
                 };
 
-                let bypass_successful = matches!(counted_as, CountMethod::SingleRequest)
-                    && responses_in_batch >= 50;
+                let bypass_successful =
+                    matches!(counted_as, CountMethod::SingleRequest) && responses_in_batch >= 50;
 
                 Some(RateLimitBypassResult {
                     endpoint: endpoint.to_string(),
@@ -551,18 +553,19 @@ impl GraphQlBatchingScanner {
         ];
 
         let payload = Value::Array(mixed_batch);
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-        match self.http_client.post_with_headers(endpoint, &payload.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(endpoint, &payload.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let body = &response.body;
 
                 // Check if any protected data was returned
-                let has_sensitive = body.contains("password")
-                    || body.contains("email")
-                    || body.contains("admin");
+                let has_sensitive =
+                    body.contains("password") || body.contains("email") || body.contains("admin");
 
                 // Check if some queries succeeded and others failed
                 let has_data = body.contains("\"data\"");
@@ -629,12 +632,14 @@ impl GraphQlBatchingScanner {
             .collect();
 
         let payload = Value::Array(queries);
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         let start = Instant::now();
-        match self.http_client.post_with_headers(endpoint, &payload.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(endpoint, &payload.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let elapsed = start.elapsed();
                 let body = &response.body;
@@ -681,12 +686,14 @@ impl GraphQlBatchingScanner {
             .collect();
 
         let payload = Value::Array(mutations);
-        let headers = vec![
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
         let start = Instant::now();
-        match self.http_client.post_with_headers(endpoint, &payload.to_string(), headers).await {
+        match self
+            .http_client
+            .post_with_headers(endpoint, &payload.to_string(), headers)
+            .await
+        {
             Ok(response) => {
                 let elapsed = start.elapsed();
                 let body = &response.body;
@@ -798,10 +805,12 @@ References:
         }
     }
 
-    fn create_alias_abuse_vulnerability(&self, result: &AliasTestResult, url: &str) -> Vulnerability {
-        let aliases: Vec<String> = (0..10)
-            .map(|i| format!("a{}: __typename", i))
-            .collect();
+    fn create_alias_abuse_vulnerability(
+        &self,
+        result: &AliasTestResult,
+        url: &str,
+    ) -> Vulnerability {
+        let aliases: Vec<String> = (0..10).map(|i| format!("a{}: __typename", i)).collect();
         let poc_query = format!("query {{ {} }}", aliases.join(" "));
 
         Vulnerability {
@@ -966,7 +975,10 @@ References:
             category: "API Security".to_string(),
             url: url.to_string(),
             parameter: Some(result.endpoint.clone()),
-            payload: format!(r#"[{{"query":"query{{__typename}}"}},...] (x{})"#, result.queries_in_batch),
+            payload: format!(
+                r#"[{{"query":"query{{__typename}}"}},...] (x{})"#,
+                result.queries_in_batch
+            ),
             description: format!(
                 "GraphQL endpoint rate limiting can be bypassed using batch queries. \
                 A batch of {} queries was counted as a single request, allowing an attacker \
@@ -1029,9 +1041,10 @@ References:
 
 References:
 - GraphQL Rate Limiting: https://escape.tech/blog/graphql-rate-limiting/
-"#.to_string(),
+"#
+            .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -1259,11 +1272,7 @@ References:
     fn generate_id() -> String {
         use rand::Rng;
         let mut rng = rand::rng();
-        format!(
-            "{:08x}{:08x}",
-            rng.random::<u32>(),
-            rng.random::<u32>()
-        )
+        format!("{:08x}{:08x}", rng.random::<u32>(), rng.random::<u32>())
     }
 }
 

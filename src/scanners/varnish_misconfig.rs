@@ -30,7 +30,7 @@ impl VarnishMisconfigScanner {
         // Send PURGE request to check if cache can be purged without authentication
         tests_run += 1;
         let purge_paths = vec![
-            "",          // Root path
+            "", // Root path
             "/",
             "/index.html",
             "/static/",
@@ -42,7 +42,11 @@ impl VarnishMisconfigScanner {
             tests_run += 1;
             let purge_url = format!("{}{}", url.trim_end_matches('/'), path);
 
-            match self.http_client.request_with_method("PURGE", &purge_url).await {
+            match self
+                .http_client
+                .request_with_method("PURGE", &purge_url)
+                .await
+            {
                 Ok(response) => {
                     let body_lower = response.body.to_lowercase();
 
@@ -54,7 +58,10 @@ impl VarnishMisconfigScanner {
                         || body_lower.contains("'status': 'ok'");
 
                     if (has_purged_title || has_status_ok) && response.status_code == 200 {
-                        info!("Unauthenticated Varnish cache purge detected at {}", purge_url);
+                        info!(
+                            "Unauthenticated Varnish cache purge detected at {}",
+                            purge_url
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             &purge_url,
                             "VARNISH_UNAUTH_CACHE_PURGE",
@@ -63,7 +70,11 @@ impl VarnishMisconfigScanner {
                                 "Cache can be purged without authentication via PURGE method.\n\
                                  URL: {}\nStatus: 200\nEvidence: {}",
                                 purge_url,
-                                if has_purged_title { "<title>200 Purged</title>" } else { "\"status\": \"ok\"" }
+                                if has_purged_title {
+                                    "<title>200 Purged</title>"
+                                } else {
+                                    "\"status\": \"ok\""
+                                }
                             ),
                             Severity::Medium,
                             Confidence::High,
@@ -97,7 +108,10 @@ impl VarnishMisconfigScanner {
                             || body_lower.contains("removed from cache"));
 
                     if is_successful_purge {
-                        info!("Varnish cache purge successful (secondary indicators) at {}", purge_url);
+                        info!(
+                            "Varnish cache purge successful (secondary indicators) at {}",
+                            purge_url
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             &purge_url,
                             "VARNISH_UNAUTH_CACHE_PURGE",
@@ -169,15 +183,21 @@ impl VarnishMisconfigScanner {
                 let mut is_varnish = false;
 
                 // Check for X-Varnish header (this is Varnish-specific)
-                if let Some(x_varnish) = response.headers.get("x-varnish")
-                    .or_else(|| response.headers.get("X-Varnish")) {
+                if let Some(x_varnish) = response
+                    .headers
+                    .get("x-varnish")
+                    .or_else(|| response.headers.get("X-Varnish"))
+                {
                     disclosed_info.push(format!("X-Varnish: {}", x_varnish));
                     is_varnish = true;
                 }
 
                 // Check for Via header (reveals Varnish version)
-                if let Some(via) = response.headers.get("via")
-                    .or_else(|| response.headers.get("Via")) {
+                if let Some(via) = response
+                    .headers
+                    .get("via")
+                    .or_else(|| response.headers.get("Via"))
+                {
                     if via.to_lowercase().contains("varnish") {
                         disclosed_info.push(format!("Via: {}", via));
                         is_varnish = true;
@@ -186,8 +206,11 @@ impl VarnishMisconfigScanner {
 
                 // Check for X-Cache header - but ONLY if it mentions Varnish
                 // CloudFront, Akamai, etc. also use this header
-                if let Some(x_cache) = response.headers.get("x-cache")
-                    .or_else(|| response.headers.get("X-Cache")) {
+                if let Some(x_cache) = response
+                    .headers
+                    .get("x-cache")
+                    .or_else(|| response.headers.get("X-Cache"))
+                {
                     let x_cache_lower = x_cache.to_lowercase();
                     if x_cache_lower.contains("varnish") {
                         disclosed_info.push(format!("X-Cache: {}", x_cache));
@@ -198,8 +221,11 @@ impl VarnishMisconfigScanner {
                 }
 
                 // Check for X-Cache-Hits header (Varnish-specific)
-                if let Some(hits) = response.headers.get("x-cache-hits")
-                    .or_else(|| response.headers.get("X-Cache-Hits")) {
+                if let Some(hits) = response
+                    .headers
+                    .get("x-cache-hits")
+                    .or_else(|| response.headers.get("X-Cache-Hits"))
+                {
                     // X-Cache-Hits is often Varnish-specific
                     disclosed_info.push(format!("X-Cache-Hits: {}", hits));
                     is_varnish = true;
@@ -290,8 +316,11 @@ impl VarnishMisconfigScanner {
         tests_run += 1;
         match self.http_client.request_with_method("OPTIONS", url).await {
             Ok(response) => {
-                if let Some(allow) = response.headers.get("allow")
-                    .or_else(|| response.headers.get("Allow")) {
+                if let Some(allow) = response
+                    .headers
+                    .get("allow")
+                    .or_else(|| response.headers.get("Allow"))
+                {
                     let allow_lower = allow.to_lowercase();
 
                     // Check if dangerous methods are allowed
@@ -367,7 +396,7 @@ impl VarnishMisconfigScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -397,7 +426,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> VarnishMisconfigScanner {

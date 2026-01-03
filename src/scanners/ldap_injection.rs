@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use std::sync::Arc;
 /**
  * Bountyy Oy - LDAP Injection Scanner
  * Tests for LDAP injection vulnerabilities in directory services
@@ -16,12 +20,7 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use tracing::{debug, info};
-use crate::http_client::HttpClient;
-use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use std::sync::Arc;
 
 pub struct LdapInjectionScanner {
     http_client: Arc<HttpClient>,
@@ -41,45 +40,86 @@ impl LdapInjectionScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
-            debug!("[LDAP] Skipping framework/internal parameter: {}", param_name);
+            debug!(
+                "[LDAP] Skipping framework/internal parameter: {}",
+                param_name
+            );
             return Ok((Vec::new(), 0));
         }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("[LDAP] Testing LDAP injection on parameter: {} (priority: {})",
-              param_name,
-              ParameterFilter::get_parameter_priority(param_name));
+        info!(
+            "[LDAP] Testing LDAP injection on parameter: {} (priority: {})",
+            param_name,
+            ParameterFilter::get_parameter_priority(param_name)
+        );
 
         // Test various LDAP injection payloads
         let payload_tests = vec![
             // Authentication bypass
             ("*", "Wildcard authentication bypass", "auth_bypass"),
-            ("*)(uid=*", "LDAP filter injection - uid wildcard", "filter_injection"),
+            (
+                "*)(uid=*",
+                "LDAP filter injection - uid wildcard",
+                "filter_injection",
+            ),
             ("*)(|(uid=*", "LDAP OR filter bypass", "filter_bypass"),
-            ("*)(&", "LDAP AND filter manipulation", "filter_manipulation"),
-            ("*)|(objectclass=*", "Objectclass filter bypass", "objectclass_bypass"),
-
+            (
+                "*)(&",
+                "LDAP AND filter manipulation",
+                "filter_manipulation",
+            ),
+            (
+                "*)|(objectclass=*",
+                "Objectclass filter bypass",
+                "objectclass_bypass",
+            ),
             // Error-based detection
-            ("(cn=admin))", "Unbalanced parentheses - right", "error_based"),
-            ("((cn=admin)", "Unbalanced parentheses - left", "error_based"),
+            (
+                "(cn=admin))",
+                "Unbalanced parentheses - right",
+                "error_based",
+            ),
+            (
+                "((cn=admin)",
+                "Unbalanced parentheses - left",
+                "error_based",
+            ),
             ("(cn=admin", "Missing closing parenthesis", "error_based"),
-
             // Filter manipulation
             ("(cn=*)", "CN wildcard search", "search_filter"),
             ("(uid=*)", "UID wildcard search", "search_filter"),
             ("(objectclass=*)", "Objectclass wildcard", "search_filter"),
-            ("(|(cn=*)(mail=*))", "OR condition injection", "complex_filter"),
-            ("(&(cn=*)(objectclass=*))", "AND condition injection", "complex_filter"),
-
+            (
+                "(|(cn=*)(mail=*))",
+                "OR condition injection",
+                "complex_filter",
+            ),
+            (
+                "(&(cn=*)(objectclass=*))",
+                "AND condition injection",
+                "complex_filter",
+            ),
             // DN injection
             ("cn=admin,dc=example,dc=com", "DN injection", "dn_injection"),
-            ("cn=*,dc=example,dc=com", "DN wildcard injection", "dn_injection"),
-
+            (
+                "cn=*,dc=example,dc=com",
+                "DN wildcard injection",
+                "dn_injection",
+            ),
             // Active Directory specific
-            ("(adminCount=1)", "AD privileged account enumeration", "ad_specific"),
-            ("(userAccountControl:1.2.840.113556.1.4.803:=512)", "AD user account control", "ad_specific"),
+            (
+                "(adminCount=1)",
+                "AD privileged account enumeration",
+                "ad_specific",
+            ),
+            (
+                "(userAccountControl:1.2.840.113556.1.4.803:=512)",
+                "AD user account control",
+                "ad_specific",
+            ),
         ];
 
         for (payload, description, attack_type) in payload_tests {
@@ -204,7 +244,10 @@ impl LdapInjectionScanner {
                         param_name,
                         payload,
                         "Potential authentication bypass via LDAP injection",
-                        &format!("Successful authentication with LDAP payload - found '{}'", pattern),
+                        &format!(
+                            "Successful authentication with LDAP payload - found '{}'",
+                            pattern
+                        ),
                         Confidence::Medium,
                         attack_type,
                     ));
@@ -238,7 +281,10 @@ impl LdapInjectionScanner {
                 param_name,
                 payload,
                 "LDAP directory information disclosure",
-                &format!("Response contains {} LDAP attributes - possible directory enumeration", attribute_count),
+                &format!(
+                    "Response contains {} LDAP attributes - possible directory enumeration",
+                    attribute_count
+                ),
                 Confidence::Medium,
                 attack_type,
             ));
@@ -293,7 +339,7 @@ impl LdapInjectionScanner {
             false_positive: false,
             remediation: self.get_remediation(attack_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -307,7 +353,8 @@ impl LdapInjectionScanner {
                  4. Use LDAP libraries that support prepared statements\n\
                  5. Apply principle of least privilege to LDAP service accounts\n\
                  6. Implement input validation using allowlists\n\
-                 7. Escape special LDAP characters: * ( ) \\ NUL".to_string()
+                 7. Escape special LDAP characters: * ( ) \\ NUL"
+                    .to_string()
             }
             "filter_injection" | "complex_filter" => {
                 "1. Escape special LDAP filter characters: * ( ) \\ NUL\n\
@@ -315,31 +362,29 @@ impl LdapInjectionScanner {
                  3. Validate filter syntax before execution\n\
                  4. Implement strict input validation\n\
                  5. Use allowlists for permitted characters\n\
-                 6. Avoid string concatenation for LDAP filters".to_string()
+                 6. Avoid string concatenation for LDAP filters"
+                    .to_string()
             }
-            "dn_injection" => {
-                "1. Validate DN format and structure\n\
+            "dn_injection" => "1. Validate DN format and structure\n\
                  2. Escape DN special characters: , + \" \\ < > ; = NUL\n\
                  3. Use DN parsing and validation libraries\n\
                  4. Implement proper input sanitization\n\
-                 5. Verify DN components against allowed values".to_string()
-            }
-            "ad_specific" => {
-                "1. Restrict access to Active Directory attributes\n\
+                 5. Verify DN components against allowed values"
+                .to_string(),
+            "ad_specific" => "1. Restrict access to Active Directory attributes\n\
                  2. Implement proper authorization checks\n\
                  3. Use secure LDAP (LDAPS) for all connections\n\
                  4. Monitor for unusual LDAP queries\n\
                  5. Apply security patches to AD infrastructure\n\
-                 6. Limit exposure of sensitive AD attributes".to_string()
-            }
-            _ => {
-                "1. Use parameterized LDAP queries\n\
+                 6. Limit exposure of sensitive AD attributes"
+                .to_string(),
+            _ => "1. Use parameterized LDAP queries\n\
                  2. Sanitize all user input\n\
                  3. Implement proper input validation\n\
                  4. Use prepared statements where available\n\
                  5. Apply principle of least privilege\n\
-                 6. Enable LDAP query logging and monitoring".to_string()
-            }
+                 6. Enable LDAP query logging and monitoring"
+                .to_string(),
         }
     }
 }
@@ -488,7 +533,9 @@ mod tests {
 
         assert!(result.is_some());
         let vuln = result.unwrap();
-        assert!(vuln.description.contains("directory information disclosure"));
+        assert!(vuln
+            .description
+            .contains("directory information disclosure"));
     }
 
     #[test]

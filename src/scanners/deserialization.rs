@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::http_client::HttpClient;
+use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
+use std::sync::Arc;
 /**
  * Bountyy Oy - Deserialization Scanner
  * Tests for insecure deserialization vulnerabilities
@@ -16,12 +20,7 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use tracing::{debug, info};
-use crate::http_client::HttpClient;
-use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
-use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use std::sync::Arc;
 
 pub struct DeserializationScanner {
     http_client: Arc<HttpClient>,
@@ -41,16 +40,21 @@ impl DeserializationScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
-            debug!("[Deser] Skipping framework/internal parameter: {}", param_name);
+            debug!(
+                "[Deser] Skipping framework/internal parameter: {}",
+                param_name
+            );
             return Ok((Vec::new(), 0));
         }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("[Deser] Testing deserialization on parameter: {} (priority: {})",
-              param_name,
-              ParameterFilter::get_parameter_priority(param_name));
+        info!(
+            "[Deser] Testing deserialization on parameter: {} (priority: {})",
+            param_name,
+            ParameterFilter::get_parameter_priority(param_name)
+        );
 
         // Test different serialization formats
         let test_cases = vec![
@@ -65,14 +69,14 @@ impl DeserializationScanner {
                 tests_run += 1;
 
                 // Try both GET and POST
-                if let Ok((vulnerable, evidence)) = self.test_payload(
-                    url,
-                    param_name,
-                    &payload,
-                    language,
-                ).await {
+                if let Ok((vulnerable, evidence)) =
+                    self.test_payload(url, param_name, &payload, language).await
+                {
                     if vulnerable {
-                        info!("Deserialization vulnerability detected: {} - {}", language, &description);
+                        info!(
+                            "Deserialization vulnerability detected: {} - {}",
+                            language, &description
+                        );
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             param_name,
@@ -128,11 +132,8 @@ impl DeserializationScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
-                    let (vulnerable, evidence) = self.analyze_response(
-                        &response.body,
-                        response.status_code,
-                        language,
-                    );
+                    let (vulnerable, evidence) =
+                        self.analyze_response(&response.body, response.status_code, language);
                     Ok((vulnerable, evidence))
                 }
                 Err(e) => {
@@ -142,17 +143,16 @@ impl DeserializationScanner {
             }
         } else {
             // For long payloads, use POST
-            let headers = vec![
-                ("Content-Type".to_string(), content_type.to_string()),
-            ];
+            let headers = vec![("Content-Type".to_string(), content_type.to_string())];
 
-            match self.http_client.post_with_headers(url, payload, headers).await {
+            match self
+                .http_client
+                .post_with_headers(url, payload, headers)
+                .await
+            {
                 Ok(response) => {
-                    let (vulnerable, evidence) = self.analyze_response(
-                        &response.body,
-                        response.status_code,
-                        language,
-                    );
+                    let (vulnerable, evidence) =
+                        self.analyze_response(&response.body, response.status_code, language);
                     Ok((vulnerable, evidence))
                 }
                 Err(e) => {
@@ -182,19 +182,31 @@ impl DeserializationScanner {
     fn get_php_payloads(&self) -> Vec<(String, String)> {
         vec![
             // Basic PHP object
-            ("O:8:\"stdClass\":1:{s:4:\"test\";s:5:\"value\";}".to_string(), "PHP stdClass".to_string()),
-
+            (
+                "O:8:\"stdClass\":1:{s:4:\"test\";s:5:\"value\";}".to_string(),
+                "PHP stdClass".to_string(),
+            ),
             // Magic method triggers
-            ("O:4:\"Test\":1:{s:4:\"data\";s:3:\"pwn\";}".to_string(), "PHP object with data".to_string()),
-
+            (
+                "O:4:\"Test\":1:{s:4:\"data\";s:3:\"pwn\";}".to_string(),
+                "PHP object with data".to_string(),
+            ),
             // Array serialization
-            ("a:2:{i:0;s:4:\"test\";i:1;s:5:\"value\";}".to_string(), "PHP array".to_string()),
-
+            (
+                "a:2:{i:0;s:4:\"test\";i:1;s:5:\"value\";}".to_string(),
+                "PHP array".to_string(),
+            ),
             // Property access
-            ("O:8:\"stdClass\":2:{s:4:\"name\";s:5:\"admin\";s:4:\"role\";s:5:\"admin\";}".to_string(), "PHP admin object".to_string()),
-
+            (
+                "O:8:\"stdClass\":2:{s:4:\"name\";s:5:\"admin\";s:4:\"role\";s:5:\"admin\";}"
+                    .to_string(),
+                "PHP admin object".to_string(),
+            ),
             // Null byte injection
-            ("O:4:\"Test\":1:{s:5:\"test\\0\";s:5:\"value\";}".to_string(), "PHP null byte".to_string()),
+            (
+                "O:4:\"Test\":1:{s:5:\"test\\0\";s:5:\"value\";}".to_string(),
+                "PHP null byte".to_string(),
+            ),
         ]
     }
 
@@ -202,12 +214,23 @@ impl DeserializationScanner {
     fn get_python_payloads(&self) -> Vec<(String, String)> {
         vec![
             // Pickle protocol markers
-            ("\\x80\\x03}q\\x00.".to_string(), "Python pickle v3".to_string()),
-            ("cos\nsystem\n(S'id'\ntR.".to_string(), "Python RCE via os.system".to_string()),
-            ("c__builtin__\neval\n(S'__import__(\"os\").system(\"id\")'\ntR.".to_string(), "Python eval RCE".to_string()),
-
+            (
+                "\\x80\\x03}q\\x00.".to_string(),
+                "Python pickle v3".to_string(),
+            ),
+            (
+                "cos\nsystem\n(S'id'\ntR.".to_string(),
+                "Python RCE via os.system".to_string(),
+            ),
+            (
+                "c__builtin__\neval\n(S'__import__(\"os\").system(\"id\")'\ntR.".to_string(),
+                "Python eval RCE".to_string(),
+            ),
             // Detection payload
-            ("(dp0\nS'test'\np1\nS'value'\np2\ns.".to_string(), "Python pickle dict".to_string()),
+            (
+                "(dp0\nS'test'\np1\nS'value'\np2\ns.".to_string(),
+                "Python pickle dict".to_string(),
+            ),
         ]
     }
 
@@ -215,23 +238,25 @@ impl DeserializationScanner {
     fn get_dotnet_payloads(&self) -> Vec<(String, String)> {
         vec![
             // .NET BinaryFormatter header
-            ("AAEAAAD/////".to_string(), ".NET BinaryFormatter".to_string()),
-
+            (
+                "AAEAAAD/////".to_string(),
+                ".NET BinaryFormatter".to_string(),
+            ),
             // XML serialization
-            ("<ObjectDataProvider>".to_string(), ".NET ObjectDataProvider".to_string()),
-
+            (
+                "<ObjectDataProvider>".to_string(),
+                ".NET ObjectDataProvider".to_string(),
+            ),
             // ViewState
-            ("/wEPDwUKMTIzNDU2Nzg5MA9k".to_string(), ".NET ViewState".to_string()),
+            (
+                "/wEPDwUKMTIzNDU2Nzg5MA9k".to_string(),
+                ".NET ViewState".to_string(),
+            ),
         ]
     }
 
     /// Analyze response for deserialization indicators
-    fn analyze_response(
-        &self,
-        body: &str,
-        status_code: u16,
-        language: &str,
-    ) -> (bool, String) {
+    fn analyze_response(&self, body: &str, status_code: u16, language: &str) -> (bool, String) {
         match language {
             "java" => {
                 let indicators = vec![
@@ -249,7 +274,10 @@ impl DeserializationScanner {
 
                 for indicator in indicators {
                     if body.contains(indicator) {
-                        return (true, format!("Java deserialization detected: {}", indicator));
+                        return (
+                            true,
+                            format!("Java deserialization detected: {}", indicator),
+                        );
                     }
                 }
             }
@@ -258,7 +286,10 @@ impl DeserializationScanner {
                 // Check for O:NUM:" pattern (PHP object serialization) first
                 if let Ok(regex) = regex::Regex::new(r"O:\d+:") {
                     if regex.is_match(body) {
-                        return (true, "PHP object serialization pattern detected".to_string());
+                        return (
+                            true,
+                            "PHP object serialization pattern detected".to_string(),
+                        );
                     }
                 }
 
@@ -266,7 +297,7 @@ impl DeserializationScanner {
                     "unserialize()",
                     "__wakeup",
                     "__destruct",
-                    "a:",  // Array marker
+                    "a:", // Array marker
                     "PHP Notice",
                     "PHP Warning",
                     "Class '",
@@ -294,7 +325,10 @@ impl DeserializationScanner {
 
                 for indicator in indicators {
                     if body.contains(indicator) {
-                        return (true, format!("Python deserialization detected: {}", indicator));
+                        return (
+                            true,
+                            format!("Python deserialization detected: {}", indicator),
+                        );
                     }
                 }
             }
@@ -310,7 +344,10 @@ impl DeserializationScanner {
 
                 for indicator in indicators {
                     if body.contains(indicator) {
-                        return (true, format!(".NET deserialization detected: {}", indicator));
+                        return (
+                            true,
+                            format!(".NET deserialization detected: {}", indicator),
+                        );
                     }
                 }
             }
@@ -320,22 +357,27 @@ impl DeserializationScanner {
 
         // Check for command execution indicators
         let cmd_indicators = vec![
-            "uid=", "gid=",  // Unix id command
-            "root:x:0:0",  // passwd file
-            "Administrator",  // Windows
+            "uid=",
+            "gid=",          // Unix id command
+            "root:x:0:0",    // passwd file
+            "Administrator", // Windows
             "NT AUTHORITY",
         ];
 
         for indicator in cmd_indicators {
             if body.contains(indicator) {
-                return (true, format!("Code execution via deserialization: {}", indicator));
+                return (
+                    true,
+                    format!("Code execution via deserialization: {}", indicator),
+                );
             }
         }
 
         // Check for error-based indicators
         if status_code == 500 || status_code == 501 {
-            if body.to_lowercase().contains("deserializ") ||
-               body.to_lowercase().contains("unserializ") {
+            if body.to_lowercase().contains("deserializ")
+                || body.to_lowercase().contains("unserializ")
+            {
                 return (true, "Deserialization error detected".to_string());
             }
         }
@@ -389,11 +431,11 @@ impl DeserializationScanner {
                     "php" => "Disable unserialize(), use json_decode()",
                     "python" => "Use json module instead of pickle, implement __reduce_ex__",
                     "dotnet" => "Avoid BinaryFormatter, use secure alternatives",
-                    _ => "Use secure serialization formats"
+                    _ => "Use secure serialization formats",
                 }
             ),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -423,7 +465,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> DeserializationScanner {

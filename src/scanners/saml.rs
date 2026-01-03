@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -175,9 +174,7 @@ impl SamlScanner {
         }
 
         // Check for weak signature algorithms
-        if body.contains("http://www.w3.org/2000/09/xmldsig#rsa-sha1")
-            || body.contains("SHA1")
-        {
+        if body.contains("http://www.w3.org/2000/09/xmldsig#rsa-sha1") || body.contains("SHA1") {
             vulnerabilities.push(self.create_vulnerability(
                 "SAML Weak Signature Algorithm",
                 url,
@@ -257,9 +254,17 @@ impl SamlScanner {
 </saml:Assertion>"#;
 
         let test_url = if url.contains('?') {
-            format!("{}&SAMLResponse={}", url, urlencoding::encode(comment_payload))
+            format!(
+                "{}&SAMLResponse={}",
+                url,
+                urlencoding::encode(comment_payload)
+            )
         } else {
-            format!("{}?SAMLResponse={}", url, urlencoding::encode(comment_payload))
+            format!(
+                "{}?SAMLResponse={}",
+                url,
+                urlencoding::encode(comment_payload)
+            )
         };
 
         self.http_client.get(&test_url).await
@@ -274,7 +279,8 @@ impl SamlScanner {
     ) {
         // If the response suggests the injected comment was processed
         if response.status_code == 200
-            && (response.body.contains("attacker@evil.com") || response.body.contains("authenticated"))
+            && (response.body.contains("attacker@evil.com")
+                || response.body.contains("authenticated"))
         {
             vulnerabilities.push(self.create_vulnerability(
                 "SAML Comment Injection",
@@ -387,9 +393,17 @@ impl SamlScanner {
 </samlp:Response>"#;
 
         let test_url = if url.contains('?') {
-            format!("{}&SAMLResponse={}", url, urlencoding::encode(substitution_payload))
+            format!(
+                "{}&SAMLResponse={}",
+                url,
+                urlencoding::encode(substitution_payload)
+            )
         } else {
-            format!("{}?SAMLResponse={}", url, urlencoding::encode(substitution_payload))
+            format!(
+                "{}?SAMLResponse={}",
+                url,
+                urlencoding::encode(substitution_payload)
+            )
         };
 
         self.http_client.get(&test_url).await
@@ -694,7 +708,11 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_signature_validation(&response, "https://sp.example.com/saml/acs", &mut vulns);
+        scanner.check_signature_validation(
+            &response,
+            "https://sp.example.com/saml/acs",
+            &mut vulns,
+        );
 
         assert!(vulns.len() > 0, "Should detect missing signature");
         assert_eq!(vulns[0].severity, Severity::Critical);
@@ -706,13 +724,18 @@ mod tests {
 
         let response = crate::http_client::HttpResponse {
             status_code: 200,
-            body: r#"<ds:SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>"#.to_string(),
+            body: r#"<ds:SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>"#
+                .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
 
         let mut vulns = Vec::new();
-        scanner.check_signature_validation(&response, "https://sp.example.com/saml/acs", &mut vulns);
+        scanner.check_signature_validation(
+            &response,
+            "https://sp.example.com/saml/acs",
+            &mut vulns,
+        );
 
         assert_eq!(vulns.len(), 1, "Should detect weak SHA1 algorithm");
         assert_eq!(vulns[0].severity, Severity::Medium);

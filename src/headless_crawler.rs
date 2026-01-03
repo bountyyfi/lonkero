@@ -65,9 +65,8 @@ static VUE_AUTH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
 });
 
 static VUE_ROLE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(
-        r#"path:\s*["']([^"']+)["'][^}]*require(?:Any)?Role[s]?:\s*\[([^\]]+)\]"#
-    ).expect("Invalid VUE_ROLE_REGEX pattern")
+    regex::Regex::new(r#"path:\s*["']([^"']+)["'][^}]*require(?:Any)?Role[s]?:\s*\[([^\]]+)\]"#)
+        .expect("Invalid VUE_ROLE_REGEX pattern")
 });
 
 static VUE_PATH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
@@ -83,65 +82,67 @@ static REACT_ROUTE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
 
 static REACT_PROTECTED_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
     regex::Regex::new(
-        r#"path:\s*["']([^"']+)["'][^}]*(?:protected|requireAuth|private):\s*(!0|true)"#
-    ).expect("Invalid REACT_PROTECTED_REGEX pattern")
+        r#"path:\s*["']([^"']+)["'][^}]*(?:protected|requireAuth|private):\s*(!0|true)"#,
+    )
+    .expect("Invalid REACT_PROTECTED_REGEX pattern")
 });
 
 static REACT_BROWSER_ROUTER_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(
-        r#"createBrowserRouter\s*\(\s*\[[^\]]*path:\s*["']([^"']+)["']"#
-    ).expect("Invalid REACT_BROWSER_ROUTER_REGEX pattern")
+    regex::Regex::new(r#"createBrowserRouter\s*\(\s*\[[^\]]*path:\s*["']([^"']+)["']"#)
+        .expect("Invalid REACT_BROWSER_ROUTER_REGEX pattern")
 });
 
 // Angular Router patterns
 static ANGULAR_GUARD_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(
-        r#"path:\s*["']([^"']+)["'][^}]*canActivate:\s*\[([^\]]+)\]"#
-    ).expect("Invalid ANGULAR_GUARD_REGEX pattern")
+    regex::Regex::new(r#"path:\s*["']([^"']+)["'][^}]*canActivate:\s*\[([^\]]+)\]"#)
+        .expect("Invalid ANGULAR_GUARD_REGEX pattern")
 });
 
 static ANGULAR_ROUTER_MODULE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(
-        r#"RouterModule\.for(?:Root|Child)\s*\(\s*\[[^\]]*path:\s*["']([^"']+)["']"#
-    ).expect("Invalid ANGULAR_ROUTER_MODULE_REGEX pattern")
+    regex::Regex::new(r#"RouterModule\.for(?:Root|Child)\s*\(\s*\[[^\]]*path:\s*["']([^"']+)["']"#)
+        .expect("Invalid ANGULAR_ROUTER_MODULE_REGEX pattern")
 });
 
 // Next.js/Nuxt patterns
 static NEXTJS_PAGES_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(
-        r#"(?:pages|routes)\s*:\s*\[[^\]]*(?:route|path|href):\s*["']([^"']+)["']"#
-    ).expect("Invalid NEXTJS_PAGES_REGEX pattern")
+    regex::Regex::new(r#"(?:pages|routes)\s*:\s*\[[^\]]*(?:route|path|href):\s*["']([^"']+)["']"#)
+        .expect("Invalid NEXTJS_PAGES_REGEX pattern")
 });
 
 static NUXT_PATH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r#"(?:path|route):\s*["']([/][^"']+)["']"#).expect("Invalid NUXT_PATH_REGEX pattern")
+    regex::Regex::new(r#"(?:path|route):\s*["']([/][^"']+)["']"#)
+        .expect("Invalid NUXT_PATH_REGEX pattern")
 });
 
 // Generic route patterns
 static GENERIC_NAVIGATE_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r#"navigate\s*\(\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_NAVIGATE_REGEX pattern")
+    regex::Regex::new(r#"navigate\s*\(\s*["']([/][a-zA-Z0-9_\-/]+)["']"#)
+        .expect("Invalid GENERIC_NAVIGATE_REGEX pattern")
 });
 
 static GENERIC_PUSH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r#"(?:push|replace)\s*\(\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_PUSH_REGEX pattern")
+    regex::Regex::new(r#"(?:push|replace)\s*\(\s*["']([/][a-zA-Z0-9_\-/]+)["']"#)
+        .expect("Invalid GENERIC_PUSH_REGEX pattern")
 });
 
 static GENERIC_TO_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r#"to:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_TO_REGEX pattern")
+    regex::Regex::new(r#"to:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#)
+        .expect("Invalid GENERIC_TO_REGEX pattern")
 });
 
 static GENERIC_HREF_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r#"href:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_HREF_REGEX pattern")
+    regex::Regex::new(r#"href:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#)
+        .expect("Invalid GENERIC_HREF_REGEX pattern")
 });
 
 static GENERIC_REDIRECT_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r#"redirect:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#).expect("Invalid GENERIC_REDIRECT_REGEX pattern")
+    regex::Regex::new(r#"redirect:\s*["']([/][a-zA-Z0-9_\-/]+)["']"#)
+        .expect("Invalid GENERIC_REDIRECT_REGEX pattern")
 });
 
 // Route validation regex
-static LOCALE_PATH_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r"^/[a-z]{2}$").expect("Invalid LOCALE_PATH_REGEX pattern")
-});
+static LOCALE_PATH_REGEX: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"^/[a-z]{2}$").expect("Invalid LOCALE_PATH_REGEX pattern"));
 
 /// Maximum number of requests to capture (prevents unbounded memory growth)
 const MAX_CAPTURED_REQUESTS: usize = 500;
@@ -170,9 +171,15 @@ impl NetworkTracker {
 
     fn request_finished(&self) {
         // Use fetch_update to atomically decrement only if > 0 (prevents underflow)
-        let _ = self.pending_requests.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
-            if x > 0 { Some(x - 1) } else { Some(0) }
-        });
+        let _ = self
+            .pending_requests
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+                if x > 0 {
+                    Some(x - 1)
+                } else {
+                    Some(0)
+                }
+            });
         if let Ok(mut last) = self.last_activity.lock() {
             *last = Instant::now();
         }
@@ -320,7 +327,10 @@ impl SessionState {
     /// Reset auth failure count after successful request
     pub fn reset_auth_failures(&mut self) {
         if self.auth_failure_count > 0 {
-            debug!("[Session] Reset auth failures (was {})", self.auth_failure_count);
+            debug!(
+                "[Session] Reset auth failures (was {})",
+                self.auth_failure_count
+            );
             self.auth_failure_count = 0;
         }
     }
@@ -379,7 +389,11 @@ impl HeadlessCrawler {
     }
 
     /// Create crawler with full configuration
-    pub fn with_config(timeout_secs: u64, token: Option<String>, config: HeadlessCrawlerConfig) -> Self {
+    pub fn with_config(
+        timeout_secs: u64,
+        token: Option<String>,
+        config: HeadlessCrawlerConfig,
+    ) -> Self {
         let session_state = if let Some(ref t) = token {
             SessionState::with_token(t.clone())
         } else {
@@ -396,7 +410,11 @@ impl HeadlessCrawler {
     }
 
     /// Create crawler with session state for token refresh support
-    pub fn with_session(timeout_secs: u64, session: SessionState, config: HeadlessCrawlerConfig) -> Self {
+    pub fn with_session(
+        timeout_secs: u64,
+        session: SessionState,
+        config: HeadlessCrawlerConfig,
+    ) -> Self {
         Self {
             timeout: Duration::from_secs(timeout_secs),
             auth_token: session.token.clone(),
@@ -408,7 +426,11 @@ impl HeadlessCrawler {
 
     /// Create crawler with custom HTTP headers (e.g., Authorization, Cookie)
     /// Headers will be injected into all browser requests via Chrome DevTools Protocol
-    pub fn with_headers(timeout_secs: u64, token: Option<String>, headers: HashMap<String, String>) -> Self {
+    pub fn with_headers(
+        timeout_secs: u64,
+        token: Option<String>,
+        headers: HashMap<String, String>,
+    ) -> Self {
         let session_state = if let Some(ref t) = token {
             SessionState::with_token(t.clone())
         } else {
@@ -459,9 +481,13 @@ impl HeadlessCrawler {
     /// Returns the new access token if successful
     pub async fn refresh_token(&self, refresh_endpoint: &str) -> Result<String> {
         let refresh_token = {
-            let session = self.session_state.lock()
+            let session = self
+                .session_state
+                .lock()
                 .map_err(|_| anyhow::anyhow!("Failed to lock session state"))?;
-            session.refresh_token.clone()
+            session
+                .refresh_token
+                .clone()
                 .ok_or_else(|| anyhow::anyhow!("No refresh token available"))?
         };
 
@@ -486,13 +512,17 @@ impl HeadlessCrawler {
     }
 
     /// Synchronous token refresh
-    fn refresh_token_sync(endpoint: &str, refresh_token: &str, timeout: Duration) -> Result<TokenRefreshResult> {
+    fn refresh_token_sync(
+        endpoint: &str,
+        refresh_token: &str,
+        timeout: Duration,
+    ) -> Result<TokenRefreshResult> {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch browser for token refresh")?;
 
@@ -500,14 +530,19 @@ impl HeadlessCrawler {
 
         // Parse base URL from endpoint
         let base_url = url::Url::parse(endpoint).context("Invalid refresh endpoint")?;
-        let origin = format!("{}://{}", base_url.scheme(), base_url.host_str().unwrap_or(""));
+        let origin = format!(
+            "{}://{}",
+            base_url.scheme(),
+            base_url.host_str().unwrap_or("")
+        );
 
         // Navigate to origin first to set up context
         tab.navigate_to(&origin).context("Failed to navigate")?;
         tab.wait_until_navigated().context("Navigation timeout")?;
 
         // Perform token refresh via fetch
-        let js_refresh = format!(r#"
+        let js_refresh = format!(
+            r#"
             (async function() {{
                 try {{
                     const response = await fetch('{}', {{
@@ -534,33 +569,40 @@ impl HeadlessCrawler {
                     return JSON.stringify({{ error: e.message }});
                 }}
             }})()
-        "#, endpoint, refresh_token);
+        "#,
+            endpoint, refresh_token
+        );
 
         std::thread::sleep(Duration::from_millis(500));
 
-        let result = tab.evaluate(&js_refresh, true)
+        let result = tab
+            .evaluate(&js_refresh, true)
             .context("Failed to execute refresh request")?;
 
-        let json_str = result.value
+        let json_str = result
+            .value
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .ok_or_else(|| anyhow::anyhow!("No response from refresh request"))?;
 
-        let parsed: serde_json::Value = serde_json::from_str(&json_str)
-            .context("Failed to parse refresh response")?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json_str).context("Failed to parse refresh response")?;
 
         if let Some(error) = parsed.get("error").and_then(|v| v.as_str()) {
             return Err(anyhow::anyhow!("Token refresh failed: {}", error));
         }
 
-        let access_token = parsed.get("access_token")
+        let access_token = parsed
+            .get("access_token")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("No access_token in refresh response"))?
             .to_string();
 
-        let expires_in = parsed.get("expires_in")
-            .and_then(|v| v.as_u64());
+        let expires_in = parsed.get("expires_in").and_then(|v| v.as_u64());
 
-        Ok(TokenRefreshResult { access_token, expires_in })
+        Ok(TokenRefreshResult {
+            access_token,
+            expires_in,
+        })
     }
 
     /// Record an auth failure (call when getting 401/403)
@@ -594,9 +636,9 @@ impl HeadlessCrawler {
 
         if let Ok(session) = self.session_state.lock() {
             // Only attempt refresh if we have a refresh token and haven't exceeded attempts
-            session.refresh_token.is_some() &&
-            session.auth_failure_count > 0 &&
-            session.auth_failure_count <= self.config.max_session_refresh_attempts
+            session.refresh_token.is_some()
+                && session.auth_failure_count > 0
+                && session.auth_failure_count <= self.config.max_session_refresh_attempts
         } else {
             false
         }
@@ -622,14 +664,18 @@ impl HeadlessCrawler {
     }
 
     /// Synchronous form extraction (runs in blocking thread)
-    fn extract_forms_sync(url: &str, timeout: Duration, auth_token: Option<&str>) -> Result<Vec<DiscoveredForm>> {
+    fn extract_forms_sync(
+        url: &str,
+        timeout: Duration,
+        auth_token: Option<&str>,
+    ) -> Result<Vec<DiscoveredForm>> {
         // Launch browser
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch options error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch options error: {}", e))?,
         )
         .context("Failed to launch Chrome/Chromium")?;
 
@@ -641,19 +687,20 @@ impl HeadlessCrawler {
             info!("[Headless] Injecting authentication token into browser session");
 
             // Navigate to the URL first to set up the origin
-            tab.navigate_to(url)
-                .context("Failed to navigate to URL")?;
-            tab.wait_until_navigated()
-                .context("Navigation timeout")?;
+            tab.navigate_to(url).context("Failed to navigate to URL")?;
+            tab.wait_until_navigated().context("Navigation timeout")?;
 
             // Inject token into localStorage (common pattern for SPAs)
             let escaped_token = js_escape(token);
-            let js_inject_token = format!(r#"
+            let js_inject_token = format!(
+                r#"
                 localStorage.setItem('token', {});
                 localStorage.setItem('accessToken', {});
                 localStorage.setItem('auth_token', {});
                 localStorage.setItem('jwt', {});
-            "#, escaped_token, escaped_token, escaped_token, escaped_token);
+            "#,
+                escaped_token, escaped_token, escaped_token, escaped_token
+            );
             let _ = tab.evaluate(&js_inject_token, false);
 
             // Reload the page to apply authentication
@@ -662,10 +709,8 @@ impl HeadlessCrawler {
             tab.wait_until_navigated()
                 .context("Navigation timeout after auth")?;
         } else {
-            tab.navigate_to(url)
-                .context("Failed to navigate to URL")?;
-            tab.wait_until_navigated()
-                .context("Navigation timeout")?;
+            tab.navigate_to(url).context("Failed to navigate to URL")?;
+            tab.wait_until_navigated().context("Navigation timeout")?;
         }
 
         // Additional wait for JS to render
@@ -777,7 +822,8 @@ impl HeadlessCrawler {
             })()
         "#;
 
-        let result = tab.evaluate(js_extract, true)
+        let result = tab
+            .evaluate(js_extract, true)
             .context("Failed to execute JavaScript")?;
 
         let mut forms = Vec::new();
@@ -799,7 +845,8 @@ impl HeadlessCrawler {
                             .to_uppercase();
 
                         let mut inputs = Vec::new();
-                        if let Some(inputs_arr) = form_obj.get("inputs").and_then(|v| v.as_array()) {
+                        if let Some(inputs_arr) = form_obj.get("inputs").and_then(|v| v.as_array())
+                        {
                             for input_obj in inputs_arr {
                                 let name = input_obj
                                     .get("name")
@@ -852,13 +899,14 @@ impl HeadlessCrawler {
                                 && Self::is_language_selector(&inputs[0]);
 
                             // Skip forms with only a single select (likely nav/filter elements)
-                            let is_single_select = inputs.len() == 1 && inputs[0].input_type == "select";
+                            let is_single_select =
+                                inputs.len() == 1 && inputs[0].input_type == "select";
 
                             // Skip forms with auto-generated names like "input_1", "select_field_0"
                             let has_only_generated_names = inputs.iter().all(|i| {
-                                i.name.starts_with("input_") ||
-                                i.name.starts_with("select_") ||
-                                i.name.contains("_field_")
+                                i.name.starts_with("input_")
+                                    || i.name.starts_with("select_")
+                                    || i.name.contains("_field_")
                             });
 
                             if is_language_selector {
@@ -866,7 +914,11 @@ impl HeadlessCrawler {
                             } else if is_single_select && has_only_generated_names {
                                 debug!("[Headless] Skipping standalone select without proper name at {}", action);
                             } else {
-                                debug!("[Headless] Form at {} with {} inputs", action, inputs.len());
+                                debug!(
+                                    "[Headless] Form at {} with {} inputs",
+                                    action,
+                                    inputs.len()
+                                );
                                 forms.push(DiscoveredForm {
                                     action,
                                     method,
@@ -886,12 +938,10 @@ impl HeadlessCrawler {
     /// Check if headless browser is available
     pub async fn is_available() -> bool {
         tokio::task::spawn_blocking(|| {
-            let options = match LaunchOptions::default_builder()
-                .headless(true)
-                .build() {
-                    Ok(o) => o,
-                    Err(_) => return false,
-                };
+            let options = match LaunchOptions::default_builder().headless(true).build() {
+                Ok(o) => o,
+                Err(_) => return false,
+            };
             Browser::new(options).is_ok()
         })
         .await
@@ -900,7 +950,11 @@ impl HeadlessCrawler {
 
     /// Detect multi-stage forms by filling and submitting forms
     /// Returns (initial_forms, follow_up_forms) - follow_up_forms appear after submission
-    pub async fn detect_multi_stage_forms(&self, url: &str, form_values: &[(String, String)]) -> Result<Vec<DiscoveredForm>> {
+    pub async fn detect_multi_stage_forms(
+        &self,
+        url: &str,
+        form_values: &[(String, String)],
+    ) -> Result<Vec<DiscoveredForm>> {
         info!("[Headless] Detecting multi-stage forms at: {}", url);
 
         let url_owned = url.to_string();
@@ -913,7 +967,10 @@ impl HeadlessCrawler {
         .await
         .context("Multi-stage detection task panicked")??;
 
-        info!("[Headless] Multi-stage detection found {} follow-up forms", forms.len());
+        info!(
+            "[Headless] Multi-stage detection found {} follow-up forms",
+            forms.len()
+        );
         Ok(forms)
     }
 
@@ -935,21 +992,28 @@ impl HeadlessCrawler {
         .context("CSRF token extraction task panicked")??;
 
         if let Some(ref info) = token_info {
-            info!("[CSRF] Extracted token '{}' from field '{}'",
-                &info.value[..info.value.len().min(20)], info.field_name);
+            info!(
+                "[CSRF] Extracted token '{}' from field '{}'",
+                &info.value[..info.value.len().min(20)],
+                info.field_name
+            );
         }
 
         Ok(token_info)
     }
 
     /// Synchronous CSRF token extraction
-    fn extract_csrf_token_sync(url: &str, timeout: Duration, auth_token: Option<&str>) -> Result<Option<CsrfTokenInfo>> {
+    fn extract_csrf_token_sync(
+        url: &str,
+        timeout: Duration,
+        auth_token: Option<&str>,
+    ) -> Result<Option<CsrfTokenInfo>> {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch Chrome/Chromium")?;
 
@@ -961,11 +1025,14 @@ impl HeadlessCrawler {
             tab.wait_until_navigated().context("Navigation timeout")?;
 
             let escaped_token = js_escape(token);
-            let js_inject = format!(r#"
+            let js_inject = format!(
+                r#"
                 localStorage.setItem('token', {});
                 localStorage.setItem('accessToken', {});
                 sessionStorage.setItem('token', {});
-            "#, escaped_token, escaped_token, escaped_token);
+            "#,
+                escaped_token, escaped_token, escaped_token
+            );
             let _ = tab.evaluate(&js_inject, false);
 
             tab.reload(true, None)?;
@@ -1064,13 +1131,14 @@ impl HeadlessCrawler {
             })()
         "#;
 
-        let result = tab.evaluate(js_extract, true)
+        let result = tab
+            .evaluate(js_extract, true)
             .context("Failed to extract CSRF token")?;
 
         if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
             if json_str != "null" {
-                let info: CsrfTokenInfo = serde_json::from_str(&json_str)
-                    .context("Failed to parse CSRF token info")?;
+                let info: CsrfTokenInfo =
+                    serde_json::from_str(&json_str).context("Failed to parse CSRF token info")?;
                 return Ok(Some(info));
             }
         }
@@ -1080,7 +1148,11 @@ impl HeadlessCrawler {
 
     /// Refresh CSRF token by re-fetching the page
     /// Use this before each form submission in multi-step flows
-    pub async fn refresh_csrf_token(&self, url: &str, current_token: Option<&str>) -> Result<Option<CsrfTokenInfo>> {
+    pub async fn refresh_csrf_token(
+        &self,
+        url: &str,
+        current_token: Option<&str>,
+    ) -> Result<Option<CsrfTokenInfo>> {
         info!("[CSRF] Refreshing token for {}", url);
 
         let new_token = self.extract_csrf_token(url).await?;
@@ -1111,7 +1183,9 @@ impl HeadlessCrawler {
         let mut values = form_values.to_vec();
         if let Some(ref token) = csrf_token {
             // Remove any existing CSRF field and add the fresh one
-            values.retain(|(k, _)| !k.to_lowercase().contains("csrf") && !k.to_lowercase().contains("token"));
+            values.retain(|(k, _)| {
+                !k.to_lowercase().contains("csrf") && !k.to_lowercase().contains("token")
+            });
             values.push((token.field_name.clone(), token.value.clone()));
         }
 
@@ -1121,7 +1195,13 @@ impl HeadlessCrawler {
         let auth_token = self.auth_token.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            Self::submit_form_sync(&url_owned, &action_owned, &values, timeout, auth_token.as_deref())
+            Self::submit_form_sync(
+                &url_owned,
+                &action_owned,
+                &values,
+                timeout,
+                auth_token.as_deref(),
+            )
         })
         .await
         .context("Form submission task panicked")??;
@@ -1142,7 +1222,7 @@ impl HeadlessCrawler {
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch Chrome/Chromium")?;
 
@@ -1154,10 +1234,13 @@ impl HeadlessCrawler {
 
         if let Some(token) = auth_token {
             let escaped_token = js_escape(token);
-            let js_inject = format!(r#"
+            let js_inject = format!(
+                r#"
                 localStorage.setItem('token', {});
                 localStorage.setItem('accessToken', {});
-            "#, escaped_token, escaped_token);
+            "#,
+                escaped_token, escaped_token
+            );
             let _ = tab.evaluate(&js_inject, false);
             tab.reload(true, None)?;
             tab.wait_until_navigated()?;
@@ -1186,15 +1269,16 @@ impl HeadlessCrawler {
                     return false;
                 }})()
                 "#,
-                escaped_name,
-                escaped_value
+                escaped_name, escaped_value
             );
             let _ = tab.evaluate(&js_fill, true);
         }
 
         // Submit the form
-        let escaped_action = serde_json::to_string(form_action).unwrap_or_else(|_| "\"\"".to_string());
-        let js_submit = format!(r#"
+        let escaped_action =
+            serde_json::to_string(form_action).unwrap_or_else(|_| "\"\"".to_string());
+        let js_submit = format!(
+            r#"
             (function() {{
                 // Try to find form by action
                 const action = {};
@@ -1212,17 +1296,21 @@ impl HeadlessCrawler {
                 }}
                 return 'no_form';
             }})()
-        "#, escaped_action);
+        "#,
+            escaped_action
+        );
 
         let submit_result = tab.evaluate(&js_submit, true)?;
-        let submit_status = submit_result.value
+        let submit_status = submit_result
+            .value
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "unknown".to_string());
 
         std::thread::sleep(Duration::from_secs(3));
 
         // Get final URL after submission
-        let final_url = tab.evaluate("window.location.href", false)
+        let final_url = tab
+            .evaluate("window.location.href", false)
             .ok()
             .and_then(|r| r.value)
             .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -1252,13 +1340,17 @@ impl HeadlessCrawler {
     }
 
     /// Synchronous multi-stage form detection
-    fn detect_multi_stage_sync(url: &str, form_values: &[(String, String)], timeout: Duration) -> Result<Vec<DiscoveredForm>> {
+    fn detect_multi_stage_sync(
+        url: &str,
+        form_values: &[(String, String)],
+        timeout: Duration,
+    ) -> Result<Vec<DiscoveredForm>> {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch Chrome/Chromium")?;
 
@@ -1286,8 +1378,7 @@ impl HeadlessCrawler {
                     return false;
                 }})()
                 "#,
-                escaped_name,
-                escaped_value
+                escaped_name, escaped_value
             );
             let _ = tab.evaluate(&js_fill, true);
         }
@@ -1309,7 +1400,9 @@ impl HeadlessCrawler {
             })()
         "#;
 
-        let result = tab.evaluate(js_submit, true).context("Failed to submit form")?;
+        let result = tab
+            .evaluate(js_submit, true)
+            .context("Failed to submit form")?;
         debug!("[Headless] Form submit result: {:?}", result.value);
 
         // Wait for page to update after submission
@@ -1322,7 +1415,10 @@ impl HeadlessCrawler {
     }
 
     /// Extract forms from an existing tab
-    fn extract_forms_from_tab(tab: &headless_chrome::Tab, original_url: &str) -> Result<Vec<DiscoveredForm>> {
+    fn extract_forms_from_tab(
+        tab: &headless_chrome::Tab,
+        original_url: &str,
+    ) -> Result<Vec<DiscoveredForm>> {
         // Comprehensive form extraction - handles Vue/Vuetify, React, Angular, and traditional forms
         let js_extract = r#"
             (function() {
@@ -1498,42 +1594,51 @@ impl HeadlessCrawler {
             })()
         "#;
 
-        let result = tab.evaluate(js_extract, true).context("Failed to extract forms")?;
+        let result = tab
+            .evaluate(js_extract, true)
+            .context("Failed to extract forms")?;
         let mut forms = Vec::new();
 
         if let Some(json_str) = result.value {
             if let Some(s) = json_str.as_str() {
                 if let Ok(form_data) = serde_json::from_str::<Vec<serde_json::Value>>(s) {
                     for form_obj in form_data {
-                        let action = form_obj.get("action")
+                        let action = form_obj
+                            .get("action")
                             .and_then(|v| v.as_str())
                             .unwrap_or(original_url)
                             .to_string();
 
-                        let method = form_obj.get("method")
+                        let method = form_obj
+                            .get("method")
                             .and_then(|v| v.as_str())
                             .unwrap_or("POST")
                             .to_uppercase();
 
                         let mut inputs = Vec::new();
-                        if let Some(inputs_arr) = form_obj.get("inputs").and_then(|v| v.as_array()) {
+                        if let Some(inputs_arr) = form_obj.get("inputs").and_then(|v| v.as_array())
+                        {
                             for input_obj in inputs_arr {
-                                let name = input_obj.get("name")
+                                let name = input_obj
+                                    .get("name")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
 
                                 if !name.is_empty() {
-                                    let input_type = input_obj.get("type")
+                                    let input_type = input_obj
+                                        .get("type")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("text")
                                         .to_string();
 
-                                    let value = input_obj.get("value")
+                                    let value = input_obj
+                                        .get("value")
                                         .and_then(|v| v.as_str())
                                         .map(|s| s.to_string());
 
-                                    let options = input_obj.get("options")
+                                    let options = input_obj
+                                        .get("options")
                                         .and_then(|v| v.as_array())
                                         .map(|arr| {
                                             arr.iter()
@@ -1541,7 +1646,8 @@ impl HeadlessCrawler {
                                                 .collect()
                                         });
 
-                                    let required = input_obj.get("required")
+                                    let required = input_obj
+                                        .get("required")
                                         .and_then(|v| v.as_bool())
                                         .unwrap_or(false);
 
@@ -1563,13 +1669,14 @@ impl HeadlessCrawler {
                                 && Self::is_language_selector(&inputs[0]);
 
                             // Skip forms with only a single select (likely nav/filter elements)
-                            let is_single_select = inputs.len() == 1 && inputs[0].input_type == "select";
+                            let is_single_select =
+                                inputs.len() == 1 && inputs[0].input_type == "select";
 
                             // Skip forms with auto-generated names like "input_1", "select_field_0"
                             let has_only_generated_names = inputs.iter().all(|i| {
-                                i.name.starts_with("input_") ||
-                                i.name.starts_with("select_") ||
-                                i.name.contains("_field_")
+                                i.name.starts_with("input_")
+                                    || i.name.starts_with("select_")
+                                    || i.name.contains("_field_")
                             });
 
                             if is_language_selector {
@@ -1577,7 +1684,11 @@ impl HeadlessCrawler {
                             } else if is_single_select && has_only_generated_names {
                                 debug!("[Headless] Skipping standalone select without proper name at {}", action);
                             } else {
-                                debug!("[Headless] Form at {} with {} inputs", action, inputs.len());
+                                debug!(
+                                    "[Headless] Form at {} with {} inputs",
+                                    action,
+                                    inputs.len()
+                                );
                                 forms.push(DiscoveredForm {
                                     action,
                                     method,
@@ -1600,54 +1711,76 @@ impl HeadlessCrawler {
 
         // Check name patterns - require word boundaries to avoid false positives
         let lang_name_patterns = [
-            "lang", "language", "locale", "i18n", "l10n",
-            "country", "region", "culture", "lng", "idioma",
-            "sprache", "langue", "kieli",
+            "lang", "language", "locale", "i18n", "l10n", "country", "region", "culture", "lng",
+            "idioma", "sprache", "langue", "kieli",
         ];
 
         // Require exact match or word boundary match (with _ or -)
         let has_lang_name = lang_name_patterns.iter().any(|p| {
-            name_lower == *p ||
-            name_lower.starts_with(&format!("{}_", p)) ||
-            name_lower.starts_with(&format!("{}-", p)) ||
-            name_lower.ends_with(&format!("_{}", p)) ||
-            name_lower.ends_with(&format!("-{}", p)) ||
-            name_lower.contains(&format!("_{}_", p)) ||
-            name_lower.contains(&format!("-{}-", p))
+            name_lower == *p
+                || name_lower.starts_with(&format!("{}_", p))
+                || name_lower.starts_with(&format!("{}-", p))
+                || name_lower.ends_with(&format!("_{}", p))
+                || name_lower.ends_with(&format!("-{}", p))
+                || name_lower.contains(&format!("_{}_", p))
+                || name_lower.contains(&format!("-{}-", p))
         });
 
         // Check if options look like language codes or names
         let has_lang_options = if let Some(options) = &input.options {
             // Exact language codes (2-3 chars)
             let lang_codes = [
-                "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ru", "zh", "ja", "ko",
-                "da", "no", "pl", "cs", "hu", "ro", "bg", "el", "tr", "ar", "he", "th", "vi",
+                "en", "fi", "sv", "de", "fr", "es", "it", "nl", "pt", "ru", "zh", "ja", "ko", "da",
+                "no", "pl", "cs", "hu", "ro", "bg", "el", "tr", "ar", "he", "th", "vi",
             ];
             // Full language names
             let lang_names = [
-                "english", "finnish", "swedish", "german", "french", "spanish", "suomi",
-                "svenska", "deutsch", "français", "español", "italiano", "português",
-                "russian", "chinese", "japanese", "korean", "dutch", "polish",
+                "english",
+                "finnish",
+                "swedish",
+                "german",
+                "french",
+                "spanish",
+                "suomi",
+                "svenska",
+                "deutsch",
+                "français",
+                "español",
+                "italiano",
+                "português",
+                "russian",
+                "chinese",
+                "japanese",
+                "korean",
+                "dutch",
+                "polish",
             ];
 
-            let code_matches = options.iter().filter(|opt| {
-                let opt_lower = opt.to_lowercase().trim().to_string();
-                // Exact match for codes, or code with region (en-US, en_GB)
-                lang_codes.iter().any(|c| {
-                    opt_lower == *c ||
-                    opt_lower.starts_with(&format!("{}-", c)) ||
-                    opt_lower.starts_with(&format!("{}_", c))
+            let code_matches = options
+                .iter()
+                .filter(|opt| {
+                    let opt_lower = opt.to_lowercase().trim().to_string();
+                    // Exact match for codes, or code with region (en-US, en_GB)
+                    lang_codes.iter().any(|c| {
+                        opt_lower == *c
+                            || opt_lower.starts_with(&format!("{}-", c))
+                            || opt_lower.starts_with(&format!("{}_", c))
+                    })
                 })
-            }).count();
+                .count();
 
-            let name_matches = options.iter().filter(|opt| {
-                let opt_lower = opt.to_lowercase();
-                lang_names.iter().any(|n| opt_lower == *n)
-            }).count();
+            let name_matches = options
+                .iter()
+                .filter(|opt| {
+                    let opt_lower = opt.to_lowercase();
+                    lang_names.iter().any(|n| opt_lower == *n)
+                })
+                .count();
 
             // If more than half of options are language codes/names, it's a language selector
             let total_options = options.len();
-            total_options > 0 && (code_matches * 2 >= total_options || name_matches * 2 >= total_options)
+            total_options > 0
+                && (code_matches * 2 >= total_options || name_matches * 2 >= total_options)
         } else {
             false
         };
@@ -1659,7 +1792,10 @@ impl HeadlessCrawler {
     /// This is crucial for React/Next.js apps where forms don't have HTML action attributes
     /// but instead use fetch/axios to POST to API routes
     pub async fn discover_form_endpoints(&self, url: &str) -> Result<Vec<DiscoveredEndpoint>> {
-        info!("[Headless] Discovering form endpoints via network interception: {}", url);
+        info!(
+            "[Headless] Discovering form endpoints via network interception: {}",
+            url
+        );
 
         let url_owned = url.to_string();
         let timeout = self.timeout;
@@ -1667,12 +1803,20 @@ impl HeadlessCrawler {
         let custom_headers = self.custom_headers.clone();
 
         let endpoints = tokio::task::spawn_blocking(move || {
-            Self::discover_endpoints_sync(&url_owned, timeout, auth_token.as_deref(), &custom_headers)
+            Self::discover_endpoints_sync(
+                &url_owned,
+                timeout,
+                auth_token.as_deref(),
+                &custom_headers,
+            )
         })
         .await
         .context("Form endpoint discovery task panicked")??;
 
-        info!("[Headless] Discovered {} potential form endpoints", endpoints.len());
+        info!(
+            "[Headless] Discovered {} potential form endpoints",
+            endpoints.len()
+        );
         Ok(endpoints)
     }
 
@@ -1688,7 +1832,7 @@ impl HeadlessCrawler {
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch Chrome/Chromium")?;
 
@@ -1699,17 +1843,22 @@ impl HeadlessCrawler {
             info!("[Headless] Setting up authenticated session for endpoint discovery");
 
             // Navigate first to set origin
-            tab.navigate_to(url).context("Failed to navigate for auth setup")?;
-            tab.wait_until_navigated().context("Auth setup navigation timeout")?;
+            tab.navigate_to(url)
+                .context("Failed to navigate for auth setup")?;
+            tab.wait_until_navigated()
+                .context("Auth setup navigation timeout")?;
 
             // Inject token into localStorage
             let escaped_token = js_escape(token);
-            let js_inject_token = format!(r#"
+            let js_inject_token = format!(
+                r#"
                 localStorage.setItem('token', {});
                 localStorage.setItem('accessToken', {});
                 localStorage.setItem('auth_token', {});
                 localStorage.setItem('jwt', {});
-            "#, escaped_token, escaped_token, escaped_token, escaped_token);
+            "#,
+                escaped_token, escaped_token, escaped_token, escaped_token
+            );
             let _ = tab.evaluate(&js_inject_token, false);
         }
 
@@ -1729,13 +1878,11 @@ impl HeadlessCrawler {
         let headers_clone = Arc::clone(&headers_for_interception);
 
         // Enable network interception - intercept all POST/PUT requests
-        let patterns = vec![
-            RequestPattern {
-                url_pattern: Some("*".to_string()),
-                resource_Type: None,
-                request_stage: Some(RequestStage::Request),
-            },
-        ];
+        let patterns = vec![RequestPattern {
+            url_pattern: Some("*".to_string()),
+            resource_Type: None,
+            request_stage: Some(RequestStage::Request),
+        }];
 
         tab.enable_fetch(Some(&patterns), None)
             .context("Failed to enable fetch interception")?;
@@ -1744,7 +1891,11 @@ impl HeadlessCrawler {
         tab.enable_request_interception(Arc::new(
             move |_transport, _session_id, intercepted: RequestPausedEvent| {
                 let request = &intercepted.params.request;
-                let method = if request.method.is_empty() { "GET" } else { &request.method };
+                let method = if request.method.is_empty() {
+                    "GET"
+                } else {
+                    &request.method
+                };
 
                 // Only capture POST/PUT/PATCH requests (form submissions)
                 if method == "POST" || method == "PUT" || method == "PATCH" {
@@ -1758,8 +1909,13 @@ impl HeadlessCrawler {
                             url,
                             method: method.to_string(),
                             post_data,
-                            content_type: request.headers.0.as_ref()
-                                .and_then(|h| h.get("Content-Type").or_else(|| h.get("content-type")))
+                            content_type: request
+                                .headers
+                                .0
+                                .as_ref()
+                                .and_then(|h| {
+                                    h.get("Content-Type").or_else(|| h.get("content-type"))
+                                })
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string()),
                         });
@@ -1867,7 +2023,10 @@ impl HeadlessCrawler {
         "#;
 
         let submit_result = tab.evaluate(js_submit, true);
-        debug!("[Headless] Submit result: {:?}", submit_result.ok().and_then(|r| r.value));
+        debug!(
+            "[Headless] Submit result: {:?}",
+            submit_result.ok().and_then(|r| r.value)
+        );
 
         // Wait for any async requests to complete
         std::thread::sleep(Duration::from_secs(3));
@@ -1876,19 +2035,21 @@ impl HeadlessCrawler {
         let _ = tab.disable_fetch();
 
         // Get captured requests
-        let endpoints = captured_requests.lock()
+        let endpoints = captured_requests
+            .lock()
             .map(|captured| {
-                captured.iter()
+                captured
+                    .iter()
                     .filter(|req| {
                         // Filter to only include likely form submission endpoints
                         let url_lower = req.url.to_lowercase();
                         // Exclude tracking/analytics
-                        !url_lower.contains("analytics") &&
-                        !url_lower.contains("tracking") &&
-                        !url_lower.contains("pixel") &&
-                        !url_lower.contains("gtag") &&
-                        !url_lower.contains("facebook.com") &&
-                        !url_lower.contains("google-analytics")
+                        !url_lower.contains("analytics")
+                            && !url_lower.contains("tracking")
+                            && !url_lower.contains("pixel")
+                            && !url_lower.contains("gtag")
+                            && !url_lower.contains("facebook.com")
+                            && !url_lower.contains("google-analytics")
                     })
                     .map(|req| DiscoveredEndpoint {
                         url: req.url.clone(),
@@ -1923,7 +2084,10 @@ impl HeadlessCrawler {
         // Poll for idle state
         loop {
             if start.elapsed() > timeout {
-                debug!("[HeadlessCrawler] Network idle timeout reached after {:?}", start.elapsed());
+                debug!(
+                    "[HeadlessCrawler] Network idle timeout reached after {:?}",
+                    start.elapsed()
+                );
                 break;
             }
 
@@ -1931,7 +2095,11 @@ impl HeadlessCrawler {
             let idle_time = tracker.time_since_last_activity();
 
             if pending == 0 && idle_time >= idle_threshold {
-                debug!("[HeadlessCrawler] Network idle after {:?} (no activity for {:?})", start.elapsed(), idle_time);
+                debug!(
+                    "[HeadlessCrawler] Network idle after {:?} (no activity for {:?})",
+                    start.elapsed(),
+                    idle_time
+                );
                 break;
             }
 
@@ -1987,7 +2155,10 @@ impl HeadlessCrawler {
         current_depth: usize,
     ) -> Result<usize> {
         if current_depth >= config.max_click_depth {
-            debug!("[HeadlessCrawler] Max click depth {} reached, stopping", config.max_click_depth);
+            debug!(
+                "[HeadlessCrawler] Max click depth {} reached, stopping",
+                config.max_click_depth
+            );
             return Ok(0);
         }
 
@@ -2043,7 +2214,10 @@ impl HeadlessCrawler {
             if let Ok(result) = tab.evaluate(&js, false) {
                 if let Some(count) = result.value.and_then(|v| v.as_i64()) {
                     if count > 0 {
-                        debug!("[HeadlessCrawler] Clicked {} elements matching {} (depth {})", count, selector, current_depth);
+                        debug!(
+                            "[HeadlessCrawler] Clicked {} elements matching {} (depth {})",
+                            count, selector, current_depth
+                        );
                         total_clicks += count as usize;
 
                         // Brief pause for content to appear
@@ -2139,7 +2313,11 @@ pub struct FormAutoFill;
 impl FormAutoFill {
     /// Generate a smart test value based on field name and type
     /// This mimics Burp Suite's smart form filling capability
-    pub fn generate_value(field_name: &str, field_type: &str, options: Option<&[String]>) -> String {
+    pub fn generate_value(
+        field_name: &str,
+        field_type: &str,
+        options: Option<&[String]>,
+    ) -> String {
         let name_lower = field_name.to_lowercase();
         let type_lower = field_type.to_lowercase();
 
@@ -2148,7 +2326,8 @@ impl FormAutoFill {
             if let Some(opts) = options {
                 if !opts.is_empty() {
                     // Return first non-empty option
-                    return opts.iter()
+                    return opts
+                        .iter()
                         .find(|o| !o.is_empty())
                         .cloned()
                         .unwrap_or_else(|| opts[0].clone());
@@ -2158,53 +2337,87 @@ impl FormAutoFill {
         }
 
         // Email fields
-        if type_lower == "email" || name_lower.contains("email") || name_lower.contains("e-mail")
-            || name_lower.contains("sähköposti") || name_lower.contains("correo") {
+        if type_lower == "email"
+            || name_lower.contains("email")
+            || name_lower.contains("e-mail")
+            || name_lower.contains("sähköposti")
+            || name_lower.contains("correo")
+        {
             return "test@example.com".to_string();
         }
 
         // Phone fields
-        if type_lower == "tel" || name_lower.contains("phone") || name_lower.contains("mobile")
-            || name_lower.contains("puhelin") || name_lower.contains("telephone")
-            || name_lower.contains("telefono") || name_lower.contains("cel") {
+        if type_lower == "tel"
+            || name_lower.contains("phone")
+            || name_lower.contains("mobile")
+            || name_lower.contains("puhelin")
+            || name_lower.contains("telephone")
+            || name_lower.contains("telefono")
+            || name_lower.contains("cel")
+        {
             return "+1234567890".to_string();
         }
 
         // Name fields
-        if name_lower.contains("first") && name_lower.contains("name") || name_lower == "firstname"
-            || name_lower.contains("etunimi") || name_lower.contains("nombre") {
+        if name_lower.contains("first") && name_lower.contains("name")
+            || name_lower == "firstname"
+            || name_lower.contains("etunimi")
+            || name_lower.contains("nombre")
+        {
             return "John".to_string();
         }
-        if name_lower.contains("last") && name_lower.contains("name") || name_lower == "lastname"
-            || name_lower.contains("sukunimi") || name_lower.contains("apellido") {
+        if name_lower.contains("last") && name_lower.contains("name")
+            || name_lower == "lastname"
+            || name_lower.contains("sukunimi")
+            || name_lower.contains("apellido")
+        {
             return "Doe".to_string();
         }
-        if name_lower == "name" || name_lower.contains("fullname") || name_lower.contains("full_name")
-            || name_lower == "nimi" || name_lower.contains("nombre_completo") {
+        if name_lower == "name"
+            || name_lower.contains("fullname")
+            || name_lower.contains("full_name")
+            || name_lower == "nimi"
+            || name_lower.contains("nombre_completo")
+        {
             return "John Doe".to_string();
         }
 
         // Username fields
-        if name_lower.contains("username") || name_lower.contains("user_name")
-            || name_lower.contains("käyttäjänimi") || name_lower.contains("usuario") {
+        if name_lower.contains("username")
+            || name_lower.contains("user_name")
+            || name_lower.contains("käyttäjänimi")
+            || name_lower.contains("usuario")
+        {
             return "testuser123".to_string();
         }
 
         // Password fields
-        if type_lower == "password" || name_lower.contains("password") || name_lower.contains("passwd")
-            || name_lower.contains("salasana") || name_lower.contains("contraseña") {
+        if type_lower == "password"
+            || name_lower.contains("password")
+            || name_lower.contains("passwd")
+            || name_lower.contains("salasana")
+            || name_lower.contains("contraseña")
+        {
             return "TestP@ss123!".to_string();
         }
 
         // URL fields
-        if type_lower == "url" || name_lower.contains("url") || name_lower.contains("website")
-            || name_lower.contains("homepage") || name_lower.contains("link") {
+        if type_lower == "url"
+            || name_lower.contains("url")
+            || name_lower.contains("website")
+            || name_lower.contains("homepage")
+            || name_lower.contains("link")
+        {
             return "https://example.com".to_string();
         }
 
         // Date fields
-        if type_lower == "date" || name_lower.contains("date") || name_lower.contains("birth")
-            || name_lower.contains("syntymä") || name_lower.contains("fecha") {
+        if type_lower == "date"
+            || name_lower.contains("date")
+            || name_lower.contains("birth")
+            || name_lower.contains("syntymä")
+            || name_lower.contains("fecha")
+        {
             return "1990-01-15".to_string();
         }
 
@@ -2219,8 +2432,12 @@ impl FormAutoFill {
         }
 
         // Number/quantity fields
-        if type_lower == "number" || name_lower.contains("quantity") || name_lower.contains("amount")
-            || name_lower.contains("count") || name_lower.contains("määrä") {
+        if type_lower == "number"
+            || name_lower.contains("quantity")
+            || name_lower.contains("amount")
+            || name_lower.contains("count")
+            || name_lower.contains("määrä")
+        {
             return "1".to_string();
         }
 
@@ -2230,50 +2447,82 @@ impl FormAutoFill {
         }
 
         // Zipcode/postal code fields
-        if name_lower.contains("zip") || name_lower.contains("postal") || name_lower.contains("postinumero")
-            || name_lower.contains("código_postal") || name_lower.contains("plz") {
+        if name_lower.contains("zip")
+            || name_lower.contains("postal")
+            || name_lower.contains("postinumero")
+            || name_lower.contains("código_postal")
+            || name_lower.contains("plz")
+        {
             return "12345".to_string();
         }
 
         // City fields
-        if name_lower.contains("city") || name_lower.contains("kaupunki") || name_lower.contains("ciudad")
-            || name_lower.contains("stadt") || name_lower.contains("ville") {
+        if name_lower.contains("city")
+            || name_lower.contains("kaupunki")
+            || name_lower.contains("ciudad")
+            || name_lower.contains("stadt")
+            || name_lower.contains("ville")
+        {
             return "Helsinki".to_string();
         }
 
         // Country fields
-        if name_lower.contains("country") || name_lower.contains("maa") || name_lower.contains("país")
-            || name_lower.contains("land") || name_lower.contains("pays") {
+        if name_lower.contains("country")
+            || name_lower.contains("maa")
+            || name_lower.contains("país")
+            || name_lower.contains("land")
+            || name_lower.contains("pays")
+        {
             return "Finland".to_string();
         }
 
         // Address fields
-        if name_lower.contains("address") || name_lower.contains("osoite") || name_lower.contains("dirección")
-            || name_lower.contains("street") || name_lower.contains("katu") {
+        if name_lower.contains("address")
+            || name_lower.contains("osoite")
+            || name_lower.contains("dirección")
+            || name_lower.contains("street")
+            || name_lower.contains("katu")
+        {
             return "123 Test Street".to_string();
         }
 
         // Company fields
-        if name_lower.contains("company") || name_lower.contains("organization") || name_lower.contains("yritys")
-            || name_lower.contains("empresa") || name_lower.contains("firma") {
+        if name_lower.contains("company")
+            || name_lower.contains("organization")
+            || name_lower.contains("yritys")
+            || name_lower.contains("empresa")
+            || name_lower.contains("firma")
+        {
             return "Test Company Oy".to_string();
         }
 
         // Title fields
-        if name_lower.contains("title") || name_lower.contains("otsikko") || name_lower.contains("título") {
+        if name_lower.contains("title")
+            || name_lower.contains("otsikko")
+            || name_lower.contains("título")
+        {
             return "Test Title".to_string();
         }
 
         // Subject fields
-        if name_lower.contains("subject") || name_lower.contains("aihe") || name_lower.contains("asunto") {
+        if name_lower.contains("subject")
+            || name_lower.contains("aihe")
+            || name_lower.contains("asunto")
+        {
             return "Test Subject".to_string();
         }
 
         // Message/comment/description fields
-        if type_lower == "textarea" || name_lower.contains("message") || name_lower.contains("comment")
-            || name_lower.contains("description") || name_lower.contains("viesti")
-            || name_lower.contains("kuvaus") || name_lower.contains("mensaje")
-            || name_lower.contains("feedback") || name_lower.contains("palaute") {
+        if type_lower == "textarea"
+            || name_lower.contains("message")
+            || name_lower.contains("comment")
+            || name_lower.contains("description")
+            || name_lower.contains("viesti")
+            || name_lower.contains("kuvaus")
+            || name_lower.contains("mensaje")
+            || name_lower.contains("feedback")
+            || name_lower.contains("palaute")
+        {
             return "This is a test message for form validation.".to_string();
         }
 
@@ -2284,12 +2533,17 @@ impl FormAutoFill {
 
         // Credit card number (use obvious test value)
         if name_lower.contains("card") && name_lower.contains("number")
-            || name_lower.contains("credit") || name_lower.contains("cc_num") {
+            || name_lower.contains("credit")
+            || name_lower.contains("cc_num")
+        {
             return "4111111111111111".to_string(); // Standard test card
         }
 
         // CVV/CVC
-        if name_lower.contains("cvv") || name_lower.contains("cvc") || name_lower.contains("security_code") {
+        if name_lower.contains("cvv")
+            || name_lower.contains("cvc")
+            || name_lower.contains("security_code")
+        {
             return "123".to_string();
         }
 
@@ -2305,14 +2559,20 @@ impl FormAutoFill {
         }
 
         // SSN/personal ID (use obvious fake)
-        if name_lower.contains("ssn") || name_lower.contains("social_security")
-            || name_lower.contains("henkilötunnus") {
+        if name_lower.contains("ssn")
+            || name_lower.contains("social_security")
+            || name_lower.contains("henkilötunnus")
+        {
             return "123-45-6789".to_string();
         }
 
         // Search fields
-        if type_lower == "search" || name_lower.contains("search") || name_lower.contains("query")
-            || name_lower.contains("q") || name_lower.contains("haku") {
+        if type_lower == "search"
+            || name_lower.contains("search")
+            || name_lower.contains("query")
+            || name_lower.contains("q")
+            || name_lower.contains("haku")
+        {
             return "test search".to_string();
         }
 
@@ -2322,8 +2582,12 @@ impl FormAutoFill {
         }
 
         // ID/reference fields
-        if name_lower.contains("id") && (name_lower.contains("user") || name_lower.contains("ref")
-            || name_lower.contains("customer") || name_lower.contains("order")) {
+        if name_lower.contains("id")
+            && (name_lower.contains("user")
+                || name_lower.contains("ref")
+                || name_lower.contains("customer")
+                || name_lower.contains("order"))
+        {
             return "123".to_string();
         }
 
@@ -2348,7 +2612,8 @@ impl FormAutoFill {
 
     /// Generate test values for all form inputs
     pub fn fill_form(inputs: &[crate::crawler::FormInput]) -> Vec<(String, String)> {
-        inputs.iter()
+        inputs
+            .iter()
             .filter(|input| !input.name.is_empty())
             .filter(|input| input.input_type.to_lowercase() != "hidden") // Don't override hidden fields
             .filter(|input| input.input_type.to_lowercase() != "submit") // Skip submit buttons
@@ -2357,7 +2622,7 @@ impl FormAutoFill {
                 let value = Self::generate_value(
                     &input.name,
                     &input.input_type,
-                    options.as_ref().map(|v| v.as_slice())
+                    options.as_ref().map(|v| v.as_slice()),
                 );
                 (input.name.clone(), value)
             })
@@ -2369,7 +2634,8 @@ impl FormAutoFill {
         inputs: &[crate::crawler::FormInput],
         overrides: &HashMap<String, String>,
     ) -> Vec<(String, String)> {
-        inputs.iter()
+        inputs
+            .iter()
             .filter(|input| !input.name.is_empty())
             .filter(|input| input.input_type.to_lowercase() != "hidden")
             .filter(|input| input.input_type.to_lowercase() != "submit")
@@ -2382,7 +2648,7 @@ impl FormAutoFill {
                     Self::generate_value(
                         &input.name,
                         &input.input_type,
-                        options.as_ref().map(|v| v.as_slice())
+                        options.as_ref().map(|v| v.as_slice()),
                     )
                 };
                 (input.name.clone(), value)
@@ -2394,11 +2660,18 @@ impl FormAutoFill {
     /// Useful for detecting if form was auto-filled
     pub fn is_test_value(value: &str) -> bool {
         let v = value.to_lowercase();
-        v.contains("test") || v.contains("example") || v.contains("dummy")
-            || v == "john" || v == "doe" || v == "john doe"
-            || v == "testuser" || v == "testuser123"
-            || v.contains("@example.com") || v.contains("@test.com")
-            || v == "123 test street" || v == "test company"
+        v.contains("test")
+            || v.contains("example")
+            || v.contains("dummy")
+            || v == "john"
+            || v == "doe"
+            || v == "john doe"
+            || v == "testuser"
+            || v == "testuser123"
+            || v.contains("@example.com")
+            || v.contains("@test.com")
+            || v == "123 test street"
+            || v == "test company"
             || v == "4111111111111111" // Test card
     }
 }
@@ -2549,8 +2822,15 @@ pub struct LoginResult {
 impl HeadlessCrawler {
     /// Crawl entire authenticated site - discover all pages, forms, and API endpoints
     /// This is the main entry point for comprehensive site scanning
-    pub async fn crawl_authenticated_site(&self, start_url: &str, max_pages: usize) -> Result<SiteCrawlResults> {
-        info!("[Headless] Starting full authenticated site crawl: {}", start_url);
+    pub async fn crawl_authenticated_site(
+        &self,
+        start_url: &str,
+        max_pages: usize,
+    ) -> Result<SiteCrawlResults> {
+        info!(
+            "[Headless] Starting full authenticated site crawl: {}",
+            start_url
+        );
 
         let url_owned = start_url.to_string();
         let timeout = self.timeout;
@@ -2558,7 +2838,13 @@ impl HeadlessCrawler {
         let custom_headers = self.custom_headers.clone();
 
         let results = tokio::task::spawn_blocking(move || {
-            Self::crawl_site_sync(&url_owned, timeout, auth_token.as_deref(), max_pages, &custom_headers)
+            Self::crawl_site_sync(
+                &url_owned,
+                timeout,
+                auth_token.as_deref(),
+                max_pages,
+                &custom_headers,
+            )
         })
         .await
         .context("Site crawl task panicked")??;
@@ -2657,7 +2943,10 @@ impl HeadlessCrawler {
         let headers_clone = Arc::clone(&headers_for_interception);
 
         if !custom_headers.is_empty() {
-            info!("[Headless] Injecting {} custom headers into all requests", custom_headers.len());
+            info!(
+                "[Headless] Injecting {} custom headers into all requests",
+                custom_headers.len()
+            );
             for (k, _) in custom_headers {
                 debug!("[Headless] Will inject header: {}", k);
             }
@@ -2702,13 +2991,12 @@ impl HeadlessCrawler {
                 let is_data_method = method != "GET";
 
                 // For GET requests, check if they look like API calls by extension/path
-                let is_api_get = method == "GET" && (
-                    is_api_path
-                    || url_lower.ends_with(".json")
-                    || url_lower.ends_with(".xml")
-                    || url_lower.contains("?format=json")
-                    || url_lower.contains("&format=json")
-                );
+                let is_api_get = method == "GET"
+                    && (is_api_path
+                        || url_lower.ends_with(".json")
+                        || url_lower.ends_with(".xml")
+                        || url_lower.contains("?format=json")
+                        || url_lower.contains("&format=json"));
 
                 // Capture if it's an API path, data-modifying method, or API-like GET
                 let is_api_request = is_api_path || is_data_method || is_api_get;
@@ -2727,7 +3015,9 @@ impl HeadlessCrawler {
                     if should_capture {
                         if let Ok(mut captured) = captured_clone.lock() {
                             // Avoid duplicates and limit total captures
-                            let exists = captured.iter().any(|r| r.url == request.url && r.method == method);
+                            let exists = captured
+                                .iter()
+                                .any(|r| r.url == request.url && r.method == method);
                             if !exists && captured.len() < MAX_CAPTURED_REQUESTS {
                                 debug!("[Headless] Captured API: {} {}", method, request.url);
                                 captured.push(CapturedRequest {
@@ -2768,8 +3058,7 @@ impl HeadlessCrawler {
         // Navigate to start URL and inject auth token
         tab.navigate_to(start_url)
             .context("Failed to navigate to start URL")?;
-        tab.wait_until_navigated()
-            .context("Navigation timeout")?;
+        tab.wait_until_navigated().context("Navigation timeout")?;
 
         if let Some(token) = auth_token {
             info!("[Headless] Injecting authentication token");
@@ -2783,12 +3072,18 @@ impl HeadlessCrawler {
                 sessionStorage.setItem('token', {});
                 sessionStorage.setItem('accessToken', {});
             "#,
-                escaped_token, escaped_token, escaped_token, escaped_token, escaped_token, escaped_token
+                escaped_token,
+                escaped_token,
+                escaped_token,
+                escaped_token,
+                escaped_token,
+                escaped_token
             );
             let _ = tab.evaluate(&js_inject_token, false);
 
             // Reload to apply auth
-            tab.reload(true, None).context("Failed to reload with auth")?;
+            tab.reload(true, None)
+                .context("Failed to reload with auth")?;
             tab.wait_until_navigated()
                 .context("Navigation timeout after auth")?;
         }
@@ -2832,7 +3127,10 @@ impl HeadlessCrawler {
             if let Ok(actual_url) = tab.evaluate("window.location.href", false) {
                 if let Some(actual_url_str) = actual_url.value.as_ref().and_then(|v| v.as_str()) {
                     if actual_url_str != current_url && !visited.contains(actual_url_str) {
-                        info!("[Headless] Detected redirect: {} -> {}", current_url, actual_url_str);
+                        info!(
+                            "[Headless] Detected redirect: {} -> {}",
+                            current_url, actual_url_str
+                        );
                         // Add the redirect URL to pages_visited for Cognito/OAuth detection
                         results.pages_visited.push(actual_url_str.to_string());
                         // Mark it as visited to avoid re-crawling
@@ -2852,7 +3150,10 @@ impl HeadlessCrawler {
                     results.forms.extend(page_forms);
                 }
                 Err(e) => {
-                    warn!("[Headless] Failed to extract forms from {}: {}", current_url, e);
+                    warn!(
+                        "[Headless] Failed to extract forms from {}: {}",
+                        current_url, e
+                    );
                 }
             }
 
@@ -2904,7 +3205,8 @@ impl HeadlessCrawler {
             );
 
             if let Ok(result) = tab.evaluate(&js_extract_links, true) {
-                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string()))
+                {
                     if let Ok(links) = serde_json::from_str::<Vec<String>>(&json_str) {
                         for link in links {
                             if !visited.contains(&link) && !to_visit.contains(&link) {
@@ -3000,7 +3302,10 @@ impl HeadlessCrawler {
                 // Wait for navigations to complete
                 std::thread::sleep(Duration::from_millis(500));
 
-                if let Some(json_str) = click_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Some(json_str) = click_result
+                    .value
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                {
                     if let Ok(click_urls) = serde_json::from_str::<Vec<String>>(&json_str) {
                         for url in click_urls {
                             if !visited.contains(&url) && !to_visit.contains(&url) {
@@ -3015,7 +3320,10 @@ impl HeadlessCrawler {
 
             // Also check for URL changes via history API
             if let Ok(history_result) = tab.evaluate("window.location.href", false) {
-                if let Some(current_url) = history_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Some(current_url) = history_result
+                    .value
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                {
                     if !visited.contains(&current_url) && !to_visit.contains(&current_url) {
                         to_visit.push_back(current_url.clone());
                         results.links_found.push(current_url);
@@ -3053,7 +3361,10 @@ impl HeadlessCrawler {
         "#;
 
         if let Ok(ws_result) = tab.evaluate(ws_extract, true) {
-            if let Some(json_str) = ws_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+            if let Some(json_str) = ws_result
+                .value
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+            {
                 if let Ok(ws_urls) = serde_json::from_str::<Vec<String>>(&json_str) {
                     for ws_url in ws_urls {
                         if !results.websocket_endpoints.contains(&ws_url) {
@@ -3100,10 +3411,14 @@ impl HeadlessCrawler {
             );
 
             if let Ok(result) = tab.evaluate(&js_extract, true) {
-                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string()))
+                {
                     if let Ok(files) = serde_json::from_str::<Vec<String>>(&json_str) {
                         results.js_files = files.clone();
-                        info!("[Headless] Found {} JavaScript files for analysis", results.js_files.len());
+                        info!(
+                            "[Headless] Found {} JavaScript files for analysis",
+                            results.js_files.len()
+                        );
 
                         // ================================================================
                         // SPA Route Extraction from JS Bundles
@@ -3131,12 +3446,20 @@ impl HeadlessCrawler {
                             );
 
                             if let Ok(fetch_result) = tab.evaluate(&fetch_js, true) {
-                                if let Some(js_content) = fetch_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                                if let Some(js_content) = fetch_result
+                                    .value
+                                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                                {
                                     if !js_content.is_empty() {
-                                        let routes = Self::extract_spa_routes_from_js(&js_content, js_url);
+                                        let routes =
+                                            Self::extract_spa_routes_from_js(&js_content, js_url);
 
                                         if !routes.is_empty() {
-                                            info!("[Headless] Extracted {} SPA routes from {}", routes.len(), js_url);
+                                            info!(
+                                                "[Headless] Extracted {} SPA routes from {}",
+                                                routes.len(),
+                                                js_url
+                                            );
 
                                             // Add routes to results
                                             for route in &routes {
@@ -3153,10 +3476,15 @@ impl HeadlessCrawler {
 
                         // Deduplicate spa_routes by path
                         let mut seen_paths = std::collections::HashSet::new();
-                        results.spa_routes.retain(|r| seen_paths.insert(r.path.clone()));
+                        results
+                            .spa_routes
+                            .retain(|r| seen_paths.insert(r.path.clone()));
 
                         if !results.spa_routes.is_empty() {
-                            info!("[Headless] Total {} unique SPA routes discovered", results.spa_routes.len());
+                            info!(
+                                "[Headless] Total {} unique SPA routes discovered",
+                                results.spa_routes.len()
+                            );
                         }
                     }
                 }
@@ -3227,12 +3555,20 @@ impl HeadlessCrawler {
             "#;
 
             if let Ok(router_result) = tab.evaluate(router_hook, true) {
-                if let Some(json_str) = router_result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
-                    if let Ok(dynamic_routes) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                if let Some(json_str) = router_result
+                    .value
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+                {
+                    if let Ok(dynamic_routes) =
+                        serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
+                    {
                         for route_obj in dynamic_routes {
                             let path = route_obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
                             if !path.is_empty() && Self::is_valid_route_path(path) {
-                                let framework_str = route_obj.get("framework").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                let framework_str = route_obj
+                                    .get("framework")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown");
                                 let framework = match framework_str {
                                     "vue" => SpaFramework::Vue,
                                     "react" => SpaFramework::React,
@@ -3240,16 +3576,27 @@ impl HeadlessCrawler {
                                     _ => SpaFramework::Unknown,
                                 };
 
-                                let requires_auth = route_obj.get("requireAuth").and_then(|v| v.as_bool()).unwrap_or(false);
+                                let requires_auth = route_obj
+                                    .get("requireAuth")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
 
-                                let roles: Vec<String> = route_obj.get("roles")
+                                let roles: Vec<String> = route_obj
+                                    .get("roles")
                                     .and_then(|v| v.as_array())
-                                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                            .collect()
+                                    })
                                     .unwrap_or_default();
 
                                 // Only add if not already present
                                 if !results.spa_routes.iter().any(|r| r.path == path) {
-                                    info!("[Headless] Dynamic route discovered: {} (framework: {:?})", path, framework);
+                                    info!(
+                                        "[Headless] Dynamic route discovered: {} (framework: {:?})",
+                                        path, framework
+                                    );
                                     results.spa_routes.push(SpaRoute {
                                         path: path.to_string(),
                                         requires_auth,
@@ -3333,10 +3680,12 @@ impl HeadlessCrawler {
             "#;
 
             if let Ok(result) = tab.evaluate(gql_extract, true) {
-                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string())) {
+                if let Some(json_str) = result.value.and_then(|v| v.as_str().map(|s| s.to_string()))
+                {
                     if let Ok(ops) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
                         for op in ops {
-                            let op_type = op.get("type").and_then(|v| v.as_str()).unwrap_or("query");
+                            let op_type =
+                                op.get("type").and_then(|v| v.as_str()).unwrap_or("query");
                             let name = op.get("name").and_then(|v| v.as_str()).unwrap_or("");
                             let raw = op.get("raw").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -3355,10 +3704,16 @@ impl HeadlessCrawler {
                         }
 
                         if !results.graphql_operations.is_empty() {
-                            info!("[Headless] Discovered {} GraphQL operations", results.graphql_operations.len());
+                            info!(
+                                "[Headless] Discovered {} GraphQL operations",
+                                results.graphql_operations.len()
+                            );
                         }
                         if !results.graphql_endpoints.is_empty() {
-                            info!("[Headless] Discovered {} GraphQL endpoints", results.graphql_endpoints.len());
+                            info!(
+                                "[Headless] Discovered {} GraphQL endpoints",
+                                results.graphql_endpoints.len()
+                            );
                         }
                     }
                 }
@@ -3379,11 +3734,10 @@ impl HeadlessCrawler {
         let url_owned = url.to_string();
         let timeout = self.timeout;
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::detect_login_forms_sync(&url_owned, timeout)
-        })
-        .await
-        .context("Login form detection task panicked")??;
+        let result =
+            tokio::task::spawn_blocking(move || Self::detect_login_forms_sync(&url_owned, timeout))
+                .await
+                .context("Login form detection task panicked")??;
 
         if !result.is_empty() {
             info!("[Headless] Detected {} login form(s)", result.len());
@@ -3399,7 +3753,7 @@ impl HeadlessCrawler {
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch browser")?;
 
@@ -3595,18 +3949,52 @@ impl HeadlessCrawler {
                 if let Ok(forms) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
                     for form in forms {
                         let login_form = DetectedLoginForm {
-                            url: form.get("url").and_then(|v| v.as_str()).unwrap_or(url).to_string(),
-                            action: form.get("action").and_then(|v| v.as_str()).unwrap_or(url).to_string(),
-                            method: form.get("method").and_then(|v| v.as_str()).unwrap_or("POST").to_string(),
-                            username_selector: form.get("usernameSelector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            password_selector: form.get("passwordSelector").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            submit_selector: form.get("submitSelector").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            is_oauth: form.get("isOAuth").and_then(|v| v.as_bool()).unwrap_or(false),
-                            oauth_provider: form.get("oauthProvider").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            confidence: form.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.5) as f32,
+                            url: form
+                                .get("url")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(url)
+                                .to_string(),
+                            action: form
+                                .get("action")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(url)
+                                .to_string(),
+                            method: form
+                                .get("method")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("POST")
+                                .to_string(),
+                            username_selector: form
+                                .get("usernameSelector")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            password_selector: form
+                                .get("passwordSelector")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            submit_selector: form
+                                .get("submitSelector")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                            is_oauth: form
+                                .get("isOAuth")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            oauth_provider: form
+                                .get("oauthProvider")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                            confidence: form
+                                .get("confidence")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(0.5) as f32,
                         };
 
-                        if !login_form.username_selector.is_empty() && !login_form.password_selector.is_empty() {
+                        if !login_form.username_selector.is_empty()
+                            && !login_form.password_selector.is_empty()
+                        {
                             debug!("[Headless] Found login form: username={}, password={}, confidence={}",
                                 login_form.username_selector, login_form.password_selector, login_form.confidence);
                             detected_forms.push(login_form);
@@ -3632,14 +4020,16 @@ impl HeadlessCrawler {
         let creds = credentials.clone();
         let timeout = self.timeout;
 
-        let result = tokio::task::spawn_blocking(move || {
-            Self::attempt_login_sync(&form, &creds, timeout)
-        })
-        .await
-        .context("Login attempt task panicked")??;
+        let result =
+            tokio::task::spawn_blocking(move || Self::attempt_login_sync(&form, &creds, timeout))
+                .await
+                .context("Login attempt task panicked")??;
 
         if result.success {
-            info!("[Headless] Login successful! Token extracted: {}", result.token.is_some());
+            info!(
+                "[Headless] Login successful! Token extracted: {}",
+                result.token.is_some()
+            );
         } else {
             warn!("[Headless] Login failed: {:?}", result.error);
         }
@@ -3658,7 +4048,7 @@ impl HeadlessCrawler {
                 .headless(true)
                 .idle_browser_timeout(timeout)
                 .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?
+                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
         )
         .context("Failed to launch browser")?;
 
@@ -3822,7 +4212,11 @@ impl HeadlessCrawler {
                     // Get the first token found
                     for (key, value) in tokens {
                         if !value.is_empty() && value.len() > 10 {
-                            debug!("[Headless] Found token in {}: {}...", key, &value[..value.len().min(20)]);
+                            debug!(
+                                "[Headless] Found token in {}: {}...",
+                                key,
+                                &value[..value.len().min(20)]
+                            );
                             extracted_token = Some(value);
                             break;
                         }
@@ -3847,7 +4241,11 @@ impl HeadlessCrawler {
             token: extracted_token,
             cookies,
             redirect_url: if redirected { Some(current_url) } else { None },
-            error: if !success { Some("Login may have failed - no token or redirect detected".to_string()) } else { None },
+            error: if !success {
+                Some("Login may have failed - no token or redirect detected".to_string())
+            } else {
+                None
+            },
         })
     }
 
@@ -4077,7 +4475,9 @@ impl HeadlessCrawler {
         for cap in ANGULAR_ROUTER_MODULE_REGEX.captures_iter(js_code) {
             if let Some(path) = cap.get(1) {
                 let path_str = format!("/{}", path.as_str().trim_start_matches('/'));
-                if Self::is_valid_route_path(&path_str) && !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                if Self::is_valid_route_path(&path_str)
+                    && !routes.iter().any(|r: &SpaRoute| r.path == path_str)
+                {
                     routes.push(SpaRoute {
                         path: path_str.clone(),
                         requires_auth: Self::infer_auth_from_path(&path_str),
@@ -4117,7 +4517,9 @@ impl HeadlessCrawler {
             for cap in NUXT_PATH_REGEX.captures_iter(js_code) {
                 if let Some(path) = cap.get(1) {
                     let path_str = path.as_str();
-                    if Self::is_valid_route_path(path_str) && !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                    if Self::is_valid_route_path(path_str)
+                        && !routes.iter().any(|r: &SpaRoute| r.path == path_str)
+                    {
                         routes.push(SpaRoute {
                             path: path_str.to_string(),
                             requires_auth: Self::infer_auth_from_path(path_str),
@@ -4150,7 +4552,9 @@ impl HeadlessCrawler {
             for cap in re.captures_iter(js_code) {
                 if let Some(path) = cap.get(1) {
                     let path_str = path.as_str();
-                    if Self::is_valid_route_path(path_str) && !routes.iter().any(|r: &SpaRoute| r.path == path_str) {
+                    if Self::is_valid_route_path(path_str)
+                        && !routes.iter().any(|r: &SpaRoute| r.path == path_str)
+                    {
                         routes.push(SpaRoute {
                             path: path_str.to_string(),
                             requires_auth: Self::infer_auth_from_path(path_str),
@@ -4174,7 +4578,9 @@ impl HeadlessCrawler {
         }
 
         // Skip file extensions (static assets)
-        let static_extensions = [".js", ".css", ".png", ".jpg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".map"];
+        let static_extensions = [
+            ".js", ".css", ".png", ".jpg", ".gif", ".svg", ".ico", ".woff", ".ttf", ".map",
+        ];
         if static_extensions.iter().any(|ext| path.ends_with(ext)) {
             return false;
         }
@@ -4198,12 +4604,32 @@ impl HeadlessCrawler {
     /// Infer auth requirement from path name
     fn infer_auth_from_path(path: &str) -> bool {
         let protected_patterns = [
-            "/admin", "/dashboard", "/account", "/profile", "/settings",
-            "/user", "/users", "/my-", "/private", "/internal",
-            "/manage", "/management", "/config", "/configuration",
-            "/panel", "/portal", "/console", "/workspace",
-            "/billing", "/subscription", "/payment", "/orders",
-            "/reports", "/analytics", "/metrics", "/stats",
+            "/admin",
+            "/dashboard",
+            "/account",
+            "/profile",
+            "/settings",
+            "/user",
+            "/users",
+            "/my-",
+            "/private",
+            "/internal",
+            "/manage",
+            "/management",
+            "/config",
+            "/configuration",
+            "/panel",
+            "/portal",
+            "/console",
+            "/workspace",
+            "/billing",
+            "/subscription",
+            "/payment",
+            "/orders",
+            "/reports",
+            "/analytics",
+            "/metrics",
+            "/stats",
         ];
 
         let path_lower = path.to_lowercase();
@@ -4300,9 +4726,10 @@ pub fn should_use_headless(
     // All forms submit to same page = SPA form handling
     if !static_results.forms.is_empty() {
         let first_action = &static_results.forms[0].action;
-        let all_same_action = static_results.forms.iter().all(|f| {
-            f.action.is_empty() || f.action == *first_action || f.action.starts_with('#')
-        });
+        let all_same_action = static_results
+            .forms
+            .iter()
+            .all(|f| f.action.is_empty() || f.action == *first_action || f.action.starts_with('#'));
 
         if all_same_action {
             info!("[HeadlessCrawler] Trigger: All forms have same/empty action (+20)");
@@ -4351,13 +4778,19 @@ pub fn should_use_headless(
         }
 
         // Angular-specific patterns
-        if html_lower.contains("ng-app") || html_lower.contains("ng-controller") || html_lower.contains("[ngif]") {
+        if html_lower.contains("ng-app")
+            || html_lower.contains("ng-controller")
+            || html_lower.contains("[ngif]")
+        {
             info!("[HeadlessCrawler] Trigger: Angular patterns detected (+30)");
             score += 30;
         }
 
         // Vue-specific patterns
-        if html_lower.contains("v-if") || html_lower.contains("v-for") || html_lower.contains("v-model") {
+        if html_lower.contains("v-if")
+            || html_lower.contains("v-for")
+            || html_lower.contains("v-model")
+        {
             info!("[HeadlessCrawler] Trigger: Vue patterns detected (+30)");
             score += 30;
         }
@@ -4369,7 +4802,10 @@ pub fn should_use_headless(
         }
 
         // Bundler patterns (webpack, vite, parcel)
-        if html_lower.contains("chunk-") || html_lower.contains(".chunk.js") || html_lower.contains("bundle.js") {
+        if html_lower.contains("chunk-")
+            || html_lower.contains(".chunk.js")
+            || html_lower.contains("bundle.js")
+        {
             info!("[HeadlessCrawler] Trigger: JS bundler detected (+15)");
             score += 15;
         }
@@ -4425,7 +4861,9 @@ impl SiteCrawlResults {
 
         // Add SPA routes as crawlable URLs
         // Extract base URL from visited pages to construct full URLs
-        let base_url = self.pages_visited.first()
+        let base_url = self
+            .pages_visited
+            .first()
             .and_then(|url| url::Url::parse(url).ok())
             .map(|u| format!("{}://{}", u.scheme(), u.host_str().unwrap_or("")))
             .unwrap_or_default();
@@ -4441,7 +4879,10 @@ impl SiteCrawlResults {
             }
 
             if !self.spa_routes.is_empty() {
-                info!("[HeadlessCrawler] Added {} SPA routes to crawl targets", self.spa_routes.len());
+                info!(
+                    "[HeadlessCrawler] Added {} SPA routes to crawl targets",
+                    self.spa_routes.len()
+                );
             }
         }
 
@@ -4476,7 +4917,11 @@ mod trigger_tests {
         let mut results = CrawlResults::new();
         results.is_spa = true;
 
-        assert!(should_use_headless(&results, &std::collections::HashSet::new(), None));
+        assert!(should_use_headless(
+            &results,
+            &std::collections::HashSet::new(),
+            None
+        ));
     }
 
     #[test]
@@ -4484,23 +4929,47 @@ mod trigger_tests {
         use crate::crawler::DiscoveredScript;
 
         let mut results = CrawlResults::new();
-        results.crawled_urls.insert("https://example.com".to_string());
+        results
+            .crawled_urls
+            .insert("https://example.com".to_string());
         results.scripts = vec![
-            DiscoveredScript { url: "1.js".to_string(), content: String::new() },
-            DiscoveredScript { url: "2.js".to_string(), content: String::new() },
-            DiscoveredScript { url: "3.js".to_string(), content: String::new() },
-            DiscoveredScript { url: "4.js".to_string(), content: String::new() },
+            DiscoveredScript {
+                url: "1.js".to_string(),
+                content: String::new(),
+            },
+            DiscoveredScript {
+                url: "2.js".to_string(),
+                content: String::new(),
+            },
+            DiscoveredScript {
+                url: "3.js".to_string(),
+                content: String::new(),
+            },
+            DiscoveredScript {
+                url: "4.js".to_string(),
+                content: String::new(),
+            },
         ];
 
-        assert!(should_use_headless(&results, &std::collections::HashSet::new(), None));
+        assert!(should_use_headless(
+            &results,
+            &std::collections::HashSet::new(),
+            None
+        ));
     }
 
     #[test]
     fn test_should_not_use_headless_static_site() {
         let mut results = CrawlResults::new();
-        results.crawled_urls.insert("https://example.com".to_string());
-        results.crawled_urls.insert("https://example.com/about".to_string());
-        results.links = (0..20).map(|i| format!("https://example.com/page{}", i)).collect();
+        results
+            .crawled_urls
+            .insert("https://example.com".to_string());
+        results
+            .crawled_urls
+            .insert("https://example.com/about".to_string());
+        results.links = (0..20)
+            .map(|i| format!("https://example.com/page{}", i))
+            .collect();
         results.forms.push(DiscoveredForm {
             action: "/contact".to_string(),
             method: "POST".to_string(),
@@ -4508,7 +4977,11 @@ mod trigger_tests {
             discovered_at: "/".to_string(),
         });
 
-        assert!(!should_use_headless(&results, &std::collections::HashSet::new(), None));
+        assert!(!should_use_headless(
+            &results,
+            &std::collections::HashSet::new(),
+            None
+        ));
     }
 
     #[test]
@@ -4516,7 +4989,11 @@ mod trigger_tests {
         let results = CrawlResults::new();
         let html = r#"<script>const socket = new WebSocket('wss://example.com')</script>"#;
 
-        assert!(should_use_headless(&results, &std::collections::HashSet::new(), Some(html)));
+        assert!(should_use_headless(
+            &results,
+            &std::collections::HashSet::new(),
+            Some(html)
+        ));
     }
 
     #[test]
@@ -4524,6 +5001,10 @@ mod trigger_tests {
         let results = CrawlResults::new();
         let html = r#"<script id="__NEXT_DATA__">{"props":{}}</script>"#;
 
-        assert!(should_use_headless(&results, &std::collections::HashSet::new(), Some(html)));
+        assert!(should_use_headless(
+            &results,
+            &std::collections::HashSet::new(),
+            Some(html)
+        ));
     }
 }

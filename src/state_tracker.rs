@@ -244,7 +244,10 @@ impl StateSnapshot {
         // Check hidden fields
         for (key, value) in &self.hidden_fields {
             let key_lower = key.to_lowercase();
-            if patterns.iter().any(|p| key_lower.contains(&p.to_lowercase())) {
+            if patterns
+                .iter()
+                .any(|p| key_lower.contains(&p.to_lowercase()))
+            {
                 tokens.insert(key.clone(), value.clone());
             }
         }
@@ -252,7 +255,10 @@ impl StateSnapshot {
         // Check cookies
         for (key, cookie) in &self.cookies {
             let key_lower = key.to_lowercase();
-            if patterns.iter().any(|p| key_lower.contains(&p.to_lowercase())) {
+            if patterns
+                .iter()
+                .any(|p| key_lower.contains(&p.to_lowercase()))
+            {
                 tokens.insert(key.clone(), cookie.value.clone());
             }
         }
@@ -260,7 +266,10 @@ impl StateSnapshot {
         // Check localStorage
         for (key, value) in &self.local_storage {
             let key_lower = key.to_lowercase();
-            if patterns.iter().any(|p| key_lower.contains(&p.to_lowercase())) {
+            if patterns
+                .iter()
+                .any(|p| key_lower.contains(&p.to_lowercase()))
+            {
                 tokens.insert(key.clone(), value.clone());
             }
         }
@@ -487,17 +496,11 @@ pub enum AppState {
         wizard_id: Option<String>,
     },
     /// Form submission in progress
-    FormInProgress {
-        form_id: Option<String>,
-    },
+    FormInProgress { form_id: Option<String> },
     /// Payment processing
-    Payment {
-        payment_intent: Option<String>,
-    },
+    Payment { payment_intent: Option<String> },
     /// Error state
-    Error {
-        error_type: Option<String>,
-    },
+    Error { error_type: Option<String> },
 }
 
 // ============================================================================
@@ -696,10 +699,7 @@ impl StateTransition {
         // Cart/checkout detection
         if to_lower.contains("cart")
             || to_lower.contains("basket")
-            || action
-                .to_string()
-                .to_lowercase()
-                .contains("add")
+            || action.to_string().to_lowercase().contains("add")
         {
             return TransitionType::AddToCart;
         }
@@ -738,8 +738,7 @@ impl StateTransition {
     /// Check if this transition requires state from a previous transition
     pub fn requires_prior_state(&self) -> bool {
         // Login is required if the transition involves authenticated content
-        self.after_state.is_authenticated()
-            && !self.before_state.is_authenticated()
+        self.after_state.is_authenticated() && !self.before_state.is_authenticated()
     }
 
     /// Get the state keys that this transition produces
@@ -788,9 +787,7 @@ impl StateTransition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TriggerAction {
     /// Page navigation
-    Navigation {
-        url: String,
-    },
+    Navigation { url: String },
     /// Form submission
     FormSubmit {
         form_action: String,
@@ -809,9 +806,7 @@ pub enum TriggerAction {
         body: Option<String>,
     },
     /// JavaScript execution
-    JavaScriptExec {
-        script: String,
-    },
+    JavaScriptExec { script: String },
     /// Page reload
     Reload,
     /// Unknown action
@@ -822,7 +817,11 @@ impl std::fmt::Display for TriggerAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TriggerAction::Navigation { url } => write!(f, "Navigate to {}", url),
-            TriggerAction::FormSubmit { form_action, method, .. } => {
+            TriggerAction::FormSubmit {
+                form_action,
+                method,
+                ..
+            } => {
                 write!(f, "{} form to {}", method, form_action)
             }
             TriggerAction::Click { selector, text } => {
@@ -977,12 +976,9 @@ impl StateDependencyGraph {
 
         // Update target node with required state
         if let Some(node) = self.nodes.get_mut(&to) {
-            node.required_state
-                .extend(transition.consumed_state_keys());
-            node.produced_state
-                .extend(transition.produced_state_keys());
-            node.incoming_transitions
-                .push(transition.transition_type);
+            node.required_state.extend(transition.consumed_state_keys());
+            node.produced_state.extend(transition.produced_state_keys());
+            node.incoming_transitions.push(transition.transition_type);
 
             // Check auth requirement
             if transition.before_state.is_authenticated() {
@@ -991,9 +987,7 @@ impl StateDependencyGraph {
 
             // Track CSRF tokens
             for key in transition.consumed_state_keys() {
-                if key.to_lowercase().contains("csrf")
-                    || key.to_lowercase().contains("token")
-                {
+                if key.to_lowercase().contains("csrf") || key.to_lowercase().contains("token") {
                     node.requires_csrf.insert(key);
                 }
             }
@@ -1027,10 +1021,7 @@ impl StateDependencyGraph {
                 .entry(from.clone())
                 .or_default()
                 .push(edge_idx);
-            self.edges_to
-                .entry(to.clone())
-                .or_default()
-                .push(edge_idx);
+            self.edges_to.entry(to.clone()).or_default().push(edge_idx);
         }
     }
 
@@ -1138,9 +1129,7 @@ impl StateDependencyGraph {
     pub fn stats(&self) -> GraphStats {
         let mut transition_counts: HashMap<TransitionType, u32> = HashMap::new();
         for edge in &self.edges {
-            *transition_counts
-                .entry(edge.transition_type)
-                .or_default() += edge.occurrence_count;
+            *transition_counts.entry(edge.transition_type).or_default() += edge.occurrence_count;
         }
 
         let auth_required_count = self.nodes.values().filter(|n| n.requires_auth).count();
@@ -1366,7 +1355,10 @@ impl StateTracker {
     // ========================================================================
 
     /// Detect authentication state from a snapshot (static version)
-    fn detect_auth_state_static(config: &StateTrackerConfig, snapshot: &StateSnapshot) -> AuthState {
+    fn detect_auth_state_static(
+        config: &StateTrackerConfig,
+        snapshot: &StateSnapshot,
+    ) -> AuthState {
         if !config.detect_auth_state {
             return AuthState::Unknown;
         }
@@ -1379,9 +1371,7 @@ impl StateTracker {
             for pattern in &config.auth_cookie_patterns {
                 if name_lower.contains(&pattern.to_lowercase()) {
                     // JWT detection
-                    if cookie.value.matches('.').count() == 2
-                        && cookie.value.len() > 50
-                    {
+                    if cookie.value.matches('.').count() == 2 && cookie.value.len() > 50 {
                         return AuthState::LoggedIn {
                             auth_type: AuthType::Jwt,
                             user_id: extract_jwt_subject(&cookie.value),
@@ -1448,10 +1438,7 @@ impl StateTracker {
             if url_lower.contains("cart") || url_lower.contains("basket") {
                 return AppState::Cart {
                     item_count: None,
-                    cart_id: snapshot
-                        .cookies
-                        .get("cart_id")
-                        .map(|c| c.value.clone()),
+                    cart_id: snapshot.cookies.get("cart_id").map(|c| c.value.clone()),
                 };
             }
 
@@ -1490,15 +1477,15 @@ impl StateTracker {
         let tokens = snapshot.get_csrf_tokens(&config.csrf_token_patterns);
 
         for (key, value) in tokens {
-            let entry = csrf_tokens.entry(key.clone()).or_insert_with(|| {
-                CsrfTokenState {
+            let entry = csrf_tokens
+                .entry(key.clone())
+                .or_insert_with(|| CsrfTokenState {
                     key: key.clone(),
                     current_value: value.clone(),
                     previous_values: Vec::new(),
                     change_count: 0,
                     last_changed: snapshot.timestamp,
-                }
-            });
+                });
 
             if entry.current_value != value {
                 entry.previous_values.push(entry.current_value.clone());
@@ -1515,15 +1502,15 @@ impl StateTracker {
     }
 
     /// Detect patterns from transitions (static version)
-    fn detect_patterns_static(detected_patterns: &mut Vec<StatePattern>, transition: &StateTransition) {
+    fn detect_patterns_static(
+        detected_patterns: &mut Vec<StatePattern>,
+        transition: &StateTransition,
+    ) {
         // Login pattern
         if transition.transition_type == TransitionType::Login {
             detected_patterns.push(StatePattern {
                 pattern_type: PatternType::LoginFlow,
-                endpoints: vec![
-                    transition.from_url.clone(),
-                    transition.to_url.clone(),
-                ],
+                endpoints: vec![transition.from_url.clone(), transition.to_url.clone()],
                 description: format!(
                     "Login flow detected: {} -> {}",
                     transition.from_url, transition.to_url
@@ -1565,10 +1552,7 @@ impl StateTracker {
             } else {
                 detected_patterns.push(StatePattern {
                     pattern_type: PatternType::WizardFlow,
-                    endpoints: vec![
-                        transition.from_url.clone(),
-                        transition.to_url.clone(),
-                    ],
+                    endpoints: vec![transition.from_url.clone(), transition.to_url.clone()],
                     description: "Multi-step wizard flow detected".to_string(),
                     confidence: 0.7,
                 });
@@ -1749,10 +1733,9 @@ fn extract_jwt_subject(token: &str) -> Option<String> {
     }
 
     // Decode payload (middle part)
-    if let Ok(decoded) = base64::Engine::decode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        parts[1],
-    ) {
+    if let Ok(decoded) =
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, parts[1])
+    {
         if let Ok(json_str) = String::from_utf8(decoded) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 return json
@@ -1942,10 +1925,9 @@ mod tests {
         let mut tracker = StateTracker::new(config);
 
         let mut snapshot = StateSnapshot::new("https://example.com/form");
-        snapshot.hidden_fields.insert(
-            "csrf_token".to_string(),
-            "abc123xyz".to_string(),
-        );
+        snapshot
+            .hidden_fields
+            .insert("csrf_token".to_string(), "abc123xyz".to_string());
 
         tracker.record_snapshot(snapshot.clone());
 
@@ -1963,10 +1945,7 @@ mod tests {
             normalize_endpoint("https://example.com/api/users/"),
             "/api/users"
         );
-        assert_eq!(
-            normalize_endpoint("/api/users#section"),
-            "/api/users"
-        );
+        assert_eq!(normalize_endpoint("/api/users#section"), "/api/users");
     }
 
     #[test]
@@ -2021,7 +2000,9 @@ mod tests {
 
         let patterns = tracker.get_patterns();
         assert!(!patterns.is_empty());
-        assert!(patterns.iter().any(|p| p.pattern_type == PatternType::LoginFlow));
+        assert!(patterns
+            .iter()
+            .any(|p| p.pattern_type == PatternType::LoginFlow));
     }
 
     #[test]

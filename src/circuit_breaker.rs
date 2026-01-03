@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -104,9 +103,7 @@ impl CircuitBreaker {
                     false
                 }
             }
-            CircuitState::HalfOpen => {
-                status.success_count < self.config.half_open_max_requests
-            }
+            CircuitState::HalfOpen => status.success_count < self.config.half_open_max_requests,
         }
     }
 
@@ -125,15 +122,17 @@ impl CircuitBreaker {
             CircuitState::HalfOpen => {
                 status.success_count += 1;
                 if status.success_count >= self.config.success_threshold {
-                    debug!("Circuit breaker closing for {} after {} successes", host, status.success_count);
+                    debug!(
+                        "Circuit breaker closing for {} after {} successes",
+                        host, status.success_count
+                    );
                     status.state = CircuitState::Closed;
                     status.failure_count = 0;
                     status.success_count = 0;
                     status.last_state_change = Instant::now();
                 }
             }
-            CircuitState::Open => {
-            }
+            CircuitState::Open => {}
         }
     }
 
@@ -160,13 +159,15 @@ impl CircuitBreaker {
                 }
             }
             CircuitState::HalfOpen => {
-                warn!("Circuit breaker reopening for {} after failure in half-open state", host);
+                warn!(
+                    "Circuit breaker reopening for {} after failure in half-open state",
+                    host
+                );
                 status.state = CircuitState::Open;
                 status.success_count = 0;
                 status.last_state_change = Instant::now();
             }
-            CircuitState::Open => {
-            }
+            CircuitState::Open => {}
         }
     }
 

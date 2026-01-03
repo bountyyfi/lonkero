@@ -7,7 +7,6 @@
  *
  * © 2026 Bountyy Oy
  */
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -179,7 +178,11 @@ impl RetestOrchestrator {
             response,
             vulnerability_found,
             exploitable,
-            severity: if exploitable { "HIGH".to_string() } else { "NONE".to_string() },
+            severity: if exploitable {
+                "HIGH".to_string()
+            } else {
+                "NONE".to_string()
+            },
             execution_time: start_time.elapsed(),
             metadata: HashMap::new(),
         })
@@ -253,7 +256,11 @@ impl RetestOrchestrator {
             response,
             vulnerability_found,
             exploitable,
-            severity: if exploitable { "HIGH".to_string() } else { "NONE".to_string() },
+            severity: if exploitable {
+                "HIGH".to_string()
+            } else {
+                "NONE".to_string()
+            },
             execution_time: start_time.elapsed(),
             metadata: HashMap::new(),
         })
@@ -308,7 +315,9 @@ impl RetestOrchestrator {
             config.original_payload.clone()
         };
 
-        let response = self.make_post_request(&config.url, &payload, "application/xml").await?;
+        let response = self
+            .make_post_request(&config.url, &payload, "application/xml")
+            .await?;
 
         let vulnerability_found = self.detect_xxe_indicators(&response.body);
         let exploitable = vulnerability_found;
@@ -373,7 +382,9 @@ impl RetestOrchestrator {
     async fn retest_cors(&self, config: &RetestConfig) -> Result<RetestResult> {
         let start_time = Instant::now();
 
-        let response = self.make_request_with_origin(&config.url, "https://evil.com").await?;
+        let response = self
+            .make_request_with_origin(&config.url, "https://evil.com")
+            .await?;
 
         let vulnerability_found = response
             .headers
@@ -447,8 +458,7 @@ impl RetestOrchestrator {
 
         let response = self.make_request(&config.url).await?;
 
-        let vulnerability_found =
-            response.status_code == 200 && !response.body.contains("login");
+        let vulnerability_found = response.status_code == 200 && !response.body.contains("login");
         let exploitable = vulnerability_found;
 
         Ok(RetestResult {
@@ -481,8 +491,8 @@ impl RetestOrchestrator {
         let response = self.make_request(&config.url).await?;
 
         // Check for common OAuth misconfigurations
-        let vulnerability_found = response.body.contains("access_token")
-            && !response.body.contains("state");
+        let vulnerability_found =
+            response.body.contains("access_token") && !response.body.contains("state");
         let exploitable = vulnerability_found;
 
         Ok(RetestResult {
@@ -540,7 +550,10 @@ impl RetestOrchestrator {
     async fn make_request_with_origin(&self, _url: &str, origin: &str) -> Result<RetestResponse> {
         let start = Instant::now();
         let mut headers = HashMap::new();
-        headers.insert("access-control-allow-origin".to_string(), origin.to_string());
+        headers.insert(
+            "access-control-allow-origin".to_string(),
+            origin.to_string(),
+        );
 
         Ok(RetestResponse {
             status_code: 200,

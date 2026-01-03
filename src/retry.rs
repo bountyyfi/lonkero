@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::errors::{ScannerError, ScannerResult};
 use rand::Rng;
 use std::future::Future;

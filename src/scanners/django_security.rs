@@ -166,8 +166,13 @@ impl DjangoSecurityScanner {
             return Ok((vec![], tests_run));
         }
 
-        info!("[Django] Detected Django application{}",
-            version.as_ref().map(|v| format!(" (version: {})", v)).unwrap_or_default());
+        info!(
+            "[Django] Detected Django application{}",
+            version
+                .as_ref()
+                .map(|v| format!(" (version: {})", v))
+                .unwrap_or_default()
+        );
 
         // Check for DEBUG mode
         let (debug_vulns, debug_tests) = self.check_debug_mode(url, config).await?;
@@ -221,8 +226,11 @@ impl DjangoSecurityScanner {
             tests_run += cve_tests;
         }
 
-        info!("[Django] Completed: {} vulnerabilities, {} tests",
-            vulnerabilities.len(), tests_run);
+        info!(
+            "[Django] Completed: {} vulnerabilities, {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -235,17 +243,19 @@ impl DjangoSecurityScanner {
         // Check multiple indicators
         if let Ok(resp) = self.http_client.get(url).await {
             // Check for Django-specific patterns
-            if resp.body.contains("csrfmiddlewaretoken") ||
-               resp.body.contains("__django__") ||
-               resp.body.contains("django.contrib") {
+            if resp.body.contains("csrfmiddlewaretoken")
+                || resp.body.contains("__django__")
+                || resp.body.contains("django.contrib")
+            {
                 is_django = true;
             }
 
             // Check headers
             if let Some(server) = resp.headers.get("server") {
-                if server.to_lowercase().contains("wsgiserver") ||
-                   server.to_lowercase().contains("gunicorn") ||
-                   server.to_lowercase().contains("uwsgi") {
+                if server.to_lowercase().contains("wsgiserver")
+                    || server.to_lowercase().contains("gunicorn")
+                    || server.to_lowercase().contains("uwsgi")
+                {
                     is_django = true;
                 }
             }
@@ -274,9 +284,10 @@ impl DjangoSecurityScanner {
         // Check for Django admin
         let admin_url = format!("{}/admin/", url.trim_end_matches('/'));
         if let Ok(resp) = self.http_client.get(&admin_url).await {
-            if resp.body.contains("Django") ||
-               resp.body.contains("administration") ||
-               resp.body.contains("Log in") && resp.body.contains("csrfmiddlewaretoken") {
+            if resp.body.contains("Django")
+                || resp.body.contains("administration")
+                || resp.body.contains("Log in") && resp.body.contains("csrfmiddlewaretoken")
+            {
                 is_django = true;
             }
         }
@@ -310,22 +321,37 @@ impl DjangoSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&test_url).await {
                 // Check for Django debug page indicators
-                let is_debug = resp.body.contains("You're seeing this error because you have <code>DEBUG = True</code>") ||
-                    resp.body.contains("Technical 500") ||
-                    resp.body.contains("INSTALLED_APPS") ||
-                    resp.body.contains("Request Method:") && resp.body.contains("Exception Type:") ||
-                    resp.body.contains("Django settings module") ||
-                    resp.body.contains("Traceback (most recent call last)") && resp.body.contains("django");
+                let is_debug = resp.body.contains(
+                    "You're seeing this error because you have <code>DEBUG = True</code>",
+                ) || resp.body.contains("Technical 500")
+                    || resp.body.contains("INSTALLED_APPS")
+                    || resp.body.contains("Request Method:")
+                        && resp.body.contains("Exception Type:")
+                    || resp.body.contains("Django settings module")
+                    || resp.body.contains("Traceback (most recent call last)")
+                        && resp.body.contains("django");
 
                 if is_debug {
                     // Check what sensitive info is exposed
                     let mut exposed_info = Vec::new();
-                    if resp.body.contains("SECRET_KEY") { exposed_info.push("SECRET_KEY"); }
-                    if resp.body.contains("DATABASE") { exposed_info.push("DATABASE credentials"); }
-                    if resp.body.contains("ALLOWED_HOSTS") { exposed_info.push("ALLOWED_HOSTS"); }
-                    if resp.body.contains("EMAIL_") { exposed_info.push("Email settings"); }
-                    if resp.body.contains("AWS_") { exposed_info.push("AWS credentials"); }
-                    if resp.body.contains("STRIPE_") { exposed_info.push("Stripe keys"); }
+                    if resp.body.contains("SECRET_KEY") {
+                        exposed_info.push("SECRET_KEY");
+                    }
+                    if resp.body.contains("DATABASE") {
+                        exposed_info.push("DATABASE credentials");
+                    }
+                    if resp.body.contains("ALLOWED_HOSTS") {
+                        exposed_info.push("ALLOWED_HOSTS");
+                    }
+                    if resp.body.contains("EMAIL_") {
+                        exposed_info.push("Email settings");
+                    }
+                    if resp.body.contains("AWS_") {
+                        exposed_info.push("AWS credentials");
+                    }
+                    if resp.body.contains("STRIPE_") {
+                        exposed_info.push("Stripe keys");
+                    }
 
                     vulnerabilities.push(Vulnerability {
                         id: format!("django_debug_mode_{}", Self::generate_id()),
@@ -397,10 +423,10 @@ impl DjangoSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&admin_url).await {
                 if resp.status_code == 200 || resp.status_code == 302 {
-                    let is_admin = resp.body.contains("Django") ||
-                        resp.body.contains("Log in") && resp.body.contains("csrf") ||
-                        resp.body.contains("administration") ||
-                        resp.body.contains("django-admin-login");
+                    let is_admin = resp.body.contains("Django")
+                        || resp.body.contains("Log in") && resp.body.contains("csrf")
+                        || resp.body.contains("administration")
+                        || resp.body.contains("django-admin-login");
 
                     if is_admin {
                         let mut issues = Vec::new();
@@ -427,7 +453,8 @@ impl DjangoSecurityScanner {
                                 let csrf_re = Regex::new(r#"name=['\"]csrfmiddlewaretoken['\"] value=['\"]([^'\"]+)['\"]"#).ok();
                                 if let Some(re) = csrf_re {
                                     if let Some(caps) = re.captures(&login_page.body) {
-                                        let csrf_token = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                                        let csrf_token =
+                                            caps.get(1).map(|m| m.as_str()).unwrap_or("");
 
                                         let body = format!(
                                             "csrfmiddlewaretoken={}&username={}&password={}",
@@ -435,15 +462,33 @@ impl DjangoSecurityScanner {
                                         );
 
                                         let mut headers = HashMap::new();
-                                        headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                                        headers.insert(
+                                            "Content-Type".to_string(),
+                                            "application/x-www-form-urlencoded".to_string(),
+                                        );
                                         headers.insert("Referer".to_string(), login_url.clone());
 
-                                        let headers_vec: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                                        if let Ok(login_resp) = self.http_client.post_with_headers(&login_url, &body, headers_vec).await {
+                                        let headers_vec: Vec<(String, String)> = headers
+                                            .iter()
+                                            .map(|(k, v)| (k.clone(), v.clone()))
+                                            .collect();
+                                        if let Ok(login_resp) = self
+                                            .http_client
+                                            .post_with_headers(&login_url, &body, headers_vec)
+                                            .await
+                                        {
                                             // Check for successful login (redirect to admin dashboard)
-                                            if login_resp.status_code == 302 &&
-                                               login_resp.headers.get("location").map(|l| !l.contains("login")).unwrap_or(false) {
-                                                issues.push(format!("Default credentials: {}:{}", user, pass));
+                                            if login_resp.status_code == 302
+                                                && login_resp
+                                                    .headers
+                                                    .get("location")
+                                                    .map(|l| !l.contains("login"))
+                                                    .unwrap_or(false)
+                                            {
+                                                issues.push(format!(
+                                                    "Default credentials: {}:{}",
+                                                    user, pass
+                                                ));
                                             }
                                         }
                                     }
@@ -469,7 +514,8 @@ impl DjangoSecurityScanner {
                                     "Django admin interface is publicly accessible at {}. {}",
                                     path,
                                     if issues.is_empty() {
-                                        "Consider restricting access via IP whitelist or VPN.".to_string()
+                                        "Consider restricting access via IP whitelist or VPN."
+                                            .to_string()
                                     } else {
                                         format!("Issues found: {}", issues.join(", "))
                                     }
@@ -488,7 +534,11 @@ impl DjangoSecurityScanner {
                                     )
                                 }),
                                 cwe: "CWE-200".to_string(),
-                                cvss: if issues.iter().any(|i| i.contains("credentials")) { 9.8 } else { 5.3 },
+                                cvss: if issues.iter().any(|i| i.contains("credentials")) {
+                                    9.8
+                                } else {
+                                    5.3
+                                },
                                 verified: true,
                                 false_positive: false,
                                 remediation: "1. Restrict admin access via ALLOWED_HOSTS\n\
@@ -496,9 +546,10 @@ impl DjangoSecurityScanner {
                                               3. Change admin URL to non-default path\n\
                                               4. Implement IP whitelist or VPN requirement\n\
                                               5. Enable two-factor authentication\n\
-                                              6. Use strong, unique admin passwords".to_string(),
+                                              6. Use strong, unique admin passwords"
+                                    .to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                ml_data: None,
                             });
                             break;
                         }
@@ -630,8 +681,9 @@ impl DjangoSecurityScanner {
             }
 
             // Check security headers
-            if !resp.headers.contains_key("x-frame-options") &&
-               !resp.headers.contains_key("content-security-policy") {
+            if !resp.headers.contains_key("x-frame-options")
+                && !resp.headers.contains_key("content-security-policy")
+            {
                 issues.push("Missing X-Frame-Options header (clickjacking)");
             }
             if !resp.headers.contains_key("x-content-type-options") {
@@ -655,10 +707,7 @@ impl DjangoSecurityScanner {
                         "Django security settings are not properly configured. Found issues: {}",
                         issues.join("; ")
                     ),
-                    evidence: Some(format!(
-                        "Issues found:\n- {}",
-                        issues.join("\n- ")
-                    )),
+                    evidence: Some(format!("Issues found:\n- {}", issues.join("\n- "))),
                     cwe: "CWE-16".to_string(),
                     cvss: 5.3,
                     verified: true,
@@ -669,9 +718,10 @@ impl DjangoSecurityScanner {
                                   CSRF_COOKIE_SECURE = True\n\
                                   SECURE_HSTS_SECONDS = 31536000\n\
                                   SECURE_CONTENT_TYPE_NOSNIFF = True\n\
-                                  X_FRAME_OPTIONS = 'DENY'".to_string(),
+                                  X_FRAME_OPTIONS = 'DENY'"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -691,10 +741,10 @@ impl DjangoSecurityScanner {
         tests_run += 1;
         if let Ok(resp) = self.http_client.get(url).await {
             // Check for Debug Toolbar indicators
-            let has_toolbar = resp.body.contains("djdt-") ||
-                resp.body.contains("debug-toolbar") ||
-                resp.body.contains("djDebug") ||
-                resp.body.contains("/__debug__/");
+            let has_toolbar = resp.body.contains("djdt-")
+                || resp.body.contains("debug-toolbar")
+                || resp.body.contains("djDebug")
+                || resp.body.contains("/__debug__/");
 
             if has_toolbar {
                 vulnerabilities.push(Vulnerability {
@@ -706,8 +756,10 @@ impl DjangoSecurityScanner {
                     url: url.to_string(),
                     parameter: Some("Debug Toolbar".to_string()),
                     payload: "djdt-*".to_string(),
-                    description: "Django Debug Toolbar is enabled and accessible. This exposes SQL queries, \
-                                  settings, headers, request/response data, templates, and signals.".to_string(),
+                    description:
+                        "Django Debug Toolbar is enabled and accessible. This exposes SQL queries, \
+                                  settings, headers, request/response data, templates, and signals."
+                            .to_string(),
                     evidence: Some("Debug Toolbar elements found in HTML response".to_string()),
                     cwe: "CWE-215".to_string(),
                     cvss: 7.5,
@@ -716,9 +768,10 @@ impl DjangoSecurityScanner {
                     remediation: "1. Remove debug_toolbar from INSTALLED_APPS in production\n\
                                   2. Use conditional installation based on DEBUG setting\n\
                                   3. Restrict INTERNAL_IPS to local addresses only\n\
-                                  4. Use environment-specific settings files".to_string(),
+                                  4. Use environment-specific settings files"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -737,15 +790,17 @@ impl DjangoSecurityScanner {
                     url: debug_url,
                     parameter: Some("__debug__".to_string()),
                     payload: "/__debug__/".to_string(),
-                    description: "The Django Debug Toolbar debug URL is publicly accessible.".to_string(),
+                    description: "The Django Debug Toolbar debug URL is publicly accessible."
+                        .to_string(),
                     evidence: Some("/__debug__/ returns 200 OK".to_string()),
                     cwe: "CWE-215".to_string(),
                     cvss: 7.5,
                     verified: true,
                     false_positive: false,
-                    remediation: "Disable Debug Toolbar in production or restrict INTERNAL_IPS.".to_string(),
+                    remediation: "Disable Debug Toolbar in production or restrict INTERNAL_IPS."
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -787,12 +842,12 @@ impl DjangoSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&file_url).await {
                 if resp.status_code == 200 && resp.body.len() > 10 {
-                    let is_sensitive = resp.body.contains("django") ||
-                        resp.body.contains("Django") ||
-                        resp.body.contains("celery") ||
-                        resp.body.contains("postgres") ||
-                        resp.body.contains("SECRET") ||
-                        resp.body.contains("import");
+                    let is_sensitive = resp.body.contains("django")
+                        || resp.body.contains("Django")
+                        || resp.body.contains("celery")
+                        || resp.body.contains("postgres")
+                        || resp.body.contains("SECRET")
+                        || resp.body.contains("import");
 
                     if is_sensitive {
                         vulnerabilities.push(Vulnerability {
@@ -819,7 +874,8 @@ impl DjangoSecurityScanner {
                                 "File: {}\n\
                                 Status: 200 OK\n\
                                 Content length: {} bytes",
-                                file, resp.body.len()
+                                file,
+                                resp.body.len()
                             )),
                             cwe: "CWE-200".to_string(),
                             cvss: 5.3,
@@ -827,9 +883,10 @@ impl DjangoSecurityScanner {
                             false_positive: false,
                             remediation: "1. Configure web server to deny access to config files\n\
                                           2. Move sensitive files outside web root\n\
-                                          3. Use proper deployment practices".to_string(),
+                                          3. Use proper deployment practices"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -896,11 +953,20 @@ impl DjangoSecurityScanner {
                 let mut cors_headers = HashMap::new();
                 cors_headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-                let headers_vec: Vec<(String, String)> = cors_headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
+                let headers_vec: Vec<(String, String)> = cors_headers
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if let Ok(cors_resp) = self
+                    .http_client
+                    .get_with_headers(&api_url, headers_vec)
+                    .await
+                {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "*" || acao == "https://evil.com" {
-                            let has_creds = cors_resp.headers.get("access-control-allow-credentials")
+                            let has_creds = cors_resp
+                                .headers
+                                .get("access-control-allow-credentials")
                                 .map(|v| v == "true")
                                 .unwrap_or(false);
 
@@ -963,9 +1029,10 @@ impl DjangoSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&media_url).await {
                 // Check for directory listing
-                if resp.status_code == 200 &&
-                   (resp.body.contains("Index of") || resp.body.contains("<a href=")) &&
-                   !resp.body.contains("<!DOCTYPE") {
+                if resp.status_code == 200
+                    && (resp.body.contains("Index of") || resp.body.contains("<a href="))
+                    && !resp.body.contains("<!DOCTYPE")
+                {
                     vulnerabilities.push(Vulnerability {
                         id: format!("django_directory_listing_{}", Self::generate_id()),
                         vuln_type: "Django Media Directory Listing Enabled".to_string(),
@@ -987,9 +1054,10 @@ impl DjangoSecurityScanner {
                         false_positive: false,
                         remediation: "Disable directory listing in web server configuration:\n\
                                       Apache: Options -Indexes\n\
-                                      Nginx: autoindex off;".to_string(),
+                                      Nginx: autoindex off;"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -1027,8 +1095,11 @@ impl DjangoSecurityScanner {
             };
 
             if let Ok(resp) = self.http_client.get(&flower_url).await {
-                if resp.status_code == 200 &&
-                   (resp.body.contains("Flower") || resp.body.contains("celery") || resp.body.contains("tasks")) {
+                if resp.status_code == 200
+                    && (resp.body.contains("Flower")
+                        || resp.body.contains("celery")
+                        || resp.body.contains("tasks"))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: format!("django_flower_{}", Self::generate_id()),
                         vuln_type: "Celery Flower Dashboard Exposed".to_string(),
@@ -1069,10 +1140,7 @@ impl DjangoSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        let version_parts: Vec<u32> = version
-            .split('.')
-            .filter_map(|p| p.parse().ok())
-            .collect();
+        let version_parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
 
         if version_parts.len() < 2 {
             return Ok((vec![], tests_run));
@@ -1085,7 +1153,8 @@ impl DjangoSecurityScanner {
         for cve in &self.known_cves {
             tests_run += 1;
 
-            let is_affected = Self::check_version_affected(major, minor, patch, &cve.affected_versions);
+            let is_affected =
+                Self::check_version_affected(major, minor, patch, &cve.affected_versions);
 
             if is_affected {
                 vulnerabilities.push(Vulnerability {
@@ -1142,9 +1211,8 @@ impl DjangoSecurityScanner {
             let constraint = constraint.trim();
             if constraint.starts_with('<') {
                 let ver_str = constraint.trim_start_matches('<');
-                let ver_parts: Vec<u32> = ver_str.split('.')
-                    .filter_map(|p| p.parse().ok())
-                    .collect();
+                let ver_parts: Vec<u32> =
+                    ver_str.split('.').filter_map(|p| p.parse().ok()).collect();
 
                 if ver_parts.len() >= 2 {
                     let a_major = ver_parts[0];

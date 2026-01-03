@@ -19,8 +19,7 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
-use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
+use crate::detection_helpers::{endpoint_exists, AppCharacteristics};
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -33,12 +32,12 @@ use tracing::{debug, info, warn};
 /// 2FA method types detected
 #[derive(Debug, Clone, PartialEq)]
 pub enum TwoFaMethod {
-    Totp,           // Time-based One-Time Password (Authenticator app)
-    Sms,            // SMS-based OTP
-    Email,          // Email-based OTP
-    Push,           // Push notification
-    HardwareToken,  // Hardware token (U2F, WebAuthn)
-    BackupCodes,    // Recovery/backup codes
+    Totp,          // Time-based One-Time Password (Authenticator app)
+    Sms,           // SMS-based OTP
+    Email,         // Email-based OTP
+    Push,          // Push notification
+    HardwareToken, // Hardware token (U2F, WebAuthn)
+    BackupCodes,   // Recovery/backup codes
     Unknown,
 }
 
@@ -76,7 +75,10 @@ impl TwoFaBypassScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[2FA-Bypass] Starting comprehensive 2FA bypass scan on {}", url);
+        info!(
+            "[2FA-Bypass] Starting comprehensive 2FA bypass scan on {}",
+            url
+        );
 
         // Step 1: Detect application characteristics
         tests_run += 1;
@@ -105,7 +107,9 @@ impl TwoFaBypassScanner {
         let base_url = extract_base_url(url);
 
         // Step 2: Discover 2FA endpoints
-        let twofa_endpoints = self.discover_twofa_endpoints(&base_url, &response.body).await;
+        let twofa_endpoints = self
+            .discover_twofa_endpoints(&base_url, &response.body)
+            .await;
         tests_run += 1;
 
         if twofa_endpoints.is_empty() && !characteristics.has_mfa {
@@ -113,23 +117,30 @@ impl TwoFaBypassScanner {
             return Ok((Vec::new(), tests_run));
         }
 
-        info!("[2FA-Bypass] Discovered {} potential 2FA endpoints", twofa_endpoints.len());
+        info!(
+            "[2FA-Bypass] Discovered {} potential 2FA endpoints",
+            twofa_endpoints.len()
+        );
 
         // Step 3: Test direct bypass techniques
-        let (direct_vulns, direct_tests) = self.test_direct_bypass(&base_url, &twofa_endpoints).await?;
+        let (direct_vulns, direct_tests) =
+            self.test_direct_bypass(&base_url, &twofa_endpoints).await?;
         vulnerabilities.extend(direct_vulns);
         tests_run += direct_tests;
 
         // Step 4: Test OTP validation bypasses
         for endpoint in &twofa_endpoints {
-            let (otp_vulns, otp_tests) = self.test_otp_bypass(&endpoint.url, &endpoint.method).await?;
+            let (otp_vulns, otp_tests) = self
+                .test_otp_bypass(&endpoint.url, &endpoint.method)
+                .await?;
             vulnerabilities.extend(otp_vulns);
             tests_run += otp_tests;
         }
 
         // Step 5: Test brute force susceptibility
         for endpoint in &twofa_endpoints {
-            let (brute_vulns, brute_tests) = self.test_brute_force_susceptibility(&endpoint.url).await?;
+            let (brute_vulns, brute_tests) =
+                self.test_brute_force_susceptibility(&endpoint.url).await?;
             vulnerabilities.extend(brute_vulns);
             tests_run += brute_tests;
         }
@@ -146,13 +157,16 @@ impl TwoFaBypassScanner {
 
         // Step 8: Test implementation flaws
         for endpoint in &twofa_endpoints {
-            let (impl_vulns, impl_tests) = self.test_implementation_flaws(&base_url, endpoint).await?;
+            let (impl_vulns, impl_tests) =
+                self.test_implementation_flaws(&base_url, endpoint).await?;
             vulnerabilities.extend(impl_vulns);
             tests_run += impl_tests;
         }
 
         // Step 9: Test session-related bypasses
-        let (session_vulns, session_tests) = self.test_session_bypasses(&base_url, &twofa_endpoints).await?;
+        let (session_vulns, session_tests) = self
+            .test_session_bypasses(&base_url, &twofa_endpoints)
+            .await?;
         vulnerabilities.extend(session_vulns);
         tests_run += session_tests;
 
@@ -176,7 +190,11 @@ impl TwoFaBypassScanner {
     }
 
     /// Discover 2FA-related endpoints
-    async fn discover_twofa_endpoints(&self, base_url: &str, html_body: &str) -> Vec<TwoFaEndpoint> {
+    async fn discover_twofa_endpoints(
+        &self,
+        base_url: &str,
+        html_body: &str,
+    ) -> Vec<TwoFaEndpoint> {
         let mut endpoints = Vec::new();
         let body_lower = html_body.to_lowercase();
 
@@ -271,18 +289,26 @@ impl TwoFaBypassScanner {
     fn detect_twofa_method(&self, body: &str) -> TwoFaMethod {
         let body_lower = body.to_lowercase();
 
-        if body_lower.contains("authenticator app") || body_lower.contains("totp") ||
-           body_lower.contains("google authenticator") || body_lower.contains("authy") {
+        if body_lower.contains("authenticator app")
+            || body_lower.contains("totp")
+            || body_lower.contains("google authenticator")
+            || body_lower.contains("authy")
+        {
             TwoFaMethod::Totp
-        } else if body_lower.contains("sms") || body_lower.contains("text message") ||
-                  body_lower.contains("phone number") {
+        } else if body_lower.contains("sms")
+            || body_lower.contains("text message")
+            || body_lower.contains("phone number")
+        {
             TwoFaMethod::Sms
         } else if body_lower.contains("email") && body_lower.contains("code") {
             TwoFaMethod::Email
         } else if body_lower.contains("push notification") || body_lower.contains("approve") {
             TwoFaMethod::Push
-        } else if body_lower.contains("security key") || body_lower.contains("u2f") ||
-                  body_lower.contains("webauthn") || body_lower.contains("fido") {
+        } else if body_lower.contains("security key")
+            || body_lower.contains("u2f")
+            || body_lower.contains("webauthn")
+            || body_lower.contains("fido")
+        {
             TwoFaMethod::HardwareToken
         } else if body_lower.contains("backup code") || body_lower.contains("recovery code") {
             TwoFaMethod::BackupCodes
@@ -293,10 +319,10 @@ impl TwoFaBypassScanner {
 
     /// Detect rate limiting from response
     fn detect_rate_limiting(&self, response: &crate::http_client::HttpResponse) -> bool {
-        response.headers.contains_key("x-ratelimit-limit") ||
-        response.headers.contains_key("ratelimit-limit") ||
-        response.headers.contains_key("retry-after") ||
-        response.status_code == 429
+        response.headers.contains_key("x-ratelimit-limit")
+            || response.headers.contains_key("ratelimit-limit")
+            || response.headers.contains_key("retry-after")
+            || response.status_code == 429
     }
 
     /// Test direct bypass techniques
@@ -312,9 +338,19 @@ impl TwoFaBypassScanner {
 
         // Common protected resources that should require 2FA
         let protected_paths = vec![
-            "/dashboard", "/admin", "/settings", "/profile", "/account",
-            "/api/user", "/api/account", "/api/settings", "/api/admin",
-            "/panel", "/portal", "/home", "/internal",
+            "/dashboard",
+            "/admin",
+            "/settings",
+            "/profile",
+            "/account",
+            "/api/user",
+            "/api/account",
+            "/api/settings",
+            "/api/admin",
+            "/panel",
+            "/portal",
+            "/home",
+            "/internal",
         ];
 
         // Test 1: Skip 2FA step by directly accessing protected resources
@@ -393,7 +429,10 @@ impl TwoFaBypassScanner {
 
             for method in methods {
                 // Use request_with_method for arbitrary HTTP methods
-                let response = self.http_client.request_with_method(method, &endpoint.url).await;
+                let response = self
+                    .http_client
+                    .request_with_method(method, &endpoint.url)
+                    .await;
 
                 if let Ok(resp) = response {
                     if resp.status_code == 200 && !resp.body.is_empty() {
@@ -428,7 +467,10 @@ impl TwoFaBypassScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("[2FA-Bypass] Testing OTP validation bypasses on {}", endpoint);
+        info!(
+            "[2FA-Bypass] Testing OTP validation bypasses on {}",
+            endpoint
+        );
 
         // Test weak OTP values
         let weak_otps = vec![
@@ -519,13 +561,21 @@ impl TwoFaBypassScanner {
 
         // Test OTP in different parameter names
         tests_run += 1;
-        let param_names = vec!["otp", "totp", "token", "verification_code", "auth_code", "2fa_code"];
+        let param_names = vec![
+            "otp",
+            "totp",
+            "token",
+            "verification_code",
+            "auth_code",
+            "2fa_code",
+        ];
         for param in param_names {
             let form_data = format!("{}=123456", param);
             if let Ok(response) = self.http_client.post_form(endpoint, &form_data).await {
                 // Check for information disclosure about expected parameter
-                if response.body.to_lowercase().contains("expected") ||
-                   response.body.to_lowercase().contains("missing") {
+                if response.body.to_lowercase().contains("expected")
+                    || response.body.to_lowercase().contains("missing")
+                {
                     debug!("[2FA-Bypass] Endpoint expects parameter: {}", param);
                 }
             }
@@ -563,18 +613,22 @@ impl TwoFaBypassScanner {
                     response_times.push(duration.as_millis());
 
                     // Check for rate limiting response
-                    if response.status_code == 429 ||
-                       response.body.to_lowercase().contains("rate limit") ||
-                       response.body.to_lowercase().contains("too many attempts") ||
-                       response.body.to_lowercase().contains("locked") ||
-                       response.body.to_lowercase().contains("try again later") {
+                    if response.status_code == 429
+                        || response.body.to_lowercase().contains("rate limit")
+                        || response.body.to_lowercase().contains("too many attempts")
+                        || response.body.to_lowercase().contains("locked")
+                        || response.body.to_lowercase().contains("try again later")
+                    {
                         debug!("[2FA-Bypass] Rate limiting detected at attempt {}", i + 1);
                         break;
                     }
 
                     // Count successful processing (not actual auth success)
-                    if response.status_code == 200 || response.status_code == 400 ||
-                       response.status_code == 401 || response.status_code == 422 {
+                    if response.status_code == 200
+                        || response.status_code == 400
+                        || response.status_code == 401
+                        || response.status_code == 422
+                    {
                         successful_attempts += 1;
                     }
                 }
@@ -596,8 +650,8 @@ impl TwoFaBypassScanner {
             };
 
             // Calculate estimated brute force time
-            let estimated_hours = (1_000_000.0 / successful_attempts as f64) *
-                                  (total_time.as_secs_f64() / 3600.0);
+            let estimated_hours =
+                (1_000_000.0 / successful_attempts as f64) * (total_time.as_secs_f64() / 3600.0);
 
             vulnerabilities.push(self.create_vulnerability(
                 "2FA Bypass - Missing Rate Limiting (Brute Force Possible)",
@@ -623,14 +677,17 @@ impl TwoFaBypassScanner {
         // Check for timing attack vulnerability
         if response_times.len() >= 5 {
             let mean: u128 = response_times.iter().sum::<u128>() / response_times.len() as u128;
-            let variance: u128 = response_times.iter()
+            let variance: u128 = response_times
+                .iter()
                 .map(|&t| {
                     let diff = if t > mean { t - mean } else { mean - t };
                     diff * diff
                 })
-                .sum::<u128>() / response_times.len() as u128;
+                .sum::<u128>()
+                / response_times.len() as u128;
 
-            if variance > 2500 { // More than 50ms standard deviation
+            if variance > 2500 {
+                // More than 50ms standard deviation
                 vulnerabilities.push(self.create_vulnerability(
                     "2FA Timing Attack Vulnerability",
                     endpoint,
@@ -683,8 +740,13 @@ impl TwoFaBypassScanner {
         info!("[2FA-Bypass] Testing backup code security");
 
         let backup_endpoints = vec![
-            "/mfa/backup", "/2fa/recovery", "/backup-codes", "/recovery-codes",
-            "/auth/backup", "/account/recovery", "/mfa/recovery",
+            "/mfa/backup",
+            "/2fa/recovery",
+            "/backup-codes",
+            "/recovery-codes",
+            "/auth/backup",
+            "/account/recovery",
+            "/mfa/recovery",
         ];
 
         for path in &backup_endpoints {
@@ -699,9 +761,11 @@ impl TwoFaBypassScanner {
                 let body_lower = response.body.to_lowercase();
 
                 // Check for exposed backup codes
-                let code_pattern = Regex::new(r"[A-Z0-9]{4}[-\s]?[A-Z0-9]{4}[-\s]?[A-Z0-9]{4}").unwrap();
-                if code_pattern.is_match(&response.body) &&
-                   (body_lower.contains("backup") || body_lower.contains("recovery")) {
+                let code_pattern =
+                    Regex::new(r"[A-Z0-9]{4}[-\s]?[A-Z0-9]{4}[-\s]?[A-Z0-9]{4}").unwrap();
+                if code_pattern.is_match(&response.body)
+                    && (body_lower.contains("backup") || body_lower.contains("recovery"))
+                {
                     vulnerabilities.push(self.create_vulnerability(
                         "2FA Backup Codes Exposed",
                         &endpoint,
@@ -728,8 +792,7 @@ impl TwoFaBypassScanner {
                 tests_run += predictable_tests;
 
                 // Test backup code reuse
-                let (reuse_vulns, reuse_tests) =
-                    self.test_backup_code_reuse(&endpoint).await?;
+                let (reuse_vulns, reuse_tests) = self.test_backup_code_reuse(&endpoint).await?;
                 vulnerabilities.extend(reuse_vulns);
                 tests_run += reuse_tests;
             }
@@ -751,9 +814,10 @@ impl TwoFaBypassScanner {
             let form_data = format!("backup_code={}", test_code);
 
             if let Ok(response) = self.http_client.post_form(endpoint, &form_data).await {
-                if response.status_code != 429 &&
-                   !response.body.to_lowercase().contains("rate limit") &&
-                   !response.body.to_lowercase().contains("locked") {
+                if response.status_code != 429
+                    && !response.body.to_lowercase().contains("rate limit")
+                    && !response.body.to_lowercase().contains("locked")
+                {
                     successful_attempts += 1;
                 } else {
                     break;
@@ -775,7 +839,10 @@ impl TwoFaBypassScanner {
                     Attackers can enumerate valid backup codes through brute force.",
                     successful_attempts
                 ),
-                format!("{} backup code attempts without rate limiting", successful_attempts),
+                format!(
+                    "{} backup code attempts without rate limiting",
+                    successful_attempts
+                ),
                 "CWE-307",
                 7.5,
             ));
@@ -793,8 +860,12 @@ impl TwoFaBypassScanner {
 
         // Common weak patterns
         let weak_codes = vec![
-            "0000-0000-0000", "1111-1111-1111", "1234-5678-9012",
-            "AAAA-AAAA-AAAA", "ABCD-EFGH-IJKL", "TEST-CODE-0001",
+            "0000-0000-0000",
+            "1111-1111-1111",
+            "1234-5678-9012",
+            "AAAA-AAAA-AAAA",
+            "ABCD-EFGH-IJKL",
+            "TEST-CODE-0001",
         ];
 
         for code in &weak_codes {
@@ -824,10 +895,7 @@ impl TwoFaBypassScanner {
     }
 
     /// Test backup code reuse
-    async fn test_backup_code_reuse(
-        &self,
-        endpoint: &str,
-    ) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_backup_code_reuse(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
 
         let test_code = "TEST-REUSE-1234";
@@ -845,8 +913,9 @@ impl TwoFaBypassScanner {
         // Second attempt with same code
         if let Ok(second_response) = self.http_client.post_form(endpoint, &form_data).await {
             // If both succeed, codes are reusable
-            if self.check_bypass_success(&first_response) &&
-               self.check_bypass_success(&second_response) {
+            if self.check_bypass_success(&first_response)
+                && self.check_bypass_success(&second_response)
+            {
                 vulnerabilities.push(self.create_vulnerability(
                     "2FA Bypass - Reusable Backup Codes",
                     endpoint,
@@ -865,10 +934,7 @@ impl TwoFaBypassScanner {
     }
 
     /// Test recovery flow bypasses
-    async fn test_recovery_bypass(
-        &self,
-        base_url: &str,
-    ) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_recovery_bypass(&self, base_url: &str) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -876,8 +942,12 @@ impl TwoFaBypassScanner {
 
         // Password reset flow
         let reset_endpoints = vec![
-            "/password/reset", "/forgot-password", "/reset-password",
-            "/auth/reset", "/account/reset", "/api/password/reset",
+            "/password/reset",
+            "/forgot-password",
+            "/reset-password",
+            "/auth/reset",
+            "/account/reset",
+            "/api/password/reset",
         ];
 
         for path in &reset_endpoints {
@@ -890,10 +960,11 @@ impl TwoFaBypassScanner {
                     let body_lower = response.body.to_lowercase();
 
                     // If password reset form is accessible and doesn't mention 2FA
-                    if (body_lower.contains("email") || body_lower.contains("password")) &&
-                       !body_lower.contains("2fa") &&
-                       !body_lower.contains("mfa") &&
-                       !body_lower.contains("verification code") {
+                    if (body_lower.contains("email") || body_lower.contains("password"))
+                        && !body_lower.contains("2fa")
+                        && !body_lower.contains("mfa")
+                        && !body_lower.contains("verification code")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "2FA Bypass - Password Reset Flow",
                             &endpoint,
@@ -912,9 +983,7 @@ impl TwoFaBypassScanner {
         }
 
         // Account recovery flow
-        let recovery_endpoints = vec![
-            "/account/recover", "/recovery", "/auth/recover", "/forgot",
-        ];
+        let recovery_endpoints = vec!["/account/recover", "/recovery", "/auth/recover", "/forgot"];
 
         for path in &recovery_endpoints {
             let endpoint = format!("{}{}", base_url.trim_end_matches('/'), path);
@@ -944,8 +1013,11 @@ impl TwoFaBypassScanner {
 
         // Email change flow
         let email_change_endpoints = vec![
-            "/settings/email", "/account/email", "/profile/email",
-            "/api/user/email", "/auth/email/change",
+            "/settings/email",
+            "/account/email",
+            "/profile/email",
+            "/api/user/email",
+            "/auth/email/change",
         ];
 
         for path in &email_change_endpoints {
@@ -957,10 +1029,11 @@ impl TwoFaBypassScanner {
                     let body_lower = response.body.to_lowercase();
 
                     // Check if email change requires 2FA re-verification
-                    if body_lower.contains("email") &&
-                       !body_lower.contains("verification code") &&
-                       !body_lower.contains("2fa") &&
-                       response.status_code != 401 {
+                    if body_lower.contains("email")
+                        && !body_lower.contains("verification code")
+                        && !body_lower.contains("2fa")
+                        && response.status_code != 401
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "2FA Bypass - Email Change Without 2FA",
                             &endpoint,
@@ -1068,9 +1141,10 @@ impl TwoFaBypassScanner {
                 if response.status_code == 200 {
                     let body_lower = response.body.to_lowercase();
 
-                    if (body_lower.contains("qr") || body_lower.contains("scan")) &&
-                       !response.headers.contains_key("authorization") &&
-                       !response.body.contains("login") {
+                    if (body_lower.contains("qr") || body_lower.contains("scan"))
+                        && !response.headers.contains_key("authorization")
+                        && !response.body.contains("login")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "2FA Implementation Flaw - Unauthenticated QR Code Access",
                             setup_url,
@@ -1091,8 +1165,11 @@ impl TwoFaBypassScanner {
         // Test 4: Check for device trust manipulation
         tests_run += 1;
         let trust_params = vec![
-            "trust_device=true", "remember_device=true", "skip_future_2fa=true",
-            "trusted=1", "device_trusted=true",
+            "trust_device=true",
+            "remember_device=true",
+            "skip_future_2fa=true",
+            "trusted=1",
+            "device_trusted=true",
         ];
 
         for param in &trust_params {
@@ -1134,9 +1211,7 @@ impl TwoFaBypassScanner {
 
         // Test 1: Check if 2FA is required on all session types
         tests_run += 1;
-        let session_endpoints = vec![
-            "/api/session", "/api/me", "/api/user", "/api/profile",
-        ];
+        let session_endpoints = vec!["/api/session", "/api/me", "/api/user", "/api/profile"];
 
         for path in &session_endpoints {
             let endpoint = format!("{}{}", base_url.trim_end_matches('/'), path);
@@ -1145,9 +1220,12 @@ impl TwoFaBypassScanner {
                     let body = &response.body;
 
                     // Check if session data is returned without 2FA
-                    if (body.contains("\"user\"") || body.contains("\"email\"") ||
-                        body.contains("\"id\"")) &&
-                       !body.contains("2fa_required") && !body.contains("mfa_pending") {
+                    if (body.contains("\"user\"")
+                        || body.contains("\"email\"")
+                        || body.contains("\"id\""))
+                        && !body.contains("2fa_required")
+                        && !body.contains("mfa_pending")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "2FA Bypass - Session Without 2FA",
                             &endpoint,
@@ -1167,17 +1245,23 @@ impl TwoFaBypassScanner {
         // Test 2: Check for remember device cookie manipulation
         tests_run += 1;
         let cookie_names = vec![
-            "remember_2fa", "trusted_device", "mfa_remember", "2fa_trusted",
-            "device_token", "trust_token",
+            "remember_2fa",
+            "trusted_device",
+            "mfa_remember",
+            "2fa_trusted",
+            "device_token",
+            "trust_token",
         ];
 
         for cookie_name in &cookie_names {
             for endpoint in endpoints {
-                let headers = vec![
-                    ("Cookie".to_string(), format!("{}=1", cookie_name)),
-                ];
+                let headers = vec![("Cookie".to_string(), format!("{}=1", cookie_name))];
 
-                if let Ok(response) = self.http_client.get_with_headers(&endpoint.url, headers).await {
+                if let Ok(response) = self
+                    .http_client
+                    .get_with_headers(&endpoint.url, headers)
+                    .await
+                {
                     if self.check_bypass_success(&response) {
                         vulnerabilities.push(self.create_vulnerability(
                             "2FA Bypass - Cookie Manipulation",
@@ -1202,22 +1286,28 @@ impl TwoFaBypassScanner {
 
         // Test 3: Check for session fixation to bypass 2FA
         tests_run += 1;
-        let session_ids = vec![
-            "PHPSESSID", "JSESSIONID", "session", "sess_id", "sid",
-        ];
+        let session_ids = vec!["PHPSESSID", "JSESSIONID", "session", "sess_id", "sid"];
 
         for sid_name in &session_ids {
             for endpoint in endpoints {
                 let fixed_session = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-                let headers = vec![
-                    ("Cookie".to_string(), format!("{}={}", sid_name, fixed_session)),
-                ];
+                let headers = vec![(
+                    "Cookie".to_string(),
+                    format!("{}={}", sid_name, fixed_session),
+                )];
 
-                if let Ok(response) = self.http_client.get_with_headers(&endpoint.url, headers).await {
+                if let Ok(response) = self
+                    .http_client
+                    .get_with_headers(&endpoint.url, headers)
+                    .await
+                {
                     // Check if session was accepted
                     if response.status_code == 200 && !response.body.contains("invalid session") {
                         // This needs manual verification but worth flagging
-                        debug!("[2FA-Bypass] Session {} may be vulnerable to fixation", sid_name);
+                        debug!(
+                            "[2FA-Bypass] Session {} may be vulnerable to fixation",
+                            sid_name
+                        );
                     }
                 }
             }
@@ -1227,10 +1317,7 @@ impl TwoFaBypassScanner {
     }
 
     /// Test OAuth/SSO 2FA enforcement
-    async fn test_sso_bypass(
-        &self,
-        base_url: &str,
-    ) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_sso_bypass(&self, base_url: &str) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -1238,9 +1325,16 @@ impl TwoFaBypassScanner {
 
         // Common SSO endpoints
         let sso_endpoints = vec![
-            "/auth/google", "/auth/github", "/auth/microsoft", "/auth/facebook",
-            "/oauth/callback", "/sso/login", "/auth/saml", "/login/sso",
-            "/oauth2/authorize", "/connect/authorize",
+            "/auth/google",
+            "/auth/github",
+            "/auth/microsoft",
+            "/auth/facebook",
+            "/oauth/callback",
+            "/sso/login",
+            "/auth/saml",
+            "/login/sso",
+            "/oauth2/authorize",
+            "/connect/authorize",
         ];
 
         for path in &sso_endpoints {
@@ -1299,23 +1393,27 @@ impl TwoFaBypassScanner {
     }
 
     /// Check if protected resource access was successful
-    async fn check_protected_access(&self, response: &crate::http_client::HttpResponse, _path: &str) -> bool {
+    async fn check_protected_access(
+        &self,
+        response: &crate::http_client::HttpResponse,
+        _path: &str,
+    ) -> bool {
         let body_lower = response.body.to_lowercase();
 
         // Should NOT be a login/2FA page
-        let not_auth_page = !body_lower.contains("login") &&
-                           !body_lower.contains("sign in") &&
-                           !body_lower.contains("verification code") &&
-                           !body_lower.contains("enter code") &&
-                           !body_lower.contains("2fa") &&
-                           !body_lower.contains("mfa");
+        let not_auth_page = !body_lower.contains("login")
+            && !body_lower.contains("sign in")
+            && !body_lower.contains("verification code")
+            && !body_lower.contains("enter code")
+            && !body_lower.contains("2fa")
+            && !body_lower.contains("mfa");
 
         // Should be an actual protected resource
-        let is_protected_content = body_lower.contains("dashboard") ||
-                                   body_lower.contains("settings") ||
-                                   body_lower.contains("profile") ||
-                                   body_lower.contains("account") ||
-                                   body_lower.contains("admin");
+        let is_protected_content = body_lower.contains("dashboard")
+            || body_lower.contains("settings")
+            || body_lower.contains("profile")
+            || body_lower.contains("account")
+            || body_lower.contains("admin");
 
         // Status should indicate success
         let success_status = response.status_code == 200;
@@ -1333,23 +1431,25 @@ impl TwoFaBypassScanner {
         // Positive indicators (authentication success)
         let success_indicators = response.status_code == 200 || response.status_code == 302;
 
-        let has_success_content = body_lower.contains("success") ||
-                                  body_lower.contains("verified") ||
-                                  body_lower.contains("authenticated") ||
-                                  body_lower.contains("welcome") ||
-                                  body_lower.contains("dashboard");
+        let has_success_content = body_lower.contains("success")
+            || body_lower.contains("verified")
+            || body_lower.contains("authenticated")
+            || body_lower.contains("welcome")
+            || body_lower.contains("dashboard");
 
         // Negative indicators (still requiring auth)
-        let requires_auth = body_lower.contains("invalid") ||
-                           body_lower.contains("incorrect") ||
-                           body_lower.contains("wrong") ||
-                           body_lower.contains("failed") ||
-                           body_lower.contains("error") ||
-                           body_lower.contains("try again") ||
-                           body_lower.contains("expired");
+        let requires_auth = body_lower.contains("invalid")
+            || body_lower.contains("incorrect")
+            || body_lower.contains("wrong")
+            || body_lower.contains("failed")
+            || body_lower.contains("error")
+            || body_lower.contains("try again")
+            || body_lower.contains("expired");
 
         // Check for session cookie being set
-        let has_session_cookie = response.headers.get("set-cookie")
+        let has_session_cookie = response
+            .headers
+            .get("set-cookie")
             .map(|c| c.to_lowercase().contains("session") || c.to_lowercase().contains("auth"))
             .unwrap_or(false);
 
@@ -1386,7 +1486,7 @@ impl TwoFaBypassScanner {
             false_positive: false,
             remediation: self.get_remediation(title),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 

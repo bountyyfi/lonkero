@@ -140,13 +140,21 @@ impl NextJsSecurityScanner {
             return Ok((vec![], tests_run));
         }
 
-        info!("[Next.js] Detected Next.js application{}",
-            version.as_ref().map(|v| format!(" (version: {})", v)).unwrap_or_default());
+        info!(
+            "[Next.js] Detected Next.js application{}",
+            version
+                .as_ref()
+                .map(|v| format!(" (version: {})", v))
+                .unwrap_or_default()
+        );
 
         // Discover routes from JavaScript bundles for enhanced testing
         let discovered_routes = self.discover_routes(url).await.unwrap_or_default();
         if !discovered_routes.is_empty() {
-            info!("[Next.js] Discovered {} routes for security testing", discovered_routes.len());
+            info!(
+                "[Next.js] Discovered {} routes for security testing",
+                discovered_routes.len()
+            );
         }
 
         // Test middleware bypass vulnerabilities
@@ -208,13 +216,18 @@ impl NextJsSecurityScanner {
 
         // Test discovered routes for middleware bypass
         if !discovered_routes.is_empty() {
-            let (route_vulns, route_tests) = self.check_discovered_routes_bypass(url, &discovered_routes, config).await?;
+            let (route_vulns, route_tests) = self
+                .check_discovered_routes_bypass(url, &discovered_routes, config)
+                .await?;
             vulnerabilities.extend(route_vulns);
             tests_run += route_tests;
         }
 
-        info!("[Next.js] Completed: {} vulnerabilities, {} tests",
-            vulnerabilities.len(), tests_run);
+        info!(
+            "[Next.js] Completed: {} vulnerabilities, {} tests",
+            vulnerabilities.len(),
+            tests_run
+        );
 
         Ok((vulnerabilities, tests_run))
     }
@@ -253,7 +266,8 @@ impl NextJsSecurityScanner {
                 if powered_by_lower.contains("next.js") || powered_by_lower.contains("next") {
                     is_nextjs = true;
                     // Extract version from header
-                    let header_version_re = Regex::new(r#"(?i)next\.js?\s*v?(\d+\.\d+(?:\.\d+)?)"#).ok();
+                    let header_version_re =
+                        Regex::new(r#"(?i)next\.js?\s*v?(\d+\.\d+(?:\.\d+)?)"#).ok();
                     if let Some(re) = header_version_re {
                         if let Some(caps) = re.captures(&powered_by) {
                             version = caps.get(1).map(|m| m.as_str().to_string());
@@ -267,8 +281,9 @@ impl NextJsSecurityScanner {
         let api_test = format!("{}/api/health", url.trim_end_matches('/'));
         if let Ok(resp) = self.http_client.get(&api_test).await {
             // Check for Next.js cache headers
-            if resp.headers.contains_key("x-nextjs-cache") ||
-               resp.headers.contains_key("x-nextjs-matched-path") {
+            if resp.headers.contains_key("x-nextjs-cache")
+                || resp.headers.contains_key("x-nextjs-matched-path")
+            {
                 is_nextjs = true;
             }
         }
@@ -319,13 +334,19 @@ impl NextJsSecurityScanner {
             let mut headers = HashMap::new();
             headers.insert("x-middleware-subrequest".to_string(), "1".to_string());
 
-            let headers_vec: Vec<(String, String)> = headers.iter()
+            let headers_vec: Vec<(String, String)> = headers
+                .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers_vec).await {
+            if let Ok(bypass_resp) = self
+                .http_client
+                .get_with_headers(&test_url, headers_vec)
+                .await
+            {
                 // Check if we bypassed authentication
-                if bypass_resp.status_code == 200 ||
-                   (bypass_resp.status_code != 401 && bypass_resp.status_code != 403) {
+                if bypass_resp.status_code == 200
+                    || (bypass_resp.status_code != 401 && bypass_resp.status_code != 403)
+                {
                     vulnerabilities.push(Vulnerability {
                         id: format!("nextjs_middleware_bypass_{}", Self::generate_id()),
                         vuln_type: "Next.js Middleware Bypass - Authentication Bypass".to_string(),
@@ -369,7 +390,10 @@ impl NextJsSecurityScanner {
             // Try variations of the bypass
             let bypass_variations = [
                 ("x-middleware-subrequest", "true"),
-                ("x-middleware-subrequest", "middleware:middleware:middleware:middleware:middleware"),
+                (
+                    "x-middleware-subrequest",
+                    "middleware:middleware:middleware:middleware:middleware",
+                ),
                 ("X-Middleware-Subrequest", "1"),
                 ("x-middleware-prefetch", "1"),
                 ("x-middleware-invoke", "1"),
@@ -380,10 +404,15 @@ impl NextJsSecurityScanner {
                 let mut headers = HashMap::new();
                 headers.insert(header.to_string(), value.to_string());
 
-                let headers_vec: Vec<(String, String)> = headers.iter()
+                let headers_vec: Vec<(String, String)> = headers
+                    .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
-                if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers_vec).await {
+                if let Ok(bypass_resp) = self
+                    .http_client
+                    .get_with_headers(&test_url, headers_vec)
+                    .await
+                {
                     if bypass_resp.status_code == 200 && normal_resp.status_code != 200 {
                         vulnerabilities.push(Vulnerability {
                             id: format!("nextjs_middleware_bypass_{}", Self::generate_id()),
@@ -406,9 +435,11 @@ impl NextJsSecurityScanner {
                             cvss: 9.8,
                             verified: true,
                             false_positive: false,
-                            remediation: "Upgrade Next.js and implement server-side auth validation.".to_string(),
+                            remediation:
+                                "Upgrade Next.js and implement server-side auth validation."
+                                    .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                         break;
                     }
@@ -443,7 +474,8 @@ impl NextJsSecurityScanner {
 
         // Extract buildId from __NEXT_DATA__
         let build_id_re = Regex::new(r#"buildId["']?\s*:\s*["']([^"']+)["']"#)?;
-        let build_id = build_id_re.captures(&main_resp.body)
+        let build_id = build_id_re
+            .captures(&main_resp.body)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
 
@@ -478,7 +510,10 @@ impl NextJsSecurityScanner {
                         ("email", r#"(?i)["']email["']\s*:\s*["'][^"']+@[^"']+"#),
                         ("password", r#"(?i)["']password["']\s*:"#),
                         ("token", r#"(?i)["'](?:auth|access|api)?[_-]?token["']\s*:"#),
-                        ("secret", r#"(?i)["'](?:secret|private)[_-]?(?:key)?["']\s*:"#),
+                        (
+                            "secret",
+                            r#"(?i)["'](?:secret|private)[_-]?(?:key)?["']\s*:"#,
+                        ),
                         ("user_id", r#"(?i)["']user[_-]?id["']\s*:"#),
                         ("session", r#"(?i)["']session["']\s*:"#),
                         ("credit_card", r#"\d{13,16}"#),
@@ -584,15 +619,19 @@ impl NextJsSecurityScanner {
                     let body_lower = resp.body.to_lowercase();
 
                     // Check for sensitive data patterns
-                    let is_sensitive = body_lower.contains("internal") ||
-                        body_lower.contains("debug") ||
-                        body_lower.contains("config") ||
-                        body_lower.contains("database") ||
-                        body_lower.contains("connection_string") ||
-                        body_lower.contains("api_key") ||
-                        body_lower.contains("secret");
+                    let is_sensitive = body_lower.contains("internal")
+                        || body_lower.contains("debug")
+                        || body_lower.contains("config")
+                        || body_lower.contains("database")
+                        || body_lower.contains("connection_string")
+                        || body_lower.contains("api_key")
+                        || body_lower.contains("secret");
 
-                    if is_sensitive && (route.contains("internal") || route.contains("debug") || route.contains("config")) {
+                    if is_sensitive
+                        && (route.contains("internal")
+                            || route.contains("debug")
+                            || route.contains("config"))
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: format!("nextjs_api_exposure_{}", Self::generate_id()),
                             vuln_type: "Next.js API Route - Internal Endpoint Exposed".to_string(),
@@ -632,13 +671,20 @@ impl NextJsSecurityScanner {
                 let mut headers = HashMap::new();
                 headers.insert("Origin".to_string(), "https://evil.com".to_string());
 
-                let headers_vec: Vec<(String, String)> = headers.iter()
+                let headers_vec: Vec<(String, String)> = headers
+                    .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
-                if let Ok(cors_resp) = self.http_client.get_with_headers(&api_url, headers_vec).await {
+                if let Ok(cors_resp) = self
+                    .http_client
+                    .get_with_headers(&api_url, headers_vec)
+                    .await
+                {
                     if let Some(acao) = cors_resp.headers.get("access-control-allow-origin") {
                         if acao == "https://evil.com" || acao == "*" {
-                            let has_credentials = cors_resp.headers.get("access-control-allow-credentials")
+                            let has_credentials = cors_resp
+                                .headers
+                                .get("access-control-allow-credentials")
                                 .map(|v| v == "true")
                                 .unwrap_or(false);
 
@@ -702,16 +748,40 @@ impl NextJsSecurityScanner {
             // Look for server-side env variables exposed to client
             // These should only be NEXT_PUBLIC_* but sometimes devs leak others
             let server_env_patterns = [
-                (r#"(?i)DATABASE_URL\s*[=:]\s*["'][^"']+["']"#, "DATABASE_URL"),
-                (r#"(?i)(?:SECRET|PRIVATE)[_-]?KEY\s*[=:]\s*["'][^"']+["']"#, "SECRET_KEY"),
-                (r#"(?i)JWT[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#, "JWT_SECRET"),
-                (r#"(?i)API[_-]?(?:KEY|SECRET)\s*[=:]\s*["'][^"']+["']"#, "API_KEY"),
-                (r#"(?i)AWS[_-]?(?:ACCESS|SECRET)[^=]*[=:]\s*["'][^"']+["']"#, "AWS_CREDENTIALS"),
-                (r#"(?i)STRIPE[_-]?(?:SECRET|SK_)[^=]*[=:]\s*["'][^"']+["']"#, "STRIPE_SECRET"),
-                (r#"(?i)SENDGRID[_-]?(?:API|KEY)[^=]*[=:]\s*["'][^"']+["']"#, "SENDGRID_KEY"),
+                (
+                    r#"(?i)DATABASE_URL\s*[=:]\s*["'][^"']+["']"#,
+                    "DATABASE_URL",
+                ),
+                (
+                    r#"(?i)(?:SECRET|PRIVATE)[_-]?KEY\s*[=:]\s*["'][^"']+["']"#,
+                    "SECRET_KEY",
+                ),
+                (
+                    r#"(?i)JWT[_-]?SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "JWT_SECRET",
+                ),
+                (
+                    r#"(?i)API[_-]?(?:KEY|SECRET)\s*[=:]\s*["'][^"']+["']"#,
+                    "API_KEY",
+                ),
+                (
+                    r#"(?i)AWS[_-]?(?:ACCESS|SECRET)[^=]*[=:]\s*["'][^"']+["']"#,
+                    "AWS_CREDENTIALS",
+                ),
+                (
+                    r#"(?i)STRIPE[_-]?(?:SECRET|SK_)[^=]*[=:]\s*["'][^"']+["']"#,
+                    "STRIPE_SECRET",
+                ),
+                (
+                    r#"(?i)SENDGRID[_-]?(?:API|KEY)[^=]*[=:]\s*["'][^"']+["']"#,
+                    "SENDGRID_KEY",
+                ),
                 (r#"(?i)MONGODB_URI\s*[=:]\s*["'][^"']+["']"#, "MONGODB_URI"),
                 (r#"(?i)REDIS_URL\s*[=:]\s*["'][^"']+["']"#, "REDIS_URL"),
-                (r#"(?i)NEXTAUTH_SECRET\s*[=:]\s*["'][^"']+["']"#, "NEXTAUTH_SECRET"),
+                (
+                    r#"(?i)NEXTAUTH_SECRET\s*[=:]\s*["'][^"']+["']"#,
+                    "NEXTAUTH_SECRET",
+                ),
             ];
 
             let mut exposed_vars = Vec::new();
@@ -754,9 +824,10 @@ impl NextJsSecurityScanner {
                                   2. Use NEXT_PUBLIC_ prefix ONLY for truly public values\n\
                                   3. Audit .env files and next.config.js for exposure\n\
                                   4. Rotate any exposed credentials immediately\n\
-                                  5. Use server-side API routes to access sensitive data".to_string(),
+                                  5. Use server-side API routes to access sensitive data"
+                        .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                    ml_data: None,
                 });
             }
         }
@@ -777,10 +848,10 @@ impl NextJsSecurityScanner {
 
         // Test SSRF payloads via _next/image
         let ssrf_payloads = [
-            "http://169.254.169.254/latest/meta-data/",  // AWS metadata
-            "http://metadata.google.internal/",          // GCP metadata
-            "http://169.254.169.254/metadata/v1/",       // Azure/DO
-            "http://127.0.0.1:22",                       // Local SSH
+            "http://169.254.169.254/latest/meta-data/", // AWS metadata
+            "http://metadata.google.internal/",         // GCP metadata
+            "http://169.254.169.254/metadata/v1/",      // Azure/DO
+            "http://127.0.0.1:22",                      // Local SSH
             "http://localhost:3000/api/internal",       // Local API
             "http://[::1]",                             // IPv6 localhost
             "http://0.0.0.0/",                          // Null route
@@ -793,13 +864,15 @@ impl NextJsSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&image_url).await {
                 // Check for successful SSRF indicators
-                let is_ssrf = resp.status_code == 200 && (
-                    resp.body.contains("ami-") ||          // AWS metadata
+                let is_ssrf = resp.status_code == 200
+                    && (
+                        resp.body.contains("ami-") ||          // AWS metadata
                     resp.body.contains("instance-id") ||
                     resp.body.contains("meta-data") ||
                     resp.body.contains("computeMetadata") ||  // GCP
-                    resp.body.contains("SSH-")             // SSH banner
-                );
+                    resp.body.contains("SSH-")
+                        // SSH banner
+                    );
 
                 if is_ssrf {
                     vulnerabilities.push(Vulnerability {
@@ -814,7 +887,8 @@ impl NextJsSecurityScanner {
                         description: format!(
                             "The Next.js image optimization endpoint is vulnerable to SSRF. \
                             Internal resources can be accessed via /_next/image?url=. \
-                            Tested payload: {}", payload
+                            Tested payload: {}",
+                            payload
                         ),
                         evidence: Some(format!(
                             "Request: GET {}\n\
@@ -830,9 +904,10 @@ impl NextJsSecurityScanner {
                                       2. Configure images.remotePatterns in next.config.js\n\
                                       3. Use allowlist for image domains\n\
                                       4. Disable image optimization if not needed\n\
-                                      5. Block internal IP ranges at network level".to_string(),
+                                      5. Block internal IP ranges at network level"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                     break;
                 }
@@ -871,8 +946,12 @@ impl NextJsSecurityScanner {
                 // Check if draft mode is accessible without proper secret
                 if resp.status_code == 200 || resp.status_code == 307 {
                     // Check for draft mode cookies being set
-                    let has_draft_cookie = resp.headers.get("set-cookie")
-                        .map(|c| c.contains("__prerender_bypass") || c.contains("__next_preview_data"))
+                    let has_draft_cookie = resp
+                        .headers
+                        .get("set-cookie")
+                        .map(|c| {
+                            c.contains("__prerender_bypass") || c.contains("__next_preview_data")
+                        })
                         .unwrap_or(false);
 
                     if has_draft_cookie {
@@ -992,7 +1071,8 @@ impl NextJsSecurityScanner {
 
         // Extract JS file URLs
         let js_pattern = Regex::new(r#"/_next/static/[^"']+\.js"#)?;
-        let js_files: Vec<String> = js_pattern.find_iter(&resp.body)
+        let js_files: Vec<String> = js_pattern
+            .find_iter(&resp.body)
             .map(|m| format!("{}{}.map", url.trim_end_matches('/'), m.as_str()))
             .collect();
 
@@ -1068,11 +1148,11 @@ impl NextJsSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&file_url).await {
                 if resp.status_code == 200 {
-                    let is_config = resp.body.contains("module.exports") ||
-                        resp.body.contains("export default") ||
-                        resp.body.starts_with("{") ||
-                        resp.body.contains("DATABASE_URL") ||
-                        resp.body.contains("API_KEY");
+                    let is_config = resp.body.contains("module.exports")
+                        || resp.body.contains("export default")
+                        || resp.body.starts_with("{")
+                        || resp.body.contains("DATABASE_URL")
+                        || resp.body.contains("API_KEY");
 
                     if is_config {
                         vulnerabilities.push(Vulnerability {
@@ -1133,13 +1213,23 @@ impl NextJsSecurityScanner {
         headers.insert("Next-Action".to_string(), "test".to_string());
         headers.insert("Host".to_string(), "evil.com".to_string());
 
-        let headers_vec: Vec<(String, String)> = headers.iter()
+        let headers_vec: Vec<(String, String)> = headers
+            .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        if let Ok(resp) = self.http_client.post_with_headers(base, "[]", headers_vec).await {
+        if let Ok(resp) = self
+            .http_client
+            .post_with_headers(base, "[]", headers_vec)
+            .await
+        {
             // Check if the response indicates SSRF potential
-            if resp.body.contains("evil.com") ||
-               resp.headers.get("location").map(|l| l.contains("evil.com")).unwrap_or(false) {
+            if resp.body.contains("evil.com")
+                || resp
+                    .headers
+                    .get("location")
+                    .map(|l| l.contains("evil.com"))
+                    .unwrap_or(false)
+            {
                 vulnerabilities.push(Vulnerability {
                     id: format!("nextjs_server_action_ssrf_{}", Self::generate_id()),
                     vuln_type: "Next.js Server Actions SSRF (CVE-2024-34351)".to_string(),
@@ -1182,10 +1272,7 @@ impl NextJsSecurityScanner {
         let mut tests_run = 0;
 
         // Parse version
-        let version_parts: Vec<u32> = version
-            .split('.')
-            .filter_map(|p| p.parse().ok())
-            .collect();
+        let version_parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
 
         if version_parts.len() < 2 {
             return Ok((vec![], tests_run));
@@ -1200,18 +1287,50 @@ impl NextJsSecurityScanner {
 
             // Simple version check - could be more sophisticated
             let is_affected = match cve.cve_id.as_str() {
-                "CVE-2025-29927" => (major == 14 && minor < 2) || (major == 14 && minor == 2 && patch < 25) ||
-                                   (major == 15 && minor < 2) || (major == 15 && minor == 2 && patch < 3),
-                "CVE-2024-39693" => major < 14 || (major == 14 && minor < 2) || (major == 14 && minor == 2 && patch < 4),
+                "CVE-2025-29927" => {
+                    (major == 14 && minor < 2)
+                        || (major == 14 && minor == 2 && patch < 25)
+                        || (major == 15 && minor < 2)
+                        || (major == 15 && minor == 2 && patch < 3)
+                }
+                "CVE-2024-39693" => {
+                    major < 14
+                        || (major == 14 && minor < 2)
+                        || (major == 14 && minor == 2 && patch < 4)
+                }
                 "CVE-2024-34351" => (major == 13 && minor >= 4) || (major == 14 && minor < 1),
-                "CVE-2024-34350" => major < 14 || (major == 14 && minor < 1) || (major == 14 && minor == 1 && patch < 1),
-                "CVE-2024-46982" => major < 14 || (major == 14 && minor < 2) || (major == 14 && minor == 2 && patch < 10),
-                "CVE-2024-47831" => major < 14 || (major == 14 && minor < 2) || (major == 14 && minor == 2 && patch < 7),
-                "CVE-2023-46298" => major < 13 || (major == 13 && minor < 4) || (major == 13 && minor == 4 && patch < 20),
-                "CVE-2024-51479" => (major == 14 && minor < 2) || (major == 14 && minor == 2 && patch < 18) ||
-                                   (major == 15 && minor < 0) || (major == 15 && minor == 0 && patch < 4),
-                "CVE-2024-56332" => (major == 14 && minor < 2) || (major == 14 && minor == 2 && patch < 21) ||
-                                   (major == 15 && minor < 1) || (major == 15 && minor == 1 && patch < 2),
+                "CVE-2024-34350" => {
+                    major < 14
+                        || (major == 14 && minor < 1)
+                        || (major == 14 && minor == 1 && patch < 1)
+                }
+                "CVE-2024-46982" => {
+                    major < 14
+                        || (major == 14 && minor < 2)
+                        || (major == 14 && minor == 2 && patch < 10)
+                }
+                "CVE-2024-47831" => {
+                    major < 14
+                        || (major == 14 && minor < 2)
+                        || (major == 14 && minor == 2 && patch < 7)
+                }
+                "CVE-2023-46298" => {
+                    major < 13
+                        || (major == 13 && minor < 4)
+                        || (major == 13 && minor == 4 && patch < 20)
+                }
+                "CVE-2024-51479" => {
+                    (major == 14 && minor < 2)
+                        || (major == 14 && minor == 2 && patch < 18)
+                        || (major == 15 && minor < 0)
+                        || (major == 15 && minor == 0 && patch < 4)
+                }
+                "CVE-2024-56332" => {
+                    (major == 14 && minor < 2)
+                        || (major == 14 && minor == 2 && patch < 21)
+                        || (major == 15 && minor < 1)
+                        || (major == 15 && minor == 1 && patch < 2)
+                }
                 _ => false,
             };
 
@@ -1287,7 +1406,19 @@ impl NextJsSecurityScanner {
         let base = url.trim_end_matches('/');
 
         // Only test routes that look like they might be protected
-        let protected_keywords = ["admin", "dashboard", "settings", "account", "profile", "user", "private", "internal", "protected", "manage", "billing"];
+        let protected_keywords = [
+            "admin",
+            "dashboard",
+            "settings",
+            "account",
+            "profile",
+            "user",
+            "private",
+            "internal",
+            "protected",
+            "manage",
+            "billing",
+        ];
 
         for route in routes.iter().take(20) {
             // Check if route contains protected keywords
@@ -1316,18 +1447,29 @@ impl NextJsSecurityScanner {
                     continue;
                 }
 
-                debug!("[Next.js] Found protected route: {} ({})", test_route, normal_resp.status_code);
+                debug!(
+                    "[Next.js] Found protected route: {} ({})",
+                    test_route, normal_resp.status_code
+                );
 
                 // Try bypass with x-middleware-subrequest header
                 tests_run += 1;
-                let headers = vec![
-                    ("x-middleware-subrequest".to_string(), "middleware:middleware:middleware:middleware:middleware".to_string()),
-                ];
+                let headers = vec![(
+                    "x-middleware-subrequest".to_string(),
+                    "middleware:middleware:middleware:middleware:middleware".to_string(),
+                )];
 
-                if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers).await {
-                    if bypass_resp.status_code == 200 ||
-                       (bypass_resp.status_code != 401 && bypass_resp.status_code != 403 && bypass_resp.status_code != 404) {
-                        info!("[Next.js] CRITICAL: Middleware bypass on discovered route: {}", test_route);
+                if let Ok(bypass_resp) = self.http_client.get_with_headers(&test_url, headers).await
+                {
+                    if bypass_resp.status_code == 200
+                        || (bypass_resp.status_code != 401
+                            && bypass_resp.status_code != 403
+                            && bypass_resp.status_code != 404)
+                    {
+                        info!(
+                            "[Next.js] CRITICAL: Middleware bypass on discovered route: {}",
+                            test_route
+                        );
                         vulnerabilities.push(Vulnerability {
                             id: format!("nextjs_discovered_route_bypass_{}", Self::generate_id()),
                             vuln_type: "Next.js Middleware Bypass - Discovered Route".to_string(),
@@ -1366,7 +1508,10 @@ impl NextJsSecurityScanner {
         }
 
         if !vulnerabilities.is_empty() {
-            info!("[Next.js] Found {} middleware bypass vulnerabilities on discovered routes", vulnerabilities.len());
+            info!(
+                "[Next.js] Found {} middleware bypass vulnerabilities on discovered routes",
+                vulnerabilities.len()
+            );
         }
 
         Ok((vulnerabilities, tests_run))
@@ -1455,13 +1600,18 @@ impl NextJsSecurityScanner {
 
         // Extract all _next script URLs
         let script_urls = self.extract_next_scripts(&main_response.body, base_url);
-        info!("[Next.js] Found {} _next scripts to analyze", script_urls.len());
+        info!(
+            "[Next.js] Found {} _next scripts to analyze",
+            script_urls.len()
+        );
 
         // Analyze each script for route patterns
         for script_url in script_urls.iter().take(30) {
             if let Ok(script_response) = self.http_client.get(script_url).await {
                 // Ensure we got JavaScript, not HTML (SPA fallback)
-                if script_response.body.contains("<!DOCTYPE") || script_response.body.contains("<html") {
+                if script_response.body.contains("<!DOCTYPE")
+                    || script_response.body.contains("<html")
+                {
                     debug!("[Next.js] Skipping {} - got HTML instead of JS", script_url);
                     continue;
                 }
@@ -1513,7 +1663,8 @@ impl NextJsSecurityScanner {
         }
 
         // Also check for modulepreload links which often have chunk URLs
-        let link_re = Regex::new(r#"<link[^>]*href=["']([^"']*_next/static/chunks[^"']*)["']"#).ok();
+        let link_re =
+            Regex::new(r#"<link[^>]*href=["']([^"']*_next/static/chunks[^"']*)["']"#).ok();
         if let Some(re) = link_re {
             for caps in re.captures_iter(html) {
                 if let Some(href) = caps.get(1) {
@@ -1533,7 +1684,9 @@ impl NextJsSecurityScanner {
         let mut routes = Vec::new();
 
         // Pattern 1: App Router file patterns (/app/[path]/(page|layout|loading|error))
-        let app_router_re = Regex::new(r#"/app/([\w\-\[\]%/]+?)/(layout|page|loading|error|template|not-found)"#).ok();
+        let app_router_re =
+            Regex::new(r#"/app/([\w\-\[\]%/]+?)/(layout|page|loading|error|template|not-found)"#)
+                .ok();
         if let Some(re) = app_router_re {
             for caps in re.captures_iter(js_content) {
                 if let Some(path) = caps.get(1) {
@@ -1586,7 +1739,8 @@ impl NextJsSecurityScanner {
         let mut routes = Vec::new();
 
         // Find __NEXT_DATA__ content
-        let next_data_re = Regex::new(r#"<script id="__NEXT_DATA__"[^>]*>([^<]+)</script>"#).ok()?;
+        let next_data_re =
+            Regex::new(r#"<script id="__NEXT_DATA__"[^>]*>([^<]+)</script>"#).ok()?;
         let caps = next_data_re.captures(html)?;
         let json_content = caps.get(1)?.as_str();
 
@@ -1603,7 +1757,10 @@ impl NextJsSecurityScanner {
                 for caps in re.captures_iter(json_content) {
                     if let Some(path) = caps.get(1) {
                         let route = path.as_str().to_string();
-                        if !route.contains("_next") && !route.contains("_error") && !route.contains("_app") {
+                        if !route.contains("_next")
+                            && !route.contains("_error")
+                            && !route.contains("_app")
+                        {
                             routes.push(route);
                         }
                     }
@@ -1621,7 +1778,10 @@ impl NextJsSecurityScanner {
                         for page_caps in page_pattern.captures_iter(pages_array.as_str()) {
                             if let Some(page) = page_caps.get(1) {
                                 let route = page.as_str().to_string();
-                                if !route.contains("_next") && !route.contains("_error") && !route.contains("_app") {
+                                if !route.contains("_next")
+                                    && !route.contains("_error")
+                                    && !route.contains("_app")
+                                {
                                     routes.push(route);
                                 }
                             }
@@ -1644,7 +1804,7 @@ impl NextJsSecurityScanner {
             .replace("%5B", "[")
             .replace("%5D", "]")
             .replace("%5Blng%5D", "[lng]")
-            .replace("(", "")  // Remove route groups
+            .replace("(", "") // Remove route groups
             .replace(")", "");
 
         // Clean up the path
@@ -1665,7 +1825,9 @@ impl NextJsSecurityScanner {
         }
 
         // Skip common file extensions and assets
-        let invalid_suffixes = [".js", ".css", ".png", ".jpg", ".gif", ".svg", ".woff", ".ttf", ".ico", ".map", ".json"];
+        let invalid_suffixes = [
+            ".js", ".css", ".png", ".jpg", ".gif", ".svg", ".woff", ".ttf", ".ico", ".map", ".json",
+        ];
         for suffix in &invalid_suffixes {
             if route.ends_with(suffix) {
                 return false;
@@ -1710,6 +1872,10 @@ impl NextJsSecurityScanner {
             }
         }
 
-        format!("{}/{}", base_url.trim_end_matches('/'), path.trim_start_matches('/'))
+        format!(
+            "{}/{}",
+            base_url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
     }
 }

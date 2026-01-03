@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -61,7 +60,12 @@ impl SecurityHeadersScanner {
     }
 
     /// Check HSTS (HTTP Strict Transport Security)
-    fn check_hsts(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_hsts(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(hsts) = response.header("strict-transport-security") {
             // Check if max-age is too short
             if hsts.contains("max-age") {
@@ -104,7 +108,12 @@ impl SecurityHeadersScanner {
     }
 
     /// Check Content Security Policy
-    fn check_csp(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_csp(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(csp) = response.header("content-security-policy") {
             // Check for unsafe-inline or unsafe-eval
             if csp.contains("unsafe-inline") || csp.contains("unsafe-eval") {
@@ -145,9 +154,15 @@ impl SecurityHeadersScanner {
     }
 
     /// Check X-Frame-Options
-    fn check_x_frame_options(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_x_frame_options(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         let xfo = response.header("x-frame-options");
-        let frame_ancestors = response.header("content-security-policy")
+        let frame_ancestors = response
+            .header("content-security-policy")
             .map(|csp| csp.contains("frame-ancestors"))
             .unwrap_or(false);
 
@@ -177,7 +192,12 @@ impl SecurityHeadersScanner {
     }
 
     /// Check X-Content-Type-Options
-    fn check_x_content_type_options(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_x_content_type_options(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if response.header("x-content-type-options").is_none() {
             vulnerabilities.push(self.create_vulnerability(
                 "Missing X-Content-Type-Options",
@@ -192,7 +212,12 @@ impl SecurityHeadersScanner {
     }
 
     /// Check X-XSS-Protection
-    fn check_x_xss_protection(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_x_xss_protection(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(xss_protection) = response.header("x-xss-protection") {
             if xss_protection == "0" {
                 vulnerabilities.push(self.create_vulnerability(
@@ -210,7 +235,12 @@ impl SecurityHeadersScanner {
     }
 
     /// Check Referrer-Policy
-    fn check_referrer_policy(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_referrer_policy(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(referrer) = response.header("referrer-policy") {
             if referrer.contains("unsafe-url") || referrer == "no-referrer-when-downgrade" {
                 vulnerabilities.push(self.create_vulnerability(
@@ -237,25 +267,38 @@ impl SecurityHeadersScanner {
     }
 
     /// Check Permissions-Policy (formerly Feature-Policy)
-    fn check_permissions_policy(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_permissions_policy(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         let has_permissions_policy = response.header("permissions-policy").is_some();
         let has_feature_policy = response.header("feature-policy").is_some();
 
         if !has_permissions_policy && !has_feature_policy {
-            vulnerabilities.push(self.create_vulnerability(
-                "Missing Permissions-Policy",
-                url,
-                Severity::Info,
-                Confidence::Medium,
-                "Permissions-Policy header is missing",
-                "Consider restricting browser features (camera, microphone, geolocation, etc.)".to_string(),
-                2.0,
-            ));
+            vulnerabilities.push(
+                self.create_vulnerability(
+                    "Missing Permissions-Policy",
+                    url,
+                    Severity::Info,
+                    Confidence::Medium,
+                    "Permissions-Policy header is missing",
+                    "Consider restricting browser features (camera, microphone, geolocation, etc.)"
+                        .to_string(),
+                    2.0,
+                ),
+            );
         }
     }
 
     /// Check CORS headers for misconfigurations
-    fn check_cors_headers(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_cors_headers(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             // Check for wildcard with credentials
             if acao == "*" {
@@ -315,7 +358,8 @@ impl SecurityHeadersScanner {
             cvss,
             verified: true,
             false_positive: false,
-            remediation: format!(r#"Configure proper security headers:
+            remediation: format!(
+                r#"Configure proper security headers:
 
 For {}:
 - HSTS: Set Strict-Transport-Security with max-age=31536000; includeSubDomains; preload
@@ -331,9 +375,11 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self'" alway
 add_header X-Frame-Options "SAMEORIGIN" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-"#, title),
+"#,
+                title
+            ),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -408,7 +454,10 @@ mod tests {
         let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("content-security-policy".to_string(), "default-src 'self' 'unsafe-inline'".to_string());
+        headers.insert(
+            "content-security-policy".to_string(),
+            "default-src 'self' 'unsafe-inline'".to_string(),
+        );
 
         let response = HttpResponse {
             status_code: 200,
@@ -429,7 +478,10 @@ mod tests {
 
         let mut headers = HashMap::new();
         headers.insert("access-control-allow-origin".to_string(), "*".to_string());
-        headers.insert("access-control-allow-credentials".to_string(), "true".to_string());
+        headers.insert(
+            "access-control-allow-credentials".to_string(),
+            "true".to_string(),
+        );
 
         let response = HttpResponse {
             status_code: 200,

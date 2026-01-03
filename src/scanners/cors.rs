@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -66,7 +65,12 @@ impl CorsScanner {
         if let Some(domain) = self.extract_domain(url) {
             let subdomain_origin = format!("https://evil.{}", domain);
             if let Ok(response) = self.send_with_origin(url, &subdomain_origin).await {
-                self.check_subdomain_exploit(&response, url, &subdomain_origin, &mut vulnerabilities);
+                self.check_subdomain_exploit(
+                    &response,
+                    url,
+                    &subdomain_origin,
+                    &mut vulnerabilities,
+                );
             }
         }
 
@@ -87,7 +91,10 @@ impl CorsScanner {
 
         // Test 7: Test for credentials exposure
         tests_run += 1;
-        if let Ok(response) = self.send_with_credentials(url, "https://attacker.com").await {
+        if let Ok(response) = self
+            .send_with_credentials(url, "https://attacker.com")
+            .await
+        {
             self.check_credentials_exposure(&response, url, &mut vulnerabilities);
         }
 
@@ -110,7 +117,10 @@ impl CorsScanner {
     async fn send_with_credentials(&self, url: &str, origin: &str) -> Result<HttpResponse> {
         let headers = vec![
             ("Origin".to_string(), origin.to_string()),
-            ("Cookie".to_string(), "session=test_session_value".to_string()),
+            (
+                "Cookie".to_string(),
+                "session=test_session_value".to_string(),
+            ),
         ];
         self.http_client.get_with_headers(url, headers).await
     }
@@ -125,7 +135,12 @@ impl CorsScanner {
     }
 
     /// Check baseline CORS configuration
-    fn check_baseline_cors(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_baseline_cors(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             // Check for wildcard with credentials
             if acao == "*" {
@@ -157,10 +172,17 @@ impl CorsScanner {
     }
 
     /// Check for reflected origin (trusts any origin)
-    fn check_reflected_origin(&self, response: &HttpResponse, url: &str, test_origin: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_reflected_origin(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        test_origin: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             if acao == test_origin {
-                let has_credentials = response.header("access-control-allow-credentials")
+                let has_credentials = response
+                    .header("access-control-allow-credentials")
                     .map(|c| c == "true")
                     .unwrap_or(false);
 
@@ -171,7 +193,10 @@ impl CorsScanner {
                         Severity::Critical,
                         Confidence::High,
                         "Server reflects arbitrary Origin header and allows credentials",
-                        format!("Sent Origin: {}, Reflected: {}, Credentials: true", test_origin, acao),
+                        format!(
+                            "Sent Origin: {}, Reflected: {}, Credentials: true",
+                            test_origin, acao
+                        ),
                         9.1,
                     ));
                 } else {
@@ -190,7 +215,12 @@ impl CorsScanner {
     }
 
     /// Check for null origin acceptance
-    fn check_null_origin(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_null_origin(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             if acao == "null" {
                 vulnerabilities.push(self.create_vulnerability(
@@ -207,7 +237,13 @@ impl CorsScanner {
     }
 
     /// Check for subdomain exploitation
-    fn check_subdomain_exploit(&self, response: &HttpResponse, url: &str, subdomain_origin: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_subdomain_exploit(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        subdomain_origin: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             if acao == subdomain_origin || acao.contains("*.") {
                 vulnerabilities.push(self.create_vulnerability(
@@ -224,7 +260,13 @@ impl CorsScanner {
     }
 
     /// Check for prefix exploitation
-    fn check_prefix_exploit(&self, response: &HttpResponse, url: &str, prefix_origin: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_prefix_exploit(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        prefix_origin: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             if acao == prefix_origin {
                 vulnerabilities.push(self.create_vulnerability(
@@ -241,7 +283,12 @@ impl CorsScanner {
     }
 
     /// Check for localhost origin acceptance
-    fn check_localhost_origin(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_localhost_origin(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             if acao == "http://localhost" || acao == "http://127.0.0.1" {
                 vulnerabilities.push(self.create_vulnerability(
@@ -258,21 +305,32 @@ impl CorsScanner {
     }
 
     /// Check for credentials exposure
-    fn check_credentials_exposure(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_credentials_exposure(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
             if acao != "null" && acao != "" {
                 if let Some(credentials) = response.header("access-control-allow-credentials") {
                     if credentials == "true" {
                         // Check if methods include sensitive operations
                         if let Some(methods) = response.header("access-control-allow-methods") {
-                            if methods.contains("DELETE") || methods.contains("PUT") || methods.contains("PATCH") {
+                            if methods.contains("DELETE")
+                                || methods.contains("PUT")
+                                || methods.contains("PATCH")
+                            {
                                 vulnerabilities.push(self.create_vulnerability(
                                     "CORS Exposes Credentials with Write Methods",
                                     url,
                                     Severity::High,
                                     Confidence::Medium,
                                     "CORS allows credentials with write methods (PUT/DELETE/PATCH)",
-                                    format!("Origin: {}, Methods: {}, Credentials: true", acao, methods),
+                                    format!(
+                                        "Origin: {}, Methods: {}, Credentials: true",
+                                        acao, methods
+                                    ),
                                     7.1,
                                 ));
                             }
@@ -354,9 +412,10 @@ impl CorsScanner {
 References:
 - OWASP CORS Guide: https://owasp.org/www-community/attacks/CORS_OriginHeaderScrutiny
 - PortSwigger CORS: https://portswigger.net/web-security/cors
-"#.to_string(),
+"#
+            .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -397,7 +456,10 @@ mod tests {
 
         let mut headers = HashMap::new();
         headers.insert("access-control-allow-origin".to_string(), "*".to_string());
-        headers.insert("access-control-allow-credentials".to_string(), "true".to_string());
+        headers.insert(
+            "access-control-allow-credentials".to_string(),
+            "true".to_string(),
+        );
 
         let response = HttpResponse {
             status_code: 200,
@@ -418,8 +480,14 @@ mod tests {
         let scanner = CorsScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("access-control-allow-origin".to_string(), "https://evil.com".to_string());
-        headers.insert("access-control-allow-credentials".to_string(), "true".to_string());
+        headers.insert(
+            "access-control-allow-origin".to_string(),
+            "https://evil.com".to_string(),
+        );
+        headers.insert(
+            "access-control-allow-credentials".to_string(),
+            "true".to_string(),
+        );
 
         let response = HttpResponse {
             status_code: 200,
@@ -429,9 +497,17 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_reflected_origin(&response, "https://example.com", "https://evil.com", &mut vulns);
+        scanner.check_reflected_origin(
+            &response,
+            "https://example.com",
+            "https://evil.com",
+            &mut vulns,
+        );
 
-        assert!(vulns.len() > 0, "Should detect reflected origin with credentials");
+        assert!(
+            vulns.len() > 0,
+            "Should detect reflected origin with credentials"
+        );
         assert_eq!(vulns[0].severity, Severity::Critical);
     }
 
@@ -440,7 +516,10 @@ mod tests {
         let scanner = CorsScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("access-control-allow-origin".to_string(), "null".to_string());
+        headers.insert(
+            "access-control-allow-origin".to_string(),
+            "null".to_string(),
+        );
 
         let response = HttpResponse {
             status_code: 200,
@@ -481,6 +560,10 @@ mod tests {
         let mut vulns = Vec::new();
         scanner.check_baseline_cors(&response, "https://example.com", &mut vulns);
 
-        assert_eq!(vulns.len(), 0, "Should not report vulnerability when no CORS headers present");
+        assert_eq!(
+            vulns.len(),
+            0,
+            "Should not report vulnerability when no CORS headers present"
+        );
     }
 }

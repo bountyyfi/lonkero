@@ -7,7 +7,6 @@
  *
  * © 2026 Bountyy Oy
  */
-
 pub mod orchestrator;
 pub mod proof_validator;
 

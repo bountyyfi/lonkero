@@ -8,15 +8,14 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
-use crate::analysis::{IntelligenceBus, AuthType, InsightType};
+use crate::analysis::{AuthType, InsightType, IntelligenceBus};
+use crate::detection_helpers::{endpoint_exists, AppCharacteristics};
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 pub struct OAuthScanner {
     http_client: Arc<HttpClient>,
@@ -49,21 +48,28 @@ impl OAuthScanner {
     /// Broadcast OAuth2 authentication detected
     async fn broadcast_oauth2_detected(&self, url: &str, confidence: f32) {
         if let Some(ref bus) = self.intelligence_bus {
-            bus.report_auth_type(AuthType::OAuth2, confidence, url).await;
+            bus.report_auth_type(AuthType::OAuth2, confidence, url)
+                .await;
         }
     }
 
     /// Broadcast PKCE bypass possibility insight
     async fn broadcast_pkce_bypass(&self) {
         if let Some(ref bus) = self.intelligence_bus {
-            bus.report_insight("oauth", InsightType::WeakValidation, "PKCE not enforced").await;
+            bus.report_insight("oauth", InsightType::WeakValidation, "PKCE not enforced")
+                .await;
         }
     }
 
     /// Broadcast open redirect in callback insight
     async fn broadcast_redirect_bypass(&self) {
         if let Some(ref bus) = self.intelligence_bus {
-            bus.report_insight("oauth", InsightType::BypassFound, "Open redirect in callback").await;
+            bus.report_insight(
+                "oauth",
+                InsightType::BypassFound,
+                "Open redirect in callback",
+            )
+            .await;
         }
     }
 
@@ -109,7 +115,10 @@ impl OAuthScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
-        info!("[OAuth] OAuth implementation detected: {:?}", oauth_detection.evidence);
+        info!(
+            "[OAuth] OAuth implementation detected: {:?}",
+            oauth_detection.evidence
+        );
 
         // Broadcast OAuth2 detection to Intelligence Bus
         // Higher confidence if we found actual OAuth endpoints or flow
@@ -143,7 +152,11 @@ impl OAuthScanner {
                 if let Ok(response) = self.http_client.get(endpoint).await {
                     // CRITICAL: Only test if endpoint exists and isn't SPA fallback
                     if endpoint_exists(&response, &[200, 302, 400, 401]) {
-                        self.check_redirect_uri_validation(&response, endpoint, &mut vulnerabilities);
+                        self.check_redirect_uri_validation(
+                            &response,
+                            endpoint,
+                            &mut vulnerabilities,
+                        );
                     } else {
                         debug!("[OAuth] Endpoint {} doesn't exist - skipping", endpoint);
                     }
@@ -218,7 +231,11 @@ impl OAuthScanner {
         let unique_vulns: Vec<Vulnerability> = vulnerabilities
             .into_iter()
             .filter(|v| {
-                let key = format!("{}:{}", v.vuln_type, v.parameter.as_ref().unwrap_or(&String::new()));
+                let key = format!(
+                    "{}:{}",
+                    v.vuln_type,
+                    v.parameter.as_ref().unwrap_or(&String::new())
+                );
                 seen_types.insert(key)
             })
             .collect();
@@ -247,14 +264,21 @@ impl OAuthScanner {
         if url_lower.contains("client_id=") || url_lower.contains("response_type=") {
             detection.has_oauth = true;
             detection.has_oauth_flow = true;
-            detection.evidence.push("OAuth parameters in URL".to_string());
+            detection
+                .evidence
+                .push("OAuth parameters in URL".to_string());
         }
 
         // CRITICAL: Don't just check URL path - SPAs have client-side routes!
         // Only mark as OAuth endpoint if it's an actual server endpoint
-        if url_lower.contains("/oauth") || url_lower.contains("/authorize") || url_lower.contains("/token") {
+        if url_lower.contains("/oauth")
+            || url_lower.contains("/authorize")
+            || url_lower.contains("/token")
+        {
             // Will verify later if endpoint actually exists
-            detection.evidence.push("OAuth-like path in URL".to_string());
+            detection
+                .evidence
+                .push("OAuth-like path in URL".to_string());
         }
 
         // Fetch and analyze response
@@ -278,7 +302,9 @@ impl OAuthScanner {
                 if body_lower.contains(pattern) {
                     detection.has_oauth = true;
                     detection.has_oauth_endpoint = true;
-                    detection.evidence.push(format!("OAuth endpoint: {}", pattern));
+                    detection
+                        .evidence
+                        .push(format!("OAuth endpoint: {}", pattern));
                     break;
                 }
             }
@@ -313,9 +339,15 @@ impl OAuthScanner {
             }
 
             // Check headers for OAuth
-            if response.header("www-authenticate").map(|h| h.to_lowercase().contains("bearer")).unwrap_or(false) {
+            if response
+                .header("www-authenticate")
+                .map(|h| h.to_lowercase().contains("bearer"))
+                .unwrap_or(false)
+            {
                 detection.has_oauth = true;
-                detection.evidence.push("Bearer authentication header".to_string());
+                detection
+                    .evidence
+                    .push("Bearer authentication header".to_string());
             }
         }
 
@@ -368,7 +400,10 @@ impl OAuthScanner {
     }
 
     /// Test redirect_uri validation
-    async fn test_redirect_uri_validation(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_redirect_uri_validation(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Try to inject malicious redirect_uri
         let test_url = if url.contains('?') {
             format!("{}&redirect_uri=https://evil.com/callback", url)
@@ -432,9 +467,9 @@ impl OAuthScanner {
 
         // CRITICAL: Be MUCH more strict - don't just look for keywords!
         // Check if this is an actual OAuth authorization page with forms/inputs
-        let is_oauth_auth_page = (body_lower.contains("<form") || body_lower.contains("action=")) &&
-                                  (body_lower.contains("client_id") || body_lower.contains("response_type")) &&
-                                  (body_lower.contains("oauth") || body_lower.contains("authorize"));
+        let is_oauth_auth_page = (body_lower.contains("<form") || body_lower.contains("action="))
+            && (body_lower.contains("client_id") || body_lower.contains("response_type"))
+            && (body_lower.contains("oauth") || body_lower.contains("authorize"));
 
         // Only check for missing state if it's a REAL OAuth page
         if is_oauth_auth_page && !body_lower.contains("state") && !url.contains("state=") {
@@ -542,7 +577,9 @@ impl OAuthScanner {
         let body_lower = response.body.to_lowercase();
 
         // If this looks like a public client (SPA/mobile) but PKCE not mentioned
-        if (body_lower.contains("public") || body_lower.contains("spa") || body_lower.contains("mobile"))
+        if (body_lower.contains("public")
+            || body_lower.contains("spa")
+            || body_lower.contains("mobile"))
             && !body_lower.contains("code_challenge")
             && !body_lower.contains("pkce")
         {
@@ -570,7 +607,8 @@ impl OAuthScanner {
 
         // Check for client_secret in response body or JavaScript (both snake_case and camelCase)
         if (body_lower.contains("client_secret") || body_lower.contains("clientsecret"))
-            && (body.contains("=") || body.contains(":")) {
+            && (body.contains("=") || body.contains(":"))
+        {
             vulnerabilities.push(self.create_vulnerability(
                 "OAuth client_secret Exposed",
                 url,
@@ -840,7 +878,10 @@ mod tests {
         let scanner = OAuthScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut vulns = Vec::new();
-        scanner.check_token_in_url("https://app.example.com/callback?access_token=xyz789", &mut vulns);
+        scanner.check_token_in_url(
+            "https://app.example.com/callback?access_token=xyz789",
+            &mut vulns,
+        );
 
         assert_eq!(vulns.len(), 1, "Should detect access token in URL");
         assert_eq!(vulns[0].severity, Severity::Critical);
@@ -851,7 +892,10 @@ mod tests {
         let scanner = OAuthScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
-        headers.insert("location".to_string(), "https://evil.com/callback?code=abc123".to_string());
+        headers.insert(
+            "location".to_string(),
+            "https://evil.com/callback?code=abc123".to_string(),
+        );
 
         let response = crate::http_client::HttpResponse {
             status_code: 302,
@@ -861,7 +905,11 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_redirect_uri_validation(&response, "https://auth.example.com/authorize", &mut vulns);
+        scanner.check_redirect_uri_validation(
+            &response,
+            "https://auth.example.com/authorize",
+            &mut vulns,
+        );
 
         assert!(vulns.len() > 0, "Should detect unvalidated redirect_uri");
         assert_eq!(vulns[0].severity, Severity::Critical);
@@ -879,7 +927,11 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_client_secret_exposure(&response, "https://app.example.com/config.js", &mut vulns);
+        scanner.check_client_secret_exposure(
+            &response,
+            "https://app.example.com/config.js",
+            &mut vulns,
+        );
 
         assert_eq!(vulns.len(), 1, "Should detect exposed client_secret");
         assert_eq!(vulns[0].severity, Severity::Critical);
@@ -897,7 +949,11 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_insecure_token_storage(&response, "https://app.example.com/app.js", &mut vulns);
+        scanner.check_insecure_token_storage(
+            &response,
+            "https://app.example.com/app.js",
+            &mut vulns,
+        );
 
         assert_eq!(vulns.len(), 1, "Should detect localStorage token storage");
         assert_eq!(vulns[0].severity, Severity::High);

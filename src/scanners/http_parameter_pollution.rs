@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::detection_helpers::{
+    did_payload_have_effect, is_payload_reflected_dangerously, AppCharacteristics,
+};
 /**
  * Bountyy Oy - HTTP Parameter Pollution (HPP) Scanner
  * Detects HPP vulnerabilities where multiple parameters with same name cause unexpected behavior
@@ -15,10 +18,8 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use crate::detection_helpers::{AppCharacteristics, is_payload_reflected_dangerously, did_payload_have_effect};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -111,8 +112,16 @@ impl HttpParameterPollutionScanner {
             ("user", vec!["admin", "guest"], "User parameter pollution"),
             ("role", vec!["user", "admin"], "Role parameter pollution"),
             ("page", vec!["1", "99999"], "Pagination pollution"),
-            ("action", vec!["view", "delete"], "Action parameter pollution"),
-            ("redirect", vec!["safe.com", "evil.com"], "Redirect URL pollution"),
+            (
+                "action",
+                vec!["view", "delete"],
+                "Action parameter pollution",
+            ),
+            (
+                "redirect",
+                vec!["safe.com", "evil.com"],
+                "Redirect URL pollution",
+            ),
         ];
 
         for (param, values, description) in &hpp_tests {
@@ -160,12 +169,8 @@ impl HttpParameterPollutionScanner {
 
             // Check for HPP indicators
             if let (Ok(base_resp), Ok(poll_resp)) = (&baseline, &polluted) {
-                let hpp_detected = self.detect_hpp_behavior(
-                    &base_resp.body,
-                    &poll_resp.body,
-                    param,
-                    values,
-                );
+                let hpp_detected =
+                    self.detect_hpp_behavior(&base_resp.body, &poll_resp.body, param, values);
 
                 if hpp_detected {
                     vulnerabilities.push(self.create_vulnerability(
@@ -200,7 +205,11 @@ impl HttpParameterPollutionScanner {
                 // Only report if the second value (e.g., "admin") appears in a privileged context
                 // AND this is NEW (not in baseline)
                 if *param == "role" || *param == "user" {
-                    if self.detect_privilege_escalation_hpp(&comma_resp.body, &base_resp.body, values[1]) {
+                    if self.detect_privilege_escalation_hpp(
+                        &comma_resp.body,
+                        &base_resp.body,
+                        values[1],
+                    ) {
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "HTTP Parameter Pollution (Comma-Separated)",
@@ -221,7 +230,11 @@ impl HttpParameterPollutionScanner {
             // Check array bracket notation - ONLY if it causes privilege escalation
             if let (Ok(base_resp), Ok(bracket_resp)) = (&baseline, &bracket) {
                 if *param == "role" || *param == "user" {
-                    if self.detect_privilege_escalation_hpp(&bracket_resp.body, &base_resp.body, values[1]) {
+                    if self.detect_privilege_escalation_hpp(
+                        &bracket_resp.body,
+                        &base_resp.body,
+                        values[1],
+                    ) {
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             "HTTP Parameter Pollution (Array Notation)",
@@ -261,13 +274,29 @@ impl HttpParameterPollutionScanner {
             // SQL injection split across parameters
             ("id", vec!["1' OR", " '1'='1"], "SQLi via HPP split"),
             // XSS split across parameters
-            ("q", vec!["<script>", "alert(1)</script>"], "XSS via HPP split"),
+            (
+                "q",
+                vec!["<script>", "alert(1)</script>"],
+                "XSS via HPP split",
+            ),
             // Command injection split
-            ("cmd", vec!["ls", " && cat /etc/passwd"], "Command injection via HPP"),
+            (
+                "cmd",
+                vec!["ls", " && cat /etc/passwd"],
+                "Command injection via HPP",
+            ),
             // Path traversal split
-            ("file", vec!["../", "../etc/passwd"], "Path traversal via HPP"),
+            (
+                "file",
+                vec!["../", "../etc/passwd"],
+                "Path traversal via HPP",
+            ),
             // LDAP injection split
-            ("user", vec!["*)(", "uid=*))(|(uid=*"], "LDAP injection via HPP"),
+            (
+                "user",
+                vec!["*)(", "uid=*))(|(uid=*"],
+                "LDAP injection via HPP",
+            ),
         ];
 
         for (param, values, description) in &waf_bypass_tests {
@@ -288,12 +317,16 @@ impl HttpParameterPollutionScanner {
                     // CRITICAL: First check if payload had any effect vs baseline
                     let combined_payload = values.join("");
                     if !did_payload_have_effect(&baseline, &response, &combined_payload) {
-                        debug!("[HPP] WAF bypass {} - no behavioral change, skipping", description);
+                        debug!(
+                            "[HPP] WAF bypass {} - no behavioral change, skipping",
+                            description
+                        );
                         continue;
                     }
 
                     // Check if WAF blocked single payload but allowed split (with baseline comparison)
-                    let waf_bypassed = self.detect_waf_bypass(&response.body, &baseline.body, values);
+                    let waf_bypassed =
+                        self.detect_waf_bypass(&response.body, &baseline.body, values);
 
                     if waf_bypassed {
                         vulnerabilities.push(self.create_vulnerability(
@@ -305,7 +338,10 @@ impl HttpParameterPollutionScanner {
                                  multiple '{}' parameters. Combined payload may execute on server.",
                                 description, param
                             ),
-                            &format!("WAF bypass detected with split payload: {}", values.join(" + ")),
+                            &format!(
+                                "WAF bypass detected with split payload: {}",
+                                values.join(" + ")
+                            ),
                             Severity::High,
                             "CWE-235",
                         ));
@@ -337,7 +373,11 @@ impl HttpParameterPollutionScanner {
             ("username", vec!["admin", "guest"], "admin&username=guest"),
             ("role", vec!["admin", "user"], "role privilege escalation"),
             ("admin", vec!["true", "false"], "admin flag manipulation"),
-            ("verified", vec!["true", "false"], "verified status manipulation"),
+            (
+                "verified",
+                vec!["true", "false"],
+                "verified status manipulation",
+            ),
         ];
 
         for endpoint in &auth_endpoints {
@@ -356,14 +396,24 @@ impl HttpParameterPollutionScanner {
 
                 // Test via POST body
                 let post_body = polluted_query.clone();
-                let headers = vec![
-                    ("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string())
-                ];
+                let headers = vec![(
+                    "Content-Type".to_string(),
+                    "application/x-www-form-urlencoded".to_string(),
+                )];
 
-                match self.http_client.post_with_headers(endpoint, &post_body, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, &post_body, headers)
+                    .await
+                {
                     Ok(response) => {
                         // CRITICAL: Pass baseline body to detect_auth_bypass to avoid false positives
-                        let auth_bypassed = self.detect_auth_bypass(&response.body, &baseline_response.body, param, values);
+                        let auth_bypassed = self.detect_auth_bypass(
+                            &response.body,
+                            &baseline_response.body,
+                            param,
+                            values,
+                        );
 
                         if auth_bypassed {
                             vulnerabilities.push(self.create_vulnerability(
@@ -402,9 +452,21 @@ impl HttpParameterPollutionScanner {
         let xss_canary = format!("</a><img/src=x onerror=alert({})>", rand::random::<u32>());
 
         let client_hpp_tests = vec![
-            ("url", vec![&canary, "http://evil.com"], "URL parameter reflection"),
-            ("redirect", vec![&canary, "javascript:alert(1)"], "Redirect pollution"),
-            ("callback", vec![&canary, &xss_canary], "Callback parameter pollution"),
+            (
+                "url",
+                vec![&canary, "http://evil.com"],
+                "URL parameter reflection",
+            ),
+            (
+                "redirect",
+                vec![&canary, "javascript:alert(1)"],
+                "Redirect pollution",
+            ),
+            (
+                "callback",
+                vec![&canary, &xss_canary],
+                "Callback parameter pollution",
+            ),
             ("next", vec![&canary, "//evil.com"], "Next URL pollution"),
         ];
 
@@ -424,11 +486,12 @@ impl HttpParameterPollutionScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     // CRITICAL: Use smart reflection detection (not substring matching!)
-                    let dangerous_reflection = is_payload_reflected_dangerously(&response, values[1]);
+                    let dangerous_reflection =
+                        is_payload_reflected_dangerously(&response, values[1]);
 
                     // Also check if BOTH values appear in dangerous context
-                    let both_dangerous = is_payload_reflected_dangerously(&response, values[0]) &&
-                                        dangerous_reflection;
+                    let both_dangerous = is_payload_reflected_dangerously(&response, values[0])
+                        && dangerous_reflection;
 
                     if both_dangerous || dangerous_reflection {
                         let severity = if dangerous_reflection {
@@ -469,13 +532,37 @@ impl HttpParameterPollutionScanner {
         // Array pollution patterns
         let array_tests = vec![
             // PHP array injection
-            ("items[0]", "normal", "items[999]", "admin", "PHP array index manipulation"),
+            (
+                "items[0]",
+                "normal",
+                "items[999]",
+                "admin",
+                "PHP array index manipulation",
+            ),
             // JSON-like array injection
-            ("data[user]", "guest", "data[admin]", "true", "JSON-style array injection"),
+            (
+                "data[user]",
+                "guest",
+                "data[admin]",
+                "true",
+                "JSON-style array injection",
+            ),
             // Nested array manipulation
-            ("config[role][0]", "user", "config[role][1]", "admin", "Nested array pollution"),
+            (
+                "config[role][0]",
+                "user",
+                "config[role][1]",
+                "admin",
+                "Nested array pollution",
+            ),
             // Array overflow
-            ("ids[]", "1", "ids[]", "1' OR '1'='1", "Array SQLi injection"),
+            (
+                "ids[]",
+                "1",
+                "ids[]",
+                "1' OR '1'='1",
+                "Array SQLi injection",
+            ),
         ];
 
         for (param1, val1, param2, val2, description) in &array_tests {
@@ -527,9 +614,18 @@ impl HttpParameterPollutionScanner {
 
         // JSON pollution payloads - duplicate keys
         let json_tests = vec![
-            (r#"{"role":"user","role":"admin"}"#, "Duplicate key pollution"),
-            (r#"{"user":"guest","admin":true,"user":"admin"}"#, "Key override pollution"),
-            (r#"{"__proto__":{"admin":true},"role":"user"}"#, "Prototype pollution"),
+            (
+                r#"{"role":"user","role":"admin"}"#,
+                "Duplicate key pollution",
+            ),
+            (
+                r#"{"user":"guest","admin":true,"user":"admin"}"#,
+                "Key override pollution",
+            ),
+            (
+                r#"{"__proto__":{"admin":true},"role":"user"}"#,
+                "Prototype pollution",
+            ),
         ];
 
         for endpoint in &api_endpoints {
@@ -540,14 +636,17 @@ impl HttpParameterPollutionScanner {
             };
 
             for (payload, description) in &json_tests {
-                let headers = vec![
-                    ("Content-Type".to_string(), "application/json".to_string())
-                ];
+                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
 
-                match self.http_client.post_with_headers(endpoint, payload, headers).await {
+                match self
+                    .http_client
+                    .post_with_headers(endpoint, payload, headers)
+                    .await
+                {
                     Ok(response) => {
                         // CRITICAL: Pass baseline body to detect_json_hpp to avoid false positives
-                        let json_hpp = self.detect_json_hpp(&response.body, &baseline_response.body, payload);
+                        let json_hpp =
+                            self.detect_json_hpp(&response.body, &baseline_response.body, payload);
 
                         if json_hpp {
                             vulnerabilities.push(self.create_vulnerability(
@@ -596,12 +695,13 @@ impl HttpParameterPollutionScanner {
         let polluted_lower = polluted.to_lowercase();
 
         // Check if second value appears in response but NOT in baseline (indicates processing)
-        let second_value_new = polluted_lower.contains(&values[1].to_lowercase()) &&
-            !baseline_lower.contains(&values[1].to_lowercase());
+        let second_value_new = polluted_lower.contains(&values[1].to_lowercase())
+            && !baseline_lower.contains(&values[1].to_lowercase());
 
         // Check for NEW concatenation (both values appearing together, but not in baseline)
-        let new_concatenated = polluted.contains(values[0]) && polluted.contains(values[1]) &&
-            (!baseline.contains(values[0]) || !baseline.contains(values[1]));
+        let new_concatenated = polluted.contains(values[0])
+            && polluted.contains(values[1])
+            && (!baseline.contains(values[0]) || !baseline.contains(values[1]));
 
         // Must have BOTH: significant difference AND evidence of value processing
         significant_diff && (second_value_new || new_concatenated)
@@ -609,8 +709,7 @@ impl HttpParameterPollutionScanner {
 
     /// Detect if a specific value was accepted
     fn detect_value_accepted(&self, body: &str, value: &str) -> bool {
-        body.contains(value) ||
-            body.to_lowercase().contains(&value.to_lowercase())
+        body.contains(value) || body.to_lowercase().contains(&value.to_lowercase())
     }
 
     /// Detect WAF bypass - REQUIRES baseline comparison to avoid false positives
@@ -636,7 +735,7 @@ impl HttpParameterPollutionScanner {
         }
 
         // Check for NEW command execution indicators (not in baseline)
-        if (body.contains("root:") && body.contains("/bin/") && !baseline_body.contains("root:")) {
+        if body.contains("root:") && body.contains("/bin/") && !baseline_body.contains("root:") {
             return true;
         }
 
@@ -645,12 +744,15 @@ impl HttpParameterPollutionScanner {
         let combined = split_values.join("");
         if combined.contains("script") || combined.contains("alert") {
             // Check for dangerous reflection of the XSS payload
-            if is_payload_reflected_dangerously(&HttpResponse {
-                status_code: 200,
-                headers: std::collections::HashMap::new(),
-                body: body.to_string(),
-                duration_ms: 0,
-            }, "alert(1)") {
+            if is_payload_reflected_dangerously(
+                &HttpResponse {
+                    status_code: 200,
+                    headers: std::collections::HashMap::new(),
+                    body: body.to_string(),
+                    duration_ms: 0,
+                },
+                "alert(1)",
+            ) {
                 return true;
             }
         }
@@ -659,22 +761,30 @@ impl HttpParameterPollutionScanner {
     }
 
     /// Detect authentication bypass - REQUIRES baseline comparison to avoid false positives
-    fn detect_auth_bypass(&self, body: &str, baseline_body: &str, _param: &str, values: &[&str]) -> bool {
+    fn detect_auth_bypass(
+        &self,
+        body: &str,
+        baseline_body: &str,
+        _param: &str,
+        values: &[&str],
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let baseline_lower = baseline_body.to_lowercase();
 
         // CRITICAL: Check for NEW auth success indicators (not present in baseline)
         // This prevents false positives from pages that always show "success", "welcome", etc.
-        let new_auth_success =
-            (body_lower.contains("authenticated") && !baseline_lower.contains("authenticated")) ||
-            (body_lower.contains("logged in") && !baseline_lower.contains("logged in")) ||
-            (body_lower.contains("dashboard") && !baseline_lower.contains("dashboard"));
+        let new_auth_success = (body_lower.contains("authenticated")
+            && !baseline_lower.contains("authenticated"))
+            || (body_lower.contains("logged in") && !baseline_lower.contains("logged in"))
+            || (body_lower.contains("dashboard") && !baseline_lower.contains("dashboard"));
 
         // Check if privileged value was processed AND is NEW (not in baseline)
-        let privileged_accepted = if values[0].to_lowercase().contains("admin") ||
-            values[0].to_lowercase() == "true" {
-            (body_lower.contains("role\":\"admin") && !baseline_lower.contains("role\":\"admin")) ||
-            (body_lower.contains("is_admin\":true") && !baseline_lower.contains("is_admin\":true"))
+        let privileged_accepted = if values[0].to_lowercase().contains("admin")
+            || values[0].to_lowercase() == "true"
+        {
+            (body_lower.contains("role\":\"admin") && !baseline_lower.contains("role\":\"admin"))
+                || (body_lower.contains("is_admin\":true")
+                    && !baseline_lower.contains("is_admin\":true"))
         } else {
             false
         };
@@ -713,15 +823,18 @@ impl HttpParameterPollutionScanner {
         // The value must be in a security-relevant context
 
         // Check for SQL errors (if SQLi was attempted) - this is real evidence
-        if injected_value.contains("'") &&
-           (body_lower.contains("sql syntax") || body_lower.contains("you have an error in your sql")) {
+        if injected_value.contains("'")
+            && (body_lower.contains("sql syntax")
+                || body_lower.contains("you have an error in your sql"))
+        {
             return true;
         }
 
         // Check for admin/privilege indicators in JSON context (structured data)
         if injected_value.contains("admin") {
             // Must be in JSON format to indicate actual privilege escalation
-            if body_lower.contains("\"role\":\"admin\"") || body_lower.contains("\"is_admin\":true") {
+            if body_lower.contains("\"role\":\"admin\"") || body_lower.contains("\"is_admin\":true")
+            {
                 return true;
             }
         }
@@ -732,7 +845,12 @@ impl HttpParameterPollutionScanner {
     }
 
     /// Detect privilege escalation via HPP - REQUIRES baseline comparison
-    fn detect_privilege_escalation_hpp(&self, body: &str, baseline_body: &str, privileged_value: &str) -> bool {
+    fn detect_privilege_escalation_hpp(
+        &self,
+        body: &str,
+        baseline_body: &str,
+        privileged_value: &str,
+    ) -> bool {
         let body_lower = body.to_lowercase();
         let baseline_lower = baseline_body.to_lowercase();
         let value_lower = privileged_value.to_lowercase();
@@ -743,12 +861,12 @@ impl HttpParameterPollutionScanner {
         // Check for NEW role/privilege assignment in JSON response
         if value_lower == "admin" {
             // Must be in structured response showing admin role was assigned
-            let admin_role_new = body_lower.contains("\"role\":\"admin\"") &&
-                                 !baseline_lower.contains("\"role\":\"admin\"");
-            let is_admin_new = body_lower.contains("\"is_admin\":true") &&
-                              !baseline_lower.contains("\"is_admin\":true");
-            let admin_granted_new = body_lower.contains("admin access granted") &&
-                                   !baseline_lower.contains("admin access granted");
+            let admin_role_new = body_lower.contains("\"role\":\"admin\"")
+                && !baseline_lower.contains("\"role\":\"admin\"");
+            let is_admin_new = body_lower.contains("\"is_admin\":true")
+                && !baseline_lower.contains("\"is_admin\":true");
+            let admin_granted_new = body_lower.contains("admin access granted")
+                && !baseline_lower.contains("admin access granted");
 
             if admin_role_new || is_admin_new || admin_granted_new {
                 return true;
@@ -756,8 +874,9 @@ impl HttpParameterPollutionScanner {
         }
 
         // Check for NEW dashboard/admin panel access
-        if (body_lower.contains("admin panel") || body_lower.contains("dashboard")) &&
-           (!baseline_lower.contains("admin panel") && !baseline_lower.contains("dashboard")) {
+        if (body_lower.contains("admin panel") || body_lower.contains("dashboard"))
+            && (!baseline_lower.contains("admin panel") && !baseline_lower.contains("dashboard"))
+        {
             return true;
         }
 
@@ -772,7 +891,8 @@ impl HttpParameterPollutionScanner {
         // Check for prototype pollution indicators - must be NEW (not in baseline)
         if payload.contains("__proto__") {
             let new_admin = body_lower.contains("admin") && !baseline_lower.contains("admin");
-            let new_privilege = body_lower.contains("is_admin\":true") && !baseline_lower.contains("is_admin\":true");
+            let new_privilege = body_lower.contains("is_admin\":true")
+                && !baseline_lower.contains("is_admin\":true");
             if new_admin || new_privilege {
                 return true;
             }
@@ -825,7 +945,7 @@ impl HttpParameterPollutionScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -837,49 +957,50 @@ impl HttpParameterPollutionScanner {
                  2. Explicitly handle cases where multiple parameters with same name are sent\n\
                  3. Use the first occurrence of a parameter and ignore duplicates\n\
                  4. Validate that each parameter appears only once\n\
-                 5. Log and alert on duplicate parameter attempts".to_string()
+                 5. Log and alert on duplicate parameter attempts"
+                    .to_string()
             }
             "WAF Bypass via HTTP Parameter Pollution" => {
                 "1. Configure WAF to normalize and combine duplicate parameters before inspection\n\
                  2. Implement parameter validation at application level as defense-in-depth\n\
                  3. Use strict parameter whitelisting\n\
                  4. Reject requests with duplicate parameters for sensitive endpoints\n\
-                 5. Ensure WAF and application use same parameter parsing logic".to_string()
+                 5. Ensure WAF and application use same parameter parsing logic"
+                    .to_string()
             }
             "Authentication Bypass via HTTP Parameter Pollution" => {
                 "1. Never trust client-supplied role/permission parameters\n\
                  2. Validate authentication parameters server-side from trusted sources\n\
                  3. Reject requests with duplicate authentication parameters\n\
                  4. Use session-based authentication instead of parameter-based\n\
-                 5. Implement strict input validation on all auth endpoints".to_string()
+                 5. Implement strict input validation on all auth endpoints"
+                    .to_string()
             }
             "Client-Side HTTP Parameter Pollution" => {
                 "1. Properly encode all reflected parameter values\n\
                  2. Use context-aware output encoding (HTML, URL, JavaScript)\n\
                  3. Implement Content Security Policy (CSP)\n\
                  4. Validate and sanitize URL parameters before reflection\n\
-                 5. Use allowlists for redirect URLs".to_string()
+                 5. Use allowlists for redirect URLs"
+                    .to_string()
             }
-            "Array Parameter Pollution" => {
-                "1. Define explicit array size limits\n\
+            "Array Parameter Pollution" => "1. Define explicit array size limits\n\
                  2. Validate array indices are within expected range\n\
                  3. Sanitize array values before processing\n\
                  4. Use typed parameters instead of string arrays where possible\n\
-                 5. Implement schema validation for complex parameters".to_string()
-            }
-            "JSON Parameter Pollution" => {
-                "1. Use a JSON parser that rejects duplicate keys\n\
+                 5. Implement schema validation for complex parameters"
+                .to_string(),
+            "JSON Parameter Pollution" => "1. Use a JSON parser that rejects duplicate keys\n\
                  2. Implement strict schema validation for JSON inputs\n\
                  3. Freeze objects to prevent prototype pollution\n\
                  4. Use Object.create(null) for dictionaries\n\
-                 5. Sanitize JSON input before parsing".to_string()
-            }
-            _ => {
-                "1. Implement strict parameter validation\n\
+                 5. Sanitize JSON input before parsing"
+                .to_string(),
+            _ => "1. Implement strict parameter validation\n\
                  2. Reject requests with duplicate parameters\n\
                  3. Use consistent parameter handling across the application\n\
-                 4. Log and monitor for parameter pollution attempts".to_string()
-            }
+                 4. Log and monitor for parameter pollution attempts"
+                .to_string(),
         }
     }
 }
@@ -920,7 +1041,10 @@ mod tests {
     fn test_detect_dangerous_reflection() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.detect_dangerous_reflection(r#"<a href="javascript:alert(1)">Click</a>"#, "javascript:alert(1)"));
+        assert!(scanner.detect_dangerous_reflection(
+            r#"<a href="javascript:alert(1)">Click</a>"#,
+            "javascript:alert(1)"
+        ));
         assert!(scanner.detect_dangerous_reflection("<script>alert(1)</script>", "alert(1)"));
         assert!(!scanner.detect_dangerous_reflection("Safe content", "malicious"));
     }
@@ -943,7 +1067,7 @@ mod tests {
         // SQL error indicates bypass - must be NEW (not in baseline)
         assert!(scanner.detect_waf_bypass(
             "You have an error in your SQL syntax near...",
-            "Normal page content",  // baseline without SQL error
+            "Normal page content", // baseline without SQL error
             &["' OR", " '1'='1"]
         ));
 
@@ -957,7 +1081,7 @@ mod tests {
         // SQL error already in baseline - not a NEW finding
         assert!(!scanner.detect_waf_bypass(
             "You have an error in your SQL syntax",
-            "You have an error in your SQL syntax",  // same in baseline
+            "You have an error in your SQL syntax", // same in baseline
             &["' OR", " '1'='1"]
         ));
     }
@@ -967,10 +1091,8 @@ mod tests {
         let scanner = create_test_scanner();
 
         // Normal API response should not be flagged as vulnerability
-        assert!(!scanner.detect_array_processing(
-            r#"{"items": ["item1", "item2"], "success": true}"#,
-            "item2"
-        ));
+        assert!(!scanner
+            .detect_array_processing(r#"{"items": ["item1", "item2"], "success": true}"#, "item2"));
 
         // Comma-separated values in normal response - not a vuln
         assert!(!scanner.detect_privilege_escalation_hpp(

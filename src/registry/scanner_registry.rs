@@ -1,15 +1,14 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use once_cell::sync::Lazy;
 /**
  * Scanner Registry
  * Central registry for all available scanners with metadata and capabilities
  * © 2026 Bountyy Oy
  */
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use once_cell::sync::Lazy;
 
 /// Scanner category enumeration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -156,10 +155,7 @@ impl ScannerRegistry {
 
     /// Get slow scanners
     pub fn get_slow_scanners(&self) -> Vec<&ScannerMetadata> {
-        self.scanners
-            .values()
-            .filter(|s| s.slow_scanner)
-            .collect()
+        self.scanners.values().filter(|s| s.slow_scanner).collect()
     }
 
     /// Check if scanner exists
@@ -174,10 +170,7 @@ impl ScannerRegistry {
 
     /// Get scanner categories
     pub fn get_categories(&self) -> Vec<ScannerCategory> {
-        let mut categories: Vec<_> = self.scanners
-            .values()
-            .map(|s| s.category.clone())
-            .collect();
+        let mut categories: Vec<_> = self.scanners.values().map(|s| s.category.clone()).collect();
         categories.sort_by_key(|c| format!("{:?}", c));
         categories.dedup();
         categories
@@ -314,7 +307,11 @@ fn create_sqli_scanner() -> ScannerMetadata {
             }
         }),
         version: "1.0.0".to_string(),
-        tags: vec!["owasp-top-10".to_string(), "injection".to_string(), "critical".to_string()],
+        tags: vec![
+            "owasp-top-10".to_string(),
+            "injection".to_string(),
+            "critical".to_string(),
+        ],
     }
 }
 
@@ -350,7 +347,11 @@ fn create_command_injection_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Get, ScannerCapability::Post],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["owasp-top-10".to_string(), "injection".to_string(), "critical".to_string()],
+        tags: vec![
+            "owasp-top-10".to_string(),
+            "injection".to_string(),
+            "critical".to_string(),
+        ],
     }
 }
 
@@ -368,7 +369,11 @@ fn create_xxe_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Post],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["owasp-top-10".to_string(), "injection".to_string(), "xml".to_string()],
+        tags: vec![
+            "owasp-top-10".to_string(),
+            "injection".to_string(),
+            "xml".to_string(),
+        ],
     }
 }
 
@@ -422,7 +427,11 @@ fn create_ssti_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Get, ScannerCapability::Post],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["owasp-top-10".to_string(), "injection".to_string(), "critical".to_string()],
+        tags: vec![
+            "owasp-top-10".to_string(),
+            "injection".to_string(),
+            "critical".to_string(),
+        ],
     }
 }
 
@@ -477,7 +486,11 @@ fn create_auth_bypass_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Get, ScannerCapability::Post],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["owasp-top-10".to_string(), "authentication".to_string(), "critical".to_string()],
+        tags: vec![
+            "owasp-top-10".to_string(),
+            "authentication".to_string(),
+            "critical".to_string(),
+        ],
     }
 }
 
@@ -492,7 +505,11 @@ fn create_session_management_scanner() -> ScannerMetadata {
         requires_auth: true,
         slow_scanner: false,
         dependencies: vec![],
-        capabilities: vec![ScannerCapability::Get, ScannerCapability::Post, ScannerCapability::Cookies],
+        capabilities: vec![
+            ScannerCapability::Get,
+            ScannerCapability::Post,
+            ScannerCapability::Cookies,
+        ],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
         tags: vec!["owasp-top-10".to_string(), "session".to_string()],
@@ -528,7 +545,11 @@ fn create_oauth_scanner() -> ScannerMetadata {
         requires_auth: true,
         slow_scanner: true,
         dependencies: vec![],
-        capabilities: vec![ScannerCapability::Get, ScannerCapability::Post, ScannerCapability::Redirect],
+        capabilities: vec![
+            ScannerCapability::Get,
+            ScannerCapability::Post,
+            ScannerCapability::Redirect,
+        ],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
         tags: vec!["authentication".to_string(), "oauth".to_string()],
@@ -719,7 +740,11 @@ fn create_ssrf_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Get, ScannerCapability::Post],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["owasp-top-10".to_string(), "ssrf".to_string(), "critical".to_string()],
+        tags: vec![
+            "owasp-top-10".to_string(),
+            "ssrf".to_string(),
+            "critical".to_string(),
+        ],
     }
 }
 
@@ -791,7 +816,11 @@ fn create_deserialization_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Post],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["owasp-top-10".to_string(), "deserialization".to_string(), "critical".to_string()],
+        tags: vec![
+            "owasp-top-10".to_string(),
+            "deserialization".to_string(),
+            "critical".to_string(),
+        ],
     }
 }
 
@@ -809,7 +838,11 @@ fn create_http_smuggling_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Post],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["http".to_string(), "smuggling".to_string(), "critical".to_string()],
+        tags: vec![
+            "http".to_string(),
+            "smuggling".to_string(),
+            "critical".to_string(),
+        ],
     }
 }
 
@@ -1019,7 +1052,12 @@ fn create_cloud_security_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Cloud],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["cloud".to_string(), "aws".to_string(), "azure".to_string(), "gcp".to_string()],
+        tags: vec![
+            "cloud".to_string(),
+            "aws".to_string(),
+            "azure".to_string(),
+            "gcp".to_string(),
+        ],
     }
 }
 
@@ -1037,7 +1075,11 @@ fn create_container_scanner() -> ScannerMetadata {
         capabilities: vec![ScannerCapability::Docker, ScannerCapability::Kubernetes],
         config_schema: serde_json::json!({"properties": {}}),
         version: "1.0.0".to_string(),
-        tags: vec!["cloud".to_string(), "docker".to_string(), "kubernetes".to_string()],
+        tags: vec![
+            "cloud".to_string(),
+            "docker".to_string(),
+            "kubernetes".to_string(),
+        ],
     }
 }
 

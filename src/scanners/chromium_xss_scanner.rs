@@ -530,8 +530,7 @@ impl SharedBrowser {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build browser options: {}", e))?;
 
-        let browser = Browser::new(options)
-            .context("Failed to launch headless Chrome")?;
+        let browser = Browser::new(options).context("Failed to launch headless Chrome")?;
 
         info!("[SharedBrowser] Chrome launched successfully");
         Ok(Self {
@@ -540,7 +539,9 @@ impl SharedBrowser {
     }
 
     pub fn new_tab_with_interceptor(&self, marker: &str) -> Result<Arc<Tab>> {
-        let browser = self.browser.read()
+        let browser = self
+            .browser
+            .read()
             .map_err(|e| anyhow::anyhow!("Failed to lock browser: {}", e))?;
         let tab = browser.new_tab()?;
 
@@ -550,18 +551,16 @@ impl SharedBrowser {
             enable_file_chooser_opened_event: None,
         })?;
 
-        let setup_js = format!(
-            "{}\nwindow.__xssMarker = '{}';",
-            XSS_INTERCEPTOR,
-            marker
-        );
+        let setup_js = format!("{}\nwindow.__xssMarker = '{}';", XSS_INTERCEPTOR, marker);
 
-        tab.call_method(headless_chrome::protocol::cdp::Page::AddScriptToEvaluateOnNewDocument {
-            source: setup_js,
-            world_name: None,
-            include_command_line_api: None,
-            run_immediately: None,
-        })?;
+        tab.call_method(
+            headless_chrome::protocol::cdp::Page::AddScriptToEvaluateOnNewDocument {
+                source: setup_js,
+                world_name: None,
+                include_command_line_api: None,
+                run_immediately: None,
+            },
+        )?;
 
         Ok(tab)
     }
@@ -579,19 +578,26 @@ impl SharedBrowser {
     /// Close all tabs except the first one to free resources after panics
     /// Returns number of tabs closed
     pub fn cleanup_stale_tabs(&self) -> Result<usize> {
-        let browser = self.browser.read()
+        let browser = self
+            .browser
+            .read()
             .map_err(|e| anyhow::anyhow!("Failed to lock browser: {}", e))?;
 
         // Collect target IDs first, then drop the lock
         let target_ids: Vec<String> = {
-            let tabs = browser.get_tabs().lock()
+            let tabs = browser
+                .get_tabs()
+                .lock()
                 .map_err(|e| anyhow::anyhow!("Failed to get tabs: {}", e))?;
 
             if tabs.len() <= 1 {
                 return Ok(0);
             }
 
-            tabs.iter().skip(1).map(|t| t.get_target_id().to_string()).collect()
+            tabs.iter()
+                .skip(1)
+                .map(|t| t.get_target_id().to_string())
+                .collect()
         };
 
         let mut closed = 0;
@@ -601,9 +607,11 @@ impl SharedBrowser {
                     match tab.close(false) {
                         Ok(_) => closed += 1,
                         Err(_) => {
-                            let _ = tab.call_method(headless_chrome::protocol::cdp::Target::CloseTarget {
-                                target_id: target_id.clone().into(),
-                            });
+                            let _ = tab.call_method(
+                                headless_chrome::protocol::cdp::Target::CloseTarget {
+                                    target_id: target_id.clone().into(),
+                                },
+                            );
                             closed += 1;
                         }
                     }
@@ -820,7 +828,10 @@ impl ChromiumXssScanner {
         let payloads = Self::get_xss_payloads(mode);
 
         for payload_template in payloads.iter().take(10) {
-            let marker = format!("XSS{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+            let marker = format!(
+                "XSS{}",
+                uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
+            );
             let payload = payload_template.replace("MARKER", &marker);
 
             let test_url = if url.contains('?') {
@@ -854,7 +865,10 @@ impl ChromiumXssScanner {
         ];
 
         for payload_template in &dom_payloads {
-            let marker = format!("DOM{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+            let marker = format!(
+                "DOM{}",
+                uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
+            );
             let payload = payload_template.replace("MARKER", &marker);
             let test_url = format!("{}{}", url.trim_end_matches('#'), payload);
 
@@ -875,7 +889,10 @@ impl ChromiumXssScanner {
 
     fn test_stored_xss(url: &str, browser: &SharedBrowser) -> Result<Vec<XssDetectionResult>> {
         let mut results = Vec::new();
-        let marker = format!("STORED{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+        let marker = format!(
+            "STORED{}",
+            uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
+        );
 
         let guard = browser.new_guarded_tab(&marker)?;
         let tab = guard.tab();
@@ -922,7 +939,11 @@ impl ChromiumXssScanner {
         let stored_payload = format!("<img src=x onerror=alert('{}')>", marker);
 
         for form in forms.iter().take(3) {
-            let inputs = form.get("inputs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let inputs = form
+                .get("inputs")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
             let form_idx = form.get("index").and_then(|v| v.as_i64()).unwrap_or(0);
 
             let _ = tab.evaluate(&format!(
@@ -934,8 +955,10 @@ impl ChromiumXssScanner {
                 if let Some(selector) = input.get("selector").and_then(|v| v.as_str()) {
                     if !selector.is_empty() {
                         // Proper JSON escaping handles all special characters
-                        let escaped_selector = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{}\"", selector));
-                        let escaped_payload = serde_json::to_string(&stored_payload).unwrap_or_else(|_| format!("\"{}\"", stored_payload));
+                        let escaped_selector = serde_json::to_string(selector)
+                            .unwrap_or_else(|_| format!("\"{}\"", selector));
+                        let escaped_payload = serde_json::to_string(&stored_payload)
+                            .unwrap_or_else(|_| format!("\"{}\"", stored_payload));
                         let fill_js = format!(
                             r#"(function() {{
                                 const el = document.querySelector({});
@@ -943,8 +966,7 @@ impl ChromiumXssScanner {
                                     el.value = {};
                                 }}
                             }})()"#,
-                            escaped_selector,
-                            escaped_payload
+                            escaped_selector, escaped_payload
                         );
                         let _ = tab.evaluate(&fill_js, false);
                     }
@@ -972,8 +994,13 @@ impl ChromiumXssScanner {
                 false
             );
 
-            let input_names: Vec<String> = inputs.iter()
-                .filter_map(|i| i.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            let input_names: Vec<String> = inputs
+                .iter()
+                .filter_map(|i| {
+                    i.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect();
             let input_names_str = input_names.join(", ");
 
@@ -987,7 +1014,8 @@ impl ChromiumXssScanner {
                 }
             }
 
-            let dom_check_js = format!(r#"
+            let dom_check_js = format!(
+                r#"
                 (function() {{
                     const marker = '{}';
                     let xssFound = false;
@@ -1053,21 +1081,24 @@ impl ChromiumXssScanner {
                     }}
                     return false;
                 }})()
-            "#, marker);
+            "#,
+                marker
+            );
 
             if let Ok(dom_result) = tab.evaluate(&dom_check_js, false) {
-                let location = dom_result.value.and_then(|v| v.as_str().map(|s| s.to_string()));
+                let location = dom_result
+                    .value
+                    .and_then(|v| v.as_str().map(|s| s.to_string()));
                 if location.is_some() && location.as_ref().map(|s| s != "false").unwrap_or(false) {
                     let loc_str = location.clone().unwrap_or_else(|| "DOM".to_string());
                     info!("[Chromium-XSS] CONFIRMED stored XSS at: {}", loc_str);
-                    if let Some(mut result) = Self::check_xss_triggered(&tab, url, &stored_payload)? {
+                    if let Some(mut result) = Self::check_xss_triggered(&tab, url, &stored_payload)?
+                    {
                         result.parameter = Some(input_names_str.clone());
                         result.injection_point = Some(loc_str.clone());
                         result.dialog_message = Some(format!(
                             "Stored via form #{} fields [{}]. Found at: {}",
-                            form_idx,
-                            input_names_str,
-                            loc_str
+                            form_idx, input_names_str, loc_str
                         ));
                         results.push(result);
                         return Ok(results);
@@ -1100,7 +1131,8 @@ impl ChromiumXssScanner {
 
             let ready_js = r#"document.readyState === 'complete' ? 'ready' : 'loading'"#;
             if let Ok(result) = tab.evaluate(ready_js, false) {
-                let is_ready = result.value
+                let is_ready = result
+                    .value
                     .as_ref()
                     .and_then(|v| v.as_str())
                     .map(|s| s == "ready")
@@ -1127,7 +1159,10 @@ impl ChromiumXssScanner {
     ) -> Result<XssDetectionResult> {
         // Validate URL scheme - reject dangerous schemes
         let url_lower = url.to_lowercase();
-        if url_lower.starts_with("javascript:") || url_lower.starts_with("data:") || url_lower.starts_with("vbscript:") {
+        if url_lower.starts_with("javascript:")
+            || url_lower.starts_with("data:")
+            || url_lower.starts_with("vbscript:")
+        {
             debug!("[Chromium-XSS] Skipping unsafe URL scheme: {}", url);
             return Ok(XssDetectionResult {
                 xss_triggered: false,
@@ -1179,7 +1214,8 @@ impl ChromiumXssScanner {
             false
         );
 
-        let _ = tab.evaluate(r#"
+        let _ = tab.evaluate(
+            r#"
             (function() {
                 document.querySelectorAll('input, textarea').forEach(el => {
                     try { el.focus(); el.blur(); } catch(e) {}
@@ -1190,7 +1226,9 @@ impl ChromiumXssScanner {
                     } catch(e) {}
                 });
             })();
-        "#, false);
+        "#,
+            false,
+        );
 
         Self::poll_for_xss_or_stability(tab, 300, 100);
 
@@ -1225,12 +1263,30 @@ impl ChromiumXssScanner {
         if let Some(value) = result.value {
             if let Some(json_str) = value.as_str() {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    let triggered = parsed.get("triggered").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let trigger_str = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("none");
-                    let message = parsed.get("message").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let severity_str = parsed.get("severity").and_then(|v| v.as_str()).unwrap_or("UNKNOWN");
-                    let stack = parsed.get("stack").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let source = parsed.get("source").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let triggered = parsed
+                        .get("triggered")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let trigger_str = parsed
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("none");
+                    let message = parsed
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let severity_str = parsed
+                        .get("severity")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("UNKNOWN");
+                    let stack = parsed
+                        .get("stack")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let source = parsed
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     let timestamp = parsed.get("timestamp").and_then(|v| v.as_u64());
 
                     let trigger_type = match trigger_str {
@@ -1238,7 +1294,9 @@ impl ChromiumXssScanner {
                         "confirm" => XssTriggerType::ConfirmDialog,
                         "prompt" => XssTriggerType::PromptDialog,
                         "eval" | "Function" | "setTimeout" | "setInterval" => XssTriggerType::Eval,
-                        "innerHTML" | "outerHTML" | "insertAdjacentHTML" => XssTriggerType::InnerHtml,
+                        "innerHTML" | "outerHTML" | "insertAdjacentHTML" => {
+                            XssTriggerType::InnerHtml
+                        }
                         "document.write" | "document.writeln" => XssTriggerType::DocumentWrite,
                         "location.assign" | "location.replace" => XssTriggerType::LocationChange,
                         "fetch-url" | "img.src" => XssTriggerType::DataExfil,
@@ -1385,7 +1443,11 @@ impl ChromiumXssScanner {
         }
 
         let concurrency = concurrency.min(5).max(1); // Limit to 1-5 parallel tabs
-        info!("[Chromium-XSS] Starting parallel XSS scan: {} URLs with {} concurrent tabs", urls.len(), concurrency);
+        info!(
+            "[Chromium-XSS] Starting parallel XSS scan: {} URLs with {} concurrent tabs",
+            urls.len(),
+            concurrency
+        );
 
         let browser: SharedBrowser = match shared_browser {
             Some(b) => b.clone(),
@@ -1403,7 +1465,12 @@ impl ChromiumXssScanner {
         for (chunk_idx, chunk) in urls.chunks(concurrency).enumerate() {
             let chunk_start = chunk_idx * concurrency + 1;
             let chunk_end = (chunk_start + chunk.len() - 1).min(urls.len());
-            info!("    [XSS] Testing URLs {}-{}/{}", chunk_start, chunk_end, urls.len());
+            info!(
+                "    [XSS] Testing URLs {}-{}/{}",
+                chunk_start,
+                chunk_end,
+                urls.len()
+            );
 
             // Single spawn_blocking for entire chunk - batch processing
             let chunk_urls: Vec<String> = chunk.to_vec();
@@ -1415,7 +1482,8 @@ impl ChromiumXssScanner {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     Self::run_batch_xss_tests_sync(&chunk_urls, &mode, &browser_clone)
                 }))
-            }).await;
+            })
+            .await;
 
             // Process batch results
             match batch_results {
@@ -1426,8 +1494,10 @@ impl ChromiumXssScanner {
                                 for r in results {
                                     if r.xss_triggered {
                                         if let Ok(vuln) = self.create_vulnerability(&r) {
-                                            let vuln_key = format!("{}:{:?}", r.url, r.trigger_type);
-                                            let mut confirmed = self.confirmed_vulns.lock().unwrap();
+                                            let vuln_key =
+                                                format!("{}:{:?}", r.url, r.trigger_type);
+                                            let mut confirmed =
+                                                self.confirmed_vulns.lock().unwrap();
                                             if !confirmed.contains(&vuln_key) {
                                                 confirmed.insert(vuln_key);
                                                 info!("    [XSS] CONFIRMED XSS at: {}", url);

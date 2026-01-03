@@ -67,7 +67,10 @@ impl SarifReportGenerator {
             vuln.cwe.clone()
         } else {
             // Create a rule ID from vuln type
-            format!("lonkero/{}", vuln.vuln_type.to_lowercase().replace(' ', "-"))
+            format!(
+                "lonkero/{}",
+                vuln.vuln_type.to_lowercase().replace(' ', "-")
+            )
         }
     }
 
@@ -84,7 +87,10 @@ impl SarifReportGenerator {
 
         // Build tags
         let mut tags = vec!["security".to_string()];
-        tags.push(format!("severity/{}", vuln.severity.to_string().to_lowercase()));
+        tags.push(format!(
+            "severity/{}",
+            vuln.severity.to_string().to_lowercase()
+        ));
         if !vuln.cwe.is_empty() && vuln.cwe != "-" {
             tags.push(vuln.cwe.clone());
         }
@@ -102,8 +108,10 @@ impl SarifReportGenerator {
                 text: vuln.remediation.clone(),
             }),
             help_uri: if !vuln.cwe.is_empty() && vuln.cwe.starts_with("CWE-") {
-                Some(format!("https://cwe.mitre.org/data/definitions/{}.html",
-                    vuln.cwe.trim_start_matches("CWE-")))
+                Some(format!(
+                    "https://cwe.mitre.org/data/definitions/{}.html",
+                    vuln.cwe.trim_start_matches("CWE-")
+                ))
             } else {
                 None
             },
@@ -125,17 +133,22 @@ impl SarifReportGenerator {
         // Build message with full context
         let message_text = format!(
             "[{}] {} - {} (CVSS: {:.1})",
-            vuln.severity,
-            vuln.vuln_type,
-            vuln.description,
-            vuln.cvss
+            vuln.severity, vuln.vuln_type, vuln.description, vuln.cvss
         );
 
         // Create fingerprint for deduplication
         let mut fingerprints = HashMap::new();
         fingerprints.insert(
             "primaryLocationLineHash".to_string(),
-            format!("{:x}", md5_hash(&format!("{}|{}|{}", vuln.url, vuln.vuln_type, vuln.parameter.as_ref().unwrap_or(&"-".to_string()))))
+            format!(
+                "{:x}",
+                md5_hash(&format!(
+                    "{}|{}|{}",
+                    vuln.url,
+                    vuln.vuln_type,
+                    vuln.parameter.as_ref().unwrap_or(&"-".to_string())
+                ))
+            ),
         );
 
         // Add partial fingerprints for grouping

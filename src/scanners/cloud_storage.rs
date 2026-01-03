@@ -11,17 +11,14 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 // Lazy-compiled regex patterns for S3 URL detection (compiled once at startup)
-static S3_VIRTUAL_HOSTED_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
-    Regex::new(r"^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$").ok()
-});
+static S3_VIRTUAL_HOSTED_REGEX: Lazy<Option<Regex>> =
+    Lazy::new(|| Regex::new(r"^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$").ok());
 
-static S3_VIRTUAL_HOSTED_US_EAST_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
-    Regex::new(r"^([^.]+)\.s3\.amazonaws\.com$").ok()
-});
+static S3_VIRTUAL_HOSTED_US_EAST_REGEX: Lazy<Option<Regex>> =
+    Lazy::new(|| Regex::new(r"^([^.]+)\.s3\.amazonaws\.com$").ok());
 
-static S3_PATH_STYLE_REGEX: Lazy<Option<Regex>> = Lazy::new(|| {
-    Regex::new(r"s3[.-]([^.]+)\.amazonaws\.com").ok()
-});
+static S3_PATH_STYLE_REGEX: Lazy<Option<Regex>> =
+    Lazy::new(|| Regex::new(r"s3[.-]([^.]+)\.amazonaws\.com").ok());
 
 // CVSS scores as constants for consistency
 const CVSS_CRITICAL: f32 = 9.5;
@@ -59,7 +56,10 @@ impl CloudStorageScanner {
 
         // First try to detect if URL is a direct S3 bucket URL
         if let Some((bucket_name, region)) = self.detect_s3_url(url) {
-            info!("Direct S3 bucket URL detected: {} in region {}", bucket_name, region);
+            info!(
+                "Direct S3 bucket URL detected: {} in region {}",
+                bucket_name, region
+            );
             let (vulns, tests) = self.scan_single_s3_bucket(&bucket_name, &region).await?;
             all_vulnerabilities.extend(vulns);
             total_tests += tests;
@@ -174,7 +174,13 @@ impl CloudStorageScanner {
         // e.g., "example.com" -> "example", "sub.example.co.uk" -> "sub-example"
         let base_name = hostname
             .split('.')
-            .filter(|part| !["com", "org", "net", "io", "co", "uk", "fi", "se", "de", "fr", "es", "it", "nl", "be", "at", "ch", "www"].contains(part))
+            .filter(|part| {
+                ![
+                    "com", "org", "net", "io", "co", "uk", "fi", "se", "de", "fr", "es", "it",
+                    "nl", "be", "at", "ch", "www",
+                ]
+                .contains(part)
+            })
             .collect::<Vec<_>>()
             .join("-");
 
@@ -186,7 +192,10 @@ impl CloudStorageScanner {
         };
 
         // Test common bucket naming patterns
-        debug!("Testing S3 buckets for URL: {} (bucket base: {})", url, bucket_base);
+        debug!(
+            "Testing S3 buckets for URL: {} (bucket base: {})",
+            url, bucket_base
+        );
 
         let bucket_patterns = vec![
             format!("{}-backups", bucket_base),
@@ -214,7 +223,8 @@ impl CloudStorageScanner {
                         if self.detect_exposed_bucket(&response.body, response.status_code) {
                             info!("Found exposed S3 bucket: {} in {}", bucket_name, region);
                             // Run thorough scan on found bucket
-                            let (vulns, tests) = self.scan_single_s3_bucket(&bucket_name, region).await?;
+                            let (vulns, tests) =
+                                self.scan_single_s3_bucket(&bucket_name, region).await?;
                             vulnerabilities.extend(vulns);
                             tests_run += tests;
                             break; // Found it, no need to test other regions
@@ -222,7 +232,10 @@ impl CloudStorageScanner {
                     }
                     Err(e) => {
                         // Bucket doesn't exist or not accessible - expected for most tests
-                        debug!("S3 bucket {} not accessible in {}: {}", bucket_name, region, e);
+                        debug!(
+                            "S3 bucket {} not accessible in {}: {}",
+                            bucket_name, region, e
+                        );
                     }
                 }
             }
@@ -240,7 +253,10 @@ impl CloudStorageScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("Running thorough S3 scan on bucket: {} (region: {})", bucket_name, region);
+        info!(
+            "Running thorough S3 scan on bucket: {} (region: {})",
+            bucket_name, region
+        );
 
         let bucket_url = format!("https://{}.s3.{}.amazonaws.com", bucket_name, region);
 
@@ -248,7 +264,9 @@ impl CloudStorageScanner {
         tests_run += 1;
         match self.http_client.get(&bucket_url).await {
             Ok(response) => {
-                if response.status_code == 200 && self.detect_exposed_bucket(&response.body, response.status_code) {
+                if response.status_code == 200
+                    && self.detect_exposed_bucket(&response.body, response.status_code)
+                {
                     let object_count = response.body.matches("<Key>").count();
 
                     vulnerabilities.push(self.create_vulnerability_with_evidence(
@@ -266,9 +284,22 @@ impl CloudStorageScanner {
 
                     // Check for sensitive file patterns in listing
                     let sensitive_patterns = vec![
-                        ".env", ".git", "config", "credentials", "secret", "password",
-                        "private", ".pem", ".key", "backup", ".sql", ".db", "dump",
-                        ".htpasswd", "wp-config", "id_rsa",
+                        ".env",
+                        ".git",
+                        "config",
+                        "credentials",
+                        "secret",
+                        "password",
+                        "private",
+                        ".pem",
+                        ".key",
+                        "backup",
+                        ".sql",
+                        ".db",
+                        "dump",
+                        ".htpasswd",
+                        "wp-config",
+                        "id_rsa",
                     ];
 
                     for pattern in sensitive_patterns {
@@ -276,10 +307,16 @@ impl CloudStorageScanner {
                             vulnerabilities.push(self.create_vulnerability_with_evidence(
                                 "Sensitive File in Public S3 Bucket",
                                 &bucket_url,
-                                &format!("Potentially sensitive file pattern '{}' found in bucket '{}'", pattern, bucket_name),
+                                &format!(
+                                    "Potentially sensitive file pattern '{}' found in bucket '{}'",
+                                    pattern, bucket_name
+                                ),
                                 Severity::Critical,
                                 "CWE-538",
-                                format!("Bucket: {}\nRegion: {}\nPattern: {}", bucket_name, region, pattern),
+                                format!(
+                                    "Bucket: {}\nRegion: {}\nPattern: {}",
+                                    bucket_name, region, pattern
+                                ),
                             ));
                         }
                     }
@@ -293,40 +330,103 @@ impl CloudStorageScanner {
         // Test 2: Advanced sensitive file paths - really comprehensive list
         let sensitive_paths = vec![
             // Git files
-            ".git/config", ".git/HEAD", ".git/index", ".git/logs/HEAD", ".gitignore",
-            ".github/workflows/deploy.yml", ".github/workflows/ci.yml",
+            ".git/config",
+            ".git/HEAD",
+            ".git/index",
+            ".git/logs/HEAD",
+            ".gitignore",
+            ".github/workflows/deploy.yml",
+            ".github/workflows/ci.yml",
             // Environment & Config
-            ".env", ".env.local", ".env.production", ".env.backup", "config.json",
-            "config.php", "wp-config.php", "settings.py", "config.yml", "application.properties",
+            ".env",
+            ".env.local",
+            ".env.production",
+            ".env.backup",
+            "config.json",
+            "config.php",
+            "wp-config.php",
+            "settings.py",
+            "config.yml",
+            "application.properties",
             // AWS & Cloud Credentials
-            ".aws/credentials", ".aws/config", "aws.json", "credentials.json", "secrets.json",
-            "api-keys.json", "firebase.json", ".firebase",
+            ".aws/credentials",
+            ".aws/config",
+            "aws.json",
+            "credentials.json",
+            "secrets.json",
+            "api-keys.json",
+            "firebase.json",
+            ".firebase",
             // SSH & Crypto Keys
-            "id_rsa", "id_rsa.pub", "id_dsa", "id_ecdsa", "id_ed25519",
-            "private.key", "server.key", "privatekey.pem", ".ssh/id_rsa", ".ssh/authorized_keys",
+            "id_rsa",
+            "id_rsa.pub",
+            "id_dsa",
+            "id_ecdsa",
+            "id_ed25519",
+            "private.key",
+            "server.key",
+            "privatekey.pem",
+            ".ssh/id_rsa",
+            ".ssh/authorized_keys",
             // Database Files
-            "backup.sql", "database.sql", "dump.sql", "db.sql", "database.db",
-            "database.sqlite", "database.sqlite3", "db.sqlite", "data.db",
+            "backup.sql",
+            "database.sql",
+            "dump.sql",
+            "db.sql",
+            "database.db",
+            "database.sqlite",
+            "database.sqlite3",
+            "db.sqlite",
+            "data.db",
             // Backup & Archive Files
-            "backup.zip", "backup.tar.gz", "backup.tar", "site-backup.zip", "backup.7z",
-            "dump.tar.gz", "www.zip", "site.tar.gz", "prod-backup.zip",
+            "backup.zip",
+            "backup.tar.gz",
+            "backup.tar",
+            "site-backup.zip",
+            "backup.7z",
+            "dump.tar.gz",
+            "www.zip",
+            "site.tar.gz",
+            "prod-backup.zip",
             // Web Configs
-            ".htaccess", ".htpasswd", "web.config", "httpd.conf", "nginx.conf",
+            ".htaccess",
+            ".htpasswd",
+            "web.config",
+            "httpd.conf",
+            "nginx.conf",
             // Docker & Container
-            "docker-compose.yml", "Dockerfile", ".dockerignore",
+            "docker-compose.yml",
+            "Dockerfile",
+            ".dockerignore",
             // Package Managers
-            "package.json", "package-lock.json", "composer.json", "composer.lock",
-            "Gemfile", "Gemfile.lock", "requirements.txt", "yarn.lock",
+            "package.json",
+            "package-lock.json",
+            "composer.json",
+            "composer.lock",
+            "Gemfile",
+            "Gemfile.lock",
+            "requirements.txt",
+            "yarn.lock",
             // API Documentation
-            "swagger.json", "openapi.json", "postman_collection.json",
+            "swagger.json",
+            "openapi.json",
+            "postman_collection.json",
             // Laravel specific
-            ".env.example", "storage/logs/laravel.log",
+            ".env.example",
+            "storage/logs/laravel.log",
             // WordPress
-            "wp-config-sample.php", "wp-content/debug.log",
+            "wp-config-sample.php",
+            "wp-content/debug.log",
             // Terraform & IaC
-            "terraform.tfstate", "terraform.tfvars", ".terraform/",
+            "terraform.tfstate",
+            "terraform.tfvars",
+            ".terraform/",
             // CI/CD
-            ".travis.yml", ".gitlab-ci.yml", "Jenkinsfile", "circle.yml", ".circleci/config.yml",
+            ".travis.yml",
+            ".gitlab-ci.yml",
+            "Jenkinsfile",
+            "circle.yml",
+            ".circleci/config.yml",
         ];
 
         // Test first 25 most critical patterns
@@ -341,11 +441,16 @@ impl CloudStorageScanner {
 
                         // Check for actual content (not empty or error pages)
                         if file_size > 0 && !response.body.contains("<Error>") {
-                            let severity = if path.contains("credentials") || path.contains("secret") ||
-                                           path.contains("key") || path.contains(".env") {
+                            let severity = if path.contains("credentials")
+                                || path.contains("secret")
+                                || path.contains("key")
+                                || path.contains(".env")
+                            {
                                 Severity::Critical
-                            } else if path.contains("backup") || path.contains("dump") ||
-                                     path.contains("database") {
+                            } else if path.contains("backup")
+                                || path.contains("dump")
+                                || path.contains("database")
+                            {
                                 Severity::Critical
                             } else {
                                 Severity::High
@@ -380,16 +485,26 @@ impl CloudStorageScanner {
 
                 match self.http_client.get(&test_url).await {
                     Ok(response) => {
-                        if response.status_code >= 200 && response.status_code < 300 &&
-                           response.body.len() > 1000 {
+                        if response.status_code >= 200
+                            && response.status_code < 300
+                            && response.body.len() > 1000
+                        {
                             vulnerabilities.push(self.create_vulnerability_with_evidence(
                                 "Exposed Database Backup in S3",
                                 &test_url,
-                                &format!("Dated database backup '{}' is publicly accessible", dated_backup),
+                                &format!(
+                                    "Dated database backup '{}' is publicly accessible",
+                                    dated_backup
+                                ),
                                 Severity::Critical,
                                 "CWE-538",
-                                format!("Bucket: {}\nRegion: {}\nFile: {}\nSize: {} bytes",
-                                        bucket_name, region, dated_backup, response.body.len()),
+                                format!(
+                                    "Bucket: {}\nRegion: {}\nFile: {}\nSize: {} bytes",
+                                    bucket_name,
+                                    region,
+                                    dated_backup,
+                                    response.body.len()
+                                ),
                             ));
                             break; // Found one
                         }
@@ -407,7 +522,9 @@ impl CloudStorageScanner {
         match self.http_client.get(&acl_url).await {
             Ok(response) => {
                 if response.status_code == 200 && response.body.contains("<AccessControlList") {
-                    if response.body.contains("AllUsers") || response.body.contains("AuthenticatedUsers") {
+                    if response.body.contains("AllUsers")
+                        || response.body.contains("AuthenticatedUsers")
+                    {
                         vulnerabilities.push(self.create_vulnerability_with_evidence(
                             "S3 Bucket ACL Too Permissive",
                             &acl_url,
@@ -430,7 +547,9 @@ impl CloudStorageScanner {
         match self.http_client.get(&policy_url).await {
             Ok(response) => {
                 if response.status_code == 200 && response.body.contains("\"Statement\"") {
-                    if response.body.contains("\"Principal\":\"*\"") || response.body.contains("\"Principal\":{\"AWS\":\"*\"}") {
+                    if response.body.contains("\"Principal\":\"*\"")
+                        || response.body.contains("\"Principal\":{\"AWS\":\"*\"}")
+                    {
                         vulnerabilities.push(self.create_vulnerability_with_evidence(
                             "S3 Bucket Policy Allows Public Access",
                             &policy_url,
@@ -520,7 +639,10 @@ impl CloudStorageScanner {
                         vulnerabilities.push(self.create_vulnerability(
                             "Exposed Azure Blob Storage",
                             &azure_url,
-                            &format!("Publicly accessible Azure Blob storage found: {}", storage_name),
+                            &format!(
+                                "Publicly accessible Azure Blob storage found: {}",
+                                storage_name
+                            ),
                             Severity::High,
                             "CWE-732",
                         ));
@@ -580,9 +702,9 @@ impl CloudStorageScanner {
     fn detect_exposed_bucket(&self, body: &str, status_code: u16) -> bool {
         if status_code == 200 {
             let body_lower = body.to_lowercase();
-            return body_lower.contains("<listbucketresult") ||
-                   body_lower.contains("<contents>") ||
-                   body_lower.contains("<key>") && body_lower.contains("</key>");
+            return body_lower.contains("<listbucketresult")
+                || body_lower.contains("<contents>")
+                || body_lower.contains("<key>") && body_lower.contains("</key>");
         }
         false
     }
@@ -591,9 +713,9 @@ impl CloudStorageScanner {
     fn detect_exposed_blob(&self, body: &str, status_code: u16) -> bool {
         if status_code == 200 {
             let body_lower = body.to_lowercase();
-            return body_lower.contains("<enumerationresults") ||
-                   body_lower.contains("<blobs>") ||
-                   body_lower.contains("<containers>");
+            return body_lower.contains("<enumerationresults")
+                || body_lower.contains("<blobs>")
+                || body_lower.contains("<containers>");
         }
         false
     }
@@ -602,9 +724,9 @@ impl CloudStorageScanner {
     fn detect_exposed_gcs(&self, body: &str, status_code: u16) -> bool {
         if status_code == 200 {
             let body_lower = body.to_lowercase();
-            return body_lower.contains("<listbucketresult") ||
-                   body_lower.contains("storage.googleapis.com") ||
-                   (body_lower.contains("<contents>") && body_lower.contains("</contents>"));
+            return body_lower.contains("<listbucketresult")
+                || body_lower.contains("storage.googleapis.com")
+                || (body_lower.contains("<contents>") && body_lower.contains("</contents>"));
         }
         false
     }
@@ -643,7 +765,7 @@ impl CloudStorageScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -682,7 +804,7 @@ impl CloudStorageScanner {
             false_positive: false,
             remediation: self.get_remediation(vuln_type),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 
@@ -768,7 +890,10 @@ mod tests {
     fn test_extract_domain() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.extract_domain("https://www.example.com/path"), "example");
+        assert_eq!(
+            scanner.extract_domain("https://www.example.com/path"),
+            "example"
+        );
         assert_eq!(scanner.extract_domain("https://test.example.com"), "test");
         assert_eq!(scanner.extract_domain("http://api.domain.com"), "api");
     }
@@ -808,7 +933,8 @@ mod tests {
         let scanner = create_test_scanner();
 
         // Pattern: bucket-name.s3.region.amazonaws.com
-        let result = scanner.detect_s3_url("https://my-bucket.s3.us-west-2.amazonaws.com/path/file.txt");
+        let result =
+            scanner.detect_s3_url("https://my-bucket.s3.us-west-2.amazonaws.com/path/file.txt");
         assert!(result.is_some());
         let (bucket, region) = result.unwrap();
         assert_eq!(bucket, "my-bucket");
@@ -846,7 +972,8 @@ mod tests {
         assert_eq!(region, "eu-west-1");
 
         // Path-style with s3- prefix
-        let result = scanner.detect_s3_url("https://s3-ap-southeast-1.amazonaws.com/another-bucket/");
+        let result =
+            scanner.detect_s3_url("https://s3-ap-southeast-1.amazonaws.com/another-bucket/");
         assert!(result.is_some());
         let (bucket, region) = result.unwrap();
         assert_eq!(bucket, "another-bucket");
@@ -859,8 +986,12 @@ mod tests {
 
         // Non-S3 URLs should return None
         assert!(scanner.detect_s3_url("https://example.com/path").is_none());
-        assert!(scanner.detect_s3_url("https://storage.googleapis.com/bucket/").is_none());
-        assert!(scanner.detect_s3_url("https://myaccount.blob.core.windows.net/container/").is_none());
+        assert!(scanner
+            .detect_s3_url("https://storage.googleapis.com/bucket/")
+            .is_none());
+        assert!(scanner
+            .detect_s3_url("https://myaccount.blob.core.windows.net/container/")
+            .is_none());
         assert!(scanner.detect_s3_url("not-a-url").is_none());
     }
 

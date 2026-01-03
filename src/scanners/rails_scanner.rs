@@ -16,7 +16,11 @@ impl RailsScanner {
         Self { http_client }
     }
 
-    pub async fn scan(&self, target: &str, _config: &ScanConfig) -> Result<(Vec<Vulnerability>, usize)> {
+    pub async fn scan(
+        &self,
+        target: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
@@ -64,7 +68,8 @@ impl RailsScanner {
             if response.body.contains("turbolinks") || response.body.contains("turbo-frame") {
                 return Ok(true);
             }
-            if response.body.contains("data-remote=\"true\"") || response.body.contains("rails-ujs") {
+            if response.body.contains("data-remote=\"true\"") || response.body.contains("rails-ujs")
+            {
                 return Ok(true);
             }
         }
@@ -107,15 +112,19 @@ impl RailsScanner {
                         url: url.clone(),
                         parameter: None,
                         payload: path.to_string(),
-                        description: format!("{} endpoint exposed - development mode likely enabled in production", name),
+                        description: format!(
+                            "{} endpoint exposed - development mode likely enabled in production",
+                            name
+                        ),
                         evidence: Some(format!("Debug endpoint {} accessible", path)),
                         cwe: "CWE-215".to_string(),
                         cvss: 7.5,
                         verified: true,
                         false_positive: false,
-                        remediation: "Disable development mode in production environment".to_string(),
+                        remediation: "Disable development mode in production environment"
+                            .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }
@@ -124,11 +133,19 @@ impl RailsScanner {
         Ok((vulnerabilities, tests))
     }
 
-    async fn check_environment_exposure(&self, target: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn check_environment_exposure(
+        &self,
+        target: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
-        let env_paths = vec!["/.env", "/config/database.yml", "/config/secrets.yml", "/Gemfile"];
+        let env_paths = vec![
+            "/.env",
+            "/config/database.yml",
+            "/config/secrets.yml",
+            "/Gemfile",
+        ];
 
         for path in env_paths {
             let url = format!("{}{}", target, path);
@@ -136,9 +153,14 @@ impl RailsScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
-                    let sensitive_patterns = vec!["SECRET_KEY", "DATABASE_URL", "password:", "adapter:"];
+                    let sensitive_patterns =
+                        vec!["SECRET_KEY", "DATABASE_URL", "password:", "adapter:"];
                     for pattern in &sensitive_patterns {
-                        if response.body.to_lowercase().contains(&pattern.to_lowercase()) {
+                        if response
+                            .body
+                            .to_lowercase()
+                            .contains(&pattern.to_lowercase())
+                        {
                             vulnerabilities.push(Vulnerability {
                                 id: generate_vuln_id(),
                                 vuln_type: "Information Disclosure".to_string(),
@@ -148,7 +170,10 @@ impl RailsScanner {
                                 url: url.clone(),
                                 parameter: None,
                                 payload: path.to_string(),
-                                description: format!("Rails environment/configuration file exposed: {}", path),
+                                description: format!(
+                                    "Rails environment/configuration file exposed: {}",
+                                    path
+                                ),
                                 evidence: Some(format!("Sensitive pattern found: {}", pattern)),
                                 cwe: "CWE-538".to_string(),
                                 cvss: 9.1,
@@ -156,7 +181,7 @@ impl RailsScanner {
                                 false_positive: false,
                                 remediation: "Remove configuration files from web root".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                                ml_data: None,
                             });
                             break;
                         }
@@ -180,7 +205,8 @@ impl RailsScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 && response.body.len() > 100 {
-                    if response.body.contains("Started") || response.body.contains("Processing by") {
+                    if response.body.contains("Started") || response.body.contains("Processing by")
+                    {
                         vulnerabilities.push(Vulnerability {
                             id: generate_vuln_id(),
                             vuln_type: "Information Disclosure".to_string(),
@@ -196,9 +222,10 @@ impl RailsScanner {
                             cvss: 7.5,
                             verified: true,
                             false_positive: false,
-                            remediation: "Remove log files from web-accessible directories".to_string(),
+                            remediation: "Remove log files from web-accessible directories"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }
@@ -276,7 +303,10 @@ impl RailsScanner {
                             url: url.clone(),
                             parameter: None,
                             payload: path.to_string(),
-                            description: format!("JavaScript {} exposed - reveals original source code", desc),
+                            description: format!(
+                                "JavaScript {} exposed - reveals original source code",
+                                desc
+                            ),
                             evidence: Some("Source map file accessible".to_string()),
                             cwe: "CWE-200".to_string(),
                             cvss: 5.3,
@@ -284,7 +314,7 @@ impl RailsScanner {
                             false_positive: false,
                             remediation: "Remove source maps from production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     } else if path.contains(".git") && response.body.contains("[core]") {
                         vulnerabilities.push(Vulnerability {
@@ -296,7 +326,8 @@ impl RailsScanner {
                             url: url.clone(),
                             parameter: None,
                             payload: path.to_string(),
-                            description: "Git repository exposed - source code may be downloadable".to_string(),
+                            description: "Git repository exposed - source code may be downloadable"
+                                .to_string(),
                             evidence: Some("Git config file accessible".to_string()),
                             cwe: "CWE-538".to_string(),
                             cvss: 7.5,
@@ -304,7 +335,7 @@ impl RailsScanner {
                             false_positive: false,
                             remediation: "Remove .git directory from web root".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                            ml_data: None,
                         });
                     }
                 }

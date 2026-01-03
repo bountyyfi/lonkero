@@ -54,7 +54,10 @@ impl ComplianceScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
-        info!("[Compliance] Starting SOC2/PCI-DSS/HIPAA compliance scan for: {}", url);
+        info!(
+            "[Compliance] Starting SOC2/PCI-DSS/HIPAA compliance scan for: {}",
+            url
+        );
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
@@ -295,25 +298,33 @@ impl ComplianceScanner {
             // Check Content-Security-Policy
             let csp = response.header("content-security-policy");
             if csp.is_none() {
-                vulnerabilities.push(self.create_compliance_vulnerability(
-                    ComplianceIssue {
-                        frameworks: vec![ComplianceFramework::Soc2, ComplianceFramework::PciDss],
-                        requirement_id: "CC6.1/PCI-6.5.7".to_string(),
-                        title: "Missing Content Security Policy".to_string(),
-                        description: "Content Security Policy (CSP) header is not implemented. \
+                vulnerabilities.push(
+                    self.create_compliance_vulnerability(
+                        ComplianceIssue {
+                            frameworks: vec![
+                                ComplianceFramework::Soc2,
+                                ComplianceFramework::PciDss,
+                            ],
+                            requirement_id: "CC6.1/PCI-6.5.7".to_string(),
+                            title: "Missing Content Security Policy".to_string(),
+                            description:
+                                "Content Security Policy (CSP) header is not implemented. \
                             CSP provides defense-in-depth against XSS and data injection attacks. \
-                            PCI-DSS 6.5.7 requires protection against XSS vulnerabilities.".to_string(),
-                        severity: Severity::Medium,
-                        remediation: "Implement a strict Content Security Policy:\n\
+                            PCI-DSS 6.5.7 requires protection against XSS vulnerabilities."
+                                    .to_string(),
+                            severity: Severity::Medium,
+                            remediation: "Implement a strict Content Security Policy:\n\
                             Content-Security-Policy: default-src 'self'; script-src 'self'; \
                             style-src 'self'; img-src 'self' data:; font-src 'self'; \
                             frame-ancestors 'none'; form-action 'self';\n\n\
-                            Start with a report-only policy to identify issues before enforcing.".to_string(),
-                        cwe: "CWE-1021".to_string(),
-                        cvss: 5.3,
-                    },
-                    url,
-                ));
+                            Start with a report-only policy to identify issues before enforcing."
+                                .to_string(),
+                            cwe: "CWE-1021".to_string(),
+                            cvss: 5.3,
+                        },
+                        url,
+                    ),
+                );
             } else if let Some(ref csp_value) = csp {
                 // Check for unsafe CSP directives
                 if csp_value.contains("unsafe-inline") && csp_value.contains("unsafe-eval") {
@@ -363,24 +374,31 @@ impl ComplianceScanner {
                 .unwrap_or(false);
 
             if xfo.is_none() && !has_frame_ancestors {
-                vulnerabilities.push(self.create_compliance_vulnerability(
-                    ComplianceIssue {
-                        frameworks: vec![ComplianceFramework::Soc2, ComplianceFramework::PciDss],
-                        requirement_id: "CC6.1/PCI-6.5.9".to_string(),
-                        title: "Missing Clickjacking Protection".to_string(),
-                        description: "Neither X-Frame-Options nor CSP frame-ancestors is set. \
+                vulnerabilities.push(
+                    self.create_compliance_vulnerability(
+                        ComplianceIssue {
+                            frameworks: vec![
+                                ComplianceFramework::Soc2,
+                                ComplianceFramework::PciDss,
+                            ],
+                            requirement_id: "CC6.1/PCI-6.5.9".to_string(),
+                            title: "Missing Clickjacking Protection".to_string(),
+                            description: "Neither X-Frame-Options nor CSP frame-ancestors is set. \
                             The application can be embedded in frames on malicious sites, enabling \
-                            clickjacking attacks that trick users into unintended actions.".to_string(),
-                        severity: Severity::Medium,
-                        remediation: "Add frame protection header:\n\
+                            clickjacking attacks that trick users into unintended actions."
+                                .to_string(),
+                            severity: Severity::Medium,
+                            remediation: "Add frame protection header:\n\
                             X-Frame-Options: DENY\n\
                             Or use CSP:\n\
-                            Content-Security-Policy: frame-ancestors 'none';".to_string(),
-                        cwe: "CWE-1021".to_string(),
-                        cvss: 4.7,
-                    },
-                    url,
-                ));
+                            Content-Security-Policy: frame-ancestors 'none';"
+                                .to_string(),
+                            cwe: "CWE-1021".to_string(),
+                            cvss: 4.7,
+                        },
+                        url,
+                    ),
+                );
             }
 
             // Check Referrer-Policy for data leakage
@@ -414,24 +432,31 @@ impl ComplianceScanner {
                 || response.body.to_lowercase().contains("social security");
 
             if (has_forms || is_sensitive) && cache_control.is_none() {
-                vulnerabilities.push(self.create_compliance_vulnerability(
-                    ComplianceIssue {
-                        frameworks: vec![ComplianceFramework::PciDss, ComplianceFramework::Hipaa],
-                        requirement_id: "PCI-3.2/HIPAA-164.312(e)(1)".to_string(),
-                        title: "Sensitive Page Missing Cache Control".to_string(),
-                        description: "Page containing forms or sensitive content does not set \
+                vulnerabilities.push(
+                    self.create_compliance_vulnerability(
+                        ComplianceIssue {
+                            frameworks: vec![
+                                ComplianceFramework::PciDss,
+                                ComplianceFramework::Hipaa,
+                            ],
+                            requirement_id: "PCI-3.2/HIPAA-164.312(e)(1)".to_string(),
+                            title: "Sensitive Page Missing Cache Control".to_string(),
+                            description: "Page containing forms or sensitive content does not set \
                             Cache-Control headers. Sensitive data may be cached by browsers or \
-                            intermediate proxies, violating data protection requirements.".to_string(),
-                        severity: Severity::Medium,
-                        remediation: "Add cache prevention headers for sensitive pages:\n\
+                            intermediate proxies, violating data protection requirements."
+                                .to_string(),
+                            severity: Severity::Medium,
+                            remediation: "Add cache prevention headers for sensitive pages:\n\
                             Cache-Control: no-store, no-cache, must-revalidate, private\n\
                             Pragma: no-cache\n\
-                            Expires: 0".to_string(),
-                        cwe: "CWE-525".to_string(),
-                        cvss: 4.3,
-                    },
-                    url,
-                ));
+                            Expires: 0"
+                                .to_string(),
+                            cwe: "CWE-525".to_string(),
+                            cvss: 4.3,
+                        },
+                        url,
+                    ),
+                );
             }
         }
 
@@ -444,7 +469,8 @@ impl ComplianceScanner {
 
         if let Ok(response) = self.http_client.get(url).await {
             // Get all Set-Cookie headers
-            let cookies: Vec<&str> = response.headers
+            let cookies: Vec<&str> = response
+                .headers
                 .iter()
                 .filter(|(k, _)| k.to_lowercase() == "set-cookie")
                 .map(|(_, v)| v.as_str())
@@ -559,7 +585,10 @@ impl ComplianceScanner {
         // Test various error-inducing requests
         let error_paths = vec![
             (format!("{}/'\"<>test", base_url), "special characters"),
-            (format!("{}/nonexistent-{}", base_url, Self::generate_id()), "404 error"),
+            (
+                format!("{}/nonexistent-{}", base_url, Self::generate_id()),
+                "404 error",
+            ),
             (format!("{}/.git/config", base_url), "sensitive path"),
             (format!("{}/?id=1'", base_url), "SQL syntax"),
             (format!("{}/{{{{7*7}}}}", base_url), "template syntax"),
@@ -703,7 +732,8 @@ impl ComplianceScanner {
                 // Check if API endpoint returns data without authentication
                 if response.status_code == 200 {
                     let content_type = response.header("content-type").unwrap_or_default();
-                    let is_json = content_type.contains("json") || response.body.trim().starts_with('{')
+                    let is_json = content_type.contains("json")
+                        || response.body.trim().starts_with('{')
                         || response.body.trim().starts_with('[');
 
                     if is_json && response.body.len() > 50 {
@@ -941,23 +971,31 @@ impl ComplianceScanner {
             if let Some(origin) = acao {
                 if origin == "*" {
                     if acac.map(|v| v == "true").unwrap_or(false) {
-                        vulnerabilities.push(self.create_compliance_vulnerability(
-                            ComplianceIssue {
-                                frameworks: vec![ComplianceFramework::Soc2, ComplianceFramework::PciDss],
-                                requirement_id: "CC6.1/PCI-6.5.8".to_string(),
-                                title: "Dangerous CORS Configuration".to_string(),
-                                description: "CORS is configured with Access-Control-Allow-Origin: * \
+                        vulnerabilities.push(
+                            self.create_compliance_vulnerability(
+                                ComplianceIssue {
+                                    frameworks: vec![
+                                        ComplianceFramework::Soc2,
+                                        ComplianceFramework::PciDss,
+                                    ],
+                                    requirement_id: "CC6.1/PCI-6.5.8".to_string(),
+                                    title: "Dangerous CORS Configuration".to_string(),
+                                    description:
+                                        "CORS is configured with Access-Control-Allow-Origin: * \
                                     AND Access-Control-Allow-Credentials: true. This is an invalid \
-                                    and dangerous configuration that may expose authenticated data.".to_string(),
-                                severity: Severity::High,
-                                remediation: "1. Never use wildcard (*) with credentials\n\
+                                    and dangerous configuration that may expose authenticated data."
+                                            .to_string(),
+                                    severity: Severity::High,
+                                    remediation: "1. Never use wildcard (*) with credentials\n\
                                     2. Specify allowed origins explicitly\n\
-                                    3. Validate Origin header against allowlist".to_string(),
-                                cwe: "CWE-346".to_string(),
-                                cvss: 7.5,
-                            },
-                            url,
-                        ));
+                                    3. Validate Origin header against allowlist"
+                                        .to_string(),
+                                    cwe: "CWE-346".to_string(),
+                                    cvss: 7.5,
+                                },
+                                url,
+                            ),
+                        );
                     } else {
                         vulnerabilities.push(self.create_compliance_vulnerability(
                             ComplianceIssue {
@@ -1094,7 +1132,9 @@ impl ComplianceScanner {
                         || body_lower.contains("node_env")
                         || body_lower.contains("spring.profiles");
 
-                    if has_env_info && (endpoint == "/health" || endpoint == "/info" || endpoint == "/status") {
+                    if has_env_info
+                        && (endpoint == "/health" || endpoint == "/info" || endpoint == "/status")
+                    {
                         vulnerabilities.push(self.create_compliance_vulnerability(
                             ComplianceIssue {
                                 frameworks: vec![ComplianceFramework::Soc2],
@@ -1166,7 +1206,8 @@ impl ComplianceScanner {
 
                 // Check for inline payment forms (should use iframes)
                 if response.body.contains("<input")
-                    && (response.body.contains("name=\"card") || response.body.contains("name=\"cvv"))
+                    && (response.body.contains("name=\"card")
+                        || response.body.contains("name=\"cvv"))
                     && !response.body.contains("<iframe")
                 {
                     vulnerabilities.push(self.create_compliance_vulnerability(
@@ -1220,11 +1261,7 @@ impl ComplianceScanner {
     }
 
     /// Create a compliance vulnerability with proper formatting
-    fn create_compliance_vulnerability(
-        &self,
-        issue: ComplianceIssue,
-        url: &str,
-    ) -> Vulnerability {
+    fn create_compliance_vulnerability(&self, issue: ComplianceIssue, url: &str) -> Vulnerability {
         let frameworks_str: Vec<String> = issue.frameworks.iter().map(|f| f.to_string()).collect();
 
         Vulnerability {
@@ -1249,7 +1286,7 @@ impl ComplianceScanner {
             false_positive: false,
             remediation: issue.remediation,
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 

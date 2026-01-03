@@ -24,7 +24,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -151,13 +150,43 @@ impl FileUploadScanner {
         let mut tests_run = 0;
 
         let dangerous_files = vec![
-            ("test.php", "application/x-php", "<?php phpinfo(); ?>", "PHP"),
-            ("test.jsp", "application/x-jsp", "<% out.println(\"test\"); %>", "JSP"),
-            ("test.asp", "application/x-asp", "<% Response.Write(\"test\") %>", "ASP"),
-            ("test.aspx", "application/x-aspx", "<%@ Page Language=\"C#\" %>test", "ASPX"),
-            ("test.sh", "application/x-sh", "#!/bin/bash\necho test", "Shell Script"),
+            (
+                "test.php",
+                "application/x-php",
+                "<?php phpinfo(); ?>",
+                "PHP",
+            ),
+            (
+                "test.jsp",
+                "application/x-jsp",
+                "<% out.println(\"test\"); %>",
+                "JSP",
+            ),
+            (
+                "test.asp",
+                "application/x-asp",
+                "<% Response.Write(\"test\") %>",
+                "ASP",
+            ),
+            (
+                "test.aspx",
+                "application/x-aspx",
+                "<%@ Page Language=\"C#\" %>test",
+                "ASPX",
+            ),
+            (
+                "test.sh",
+                "application/x-sh",
+                "#!/bin/bash\necho test",
+                "Shell Script",
+            ),
             ("test.exe", "application/x-msdownload", "MZ", "Executable"),
-            ("test.svg", "image/svg+xml", "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>", "SVG with XSS"),
+            (
+                "test.svg",
+                "image/svg+xml",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>",
+                "SVG with XSS",
+            ),
         ];
 
         for (filename, mime_type, content, file_type) in dangerous_files {
@@ -266,12 +295,7 @@ impl FileUploadScanner {
         let tests_run = 1;
 
         match self
-            .upload_file(
-                url,
-                "test.php%00.jpg",
-                "<?php phpinfo(); ?>",
-                "image/jpeg",
-            )
+            .upload_file(url, "test.php%00.jpg", "<?php phpinfo(); ?>", "image/jpeg")
             .await
         {
             Ok((accepted, evidence)) => {
@@ -344,7 +368,13 @@ impl FileUploadScanner {
         let gif_php = format!("GIF89a<?php echo 'magic_{}'; ?>", marker);
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_verify_execution(url, "shell.php", &gif_php, "image/gif", &format!("magic_{}", marker))
+            .upload_and_verify_execution(
+                url,
+                "shell.php",
+                &gif_php,
+                "image/gif",
+                &format!("magic_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -370,7 +400,13 @@ impl FileUploadScanner {
         let png_php = String::from_utf8_lossy(&png_php).to_string();
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_verify_execution(url, "image.php", &png_php, "image/png", &format!("magic_{}", marker))
+            .upload_and_verify_execution(
+                url,
+                "image.php",
+                &png_php,
+                "image/png",
+                &format!("magic_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -396,7 +432,13 @@ impl FileUploadScanner {
         let jpeg_php = String::from_utf8_lossy(&jpeg_php).to_string();
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_verify_execution(url, "photo.php", &jpeg_php, "image/jpeg", &format!("magic_{}", marker))
+            .upload_and_verify_execution(
+                url,
+                "photo.php",
+                &jpeg_php,
+                "image/jpeg",
+                &format!("magic_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -417,10 +459,7 @@ impl FileUploadScanner {
     }
 
     /// Test image polyglot attacks
-    async fn test_image_polyglots(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_image_polyglots(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -435,7 +474,13 @@ impl FileUploadScanner {
         );
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_check_reflection(url, "image.svg", &svg_xss, "image/svg+xml", &format!("svg_{}", marker))
+            .upload_and_check_reflection(
+                url,
+                "image.svg",
+                &svg_xss,
+                "image/svg+xml",
+                &format!("svg_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -461,7 +506,13 @@ impl FileUploadScanner {
         let gif_polyglot = String::from_utf8_lossy(&gif_polyglot).to_string();
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_verify_execution(url, "polyglot.gif", &gif_polyglot, "image/gif", &format!("polyglot_{}", marker))
+            .upload_and_verify_execution(
+                url,
+                "polyglot.gif",
+                &gif_polyglot,
+                "image/gif",
+                &format!("polyglot_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -489,7 +540,13 @@ impl FileUploadScanner {
         let png_meta = String::from_utf8_lossy(&png_meta).to_string();
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_verify_execution(url, "meta.png", &png_meta, "image/png", &format!("png_meta_{}", marker))
+            .upload_and_verify_execution(
+                url,
+                "meta.png",
+                &png_meta,
+                "image/png",
+                &format!("png_meta_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -510,10 +567,7 @@ impl FileUploadScanner {
     }
 
     /// Test ZIP file exploits (zip bomb and zip slip)
-    async fn test_zip_exploits(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_zip_exploits(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -529,7 +583,8 @@ impl FileUploadScanner {
         {
             if accepted {
                 // Try to access the file that should be extracted outside upload directory
-                let base_url = url.trim_end_matches("/upload")
+                let base_url = url
+                    .trim_end_matches("/upload")
                     .trim_end_matches("/api/upload")
                     .trim_end_matches("/file/upload")
                     .trim_end_matches("/files/upload")
@@ -544,7 +599,9 @@ impl FileUploadScanner {
 
                 for test_path in test_paths {
                     if let Ok(response) = self.http_client.get(&test_path).await {
-                        if response.status_code == 200 && response.body.contains(&format!("zipslip_{}", marker)) {
+                        if response.status_code == 200
+                            && response.body.contains(&format!("zipslip_{}", marker))
+                        {
                             info!("Zip slip vulnerability confirmed");
                             vulnerabilities.push(self.create_vulnerability(
                                 url,
@@ -592,10 +649,7 @@ impl FileUploadScanner {
     }
 
     /// Test SVG XXE vulnerabilities
-    async fn test_svg_xxe(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_svg_xxe(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -616,7 +670,11 @@ impl FileUploadScanner {
             .upload_and_check_reflection(url, "xxe.svg", &svg_xxe, "image/svg+xml", "root:")
             .await
         {
-            if !evidence.is_empty() && (evidence.contains("root:") || evidence.contains("/bin/bash") || evidence.contains("/bin/sh")) {
+            if !evidence.is_empty()
+                && (evidence.contains("root:")
+                    || evidence.contains("/bin/bash")
+                    || evidence.contains("/bin/sh"))
+            {
                 info!("SVG XXE vulnerability confirmed - /etc/passwd leaked");
                 vulnerabilities.push(self.create_vulnerability(
                     url,
@@ -642,10 +700,20 @@ impl FileUploadScanner {
 
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_check_reflection(url, "xxe_ssrf.svg", &svg_xxe_http, "image/svg+xml", "meta-data")
+            .upload_and_check_reflection(
+                url,
+                "xxe_ssrf.svg",
+                &svg_xxe_http,
+                "image/svg+xml",
+                "meta-data",
+            )
             .await
         {
-            if !evidence.is_empty() && (evidence.contains("ami-id") || evidence.contains("instance-id") || evidence.contains("hostname")) {
+            if !evidence.is_empty()
+                && (evidence.contains("ami-id")
+                    || evidence.contains("instance-id")
+                    || evidence.contains("hostname"))
+            {
                 info!("SVG XXE SSRF vulnerability confirmed - metadata leaked");
                 vulnerabilities.push(self.create_vulnerability(
                     url,
@@ -663,10 +731,7 @@ impl FileUploadScanner {
     }
 
     /// Test SVG SSRF vulnerabilities
-    async fn test_svg_ssrf(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_svg_ssrf(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -689,7 +754,11 @@ impl FileUploadScanner {
             let elapsed = before.elapsed();
 
             // Check if metadata was fetched (in response or timing difference)
-            if !evidence.is_empty() && (evidence.contains("ami-") || evidence.contains("instance") || elapsed.as_millis() > 1000) {
+            if !evidence.is_empty()
+                && (evidence.contains("ami-")
+                    || evidence.contains("instance")
+                    || elapsed.as_millis() > 1000)
+            {
                 info!("SVG SSRF vulnerability confirmed");
                 vulnerabilities.push(self.create_vulnerability(
                     url,
@@ -713,7 +782,13 @@ impl FileUploadScanner {
 
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_check_reflection(url, "ssrf_local.svg", &svg_ssrf_local, "image/svg+xml", "admin")
+            .upload_and_check_reflection(
+                url,
+                "ssrf_local.svg",
+                &svg_ssrf_local,
+                "image/svg+xml",
+                "admin",
+            )
             .await
         {
             if !evidence.is_empty() && evidence.contains("admin") {
@@ -755,7 +830,13 @@ impl FileUploadScanner {
         for (filename, desc) in test_cases {
             tests_run += 1;
             if let Ok((_upload_path, evidence)) = self
-                .upload_and_verify_execution(url, filename, &payload, "image/jpeg", &format!("dblext_{}", marker))
+                .upload_and_verify_execution(
+                    url,
+                    filename,
+                    &payload,
+                    "image/jpeg",
+                    &format!("dblext_{}", marker),
+                )
                 .await
             {
                 if !evidence.is_empty() {
@@ -764,7 +845,10 @@ impl FileUploadScanner {
                         url,
                         "FILE_UPLOAD_ADVANCED_DOUBLE_EXT",
                         filename,
-                        &format!("Server vulnerable to advanced double extension bypass: {}", desc),
+                        &format!(
+                            "Server vulnerable to advanced double extension bypass: {}",
+                            desc
+                        ),
                         &evidence,
                         Severity::Critical,
                         9.2,
@@ -778,10 +862,7 @@ impl FileUploadScanner {
     }
 
     /// Test MIME type confusion attacks
-    async fn test_mime_confusion(
-        &self,
-        url: &str,
-    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_mime_confusion(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -791,7 +872,13 @@ impl FileUploadScanner {
         // Upload PHP with image MIME type
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_verify_execution(url, "shell.php", &payload, "image/jpeg", &format!("mime_{}", marker))
+            .upload_and_verify_execution(
+                url,
+                "shell.php",
+                &payload,
+                "image/jpeg",
+                &format!("mime_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -811,7 +898,13 @@ impl FileUploadScanner {
         // Upload script.jpg with PHP MIME type
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_verify_execution(url, "script.jpg", &payload, "application/x-php", &format!("mime_{}", marker))
+            .upload_and_verify_execution(
+                url,
+                "script.jpg",
+                &payload,
+                "application/x-php",
+                &format!("mime_{}", marker),
+            )
             .await
         {
             if !evidence.is_empty() {
@@ -841,7 +934,8 @@ impl FileUploadScanner {
         marker: &str,
     ) -> anyhow::Result<(String, String)> {
         // First upload the file
-        let (accepted, upload_evidence) = self.upload_file(url, filename, content, mime_type).await?;
+        let (accepted, upload_evidence) =
+            self.upload_file(url, filename, content, mime_type).await?;
 
         if !accepted {
             return Ok((String::new(), String::new()));
@@ -851,7 +945,10 @@ impl FileUploadScanner {
         let upload_paths = self.extract_upload_paths(&upload_evidence, filename);
 
         // Log the upload response to help debug path issues
-        info!("Upload accepted. Response body: {}", &upload_evidence[..upload_evidence.len().min(300)]);
+        info!(
+            "Upload accepted. Response body: {}",
+            &upload_evidence[..upload_evidence.len().min(300)]
+        );
         if !upload_paths.is_empty() {
             info!("Extracted upload paths from response: {:?}", upload_paths);
         }
@@ -869,43 +966,60 @@ impl FileUploadScanner {
                 // Try plural version (e.g., /uploads/file.php)
                 format!("{}s/{}", base_url, filename),
                 // Try common directory patterns
-                format!("{}/files/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
-                format!("{}/uploads/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
-                format!("{}/media/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
-                format!("{}/static/uploads/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
+                format!(
+                    "{}/files/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
+                format!(
+                    "{}/uploads/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
+                format!(
+                    "{}/media/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
+                format!(
+                    "{}/static/uploads/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
             ],
-        ].concat();
+        ]
+        .concat();
 
         // Try to access the uploaded file
-        debug!("Trying {} possible upload paths for {}", test_paths.len(), filename);
+        debug!(
+            "Trying {} possible upload paths for {}",
+            test_paths.len(),
+            filename
+        );
         for test_path in test_paths {
             debug!("Testing upload path: {}", test_path);
             if let Ok(response) = self.http_client.get(&test_path).await {
@@ -913,7 +1027,10 @@ impl FileUploadScanner {
                 if response.status_code == 200 && response.body.contains(marker) {
                     return Ok((
                         test_path.clone(),
-                        format!("Code executed at {} - Response contains marker: {}", test_path, marker),
+                        format!(
+                            "Code executed at {} - Response contains marker: {}",
+                            test_path, marker
+                        ),
                     ));
                 }
             }
@@ -932,7 +1049,8 @@ impl FileUploadScanner {
         marker: &str,
     ) -> anyhow::Result<(String, String)> {
         // First upload the file
-        let (accepted, upload_evidence) = self.upload_file(url, filename, content, mime_type).await?;
+        let (accepted, upload_evidence) =
+            self.upload_file(url, filename, content, mime_type).await?;
 
         if !accepted {
             return Ok((String::new(), String::new()));
@@ -958,47 +1076,64 @@ impl FileUploadScanner {
                 // Try plural version (e.g., /uploads/file.svg)
                 format!("{}s/{}", base_url, filename),
                 // Try common directory patterns
-                format!("{}/files/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
-                format!("{}/uploads/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
-                format!("{}/media/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
-                format!("{}/static/uploads/{}",
-                    base_url.trim_end_matches("/upload")
-                            .trim_end_matches("/api/upload")
-                            .trim_end_matches("/file/upload")
-                            .trim_end_matches("/files/upload")
-                            .trim_end_matches("/media/upload")
-                            .trim_end_matches("/attachment/upload"),
-                    filename),
+                format!(
+                    "{}/files/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
+                format!(
+                    "{}/uploads/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
+                format!(
+                    "{}/media/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
+                format!(
+                    "{}/static/uploads/{}",
+                    base_url
+                        .trim_end_matches("/upload")
+                        .trim_end_matches("/api/upload")
+                        .trim_end_matches("/file/upload")
+                        .trim_end_matches("/files/upload")
+                        .trim_end_matches("/media/upload")
+                        .trim_end_matches("/attachment/upload"),
+                    filename
+                ),
             ],
-        ].concat();
+        ]
+        .concat();
 
         for test_path in test_paths {
             if let Ok(response) = self.http_client.get(&test_path).await {
                 if response.body.contains(marker) {
                     return Ok((
                         test_path.clone(),
-                        format!("File accessible at {} - Contains marker: {}", test_path, &response.body[..200.min(response.body.len())]),
+                        format!(
+                            "File accessible at {} - Contains marker: {}",
+                            test_path,
+                            &response.body[..200.min(response.body.len())]
+                        ),
                     ));
                 }
             }
@@ -1012,7 +1147,9 @@ impl FileUploadScanner {
         let mut paths = Vec::new();
 
         // Try to extract URLs from JSON responses
-        if let Ok(regex) = regex::Regex::new(r#"["']?(?:url|path|location|file|href)["']?\s*:\s*["']([^"']+)["']"#) {
+        if let Ok(regex) =
+            regex::Regex::new(r#"["']?(?:url|path|location|file|href)["']?\s*:\s*["']([^"']+)["']"#)
+        {
             for cap in regex.captures_iter(response) {
                 if let Some(path) = cap.get(1) {
                     paths.push(path.as_str().to_string());
@@ -1073,15 +1210,23 @@ impl FileUploadScanner {
             boundary, filename, mime_type, content, boundary
         );
 
-        let headers = vec![
-            ("Content-Type".to_string(), format!("multipart/form-data; boundary={}", boundary)),
-        ];
+        let headers = vec![(
+            "Content-Type".to_string(),
+            format!("multipart/form-data; boundary={}", boundary),
+        )];
 
-        match self.http_client.post_with_headers(url, &form_data, headers).await {
+        match self
+            .http_client
+            .post_with_headers(url, &form_data, headers)
+            .await
+        {
             Ok(response) => {
                 let accepted = self.is_upload_accepted(&response.body, response.status_code);
                 let evidence = if accepted {
-                    format!("File {} accepted. Status: {}", filename, response.status_code)
+                    format!(
+                        "File {} accepted. Status: {}",
+                        filename, response.status_code
+                    )
                 } else {
                     "File rejected".to_string()
                 };
@@ -1098,16 +1243,16 @@ impl FileUploadScanner {
     fn is_upload_accepted(&self, body: &str, status: u16) -> bool {
         // First check for SPA/single-page-application fallback (returns same HTML for all routes)
         // SPAs often return 200 for all routes and render client-side - NOT a real upload acceptance
-        let is_spa_response = body.contains("<app-root>") ||
-            body.contains("<div id=\"root\">") ||
-            body.contains("<div id=\"app\">") ||
-            body.contains("__NEXT_DATA__") ||
-            body.contains("__NUXT__") ||
-            body.contains("ng-version=") ||
-            body.contains("polyfills.js") ||
-            body.contains("data-reactroot") ||
-            body.contains("/_next/static/") ||
-            (body.contains("<!DOCTYPE html>") && body.contains("<script") && body.len() > 5000);
+        let is_spa_response = body.contains("<app-root>")
+            || body.contains("<div id=\"root\">")
+            || body.contains("<div id=\"app\">")
+            || body.contains("__NEXT_DATA__")
+            || body.contains("__NUXT__")
+            || body.contains("ng-version=")
+            || body.contains("polyfills.js")
+            || body.contains("data-reactroot")
+            || body.contains("/_next/static/")
+            || (body.contains("<!DOCTYPE html>") && body.contains("<script") && body.len() > 5000);
 
         if is_spa_response {
             return false;
@@ -1222,7 +1367,9 @@ impl FileUploadScanner {
                  3. Use allowlist approach\n\
                  4. Implement consistent filename normalization",
             ),
-            "FILE_UPLOAD_MAGIC_BYTE_GIF" | "FILE_UPLOAD_MAGIC_BYTE_PNG" | "FILE_UPLOAD_MAGIC_BYTE_JPEG" => (
+            "FILE_UPLOAD_MAGIC_BYTE_GIF"
+            | "FILE_UPLOAD_MAGIC_BYTE_PNG"
+            | "FILE_UPLOAD_MAGIC_BYTE_JPEG" => (
                 "CWE-434",
                 "1. Validate BOTH file content AND extension\n\
                  2. Do not rely solely on magic bytes for validation\n\
@@ -1330,7 +1477,7 @@ impl FileUploadScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }

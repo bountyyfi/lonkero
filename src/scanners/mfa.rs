@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Bountyy Oy. All rights reserved.
 // This software is proprietary and confidential.
 
+use crate::detection_helpers::{endpoint_exists, AppCharacteristics};
 /**
  * Bountyy Oy - MFA (Multi-Factor Authentication) Scanner
  * Tests for MFA implementation vulnerabilities and bypasses
@@ -8,16 +9,14 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
-use crate::detection_helpers::{AppCharacteristics, endpoint_exists};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration, Instant};
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 pub struct MfaScanner {
     http_client: Arc<HttpClient>,
@@ -78,10 +77,22 @@ impl MfaScanner {
         // Test 3-7: Only run endpoint-specific tests if endpoints actually exist
         // CRITICAL: Don't test endpoints that don't exist (SPAs return 200 for everything!)
         let mfa_endpoints = vec![
-            (format!("{}/mfa/verify", url.trim_end_matches('/')), "mfa_verify"),
-            (format!("{}/2fa/verify", url.trim_end_matches('/')), "2fa_verify"),
-            (format!("{}/auth/mfa", url.trim_end_matches('/')), "auth_mfa"),
-            (format!("{}/mfa/enroll", url.trim_end_matches('/')), "mfa_enroll"),
+            (
+                format!("{}/mfa/verify", url.trim_end_matches('/')),
+                "mfa_verify",
+            ),
+            (
+                format!("{}/2fa/verify", url.trim_end_matches('/')),
+                "2fa_verify",
+            ),
+            (
+                format!("{}/auth/mfa", url.trim_end_matches('/')),
+                "auth_mfa",
+            ),
+            (
+                format!("{}/mfa/enroll", url.trim_end_matches('/')),
+                "mfa_enroll",
+            ),
         ];
 
         for (endpoint_url, _endpoint_type) in &mfa_endpoints {
@@ -97,20 +108,28 @@ impl MfaScanner {
 
                 // Only test rate limiting if this is actually an MFA verification page
                 // MUCH stricter criteria than before!
-                let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
-                    endpoint_body_lower.contains("authenticator app") ||
-                    endpoint_body_lower.contains("totp")) &&
-                    (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input")) &&
-                    (endpoint_response.status_code == 200 || endpoint_response.status_code == 401);
+                let is_mfa_page = (endpoint_body_lower.contains("verification code")
+                    || endpoint_body_lower.contains("authenticator app")
+                    || endpoint_body_lower.contains("totp"))
+                    && (endpoint_body_lower.contains("<form")
+                        || endpoint_body_lower.contains("<input"))
+                    && (endpoint_response.status_code == 200
+                        || endpoint_response.status_code == 401);
 
                 if is_mfa_page {
-                    self.check_rate_limiting(&endpoint_response, endpoint_url, &mut vulnerabilities);
+                    self.check_rate_limiting(
+                        &endpoint_response,
+                        endpoint_url,
+                        &mut vulnerabilities,
+                    );
                 }
             }
         }
 
         // Only test SMS MFA if there's evidence of phone-based auth
-        if characteristics.has_mfa && (body_lower.contains("sms") || body_lower.contains("phone number")) {
+        if characteristics.has_mfa
+            && (body_lower.contains("sms") || body_lower.contains("phone number"))
+        {
             tests_run += 1;
             if let Ok(sms_response) = self.test_sms_mfa(url).await {
                 self.check_sms_mfa_security(&sms_response, url, &mut vulnerabilities);
@@ -127,13 +146,16 @@ impl MfaScanner {
                 if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
                     if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
                         let endpoint_body_lower = endpoint_response.body.to_lowercase();
-                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
-                            endpoint_body_lower.contains("authenticator app") ||
-                            endpoint_body_lower.contains("totp")) &&
-                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code")
+                            || endpoint_body_lower.contains("authenticator app")
+                            || endpoint_body_lower.contains("totp"))
+                            && (endpoint_body_lower.contains("<form")
+                                || endpoint_body_lower.contains("<input"));
 
                         if is_mfa_page {
-                            if let Ok((replay_vulns, replay_tests)) = self.test_otp_replay_attack(endpoint_url).await {
+                            if let Ok((replay_vulns, replay_tests)) =
+                                self.test_otp_replay_attack(endpoint_url).await
+                            {
                                 vulnerabilities.extend(replay_vulns);
                                 tests_run += replay_tests;
                             }
@@ -148,13 +170,16 @@ impl MfaScanner {
                 if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
                     if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
                         let endpoint_body_lower = endpoint_response.body.to_lowercase();
-                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
-                            endpoint_body_lower.contains("authenticator app") ||
-                            endpoint_body_lower.contains("totp")) &&
-                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code")
+                            || endpoint_body_lower.contains("authenticator app")
+                            || endpoint_body_lower.contains("totp"))
+                            && (endpoint_body_lower.contains("<form")
+                                || endpoint_body_lower.contains("<input"));
 
                         if is_mfa_page {
-                            if let Ok((race_vulns, race_tests)) = self.test_parallel_verification(endpoint_url).await {
+                            if let Ok((race_vulns, race_tests)) =
+                                self.test_parallel_verification(endpoint_url).await
+                            {
                                 vulnerabilities.extend(race_vulns);
                                 tests_run += race_tests;
                             }
@@ -169,13 +194,16 @@ impl MfaScanner {
                 if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
                     if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
                         let endpoint_body_lower = endpoint_response.body.to_lowercase();
-                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
-                            endpoint_body_lower.contains("authenticator app") ||
-                            endpoint_body_lower.contains("totp")) &&
-                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code")
+                            || endpoint_body_lower.contains("authenticator app")
+                            || endpoint_body_lower.contains("totp"))
+                            && (endpoint_body_lower.contains("<form")
+                                || endpoint_body_lower.contains("<input"));
 
                         if is_mfa_page {
-                            if let Ok((expiry_vulns, expiry_tests)) = self.test_otp_expiration_bypass(endpoint_url).await {
+                            if let Ok((expiry_vulns, expiry_tests)) =
+                                self.test_otp_expiration_bypass(endpoint_url).await
+                            {
                                 vulnerabilities.extend(expiry_vulns);
                                 tests_run += expiry_tests;
                             }
@@ -190,13 +218,16 @@ impl MfaScanner {
                 if let Ok(endpoint_response) = self.http_client.get(endpoint_url).await {
                     if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
                         let endpoint_body_lower = endpoint_response.body.to_lowercase();
-                        let is_mfa_page = (endpoint_body_lower.contains("verification code") ||
-                            endpoint_body_lower.contains("authenticator app") ||
-                            endpoint_body_lower.contains("totp")) &&
-                            (endpoint_body_lower.contains("<form") || endpoint_body_lower.contains("<input"));
+                        let is_mfa_page = (endpoint_body_lower.contains("verification code")
+                            || endpoint_body_lower.contains("authenticator app")
+                            || endpoint_body_lower.contains("totp"))
+                            && (endpoint_body_lower.contains("<form")
+                                || endpoint_body_lower.contains("<input"));
 
                         if is_mfa_page {
-                            if let Ok((brute_vulns, brute_tests)) = self.test_timing_based_brute_force(endpoint_url).await {
+                            if let Ok((brute_vulns, brute_tests)) =
+                                self.test_timing_based_brute_force(endpoint_url).await
+                            {
                                 vulnerabilities.extend(brute_vulns);
                                 tests_run += brute_tests;
                             }
@@ -216,7 +247,9 @@ impl MfaScanner {
                 tests_run += 1;
                 if let Ok(endpoint_response) = self.http_client.get(backup_endpoint).await {
                     if endpoint_exists(&endpoint_response, &[200, 401, 403]) {
-                        if let Ok((backup_enum_vulns, backup_enum_tests)) = self.test_backup_code_enumeration(backup_endpoint).await {
+                        if let Ok((backup_enum_vulns, backup_enum_tests)) =
+                            self.test_backup_code_enumeration(backup_endpoint).await
+                        {
                             vulnerabilities.extend(backup_enum_vulns);
                             tests_run += backup_enum_tests;
                         }
@@ -231,7 +264,11 @@ impl MfaScanner {
         let unique_vulns: Vec<Vulnerability> = vulnerabilities
             .into_iter()
             .filter(|v| {
-                let key = format!("{}:{}", v.vuln_type, v.parameter.as_ref().unwrap_or(&String::new()));
+                let key = format!(
+                    "{}:{}",
+                    v.vuln_type,
+                    v.parameter.as_ref().unwrap_or(&String::new())
+                );
                 seen_types.insert(key)
             })
             .collect();
@@ -344,12 +381,14 @@ impl MfaScanner {
         // Generic keywords like "dashboard" and "welcome" are in EVERY SPA!
 
         // Check for STRONG bypass indicators (session tokens, specific success messages)
-        let has_strong_bypass = response.headers.get("set-cookie")
+        let has_strong_bypass = response
+            .headers
+            .get("set-cookie")
             .map(|c| c.contains("session") || c.contains("auth_token"))
-            .unwrap_or(false) ||
-            body_lower.contains("authentication successful") ||
-            body_lower.contains("mfa bypassed") ||
-            body_lower.contains("\"authenticated\":true");
+            .unwrap_or(false)
+            || body_lower.contains("authentication successful")
+            || body_lower.contains("mfa bypassed")
+            || body_lower.contains("\"authenticated\":true");
 
         let has_mfa_check = body_lower.contains("verification")
             || body_lower.contains("2fa")
@@ -422,7 +461,12 @@ impl MfaScanner {
         }
 
         // Check for missing rate limiting
-        let error_indicators = vec!["invalid".to_string(), "incorrect".to_string(), "wrong".to_string(), "failed".to_string()];
+        let error_indicators = vec![
+            "invalid".to_string(),
+            "incorrect".to_string(),
+            "wrong".to_string(),
+            "failed".to_string(),
+        ];
         let has_error = error_indicators
             .iter()
             .any(|indicator| body_lower.contains(indicator));
@@ -470,8 +514,8 @@ impl MfaScanner {
         let body_lower = body.to_lowercase();
 
         // Check for backup code exposure in response
-        let backup_code_regex = Regex::new(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}")
-            .unwrap();
+        let backup_code_regex =
+            Regex::new(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}").unwrap();
         let has_exposed_codes = backup_code_regex.is_match(body);
 
         if has_exposed_codes && (body_lower.contains("backup") || body_lower.contains("recovery")) {
@@ -758,7 +802,8 @@ impl MfaScanner {
         let replay_body_lower = replay_response.body.to_lowercase();
 
         // CRITICAL: Only report if replay was SUCCESSFUL (not rejected)
-        let replay_successful = (replay_response.status_code == 200 || replay_response.status_code == 302)
+        let replay_successful = (replay_response.status_code == 200
+            || replay_response.status_code == 302)
             && (replay_body_lower.contains("success")
                 || replay_body_lower.contains("verified")
                 || replay_body_lower.contains("authenticated")
@@ -780,8 +825,10 @@ impl MfaScanner {
             };
 
             let second_replay_lower = second_replay.body.to_lowercase();
-            let second_replay_successful = (second_replay.status_code == 200 || second_replay.status_code == 302)
-                && (second_replay_lower.contains("success") || second_replay_lower.contains("verified"));
+            let second_replay_successful = (second_replay.status_code == 200
+                || second_replay.status_code == 302)
+                && (second_replay_lower.contains("success")
+                    || second_replay_lower.contains("verified"));
 
             // Only report if BOTH replays succeeded (confirmed vulnerability)
             if second_replay_successful {
@@ -813,11 +860,17 @@ impl MfaScanner {
     /// Test 2: Parallel Verification Attempts (Race Condition)
     /// Tests if same OTP can be used simultaneously from multiple sessions
     /// This is a critical race condition vulnerability
-    async fn test_parallel_verification(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_parallel_verification(
+        &self,
+        endpoint: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5; // 5 concurrent attempts
 
-        debug!("[MFA] Testing parallel verification race condition on {}", endpoint);
+        debug!(
+            "[MFA] Testing parallel verification race condition on {}",
+            endpoint
+        );
 
         let test_otp = "654321";
         let test_data = format!("code={}", test_otp);
@@ -898,7 +951,10 @@ impl MfaScanner {
     /// Test 3: OTP Expiration Bypass
     /// Tests if the application properly validates OTP expiration
     /// Simulates using an OTP after it should have expired
-    async fn test_otp_expiration_bypass(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_otp_expiration_bypass(
+        &self,
+        endpoint: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -907,9 +963,9 @@ impl MfaScanner {
         // Test with timestamps that should be expired
         // TOTP codes typically expire every 30 seconds
         let expired_scenarios = vec![
-            ("timestamp", "-300"), // 5 minutes ago
-            ("timestamp", "-600"), // 10 minutes ago
-            ("valid_until", "0"),   // Already expired
+            ("timestamp", "-300"),                  // 5 minutes ago
+            ("timestamp", "-600"),                  // 10 minutes ago
+            ("valid_until", "0"),                   // Already expired
             ("expires_at", "2020-01-01T00:00:00Z"), // Long expired
         ];
 
@@ -968,8 +1024,8 @@ impl MfaScanner {
                 let body_lower = response.body.to_lowercase();
                 if (response.status_code == 200 || response.status_code == 302)
                     && !body_lower.contains("invalid")
-                    && !body_lower.contains("incorrect") {
-
+                    && !body_lower.contains("incorrect")
+                {
                     vulnerabilities.push(Vulnerability {
                         id: generate_uuid(),
                         vuln_type: "TOTP Time Window Manipulation".to_string(),
@@ -1000,7 +1056,10 @@ impl MfaScanner {
     /// Test 4: Timing-Based OTP Brute Force
     /// Tests rate limiting and timing analysis for OTP brute force
     /// Attempts rapid-fire OTP submissions to detect missing rate limits
-    async fn test_timing_based_brute_force(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_timing_based_brute_force(
+        &self,
+        endpoint: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -1039,7 +1098,10 @@ impl MfaScanner {
                     }
 
                     // Check if attempt went through (successful or failed, but processed)
-                    if response.status_code == 200 || response.status_code == 400 || response.status_code == 401 {
+                    if response.status_code == 200
+                        || response.status_code == 400
+                        || response.status_code == 401
+                    {
                         successful_attempts += 1;
                     }
                 }
@@ -1064,12 +1126,14 @@ impl MfaScanner {
             // Check for timing attack vulnerability
             let timing_variance = if response_times.len() > 1 {
                 let mean = avg_response_time;
-                let variance = response_times.iter()
+                let variance = response_times
+                    .iter()
                     .map(|&t| {
                         let diff = if t > mean { t - mean } else { mean - t };
                         diff * diff
                     })
-                    .sum::<u128>() / response_times.len() as u128;
+                    .sum::<u128>()
+                    / response_times.len() as u128;
                 variance
             } else {
                 0
@@ -1102,7 +1166,8 @@ impl MfaScanner {
             });
 
             // Report timing attack if significant variance detected
-            if timing_variance > 1000 { // More than 1000ms² variance
+            if timing_variance > 1000 {
+                // More than 1000ms² variance
                 vulnerabilities.push(Vulnerability {
                     id: generate_uuid(),
                     vuln_type: "Timing Attack - OTP Validation".to_string(),
@@ -1134,7 +1199,10 @@ impl MfaScanner {
     /// Test 5: Backup Code Enumeration
     /// Tests if backup codes follow predictable patterns
     /// Attempts to identify weak code generation that could be enumerated
-    async fn test_backup_code_enumeration(&self, endpoint: &str) -> Result<(Vec<Vulnerability>, usize)> {
+    async fn test_backup_code_enumeration(
+        &self,
+        endpoint: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
@@ -1221,7 +1289,8 @@ impl MfaScanner {
                 let body_lower = response.body.to_lowercase();
                 if response.status_code == 200
                     && !body_lower.contains("invalid")
-                    && !body_lower.contains("incorrect") {
+                    && !body_lower.contains("incorrect")
+                {
                     sequential_successes += 1;
                 }
             }
@@ -1339,7 +1408,11 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_mfa_bypass(&response, "https://example.com/auth?mfa_required=false", &mut vulns);
+        scanner.check_mfa_bypass(
+            &response,
+            "https://example.com/auth?mfa_required=false",
+            &mut vulns,
+        );
 
         assert_eq!(vulns.len(), 1, "Should detect MFA bypass");
         assert_eq!(vulns[0].severity, Severity::Critical);
@@ -1364,7 +1437,9 @@ mod tests {
         scanner.check_enrollment_security(&response, "https://example.com/mfa/enroll", &mut vulns);
 
         assert!(
-            vulns.iter().any(|v| v.vuln_type.contains("Exposed TOTP Secret")),
+            vulns
+                .iter()
+                .any(|v| v.vuln_type.contains("Exposed TOTP Secret")),
             "Should detect exposed TOTP secret"
         );
         assert!(vulns.iter().any(|v| v.severity == Severity::Critical));

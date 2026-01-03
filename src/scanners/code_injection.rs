@@ -89,7 +89,10 @@ impl CodeInjectionScanner {
     }
 
     /// Test PHP eval() code injection
-    async fn test_php_code_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_php_code_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -99,8 +102,10 @@ impl CodeInjectionScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("[Code] Testing PHP code injection (priority: {})",
-              ParameterFilter::get_parameter_priority("code"));
+        info!(
+            "[Code] Testing PHP code injection (priority: {})",
+            ParameterFilter::get_parameter_priority("code")
+        );
 
         let payloads = vec![
             format!("phpinfo();echo '{}';", self.test_marker),
@@ -126,7 +131,10 @@ impl CodeInjectionScanner {
                             "PHP Code Injection",
                             &payload,
                             "PHP code can be executed via eval() or similar functions",
-                            &format!("PHP execution marker '{}' or phpinfo() output detected", self.test_marker),
+                            &format!(
+                                "PHP execution marker '{}' or phpinfo() output detected",
+                                self.test_marker
+                            ),
                             Severity::Critical,
                             "CWE-94",
                         ));
@@ -143,7 +151,10 @@ impl CodeInjectionScanner {
     }
 
     /// Test Python exec()/eval() code injection
-    async fn test_python_code_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_python_code_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 20;
 
@@ -211,7 +222,10 @@ impl CodeInjectionScanner {
 
     /// Test Python code injection via JSON body (for tool APIs, MCP servers, etc.)
     /// This is context-aware for JSON-based function/tool definitions
-    pub async fn test_python_json_code_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    pub async fn test_python_json_code_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 5;
 
@@ -260,7 +274,10 @@ impl CodeInjectionScanner {
     }
 
     /// Test Ruby eval() code injection
-    async fn test_ruby_code_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_ruby_code_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -305,7 +322,10 @@ impl CodeInjectionScanner {
     }
 
     /// Test time-based code injection
-    async fn test_time_based_injection(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+    async fn test_time_based_injection(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let tests_run = 3;
 
@@ -337,7 +357,10 @@ impl CodeInjectionScanner {
                             &format!("{} Code Injection (Time-based)", lang),
                             payload,
                             &format!("{} code execution detected via time delay", lang),
-                            &format!("Response delayed by {:.2}s indicating code execution", elapsed),
+                            &format!(
+                                "Response delayed by {:.2}s indicating code execution",
+                                elapsed
+                            ),
                             Severity::Critical,
                             "CWE-94",
                         ));
@@ -388,11 +411,7 @@ impl CodeInjectionScanner {
         }
 
         // Check for Python output indicators
-        let python_indicators = vec![
-            "uid=",
-            "gid=",
-            "groups=",
-        ];
+        let python_indicators = vec!["uid=", "gid=", "groups="];
 
         for indicator in python_indicators {
             if body.contains(indicator) {
@@ -492,7 +511,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> CodeInjectionScanner {

@@ -15,7 +15,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -52,7 +51,9 @@ impl HostHeaderInjectionScanner {
     ) -> Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         info!("[HostHeader] Scanning for host header injection vulnerabilities");
@@ -124,8 +125,14 @@ impl HostHeaderInjectionScanner {
         // Test Host header injection
         let host_payloads = vec![
             (self.test_domain.clone(), "direct_injection"),
-            (format!("{}@{}", self.test_domain, self.extract_host(url)), "at_sign_bypass"),
-            (format!("{}.{}", self.test_domain, self.extract_host(url)), "subdomain_prefix"),
+            (
+                format!("{}@{}", self.test_domain, self.extract_host(url)),
+                "at_sign_bypass",
+            ),
+            (
+                format!("{}.{}", self.test_domain, self.extract_host(url)),
+                "subdomain_prefix",
+            ),
         ];
 
         for (host_value, technique) in &host_payloads {
@@ -148,7 +155,10 @@ impl HostHeaderInjectionScanner {
                             technique,
                             "Host Header Reflection",
                             Confidence::High,
-                            &format!("Injected host '{}' reflected in response body", self.test_domain),
+                            &format!(
+                                "Injected host '{}' reflected in response body",
+                                self.test_domain
+                            ),
                             Severity::Medium,
                         ));
                     }
@@ -231,15 +241,25 @@ impl HostHeaderInjectionScanner {
             // Test with X-Forwarded-Host (more commonly accepted)
             let headers = vec![
                 ("X-Forwarded-Host".to_string(), self.test_domain.clone()),
-                ("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string()),
+                (
+                    "Content-Type".to_string(),
+                    "application/x-www-form-urlencoded".to_string(),
+                ),
             ];
 
             // Send a fake password reset request
             let body = "email=test@example.com";
 
-            debug!("Testing password reset at {} with X-Forwarded-Host", reset_url);
+            debug!(
+                "Testing password reset at {} with X-Forwarded-Host",
+                reset_url
+            );
 
-            match self.http_client.post_with_headers(&reset_url, body, headers).await {
+            match self
+                .http_client
+                .post_with_headers(&reset_url, body, headers)
+                .await
+            {
                 Ok(response) => {
                     // Check if the reset link contains our attacker domain
                     if response.body.contains(&self.test_domain) {
@@ -366,9 +386,10 @@ impl HostHeaderInjectionScanner {
         // Most HTTP clients don't support this directly
         // We simulate by using X-Original-URL or X-Rewrite-URL
 
-        let headers = vec![
-            ("X-Original-URL".to_string(), format!("http://{}/", self.test_domain)),
-        ];
+        let headers = vec![(
+            "X-Original-URL".to_string(),
+            format!("http://{}/", self.test_domain),
+        )];
 
         match self.http_client.get_with_headers(url, headers).await {
             Ok(response) => {
@@ -403,8 +424,14 @@ impl HostHeaderInjectionScanner {
 
         let port_payloads = vec![
             (format!("{}:1337", original_host), "arbitrary_port"),
-            (format!("{}:@{}", self.test_domain, original_host), "port_at_bypass"),
-            (format!("{}:80@{}", original_host, self.test_domain), "port_redirect"),
+            (
+                format!("{}:@{}", self.test_domain, original_host),
+                "port_at_bypass",
+            ),
+            (
+                format!("{}:80@{}", original_host, self.test_domain),
+                "port_redirect",
+            ),
         ];
 
         for (host_value, technique) in &port_payloads {
@@ -417,14 +444,18 @@ impl HostHeaderInjectionScanner {
             match self.http_client.get_with_headers(url, headers).await {
                 Ok(response) => {
                     // Check for port in response
-                    if response.body.contains(":1337") || response.body.contains(&self.test_domain) {
+                    if response.body.contains(":1337") || response.body.contains(&self.test_domain)
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             url,
                             &format!("X-Forwarded-Host: {}", host_value),
                             technique,
                             "Port-based Host Header Injection",
                             Confidence::Medium,
-                            &format!("Injected port/host via {} technique reflected in response", technique),
+                            &format!(
+                                "Injected port/host via {} technique reflected in response",
+                                technique
+                            ),
                             Severity::Medium,
                         ));
                     }
@@ -580,9 +611,10 @@ impl HostHeaderInjectionScanner {
 
 References:
 - https://portswigger.net/web-security/host-header
-- https://www.skeletonscribe.net/2013/05/practical-http-host-header-attacks.html"#.to_string(),
+- https://www.skeletonscribe.net/2013/05/practical-http-host-header-attacks.html"#
+                .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+            ml_data: None,
         }
     }
 }
@@ -600,9 +632,18 @@ mod tests {
     fn test_extract_host() {
         let scanner = create_test_scanner();
 
-        assert_eq!(scanner.extract_host("https://example.com/path"), "example.com");
-        assert_eq!(scanner.extract_host("http://test.com:8080/"), "test.com:8080");
-        assert_eq!(scanner.extract_host("https://sub.domain.com"), "sub.domain.com");
+        assert_eq!(
+            scanner.extract_host("https://example.com/path"),
+            "example.com"
+        );
+        assert_eq!(
+            scanner.extract_host("http://test.com:8080/"),
+            "test.com:8080"
+        );
+        assert_eq!(
+            scanner.extract_host("https://sub.domain.com"),
+            "sub.domain.com"
+        );
     }
 
     #[test]

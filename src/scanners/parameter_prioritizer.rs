@@ -25,129 +25,570 @@ use std::collections::HashSet;
 
 /// Authentication-related parameter patterns (weight: 25 points)
 const AUTH_PATTERNS: &[&str] = &[
-    "password", "passwd", "pwd", "pass", "secret", "token", "auth",
-    "session", "sessionid", "session_id", "sessid", "api_key", "apikey",
-    "api-key", "access_token", "accesstoken", "access-token", "refresh_token",
-    "refreshtoken", "refresh-token", "bearer", "jwt", "oauth", "oauth_token",
-    "oauthtoken", "credentials", "credential", "login", "signin", "sign_in",
-    "private_key", "privatekey", "private-key", "secret_key", "secretkey",
-    "secret-key", "auth_token", "authtoken", "auth-token", "cookie", "remember",
-    "remember_me", "rememberme", "keep_logged", "keeplogged", "persistent",
+    "password",
+    "passwd",
+    "pwd",
+    "pass",
+    "secret",
+    "token",
+    "auth",
+    "session",
+    "sessionid",
+    "session_id",
+    "sessid",
+    "api_key",
+    "apikey",
+    "api-key",
+    "access_token",
+    "accesstoken",
+    "access-token",
+    "refresh_token",
+    "refreshtoken",
+    "refresh-token",
+    "bearer",
+    "jwt",
+    "oauth",
+    "oauth_token",
+    "oauthtoken",
+    "credentials",
+    "credential",
+    "login",
+    "signin",
+    "sign_in",
+    "private_key",
+    "privatekey",
+    "private-key",
+    "secret_key",
+    "secretkey",
+    "secret-key",
+    "auth_token",
+    "authtoken",
+    "auth-token",
+    "cookie",
+    "remember",
+    "remember_me",
+    "rememberme",
+    "keep_logged",
+    "keeplogged",
+    "persistent",
 ];
 
 /// ID parameter patterns for IDOR vulnerabilities (weight: 22 points)
 const ID_PATTERNS: &[&str] = &[
-    "id", "user_id", "userid", "user-id", "account_id", "accountid", "account-id",
-    "order_id", "orderid", "order-id", "customer_id", "customerid", "customer-id",
-    "profile_id", "profileid", "profile-id", "doc_id", "docid", "doc-id",
-    "document_id", "documentid", "document-id", "invoice_id", "invoiceid",
-    "invoice-id", "transaction_id", "transactionid", "transaction-id",
-    "payment_id", "paymentid", "payment-id", "record_id", "recordid", "record-id",
-    "item_id", "itemid", "item-id", "product_id", "productid", "product-id",
-    "object_id", "objectid", "object-id", "entity_id", "entityid", "entity-id",
-    "ref", "reference", "ref_id", "refid", "ref-id", "uid", "uuid", "guid",
-    "oid", "pid", "cid", "tid", "sid", "fid", "rid", "aid", "bid", "did",
+    "id",
+    "user_id",
+    "userid",
+    "user-id",
+    "account_id",
+    "accountid",
+    "account-id",
+    "order_id",
+    "orderid",
+    "order-id",
+    "customer_id",
+    "customerid",
+    "customer-id",
+    "profile_id",
+    "profileid",
+    "profile-id",
+    "doc_id",
+    "docid",
+    "doc-id",
+    "document_id",
+    "documentid",
+    "document-id",
+    "invoice_id",
+    "invoiceid",
+    "invoice-id",
+    "transaction_id",
+    "transactionid",
+    "transaction-id",
+    "payment_id",
+    "paymentid",
+    "payment-id",
+    "record_id",
+    "recordid",
+    "record-id",
+    "item_id",
+    "itemid",
+    "item-id",
+    "product_id",
+    "productid",
+    "product-id",
+    "object_id",
+    "objectid",
+    "object-id",
+    "entity_id",
+    "entityid",
+    "entity-id",
+    "ref",
+    "reference",
+    "ref_id",
+    "refid",
+    "ref-id",
+    "uid",
+    "uuid",
+    "guid",
+    "oid",
+    "pid",
+    "cid",
+    "tid",
+    "sid",
+    "fid",
+    "rid",
+    "aid",
+    "bid",
+    "did",
 ];
 
 /// File/path parameter patterns for LFI/Path Traversal (weight: 23 points)
 const FILE_PATTERNS: &[&str] = &[
-    "file", "filename", "file_name", "file-name", "filepath", "file_path",
-    "file-path", "path", "pathname", "path_name", "path-name", "document",
-    "doc", "upload", "download", "attachment", "attach", "template",
-    "include", "require", "load", "read", "open", "view", "show", "display",
-    "image", "img", "photo", "picture", "avatar", "icon", "logo", "banner",
-    "pdf", "csv", "xml", "json", "config", "conf", "cfg", "log", "logs",
-    "backup", "bak", "tmp", "temp", "cache", "resource", "asset", "media",
-    "folder", "dir", "directory", "location", "source", "src", "dest",
-    "destination", "target", "output", "input", "data", "content",
+    "file",
+    "filename",
+    "file_name",
+    "file-name",
+    "filepath",
+    "file_path",
+    "file-path",
+    "path",
+    "pathname",
+    "path_name",
+    "path-name",
+    "document",
+    "doc",
+    "upload",
+    "download",
+    "attachment",
+    "attach",
+    "template",
+    "include",
+    "require",
+    "load",
+    "read",
+    "open",
+    "view",
+    "show",
+    "display",
+    "image",
+    "img",
+    "photo",
+    "picture",
+    "avatar",
+    "icon",
+    "logo",
+    "banner",
+    "pdf",
+    "csv",
+    "xml",
+    "json",
+    "config",
+    "conf",
+    "cfg",
+    "log",
+    "logs",
+    "backup",
+    "bak",
+    "tmp",
+    "temp",
+    "cache",
+    "resource",
+    "asset",
+    "media",
+    "folder",
+    "dir",
+    "directory",
+    "location",
+    "source",
+    "src",
+    "dest",
+    "destination",
+    "target",
+    "output",
+    "input",
+    "data",
+    "content",
 ];
 
 /// URL/redirect parameter patterns for SSRF/Open Redirect (weight: 24 points)
 const URL_PATTERNS: &[&str] = &[
-    "url", "uri", "link", "href", "src", "source", "redirect", "redirect_url",
-    "redirecturl", "redirect-url", "redirect_uri", "redirecturi", "redirect-uri",
-    "next", "next_url", "nexturl", "next-url", "return", "return_url", "returnurl",
-    "return-url", "return_to", "returnto", "return-to", "callback", "callback_url",
-    "callbackurl", "callback-uri", "goto", "go", "target", "dest", "destination",
-    "continue", "continue_url", "continueurl", "continue-url", "forward",
-    "forward_url", "forwardurl", "forward-url", "redir", "out", "outbound",
-    "external", "external_url", "externalurl", "external-url", "site", "website",
-    "domain", "host", "proxy", "proxy_url", "proxyurl", "proxy-url", "fetch",
-    "load", "image_url", "imageurl", "image-url", "img_url", "imgurl", "img-url",
-    "preview", "preview_url", "previewurl", "preview-url", "webhook",
-    "webhook_url", "webhookurl", "webhook-url", "endpoint", "api", "api_url",
-    "apiurl", "api-url", "service", "service_url", "serviceurl", "service-url",
+    "url",
+    "uri",
+    "link",
+    "href",
+    "src",
+    "source",
+    "redirect",
+    "redirect_url",
+    "redirecturl",
+    "redirect-url",
+    "redirect_uri",
+    "redirecturi",
+    "redirect-uri",
+    "next",
+    "next_url",
+    "nexturl",
+    "next-url",
+    "return",
+    "return_url",
+    "returnurl",
+    "return-url",
+    "return_to",
+    "returnto",
+    "return-to",
+    "callback",
+    "callback_url",
+    "callbackurl",
+    "callback-uri",
+    "goto",
+    "go",
+    "target",
+    "dest",
+    "destination",
+    "continue",
+    "continue_url",
+    "continueurl",
+    "continue-url",
+    "forward",
+    "forward_url",
+    "forwardurl",
+    "forward-url",
+    "redir",
+    "out",
+    "outbound",
+    "external",
+    "external_url",
+    "externalurl",
+    "external-url",
+    "site",
+    "website",
+    "domain",
+    "host",
+    "proxy",
+    "proxy_url",
+    "proxyurl",
+    "proxy-url",
+    "fetch",
+    "load",
+    "image_url",
+    "imageurl",
+    "image-url",
+    "img_url",
+    "imgurl",
+    "img-url",
+    "preview",
+    "preview_url",
+    "previewurl",
+    "preview-url",
+    "webhook",
+    "webhook_url",
+    "webhookurl",
+    "webhook-url",
+    "endpoint",
+    "api",
+    "api_url",
+    "apiurl",
+    "api-url",
+    "service",
+    "service_url",
+    "serviceurl",
+    "service-url",
 ];
 
 /// Command/execution parameter patterns (weight: 30 points - highest risk)
 const COMMAND_PATTERNS: &[&str] = &[
-    "cmd", "command", "exec", "execute", "run", "shell", "bash", "sh", "powershell",
-    "ps", "terminal", "console", "cli", "script", "code", "eval", "expression",
-    "expr", "query", "sql", "system", "syscall", "process", "spawn", "fork",
-    "popen", "subprocess", "pipe", "program", "binary", "executable", "action",
-    "operation", "task", "job", "func", "function", "method", "call", "invoke",
-    "trigger", "handler", "processor", "worker", "daemon", "service",
+    "cmd",
+    "command",
+    "exec",
+    "execute",
+    "run",
+    "shell",
+    "bash",
+    "sh",
+    "powershell",
+    "ps",
+    "terminal",
+    "console",
+    "cli",
+    "script",
+    "code",
+    "eval",
+    "expression",
+    "expr",
+    "query",
+    "sql",
+    "system",
+    "syscall",
+    "process",
+    "spawn",
+    "fork",
+    "popen",
+    "subprocess",
+    "pipe",
+    "program",
+    "binary",
+    "executable",
+    "action",
+    "operation",
+    "task",
+    "job",
+    "func",
+    "function",
+    "method",
+    "call",
+    "invoke",
+    "trigger",
+    "handler",
+    "processor",
+    "worker",
+    "daemon",
+    "service",
 ];
 
 /// Email parameter patterns (weight: 12 points)
 const EMAIL_PATTERNS: &[&str] = &[
-    "email", "e-mail", "mail", "emailaddress", "email_address", "email-address",
-    "user_email", "useremail", "user-email", "contact_email", "contactemail",
-    "contact-email", "from", "to", "cc", "bcc", "recipient", "sender",
-    "reply_to", "replyto", "reply-to", "notify", "notification",
+    "email",
+    "e-mail",
+    "mail",
+    "emailaddress",
+    "email_address",
+    "email-address",
+    "user_email",
+    "useremail",
+    "user-email",
+    "contact_email",
+    "contactemail",
+    "contact-email",
+    "from",
+    "to",
+    "cc",
+    "bcc",
+    "recipient",
+    "sender",
+    "reply_to",
+    "replyto",
+    "reply-to",
+    "notify",
+    "notification",
 ];
 
 /// Search/query parameter patterns (weight: 13 points)
 const SEARCH_PATTERNS: &[&str] = &[
-    "q", "query", "search", "keyword", "keywords", "term", "terms", "find",
-    "filter", "filters", "where", "condition", "criteria", "lookup", "seek",
-    "match", "pattern", "regex", "regexp", "expression", "text", "fulltext",
-    "fts", "searchterm", "search_term", "search-term", "searchquery",
-    "search_query", "search-query", "s", "k", "kw",
+    "q",
+    "query",
+    "search",
+    "keyword",
+    "keywords",
+    "term",
+    "terms",
+    "find",
+    "filter",
+    "filters",
+    "where",
+    "condition",
+    "criteria",
+    "lookup",
+    "seek",
+    "match",
+    "pattern",
+    "regex",
+    "regexp",
+    "expression",
+    "text",
+    "fulltext",
+    "fts",
+    "searchterm",
+    "search_term",
+    "search-term",
+    "searchquery",
+    "search_query",
+    "search-query",
+    "s",
+    "k",
+    "kw",
 ];
 
 /// Admin/privilege parameter patterns (weight: 15 points)
 const ADMIN_PATTERNS: &[&str] = &[
-    "admin", "administrator", "root", "superuser", "super_user", "super-user",
-    "role", "roles", "privilege", "privileges", "permission", "permissions",
-    "access", "access_level", "accesslevel", "access-level", "level", "tier",
-    "group", "groups", "rights", "grant", "grants", "scope", "scopes",
-    "authority", "authorities", "power", "powers", "capability", "capabilities",
-    "is_admin", "isadmin", "is-admin", "is_superuser", "issuperuser", "is-superuser",
-    "is_root", "isroot", "is-root", "elevated", "sudo", "system",
+    "admin",
+    "administrator",
+    "root",
+    "superuser",
+    "super_user",
+    "super-user",
+    "role",
+    "roles",
+    "privilege",
+    "privileges",
+    "permission",
+    "permissions",
+    "access",
+    "access_level",
+    "accesslevel",
+    "access-level",
+    "level",
+    "tier",
+    "group",
+    "groups",
+    "rights",
+    "grant",
+    "grants",
+    "scope",
+    "scopes",
+    "authority",
+    "authorities",
+    "power",
+    "powers",
+    "capability",
+    "capabilities",
+    "is_admin",
+    "isadmin",
+    "is-admin",
+    "is_superuser",
+    "issuperuser",
+    "is-superuser",
+    "is_root",
+    "isroot",
+    "is-root",
+    "elevated",
+    "sudo",
+    "system",
 ];
 
 /// Debug/test parameter patterns (weight: 12 points)
 const DEBUG_PATTERNS: &[&str] = &[
-    "debug", "test", "testing", "dev", "development", "verbose", "trace",
-    "log", "logging", "loglevel", "log_level", "log-level", "mode", "env",
-    "environment", "stage", "staging", "sandbox", "demo", "preview", "beta",
-    "alpha", "internal", "hidden", "secret", "backdoor", "bypass", "skip",
-    "override", "force", "unsafe", "insecure", "disable", "disabled",
-    "enable", "enabled", "flag", "flags", "feature", "features", "experiment",
+    "debug",
+    "test",
+    "testing",
+    "dev",
+    "development",
+    "verbose",
+    "trace",
+    "log",
+    "logging",
+    "loglevel",
+    "log_level",
+    "log-level",
+    "mode",
+    "env",
+    "environment",
+    "stage",
+    "staging",
+    "sandbox",
+    "demo",
+    "preview",
+    "beta",
+    "alpha",
+    "internal",
+    "hidden",
+    "secret",
+    "backdoor",
+    "bypass",
+    "skip",
+    "override",
+    "force",
+    "unsafe",
+    "insecure",
+    "disable",
+    "disabled",
+    "enable",
+    "enabled",
+    "flag",
+    "flags",
+    "feature",
+    "features",
+    "experiment",
 ];
 
 /// Pagination parameter patterns (weight: 5 points)
 const PAGINATION_PATTERNS: &[&str] = &[
-    "page", "pages", "paging", "p", "pg", "limit", "max", "maximum", "count",
-    "size", "pagesize", "page_size", "page-size", "perpage", "per_page", "per-page",
-    "offset", "start", "from", "skip", "cursor", "after", "before", "next",
-    "prev", "previous", "first", "last", "top", "take", "batch", "chunk",
+    "page",
+    "pages",
+    "paging",
+    "p",
+    "pg",
+    "limit",
+    "max",
+    "maximum",
+    "count",
+    "size",
+    "pagesize",
+    "page_size",
+    "page-size",
+    "perpage",
+    "per_page",
+    "per-page",
+    "offset",
+    "start",
+    "from",
+    "skip",
+    "cursor",
+    "after",
+    "before",
+    "next",
+    "prev",
+    "previous",
+    "first",
+    "last",
+    "top",
+    "take",
+    "batch",
+    "chunk",
 ];
 
 /// Sort parameter patterns (weight: 5 points)
 const SORT_PATTERNS: &[&str] = &[
-    "sort", "sortby", "sort_by", "sort-by", "order", "orderby", "order_by",
-    "order-by", "ordering", "direction", "dir", "asc", "desc", "ascending",
-    "descending", "arrange", "rank", "ranking", "priority",
+    "sort",
+    "sortby",
+    "sort_by",
+    "sort-by",
+    "order",
+    "orderby",
+    "order_by",
+    "order-by",
+    "ordering",
+    "direction",
+    "dir",
+    "asc",
+    "desc",
+    "ascending",
+    "descending",
+    "arrange",
+    "rank",
+    "ranking",
+    "priority",
 ];
 
 /// Filter parameter patterns (weight: 5 points)
 const FILTER_PATTERNS: &[&str] = &[
-    "filter", "filters", "status", "state", "type", "types", "category",
-    "categories", "cat", "tag", "tags", "label", "labels", "class", "classes",
-    "kind", "kinds", "variant", "variants", "version", "versions", "format",
-    "formats", "style", "styles", "theme", "themes", "view", "views",
+    "filter",
+    "filters",
+    "status",
+    "state",
+    "type",
+    "types",
+    "category",
+    "categories",
+    "cat",
+    "tag",
+    "tags",
+    "label",
+    "labels",
+    "class",
+    "classes",
+    "kind",
+    "kinds",
+    "variant",
+    "variants",
+    "version",
+    "versions",
+    "format",
+    "formats",
+    "style",
+    "styles",
+    "theme",
+    "themes",
+    "view",
+    "views",
 ];
 
 // ============================================================================
@@ -267,7 +708,9 @@ impl RiskFactor {
     /// Returns a description of this risk factor
     pub fn description(&self) -> &'static str {
         match self {
-            RiskFactor::AuthRelated => "Authentication-related parameter (passwords, tokens, sessions)",
+            RiskFactor::AuthRelated => {
+                "Authentication-related parameter (passwords, tokens, sessions)"
+            }
             RiskFactor::IdParameter => "ID parameter susceptible to IDOR attacks",
             RiskFactor::FileParameter => "File/path parameter vulnerable to LFI/Path Traversal",
             RiskFactor::UrlParameter => "URL parameter vulnerable to SSRF/Open Redirect",
@@ -330,34 +773,42 @@ impl FormContext {
 
     /// Check if this appears to be a login form
     pub fn is_login_form(&self) -> bool {
-        self.has_password_field ||
-        self.action_contains.iter().any(|s| {
-            let lower = s.to_lowercase();
-            lower.contains("login") || lower.contains("signin") ||
-            lower.contains("auth") || lower.contains("session")
-        })
+        self.has_password_field
+            || self.action_contains.iter().any(|s| {
+                let lower = s.to_lowercase();
+                lower.contains("login")
+                    || lower.contains("signin")
+                    || lower.contains("auth")
+                    || lower.contains("session")
+            })
     }
 
     /// Check if this appears to be a payment form
     pub fn is_payment_form(&self) -> bool {
-        self.has_payment_fields ||
-        self.action_contains.iter().any(|s| {
-            let lower = s.to_lowercase();
-            lower.contains("payment") || lower.contains("checkout") ||
-            lower.contains("purchase") || lower.contains("order") ||
-            lower.contains("billing") || lower.contains("stripe") ||
-            lower.contains("paypal")
-        })
+        self.has_payment_fields
+            || self.action_contains.iter().any(|s| {
+                let lower = s.to_lowercase();
+                lower.contains("payment")
+                    || lower.contains("checkout")
+                    || lower.contains("purchase")
+                    || lower.contains("order")
+                    || lower.contains("billing")
+                    || lower.contains("stripe")
+                    || lower.contains("paypal")
+            })
     }
 
     /// Check if this appears to be in an admin area
     pub fn is_admin_area(&self) -> bool {
         self.action_contains.iter().any(|s| {
             let lower = s.to_lowercase();
-            lower.contains("/admin") || lower.contains("/dashboard") ||
-            lower.contains("/manage") || lower.contains("/control") ||
-            lower.contains("/backend") || lower.contains("/console") ||
-            lower.contains("/panel")
+            lower.contains("/admin")
+                || lower.contains("/dashboard")
+                || lower.contains("/manage")
+                || lower.contains("/control")
+                || lower.contains("/backend")
+                || lower.contains("/console")
+                || lower.contains("/panel")
         })
     }
 }
@@ -487,7 +938,10 @@ impl ParameterPrioritizer {
     /// Create a new parameter prioritizer
     pub fn new() -> Self {
         Self {
-            id_suffix_regex: Regex::new(r"(?i)_id$|id$|-id$|_ref$|ref$|-ref$|_key$|key$|-key$|_token$|token$|-token$").unwrap(),
+            id_suffix_regex: Regex::new(
+                r"(?i)_id$|id$|-id$|_ref$|ref$|-ref$|_key$|key$|-key$|_token$|token$|-token$",
+            )
+            .unwrap(),
             auth_patterns_set: AUTH_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
             id_patterns_set: ID_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
             file_patterns_set: FILE_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
@@ -497,7 +951,10 @@ impl ParameterPrioritizer {
             search_patterns_set: SEARCH_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
             admin_patterns_set: ADMIN_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
             debug_patterns_set: DEBUG_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
-            pagination_patterns_set: PAGINATION_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
+            pagination_patterns_set: PAGINATION_PATTERNS
+                .iter()
+                .map(|s| s.to_lowercase())
+                .collect(),
             sort_patterns_set: SORT_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
             filter_patterns_set: FILTER_PATTERNS.iter().map(|s| s.to_lowercase()).collect(),
         }
@@ -506,9 +963,7 @@ impl ParameterPrioritizer {
     /// Normalize a parameter name for matching
     /// Handles variations like user_id, userId, user-id, userid
     fn normalize_name(&self, name: &str) -> String {
-        name.to_lowercase()
-            .replace('-', "_")
-            .replace(' ', "_")
+        name.to_lowercase().replace('-', "_").replace(' ', "_")
     }
 
     /// Get all normalized variations of a parameter name
@@ -632,7 +1087,10 @@ impl ParameterPrioritizer {
 
         // Check input type for user input acceptance
         let input_type_lower = param.input_type.to_lowercase();
-        if matches!(input_type_lower.as_str(), "text" | "textarea" | "search" | "url" | "tel") {
+        if matches!(
+            input_type_lower.as_str(),
+            "text" | "textarea" | "search" | "url" | "tel"
+        ) {
             risk_factors.push(RiskFactor::AcceptsUserInput);
         }
 
@@ -651,8 +1109,11 @@ impl ParameterPrioritizer {
 
         // Check endpoint URL for admin area
         let url_lower = param.endpoint_url.to_lowercase();
-        if url_lower.contains("/admin") || url_lower.contains("/dashboard") ||
-           url_lower.contains("/manage") || url_lower.contains("/control") {
+        if url_lower.contains("/admin")
+            || url_lower.contains("/dashboard")
+            || url_lower.contains("/manage")
+            || url_lower.contains("/control")
+        {
             if !risk_factors.contains(&RiskFactor::InAdminArea) {
                 risk_factors.push(RiskFactor::InAdminArea);
             }
@@ -679,9 +1140,8 @@ impl ParameterPrioritizer {
 
     /// Score all parameters and return sorted by risk (highest first)
     pub fn score_all(&self, params: &[ParameterInfo]) -> Vec<ParameterRisk> {
-        let mut risks: Vec<ParameterRisk> = params.iter()
-            .map(|p| self.score_parameter(p))
-            .collect();
+        let mut risks: Vec<ParameterRisk> =
+            params.iter().map(|p| self.score_parameter(p)).collect();
 
         // Sort by score descending (highest risk first)
         risks.sort_by(|a, b| b.score.cmp(&a.score));
@@ -787,7 +1247,16 @@ impl ParameterPrioritizer {
 
     /// Check if a parameter name contains sensitive keywords
     pub fn contains_sensitive_keyword(&self, name: &str) -> bool {
-        let sensitive = ["secret", "private", "internal", "hidden", "key", "token", "password", "credential"];
+        let sensitive = [
+            "secret",
+            "private",
+            "internal",
+            "hidden",
+            "key",
+            "token",
+            "password",
+            "credential",
+        ];
         let lower = name.to_lowercase();
         sensitive.iter().any(|s| lower.contains(s))
     }
@@ -797,34 +1266,39 @@ impl ParameterPrioritizer {
         let normalized = self.normalize_name(name);
 
         // Critical priority
-        if self.matches_pattern_set(&normalized, &self.command_patterns_set) ||
-           self.matches_pattern_set(&normalized, &self.auth_patterns_set) {
+        if self.matches_pattern_set(&normalized, &self.command_patterns_set)
+            || self.matches_pattern_set(&normalized, &self.auth_patterns_set)
+        {
             return 10;
         }
 
         // High priority
-        if self.matches_pattern_set(&normalized, &self.url_patterns_set) ||
-           self.matches_pattern_set(&normalized, &self.file_patterns_set) {
+        if self.matches_pattern_set(&normalized, &self.url_patterns_set)
+            || self.matches_pattern_set(&normalized, &self.file_patterns_set)
+        {
             return 8;
         }
 
         // Medium-high priority
-        if self.matches_pattern_set(&normalized, &self.id_patterns_set) ||
-           self.matches_pattern_set(&normalized, &self.admin_patterns_set) ||
-           self.matches_pattern_set(&normalized, &self.search_patterns_set) {
+        if self.matches_pattern_set(&normalized, &self.id_patterns_set)
+            || self.matches_pattern_set(&normalized, &self.admin_patterns_set)
+            || self.matches_pattern_set(&normalized, &self.search_patterns_set)
+        {
             return 6;
         }
 
         // Medium priority
-        if self.matches_pattern_set(&normalized, &self.email_patterns_set) ||
-           self.matches_pattern_set(&normalized, &self.debug_patterns_set) {
+        if self.matches_pattern_set(&normalized, &self.email_patterns_set)
+            || self.matches_pattern_set(&normalized, &self.debug_patterns_set)
+        {
             return 4;
         }
 
         // Low priority
-        if self.matches_pattern_set(&normalized, &self.pagination_patterns_set) ||
-           self.matches_pattern_set(&normalized, &self.sort_patterns_set) ||
-           self.matches_pattern_set(&normalized, &self.filter_patterns_set) {
+        if self.matches_pattern_set(&normalized, &self.pagination_patterns_set)
+            || self.matches_pattern_set(&normalized, &self.sort_patterns_set)
+            || self.matches_pattern_set(&normalized, &self.filter_patterns_set)
+        {
             return 2;
         }
 
@@ -897,8 +1371,8 @@ mod tests {
         for (name, should_match) in test_cases {
             let param = ParameterInfo::new(name, "https://example.com/api");
             let risk = prioritizer.score_parameter(&param);
-            let contains_id_factor = risk.risk_factors.contains(&RiskFactor::IdParameter) ||
-                                    risk.risk_factors.contains(&RiskFactor::HasIdSuffix);
+            let contains_id_factor = risk.risk_factors.contains(&RiskFactor::IdParameter)
+                || risk.risk_factors.contains(&RiskFactor::HasIdSuffix);
 
             if should_match {
                 assert!(
@@ -914,7 +1388,15 @@ mod tests {
     fn test_file_parameter_detection() {
         let prioritizer = create_prioritizer();
 
-        let params = vec!["file", "filename", "file_path", "filepath", "document", "upload", "attachment"];
+        let params = vec![
+            "file",
+            "filename",
+            "file_path",
+            "filepath",
+            "document",
+            "upload",
+            "attachment",
+        ];
 
         for name in params {
             let param = ParameterInfo::new(name, "https://example.com/upload");
@@ -925,8 +1407,9 @@ mod tests {
                 name
             );
             assert!(
-                risk.suggested_scanners.contains(&ScannerType::PathTraversal) ||
-                risk.suggested_scanners.contains(&ScannerType::LFI),
+                risk.suggested_scanners
+                    .contains(&ScannerType::PathTraversal)
+                    || risk.suggested_scanners.contains(&ScannerType::LFI),
                 "File parameter '{}' should suggest PathTraversal or LFI scanner",
                 name
             );
@@ -937,7 +1420,15 @@ mod tests {
     fn test_url_parameter_detection() {
         let prioritizer = create_prioritizer();
 
-        let params = vec!["url", "redirect", "redirect_url", "callback", "next", "return_url", "goto"];
+        let params = vec![
+            "url",
+            "redirect",
+            "redirect_url",
+            "callback",
+            "next",
+            "return_url",
+            "goto",
+        ];
 
         for name in params {
             let param = ParameterInfo::new(name, "https://example.com/redirect");
@@ -948,8 +1439,8 @@ mod tests {
                 name
             );
             assert!(
-                risk.suggested_scanners.contains(&ScannerType::SSRF) ||
-                risk.suggested_scanners.contains(&ScannerType::OpenRedirect),
+                risk.suggested_scanners.contains(&ScannerType::SSRF)
+                    || risk.suggested_scanners.contains(&ScannerType::OpenRedirect),
                 "URL parameter '{}' should suggest SSRF or OpenRedirect scanner",
                 name
             );
@@ -989,14 +1480,14 @@ mod tests {
             let param = ParameterInfo::new(name, "https://example.com/search");
             let risk = prioritizer.score_parameter(&param);
             assert!(
-                risk.risk_factors.contains(&RiskFactor::SearchParameter) ||
-                risk.risk_factors.contains(&RiskFactor::FilterParameter),
+                risk.risk_factors.contains(&RiskFactor::SearchParameter)
+                    || risk.risk_factors.contains(&RiskFactor::FilterParameter),
                 "Parameter '{}' should be detected as search/filter parameter",
                 name
             );
             assert!(
-                risk.suggested_scanners.contains(&ScannerType::XSS) ||
-                risk.suggested_scanners.contains(&ScannerType::SQLi),
+                risk.suggested_scanners.contains(&ScannerType::XSS)
+                    || risk.suggested_scanners.contains(&ScannerType::SQLi),
                 "Search parameter '{}' should suggest XSS or SQLi scanner",
                 name
             );
@@ -1014,8 +1505,8 @@ mod tests {
             action_contains: vec!["login".to_string()],
         };
 
-        let param = ParameterInfo::new("username", "https://example.com/login")
-            .with_form_context(context);
+        let param =
+            ParameterInfo::new("username", "https://example.com/login").with_form_context(context);
 
         let risk = prioritizer.score_parameter(&param);
         assert!(
@@ -1062,8 +1553,7 @@ mod tests {
     fn test_numeric_value_detection() {
         let prioritizer = create_prioritizer();
 
-        let param = ParameterInfo::new("id", "https://example.com/api/users")
-            .with_value("12345");
+        let param = ParameterInfo::new("id", "https://example.com/api/users").with_value("12345");
 
         let risk = prioritizer.score_parameter(&param);
         assert!(
@@ -1077,10 +1567,10 @@ mod tests {
         let prioritizer = create_prioritizer();
 
         let params = vec![
-            ParameterInfo::new("page", "https://example.com/list"),      // Low risk
-            ParameterInfo::new("cmd", "https://example.com/admin"),       // High risk
-            ParameterInfo::new("user_id", "https://example.com/users"),   // Medium risk
-            ParameterInfo::new("password", "https://example.com/login"),  // High risk
+            ParameterInfo::new("page", "https://example.com/list"), // Low risk
+            ParameterInfo::new("cmd", "https://example.com/admin"), // High risk
+            ParameterInfo::new("user_id", "https://example.com/users"), // Medium risk
+            ParameterInfo::new("password", "https://example.com/login"), // High risk
         ];
 
         let risks = prioritizer.score_all(&params);
@@ -1105,9 +1595,9 @@ mod tests {
         let prioritizer = create_prioritizer();
 
         let params = vec![
-            ParameterInfo::new("page", "https://example.com/list"),       // Low risk (~5)
-            ParameterInfo::new("cmd", "https://example.com/admin"),        // High risk (~30+)
-            ParameterInfo::new("password", "https://example.com/login"),   // High risk (~25+)
+            ParameterInfo::new("page", "https://example.com/list"), // Low risk (~5)
+            ParameterInfo::new("cmd", "https://example.com/admin"), // High risk (~30+)
+            ParameterInfo::new("password", "https://example.com/login"), // High risk (~25+)
         ];
 
         let high_priority = prioritizer.get_high_priority(&params, 20);
@@ -1130,20 +1620,24 @@ mod tests {
     fn test_input_type_bonus() {
         let prioritizer = create_prioritizer();
 
-        let text_param = ParameterInfo::new("search", "https://example.com")
-            .with_input_type("text");
-        let hidden_param = ParameterInfo::new("search", "https://example.com")
-            .with_input_type("hidden");
+        let text_param =
+            ParameterInfo::new("search", "https://example.com").with_input_type("text");
+        let hidden_param =
+            ParameterInfo::new("search", "https://example.com").with_input_type("hidden");
 
         let text_risk = prioritizer.score_parameter(&text_param);
         let hidden_risk = prioritizer.score_parameter(&hidden_param);
 
         assert!(
-            text_risk.risk_factors.contains(&RiskFactor::AcceptsUserInput),
+            text_risk
+                .risk_factors
+                .contains(&RiskFactor::AcceptsUserInput),
             "Text input should have AcceptsUserInput factor"
         );
         assert!(
-            !hidden_risk.risk_factors.contains(&RiskFactor::AcceptsUserInput),
+            !hidden_risk
+                .risk_factors
+                .contains(&RiskFactor::AcceptsUserInput),
             "Hidden input should not have AcceptsUserInput factor"
         );
     }
@@ -1162,12 +1656,16 @@ mod tests {
         let url_param = ParameterInfo::new("redirect_url", "https://example.com/auth");
         let url_risk = prioritizer.score_parameter(&url_param);
         assert!(url_risk.suggested_scanners.contains(&ScannerType::SSRF));
-        assert!(url_risk.suggested_scanners.contains(&ScannerType::OpenRedirect));
+        assert!(url_risk
+            .suggested_scanners
+            .contains(&ScannerType::OpenRedirect));
 
         // File parameter should suggest PathTraversal and LFI
         let file_param = ParameterInfo::new("file_path", "https://example.com/download");
         let file_risk = prioritizer.score_parameter(&file_param);
-        assert!(file_risk.suggested_scanners.contains(&ScannerType::PathTraversal));
+        assert!(file_risk
+            .suggested_scanners
+            .contains(&ScannerType::PathTraversal));
         assert!(file_risk.suggested_scanners.contains(&ScannerType::LFI));
     }
 
@@ -1197,20 +1695,14 @@ mod tests {
         let prioritizer = create_prioritizer();
 
         // All these variations should be detected as the same type
-        let variations = vec![
-            "user_id",
-            "userId",
-            "user-id",
-            "userid",
-            "USER_ID",
-        ];
+        let variations = vec!["user_id", "userId", "user-id", "userid", "USER_ID"];
 
         for name in variations {
             let param = ParameterInfo::new(name, "https://example.com/api");
             let risk = prioritizer.score_parameter(&param);
             assert!(
-                risk.risk_factors.contains(&RiskFactor::IdParameter) ||
-                risk.risk_factors.contains(&RiskFactor::HasIdSuffix),
+                risk.risk_factors.contains(&RiskFactor::IdParameter)
+                    || risk.risk_factors.contains(&RiskFactor::HasIdSuffix),
                 "Variation '{}' should be detected as ID parameter",
                 name
             );
@@ -1307,7 +1799,8 @@ mod tests {
         );
 
         // Test suffix matching (password_confirm should match password pattern)
-        let password_confirm = ParameterInfo::new("password_confirm", "https://example.com/register");
+        let password_confirm =
+            ParameterInfo::new("password_confirm", "https://example.com/register");
         let risk = prioritizer.score_parameter(&password_confirm);
         assert!(
             risk.risk_factors.contains(&RiskFactor::AuthRelated),

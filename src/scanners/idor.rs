@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -142,8 +141,12 @@ impl IdorScanner {
         }
 
         // Check for exposed database IDs in JSON responses
-        if body.contains("\"id\":") || body.contains("\"userId\":") || body.contains("\"accountId\":") {
-            let json_id_regex = Regex::new(r#""(?:id|user_id|userId|account_id|accountId)":\s*(\d+)"#).unwrap();
+        if body.contains("\"id\":")
+            || body.contains("\"userId\":")
+            || body.contains("\"accountId\":")
+        {
+            let json_id_regex =
+                Regex::new(r#""(?:id|user_id|userId|account_id|accountId)":\s*(\d+)"#).unwrap();
             if json_id_regex.is_match(body) {
                 vulnerabilities.push(Vulnerability {
                     id: generate_uuid(),
@@ -203,9 +206,13 @@ impl IdorScanner {
         // which requires actual authentication context this scanner doesn't have
     }
 
-    async fn test_uuid_predictability(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_uuid_predictability(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Test if UUID v1 (time-based) is used, which can be predictable
-        let uuid_regex = Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
+        let uuid_regex =
+            Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
 
         if uuid_regex.is_match(url) {
             return self.http_client.get(url).await;
@@ -223,7 +230,8 @@ impl IdorScanner {
         let body = &response.body;
 
         // Check for UUID v1 patterns (time-based, potentially predictable)
-        let uuid_v1_regex = Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-1[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
+        let uuid_v1_regex =
+            Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-1[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
 
         if uuid_v1_regex.is_match(url) || uuid_v1_regex.is_match(body) {
             vulnerabilities.push(Vulnerability {
@@ -248,7 +256,10 @@ impl IdorScanner {
         }
     }
 
-    async fn test_horizontal_escalation(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_horizontal_escalation(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Test accessing another user's resources (horizontal escalation)
         let test_params = vec![
             ("user_id", "999999"),
@@ -286,7 +297,10 @@ impl IdorScanner {
         // We cannot detect this without proper authentication context
     }
 
-    async fn test_vertical_escalation(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_vertical_escalation(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Test accessing admin/privileged resources
         let admin_paths = vec![
             "/admin",
@@ -363,7 +377,10 @@ impl IdorScanner {
         }
     }
 
-    async fn test_missing_authorization(&self, url: &str) -> Result<crate::http_client::HttpResponse> {
+    async fn test_missing_authorization(
+        &self,
+        url: &str,
+    ) -> Result<crate::http_client::HttpResponse> {
         // Test accessing resources without authentication headers
         self.http_client.get(url).await
     }
@@ -535,7 +552,8 @@ mod tests {
         let scanner = IdorScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
         let response = HttpResponse {
             status_code: 200,
-            body: r#"{"user": "alice", "email": "alice@example.com", "profile": "data"}"#.to_string(),
+            body: r#"{"user": "alice", "email": "alice@example.com", "profile": "data"}"#
+                .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
@@ -553,15 +571,25 @@ mod tests {
         let scanner = IdorScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
         let response = HttpResponse {
             status_code: 200,
-            body: r#"{"email": "victim@example.com", "ssn": "123-45-6789", "address": "123 Main St"}"#.to_string(),
+            body:
+                r#"{"email": "victim@example.com", "ssn": "123-45-6789", "address": "123 Main St"}"#
+                    .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
 
         let mut vulns = Vec::new();
-        scanner.check_horizontal_escalation(&response, "https://example.com/api/user?user_id=999999", &mut vulns);
+        scanner.check_horizontal_escalation(
+            &response,
+            "https://example.com/api/user?user_id=999999",
+            &mut vulns,
+        );
 
-        assert_eq!(vulns.len(), 1, "Should detect horizontal privilege escalation");
+        assert_eq!(
+            vulns.len(),
+            1,
+            "Should detect horizontal privilege escalation"
+        );
         assert_eq!(vulns[0].severity, Severity::Critical);
     }
 
@@ -575,15 +603,24 @@ mod tests {
                 <div>Manage Users</div>
                 <button>Delete User</button>
                 <button>System Settings</button>
-            "#.to_string(),
+            "#
+            .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
 
         let mut vulns = Vec::new();
-        scanner.check_vertical_escalation(&response, "https://example.com/admin?role=admin", &mut vulns);
+        scanner.check_vertical_escalation(
+            &response,
+            "https://example.com/admin?role=admin",
+            &mut vulns,
+        );
 
-        assert_eq!(vulns.len(), 1, "Should detect vertical privilege escalation");
+        assert_eq!(
+            vulns.len(),
+            1,
+            "Should detect vertical privilege escalation"
+        );
         assert_eq!(vulns[0].severity, Severity::Critical);
         assert!(vulns[0].verified);
     }
@@ -592,7 +629,10 @@ mod tests {
     async fn test_file_access_control() {
         let scanner = IdorScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
         let mut headers = HashMap::new();
-        headers.insert("content-disposition".to_string(), "attachment; filename=invoice.pdf".to_string());
+        headers.insert(
+            "content-disposition".to_string(),
+            "attachment; filename=invoice.pdf".to_string(),
+        );
         headers.insert("content-type".to_string(), "application/pdf".to_string());
 
         let response = HttpResponse {
@@ -603,7 +643,11 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_file_access_control(&response, "https://example.com/download?file=invoice_12345.pdf", &mut vulns);
+        scanner.check_file_access_control(
+            &response,
+            "https://example.com/download?file=invoice_12345.pdf",
+            &mut vulns,
+        );
 
         assert_eq!(vulns.len(), 1, "Should detect unauthorized file access");
         assert_eq!(vulns[0].severity, Severity::High);

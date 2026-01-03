@@ -21,8 +21,7 @@ use super::attack_surface::{
     AttackSurface, DeduplicatedTargets, ParameterSource as AttackSurfaceParamSource,
 };
 use super::parameter_prioritizer::{
-    ParameterInfo, ParameterPrioritizer, ParameterRisk,
-    ParameterSource as PrioritizerParamSource,
+    ParameterInfo, ParameterPrioritizer, ParameterRisk, ParameterSource as PrioritizerParamSource,
 };
 use super::registry::{PayloadIntensity, ScannerRegistry, ScannerType, TechCategory};
 
@@ -217,24 +216,51 @@ impl IntelligentScanOrchestrator {
 
         for test_param in &deduplicated.unique_parameters {
             // Determine primary source
-            let source = if test_param.context.sources.contains(&AttackSurfaceParamSource::Form) {
+            let source = if test_param
+                .context
+                .sources
+                .contains(&AttackSurfaceParamSource::Form)
+            {
                 PrioritizerParamSource::Form
-            } else if test_param.context.sources.contains(&AttackSurfaceParamSource::Url) {
+            } else if test_param
+                .context
+                .sources
+                .contains(&AttackSurfaceParamSource::Url)
+            {
                 PrioritizerParamSource::URL
-            } else if test_param.context.sources.contains(&AttackSurfaceParamSource::JsonBody) {
+            } else if test_param
+                .context
+                .sources
+                .contains(&AttackSurfaceParamSource::JsonBody)
+            {
                 PrioritizerParamSource::JSON
-            } else if test_param.context.sources.contains(&AttackSurfaceParamSource::Header) {
+            } else if test_param
+                .context
+                .sources
+                .contains(&AttackSurfaceParamSource::Header)
+            {
                 PrioritizerParamSource::Header
-            } else if test_param.context.sources.contains(&AttackSurfaceParamSource::Cookie) {
+            } else if test_param
+                .context
+                .sources
+                .contains(&AttackSurfaceParamSource::Cookie)
+            {
                 PrioritizerParamSource::Cookie
-            } else if test_param.context.sources.contains(&AttackSurfaceParamSource::PathSegment) {
+            } else if test_param
+                .context
+                .sources
+                .contains(&AttackSurfaceParamSource::PathSegment)
+            {
                 PrioritizerParamSource::Path
             } else {
                 PrioritizerParamSource::Unknown
             };
 
             // Get endpoint for context
-            let endpoint = test_param.context.endpoints_seen.first()
+            let endpoint = test_param
+                .context
+                .endpoints_seen
+                .first()
                 .cloned()
                 .unwrap_or_default();
 
@@ -257,7 +283,11 @@ impl IntelligentScanOrchestrator {
                 risk_score: risk_score_u32,
                 intensity,
                 suggested_scanners: suggested,
-                risk_factors: risk.risk_factors.iter().map(|f| format!("{:?}", f)).collect(),
+                risk_factors: risk
+                    .risk_factors
+                    .iter()
+                    .map(|f| format!("{:?}", f))
+                    .collect(),
             });
         }
 
@@ -320,7 +350,10 @@ impl IntelligentScanOrchestrator {
         }
 
         // Add tech-specific scanners for JSON contexts
-        if technologies.iter().any(|t| matches!(t, TechCategory::JavaScript(_))) {
+        if technologies
+            .iter()
+            .any(|t| matches!(t, TechCategory::JavaScript(_)))
+        {
             scanners.insert(ScannerType::PrototypePollution);
         }
 
@@ -343,11 +376,7 @@ impl IntelligentScanOrchestrator {
     }
 
     /// Check if a scanner should run for the given technologies
-    pub fn should_run_scanner(
-        &self,
-        scanner: &ScannerType,
-        technologies: &[TechCategory],
-    ) -> bool {
+    pub fn should_run_scanner(&self, scanner: &ScannerType, technologies: &[TechCategory]) -> bool {
         // Universal and core scanners always run
         if self.registry.is_universal(scanner) || self.registry.is_core(scanner) {
             return true;
@@ -362,7 +391,9 @@ impl IntelligentScanOrchestrator {
 
         // If no tech specified or all unknown, check fallback
         if technologies.is_empty()
-            || technologies.iter().all(|t| matches!(t, TechCategory::Unknown))
+            || technologies
+                .iter()
+                .all(|t| matches!(t, TechCategory::Unknown))
         {
             return self.registry.get_fallback_scanners().contains(scanner);
         }
@@ -422,10 +453,16 @@ mod tests {
 
         // High-risk parameter names should get Maximum intensity
         let intensity = orchestrator.get_parameter_intensity("password");
-        assert!(matches!(intensity, PayloadIntensity::Extended | PayloadIntensity::Maximum));
+        assert!(matches!(
+            intensity,
+            PayloadIntensity::Extended | PayloadIntensity::Maximum
+        ));
 
         let intensity = orchestrator.get_parameter_intensity("cmd");
-        assert!(matches!(intensity, PayloadIntensity::Extended | PayloadIntensity::Maximum));
+        assert!(matches!(
+            intensity,
+            PayloadIntensity::Extended | PayloadIntensity::Maximum
+        ));
     }
 
     #[test]
@@ -434,6 +471,9 @@ mod tests {
 
         // Low-risk parameter names should get lower intensity
         let intensity = orchestrator.get_parameter_intensity("page");
-        assert!(matches!(intensity, PayloadIntensity::Minimal | PayloadIntensity::Standard));
+        assert!(matches!(
+            intensity,
+            PayloadIntensity::Minimal | PayloadIntensity::Standard
+        ));
     }
 }

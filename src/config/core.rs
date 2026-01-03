@@ -8,19 +8,14 @@ use validator::Validate;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct AppConfig {
-    
     pub server: ServerConfig,
 
-    
     pub redis: RedisConfig,
 
-    
     pub database: DatabaseConfig,
 
-    
     pub scanner: ScannerConfig,
 
-    
     pub security: SecurityConfig,
 
     #[serde(default)]
@@ -124,15 +119,12 @@ pub struct ScannerConfig {
     #[serde(default)]
     pub retry_strategy: RetryStrategy,
 
-    
     #[serde(default)]
     pub rate_limiting: RateLimitConfig,
 
-    
     #[serde(default)]
     pub http: HttpConfig,
 
-    
     #[serde(default)]
     pub cache: CacheConfig,
 

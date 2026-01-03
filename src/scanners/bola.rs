@@ -11,7 +11,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
@@ -51,7 +50,10 @@ impl BolaScanner {
             return Ok((Vec::new(), 0));
         }
 
-        info!("Starting BOLA (Broken Object Level Authorization) scan on {}", url);
+        info!(
+            "Starting BOLA (Broken Object Level Authorization) scan on {}",
+            url
+        );
 
         // Intelligent detection - skip if no auth context
         if let Ok(response) = self.http_client.get(url).await {
@@ -173,7 +175,8 @@ impl BolaScanner {
         }
 
         // UUID patterns
-        let uuid_pattern = Regex::new(r"/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")?;
+        let uuid_pattern =
+            Regex::new(r"/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")?;
         if let Some(captures) = uuid_pattern.captures(url) {
             if let Some(uuid_match) = captures.get(1) {
                 let uuid_value = uuid_match.as_str();
@@ -213,7 +216,10 @@ impl BolaScanner {
                         resource_type: param_name.to_string(),
                         pattern: pattern_str.to_string(),
                     });
-                    debug!("Detected query param endpoint: {} (Param: {}, ID: {})", url, param_name, id_value);
+                    debug!(
+                        "Detected query param endpoint: {} (Param: {}, ID: {})",
+                        url, param_name, id_value
+                    );
                 }
             }
         }
@@ -222,7 +228,10 @@ impl BolaScanner {
     }
 
     /// Test BOLA vulnerability with numeric ID manipulation
-    async fn test_numeric_id_bola(&self, endpoint: &ObjectEndpoint) -> Result<Option<Vulnerability>> {
+    async fn test_numeric_id_bola(
+        &self,
+        endpoint: &ObjectEndpoint,
+    ) -> Result<Option<Vulnerability>> {
         debug!("Testing numeric ID BOLA: {}", endpoint.url);
 
         // Parse the current ID
@@ -230,12 +239,12 @@ impl BolaScanner {
 
         // Generate test IDs
         let test_ids = vec![
-            current_id + 1,          // Next sequential ID
-            current_id - 1,          // Previous sequential ID
-            current_id + 10,         // Skip ahead
-            current_id * 2,          // Different user range
-            1,                        // First ID
-            999999,                   // High ID
+            current_id + 1,  // Next sequential ID
+            current_id - 1,  // Previous sequential ID
+            current_id + 10, // Skip ahead
+            current_id * 2,  // Different user range
+            1,               // First ID
+            999999,          // High ID
         ];
 
         // Get baseline response
@@ -255,7 +264,9 @@ impl BolaScanner {
 
         // Test each ID variation
         for test_id in test_ids {
-            let test_url = endpoint.url.replace(&endpoint.id_value, &test_id.to_string());
+            let test_url = endpoint
+                .url
+                .replace(&endpoint.id_value, &test_id.to_string());
 
             match self.http_client.get(&test_url).await {
                 Ok(test_response) => {
@@ -328,7 +339,10 @@ impl BolaScanner {
     }
 
     /// Test BOLA vulnerability via query parameter manipulation
-    async fn test_query_param_bola(&self, endpoint: &ObjectEndpoint) -> Result<Option<Vulnerability>> {
+    async fn test_query_param_bola(
+        &self,
+        endpoint: &ObjectEndpoint,
+    ) -> Result<Option<Vulnerability>> {
         debug!("Testing query param BOLA: {}", endpoint.url);
 
         // Parse current ID from URL
@@ -351,7 +365,9 @@ impl BolaScanner {
         let test_ids = vec![current_id + 1, current_id - 1, 1, 999];
 
         for test_id in test_ids {
-            let test_url = endpoint.url.replace(&endpoint.id_value, &test_id.to_string());
+            let test_url = endpoint
+                .url
+                .replace(&endpoint.id_value, &test_id.to_string());
 
             match self.http_client.get(&test_url).await {
                 Ok(test_response) => {
@@ -437,8 +453,9 @@ impl BolaScanner {
         }
 
         // If we see both 200 and 404 responses, enumeration is possible
-        if response_patterns.contains_key(&200) &&
-           (response_patterns.contains_key(&404) || response_patterns.contains_key(&403)) {
+        if response_patterns.contains_key(&200)
+            && (response_patterns.contains_key(&404) || response_patterns.contains_key(&403))
+        {
             vulnerabilities.push(Vulnerability {
                 id: generate_uuid(),
                 vuln_type: "BOLA - Object ID Enumeration Possible".to_string(),
@@ -483,7 +500,8 @@ impl BolaScanner {
         let similar_size = {
             let baseline_size = baseline.body.len();
             let test_size = test_response.body.len();
-            let diff_ratio = baseline_size.max(test_size) as f64 / baseline_size.min(test_size).max(1) as f64;
+            let diff_ratio =
+                baseline_size.max(test_size) as f64 / baseline_size.min(test_size).max(1) as f64;
             diff_ratio < 3.0 // Within 3x size difference
         };
 
@@ -509,11 +527,27 @@ impl BolaScanner {
     /// Check if response contains sensitive user data
     fn contains_sensitive_data(&self, body: &str, resource_type: &str) -> bool {
         let sensitive_fields = vec![
-            "email", "phone", "address", "ssn", "password",
-            "credit_card", "card_number", "account_number",
-            "balance", "salary", "income", "dob", "birth",
-            "firstName", "lastName", "fullName", "username",
-            "user_id", "userId", "account_id", "accountId",
+            "email",
+            "phone",
+            "address",
+            "ssn",
+            "password",
+            "credit_card",
+            "card_number",
+            "account_number",
+            "balance",
+            "salary",
+            "income",
+            "dob",
+            "birth",
+            "firstName",
+            "lastName",
+            "fullName",
+            "username",
+            "user_id",
+            "userId",
+            "account_id",
+            "accountId",
         ];
 
         // Check for resource-specific patterns
@@ -527,7 +561,9 @@ impl BolaScanner {
 
         // Check for sensitive fields
         let has_sensitive = sensitive_fields.iter().any(|&field| body.contains(field));
-        let has_resource_data = resource_indicators.iter().any(|&field| body.contains(field));
+        let has_resource_data = resource_indicators
+            .iter()
+            .any(|&field| body.contains(field));
 
         has_sensitive || has_resource_data
     }
@@ -535,13 +571,23 @@ impl BolaScanner {
     /// Check if response contains error messages
     fn contains_error_messages(&self, body: &str) -> bool {
         let error_indicators = vec![
-            "error", "unauthorized", "forbidden", "access denied",
-            "not found", "invalid", "denied", "restricted",
-            "permission", "not authorized", "authentication required",
+            "error",
+            "unauthorized",
+            "forbidden",
+            "access denied",
+            "not found",
+            "invalid",
+            "denied",
+            "restricted",
+            "permission",
+            "not authorized",
+            "authentication required",
         ];
 
         let body_lower = body.to_lowercase();
-        error_indicators.iter().any(|&indicator| body_lower.contains(indicator))
+        error_indicators
+            .iter()
+            .any(|&indicator| body_lower.contains(indicator))
     }
 
     /// Check if body contains multiple objects
@@ -556,9 +602,9 @@ impl BolaScanner {
         }
 
         // Check for common batch response patterns
-        body.contains(r#""data":[{"#) ||
-        body.contains(r#""items":[{"#) ||
-        body.contains(r#""results":[{"#)
+        body.contains(r#""data":[{"#)
+            || body.contains(r#""items":[{"#)
+            || body.contains(r#""results":[{"#)
     }
 
     /// Count objects in response
@@ -594,7 +640,10 @@ impl BolaScanner {
         if parts.len() == 5 {
             let modified = format!(
                 "{}-{}-{}-{}-{}",
-                parts[0], parts[1], parts[2], parts[3],
+                parts[0],
+                parts[1],
+                parts[2],
+                parts[3],
                 if parts[4].starts_with('f') {
                     format!("0{}", &parts[4][1..])
                 } else {
@@ -736,20 +785,13 @@ mod tests {
     fn test_contains_sensitive_data() {
         let scanner = create_test_scanner();
 
-        assert!(scanner.contains_sensitive_data(
-            r#"{"email":"test@example.com","username":"john"}"#,
-            "user"
-        ));
+        assert!(scanner
+            .contains_sensitive_data(r#"{"email":"test@example.com","username":"john"}"#, "user"));
 
-        assert!(scanner.contains_sensitive_data(
-            r#"{"account_number":"123456","balance":1000}"#,
-            "account"
-        ));
+        assert!(scanner
+            .contains_sensitive_data(r#"{"account_number":"123456","balance":1000}"#, "account"));
 
-        assert!(!scanner.contains_sensitive_data(
-            r#"{"status":"ok"}"#,
-            "user"
-        ));
+        assert!(!scanner.contains_sensitive_data(r#"{"status":"ok"}"#, "user"));
     }
 
     #[test]
@@ -839,22 +881,29 @@ mod tests {
         let scanner = create_test_scanner();
 
         // Test numeric ID detection
-        let endpoints = scanner.detect_object_id_endpoints("https://api.example.com/api/users/123").await.unwrap();
+        let endpoints = scanner
+            .detect_object_id_endpoints("https://api.example.com/api/users/123")
+            .await
+            .unwrap();
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].id_type, IdType::Numeric);
         assert_eq!(endpoints[0].id_value, "123");
 
         // Test UUID detection
-        let endpoints = scanner.detect_object_id_endpoints(
-            "https://api.example.com/api/users/12345678-1234-1234-1234-123456789abc"
-        ).await.unwrap();
+        let endpoints = scanner
+            .detect_object_id_endpoints(
+                "https://api.example.com/api/users/12345678-1234-1234-1234-123456789abc",
+            )
+            .await
+            .unwrap();
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].id_type, IdType::Uuid);
 
         // Test query param detection
-        let endpoints = scanner.detect_object_id_endpoints(
-            "https://api.example.com/api/users?user_id=123"
-        ).await.unwrap();
+        let endpoints = scanner
+            .detect_object_id_endpoints("https://api.example.com/api/users?user_id=123")
+            .await
+            .unwrap();
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].id_type, IdType::QueryParam);
     }

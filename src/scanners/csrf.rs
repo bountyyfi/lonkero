@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary - Enterprise Edition
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
@@ -79,7 +78,12 @@ impl CsrfScanner {
     }
 
     /// Check HTML forms for CSRF tokens
-    fn check_forms(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_forms(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         // Regex to find forms (simplified)
         let form_regex = Regex::new(r#"<form[^>]*>([\s\S]*?)</form>"#).unwrap();
         let token_patterns = vec![
@@ -105,7 +109,9 @@ impl CsrfScanner {
 
                 if is_state_changing {
                     // Check for CSRF token
-                    let has_csrf_token = token_patterns.iter().any(|pattern| form_str.contains(pattern));
+                    let has_csrf_token = token_patterns
+                        .iter()
+                        .any(|pattern| form_str.contains(pattern));
 
                     if !has_csrf_token {
                         vulnerabilities.push(self.create_vulnerability(
@@ -114,8 +120,10 @@ impl CsrfScanner {
                             Severity::High,
                             Confidence::High,
                             "HTML form lacks CSRF protection token",
-                            format!("State-changing form found without CSRF token. Form snippet: {}...",
-                                &form_str.chars().take(150).collect::<String>()),
+                            format!(
+                                "State-changing form found without CSRF token. Form snippet: {}...",
+                                &form_str.chars().take(150).collect::<String>()
+                            ),
                             6.5,
                         ));
                         break; // Only report once per page
@@ -126,7 +134,12 @@ impl CsrfScanner {
     }
 
     /// Check Set-Cookie headers for SameSite attribute
-    fn check_cookie_samesite(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_cookie_samesite(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         if let Some(set_cookie) = response.header("set-cookie") {
             let cookies = set_cookie.split(',');
 
@@ -160,7 +173,10 @@ impl CsrfScanner {
                             Severity::Medium,
                             Confidence::High,
                             "Session cookie uses SameSite=None - provides no CSRF protection",
-                            format!("Cookie with SameSite=None: {}", cookie.chars().take(100).collect::<String>()),
+                            format!(
+                                "Cookie with SameSite=None: {}",
+                                cookie.chars().take(100).collect::<String>()
+                            ),
                             5.0,
                         ));
                         break;
@@ -171,7 +187,12 @@ impl CsrfScanner {
     }
 
     /// Check for CSRF protection headers
-    fn check_csrf_headers(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_csrf_headers(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         // Check for common anti-CSRF headers
         let csrf_header_names = vec![
             "x-csrf-token",
@@ -180,7 +201,8 @@ impl CsrfScanner {
             "x-requested-with",
         ];
 
-        let has_csrf_header = csrf_header_names.iter()
+        let has_csrf_header = csrf_header_names
+            .iter()
             .any(|header| response.header(header).is_some());
 
         // Check if response contains CSRF token in meta tags or JavaScript
@@ -208,12 +230,17 @@ impl CsrfScanner {
     }
 
     /// Check for state-changing operations via GET
-    fn check_state_change_via_get(&self, response: &HttpResponse, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
+    fn check_state_change_via_get(
+        &self,
+        response: &HttpResponse,
+        url: &str,
+        vulnerabilities: &mut Vec<Vulnerability>,
+    ) {
         // If URL suggests state change and GET request succeeded
         if response.status_code == 200 || response.status_code == 302 {
             let state_change_indicators = vec![
-                "delete", "remove", "update", "modify", "edit", "change",
-                "create", "add", "insert", "transfer", "purchase"
+                "delete", "remove", "update", "modify", "edit", "change", "create", "add",
+                "insert", "transfer", "purchase",
             ];
 
             let url_lower = url.to_lowercase();
@@ -222,11 +249,18 @@ impl CsrfScanner {
                     // Check if response suggests success
                     let body_lower = response.body.to_lowercase();
                     let success_indicators = vec![
-                        "success", "deleted", "removed", "updated", "created",
-                        "completed", "confirmed", "saved"
+                        "success",
+                        "deleted",
+                        "removed",
+                        "updated",
+                        "created",
+                        "completed",
+                        "confirmed",
+                        "saved",
                     ];
 
-                    let looks_successful = success_indicators.iter()
+                    let looks_successful = success_indicators
+                        .iter()
                         .any(|ind| body_lower.contains(ind));
 
                     if looks_successful || response.status_code == 302 {
@@ -424,7 +458,8 @@ mod tests {
                     <button type="submit">Submit</button>
                 </form>
                 </html>
-            "#.to_string(),
+            "#
+            .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
@@ -450,7 +485,8 @@ mod tests {
                     <button type="submit">Submit</button>
                 </form>
                 </html>
-            "#.to_string(),
+            "#
+            .to_string(),
             headers: HashMap::new(),
             duration_ms: 100,
         };
@@ -468,7 +504,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert(
             "set-cookie".to_string(),
-            "sessionid=abc123; Secure; HttpOnly".to_string()
+            "sessionid=abc123; Secure; HttpOnly".to_string(),
         );
 
         let response = HttpResponse {
@@ -492,7 +528,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert(
             "set-cookie".to_string(),
-            "sessionid=abc123; SameSite=Strict; Secure; HttpOnly".to_string()
+            "sessionid=abc123; SameSite=Strict; Secure; HttpOnly".to_string(),
         );
 
         let response = HttpResponse {
@@ -520,7 +556,11 @@ mod tests {
         };
 
         let mut vulns = Vec::new();
-        scanner.check_state_change_via_get(&response, "https://example.com/delete?id=123", &mut vulns);
+        scanner.check_state_change_via_get(
+            &response,
+            "https://example.com/delete?id=123",
+            &mut vulns,
+        );
 
         assert!(vulns.len() > 0, "Should detect state change via GET");
         assert_eq!(vulns[0].severity, Severity::High);

@@ -8,7 +8,6 @@
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-
 use crate::http_client::{HttpClient, HttpResponse};
 use anyhow::Result;
 use futures::future::join_all;

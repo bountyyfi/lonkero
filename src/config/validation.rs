@@ -13,7 +13,8 @@ pub struct ConfigValidator;
 
 impl ConfigValidator {
     pub fn validate_app_config(config: &AppConfig) -> Result<()> {
-        config.validate()
+        config
+            .validate()
             .context("Configuration validation failed")?;
 
         Self::validate_redis_config(config)?;
@@ -48,11 +49,14 @@ impl ConfigValidator {
         }
 
         if config.database.url.is_empty() {
-            return Err(anyhow::anyhow!("Database URL cannot be empty when database is enabled"));
+            return Err(anyhow::anyhow!(
+                "Database URL cannot be empty when database is enabled"
+            ));
         }
 
         if !config.database.url.starts_with("postgresql://")
-            && !config.database.url.starts_with("postgres://") {
+            && !config.database.url.starts_with("postgres://")
+        {
             return Err(anyhow::anyhow!(
                 "Database URL must start with postgresql:// or postgres://"
             ));
@@ -63,7 +67,9 @@ impl ConfigValidator {
         }
 
         if config.database.batch_size == 0 {
-            return Err(anyhow::anyhow!("Database batch size must be greater than 0"));
+            return Err(anyhow::anyhow!(
+                "Database batch size must be greater than 0"
+            ));
         }
 
         Ok(())
@@ -88,11 +94,15 @@ impl ConfigValidator {
 
         if config.scanner.cache.enabled {
             if config.scanner.cache.max_capacity == 0 {
-                return Err(anyhow::anyhow!("Cache capacity must be greater than 0 when enabled"));
+                return Err(anyhow::anyhow!(
+                    "Cache capacity must be greater than 0 when enabled"
+                ));
             }
 
             if config.scanner.cache.ttl_secs == 0 {
-                return Err(anyhow::anyhow!("Cache TTL must be greater than 0 when enabled"));
+                return Err(anyhow::anyhow!(
+                    "Cache TTL must be greater than 0 when enabled"
+                ));
             }
         }
 
@@ -104,10 +114,9 @@ impl ConfigValidator {
 
         match config.security.secrets_backend {
             SecretsBackend::Vault => {
-                let vault = config.security.vault.as_ref()
-                    .ok_or_else(|| anyhow::anyhow!(
-                        "Vault configuration required when using Vault secrets backend"
-                    ))?;
+                let vault = config.security.vault.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("Vault configuration required when using Vault secrets backend")
+                })?;
 
                 if vault.address.is_empty() {
                     return Err(anyhow::anyhow!("Vault address cannot be empty"));
@@ -130,7 +139,8 @@ impl ConfigValidator {
     }
 
     pub fn validate_scan_profile(profile: &ScanProfile) -> Result<()> {
-        profile.validate()
+        profile
+            .validate()
             .context("Scan profile validation failed")?;
 
         if profile.name.is_empty() {
@@ -138,11 +148,15 @@ impl ConfigValidator {
         }
 
         if profile.settings.max_concurrency == 0 {
-            return Err(anyhow::anyhow!("Profile max concurrency must be greater than 0"));
+            return Err(anyhow::anyhow!(
+                "Profile max concurrency must be greater than 0"
+            ));
         }
 
         if profile.settings.request_timeout_secs == 0 {
-            return Err(anyhow::anyhow!("Profile request timeout must be greater than 0"));
+            return Err(anyhow::anyhow!(
+                "Profile request timeout must be greater than 0"
+            ));
         }
 
         if profile.settings.max_requests_per_second == 0 {
@@ -150,7 +164,8 @@ impl ConfigValidator {
         }
 
         if !profile.enabled_scanners.is_empty() && !profile.disabled_scanners.is_empty() {
-            let intersection: Vec<_> = profile.enabled_scanners
+            let intersection: Vec<_> = profile
+                .enabled_scanners
                 .intersection(&profile.disabled_scanners)
                 .collect();
 
@@ -166,25 +181,30 @@ impl ConfigValidator {
     }
 
     pub fn validate_target_config(target: &TargetConfig) -> Result<()> {
-        target.validate()
+        target
+            .validate()
             .context("Target configuration validation failed")?;
 
         if !target.scope.included_domains.is_empty() {
             for domain in &target.scope.included_domains {
                 if domain.is_empty() {
-                    return Err(anyhow::anyhow!("Domain in included_domains cannot be empty"));
+                    return Err(anyhow::anyhow!(
+                        "Domain in included_domains cannot be empty"
+                    ));
                 }
             }
         }
 
         for pattern in &target.scope.included_patterns {
-            regex::Regex::new(pattern)
-                .with_context(|| format!("Invalid regex pattern in included_patterns: {}", pattern))?;
+            regex::Regex::new(pattern).with_context(|| {
+                format!("Invalid regex pattern in included_patterns: {}", pattern)
+            })?;
         }
 
         for pattern in &target.scope.excluded_patterns {
-            regex::Regex::new(pattern)
-                .with_context(|| format!("Invalid regex pattern in excluded_patterns: {}", pattern))?;
+            regex::Regex::new(pattern).with_context(|| {
+                format!("Invalid regex pattern in excluded_patterns: {}", pattern)
+            })?;
         }
 
         for pattern in &target.exclusions.path_patterns {
@@ -193,7 +213,8 @@ impl ConfigValidator {
         }
 
         if let Some(proxy) = &target.proxy {
-            proxy.validate()
+            proxy
+                .validate()
                 .context("Proxy configuration validation failed")?;
         }
 
@@ -210,42 +231,44 @@ impl ConfigValidator {
         if config.scanner.max_concurrency > 1000 {
             report.add_warning(
                 "scanner.max_concurrency",
-                "Very high concurrency may cause resource exhaustion"
+                "Very high concurrency may cause resource exhaustion",
             );
         }
 
         if config.scanner.request_timeout_secs > 300 {
             report.add_warning(
                 "scanner.request_timeout_secs",
-                "Very high timeout may cause slow scans"
+                "Very high timeout may cause slow scans",
             );
         }
 
-        if config.scanner.rate_limiting.enabled && config.scanner.rate_limiting.requests_per_second > 1000 {
+        if config.scanner.rate_limiting.enabled
+            && config.scanner.rate_limiting.requests_per_second > 1000
+        {
             report.add_warning(
                 "scanner.rate_limiting.requests_per_second",
-                "Very high rate limit may overwhelm target servers"
+                "Very high rate limit may overwhelm target servers",
             );
         }
 
         if !config.scanner.cache.enabled {
             report.add_info(
                 "scanner.cache.enabled",
-                "Response caching is disabled, scans may be slower"
+                "Response caching is disabled, scans may be slower",
             );
         }
 
         if config.database.enabled && config.database.pool_size < 10 {
             report.add_warning(
                 "database.pool_size",
-                "Low database pool size may cause connection bottlenecks"
+                "Low database pool size may cause connection bottlenecks",
             );
         }
 
         if config.features.early_termination_enabled {
             report.add_info(
                 "features.early_termination_enabled",
-                "Early termination may miss some vulnerabilities"
+                "Early termination may miss some vulnerabilities",
             );
         }
 

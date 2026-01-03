@@ -237,7 +237,10 @@ impl SecretsManager {
         }
     }
 
-    pub async fn from_backend(backend: SecretsBackend, vault_config: Option<VaultConfig>) -> Result<Self> {
+    pub async fn from_backend(
+        backend: SecretsBackend,
+        vault_config: Option<VaultConfig>,
+    ) -> Result<Self> {
         let provider: Box<dyn SecretsProvider> = match backend {
             SecretsBackend::EnvVars => Box::new(EnvVarsProvider),
             SecretsBackend::Vault => {
