@@ -6,7 +6,7 @@
 
 Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-3.0-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
@@ -453,7 +453,7 @@ sudo cp target/release/lonkero /usr/local/bin/
 
 ### Prerequisites
 
-- Rust 1.75+
+- Rust 1.85+
 - OpenSSL development libraries
 - Valid license key (for premium features)
 
@@ -1123,7 +1123,7 @@ jobs:
 ```yaml
 lonkero-scan:
   stage: security
-  image: rust:1.75
+  image: rust:1.85.1
   variables:
     LONKERO_LICENSE: $LONKERO_LICENSE_KEY
   script:
