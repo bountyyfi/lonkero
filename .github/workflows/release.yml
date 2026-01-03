@@ -160,12 +160,8 @@ jobs:
     name: Publish to crates.io
     needs: release
     runs-on: ubuntu-latest
-    # Publish on tag push OR GitHub release (not manual dispatch)
-    # Use always() to run even when release job is skipped (release event)
-    if: |
-      always() &&
-      (needs.release.result == 'success' || needs.release.result == 'skipped') &&
-      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release')
+    # Publish after successful build (all triggers)
+    if: always() && (needs.release.result == 'success' || needs.release.result == 'skipped')
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
