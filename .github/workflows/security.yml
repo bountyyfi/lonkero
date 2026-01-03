@@ -35,15 +35,13 @@ jobs:
           if [ ! -f deny.toml ]; then
             cat > deny.toml << 'EOF'
           [advisories]
+          version = 2
           db-path = "~/.cargo/advisory-db"
           db-urls = ["https://github.com/rustsec/advisory-db"]
-          vulnerability = "warn"
-          unmaintained = "warn"
-          yanked = "warn"
-          notice = "warn"
+          ignore = []
 
           [licenses]
-          unlicensed = "warn"
+          version = 2
           allow = [
             "MIT",
             "Apache-2.0",
@@ -56,6 +54,7 @@ jobs:
             "Unicode-DFS-2016",
             "CC0-1.0",
             "BSL-1.0",
+            "Unlicense",
           ]
           confidence-threshold = 0.8
 
