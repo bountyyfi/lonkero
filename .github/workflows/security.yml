@@ -12,6 +12,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+  security-events: write  # For SARIF uploads
+
 # Extended security checks (complements codeql.yml which has cargo-audit and Unicode checks)
 jobs:
   # Check for license compliance and banned dependencies
@@ -88,28 +92,139 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install gitleaks
-        run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar xzf - -C /usr/local/bin gitleaks
-
       - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_SUMMARY: true
+
+  # Semgrep static analysis
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
         run: |
-          gitleaks detect --source . --verbose --redact 2>&1 | tee gitleaks-output.txt || true
+          semgrep scan --config auto --config p/rust --config p/security-audit \
+            --sarif --output semgrep-results.sarif \
+            --error --severity ERROR \
+            || true
 
-          if grep -q "leaks found" gitleaks-output.txt; then
-            echo "::error::Potential secrets detected in repository"
-            exit 1
-          fi
-          echo "No secrets detected"
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
 
-      - name: Upload gitleaks results
+      - name: Upload Semgrep results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gitleaks-results
-          path: gitleaks-output.txt
+          name: semgrep-results
+          path: semgrep-results.sarif
 
-  # Static analysis for security patterns
+  # Trivy vulnerability scanner for filesystem and container
+  trivy:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF (filesystem)
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-fs
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+
+  # Generate SBOM (Software Bill of Materials)
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-sbom
+        run: cargo install cargo-sbom
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          cargo sbom --output-format cyclonedx_json > sbom-cyclonedx.json
+
+      - name: Generate SBOM (SPDX)
+        run: |
+          cargo sbom --output-format spdx_json > sbom-spdx.json
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom-cyclonedx.json
+            sbom-spdx.json
+
+  # Dependency freshness check
+  dependency-freshness:
+    name: Dependency Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated
+
+      - name: Check outdated dependencies
+        run: |
+          echo "=== Outdated Dependencies ===" | tee outdated-deps.txt
+          cargo outdated --root-deps-only >> outdated-deps.txt 2>&1 || true
+
+          # Count outdated deps
+          OUTDATED=$(grep -c "^[a-z]" outdated-deps.txt 2>/dev/null || echo "0")
+          if [ "$OUTDATED" -gt "10" ]; then
+            echo "::warning::$OUTDATED dependencies are outdated"
+          fi
+
+          cat outdated-deps.txt
+
+      - name: Upload outdated deps report
+        uses: actions/upload-artifact@v4
+        with:
+          name: outdated-deps
+          path: outdated-deps.txt
+
+  # Security patterns analysis
   security-patterns:
     name: Security Pattern Analysis
     runs-on: ubuntu-latest
@@ -117,47 +232,58 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check for unsafe code blocks
+      - name: Analyze security patterns
         run: |
-          echo "=== Checking for unsafe code blocks ===" | tee security-patterns.txt
-          grep -rn "unsafe\s*{" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No unsafe blocks found" >> security-patterns.txt
-          echo "" >> security-patterns.txt
+          echo "# Security Pattern Analysis" > security-report.md
+          echo "" >> security-report.md
+          echo "Generated: $(date -u)" >> security-report.md
+          echo "" >> security-report.md
 
-      - name: Check for potential command injection
-        run: |
-          echo "=== Checking for potential command injection ===" >> security-patterns.txt
-          grep -rn "Command::new.*format!" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No obvious command injection patterns" >> security-patterns.txt
-          echo "" >> security-patterns.txt
+          echo "## Unsafe Code Blocks" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "unsafe\s*{" src/ --include="*.rs" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
 
-      - name: Check for hardcoded credentials patterns
-        run: |
-          echo "=== Checking for hardcoded credentials ===" >> security-patterns.txt
-          grep -rniE "(password|secret|api_key|apikey|token)\s*=\s*[\"'][^\"']+[\"']" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No hardcoded credentials found" >> security-patterns.txt
-          echo "" >> security-patterns.txt
+          echo "## Potential Command Injection" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "Command::new" src/ --include="*.rs" | grep "format!" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
 
-      - name: Check for deprecated crypto
-        run: |
-          echo "=== Checking for deprecated crypto ===" >> security-patterns.txt
-          grep -rniE "md5|sha1[^0-9]|des\s|rc4" src/ --include="*.rs" >> security-patterns.txt 2>/dev/null || echo "No deprecated crypto found" >> security-patterns.txt
+          echo "## Hardcoded Secrets Patterns" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rniE "(password|secret|api_key|apikey|private_key)\s*=\s*[\"'][^\"']{8,}[\"']" src/ --include="*.rs" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
 
-      - name: Summary
-        run: |
-          echo ""
-          echo "=== Security Pattern Analysis Summary ==="
-          cat security-patterns.txt
-          # Warn but don't fail - patterns need human review
-          if grep -qE "unsafe|Command::new.*format!" security-patterns.txt; then
-            echo "::warning::Security patterns detected that may need review"
-          fi
+          echo "## Deprecated Crypto Usage" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rniE "\b(md5|sha1|des|rc4|blowfish)\b" src/ --include="*.rs" | grep -v "sha1[0-9]" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
 
-      - name: Upload pattern analysis
+          echo "## Raw Pointer Usage" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "\*const\|\*mut" src/ --include="*.rs" >> security-report.md 2>/dev/null || echo "None found" >> security-report.md
+          echo '```' >> security-report.md
+          echo "" >> security-report.md
+
+          echo "## Panic/Unwrap Usage (potential DoS)" >> security-report.md
+          echo '```' >> security-report.md
+          grep -rn "\.unwrap()\|\.expect(" src/ --include="*.rs" | wc -l >> security-report.md
+          echo " occurrences of unwrap()/expect()" >> security-report.md
+          echo '```' >> security-report.md
+
+          cat security-report.md
+
+      - name: Upload security report
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: security-patterns
-          path: security-patterns.txt
+          name: security-report
+          path: security-report.md
 
-  # Dependency supply chain check
+  # Supply chain security
   supply-chain:
     name: Supply Chain Security
     runs-on: ubuntu-latest
@@ -165,45 +291,143 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Cargo.lock exists
+      - name: Verify Cargo.lock exists
         run: |
           if [ ! -f Cargo.lock ]; then
             echo "::error::Cargo.lock is missing - dependencies are not pinned"
             exit 1
           fi
-          echo "Cargo.lock exists - dependencies are pinned"
 
-      - name: Check for git dependencies
+      - name: Check dependency sources
         run: |
-          echo "=== Supply Chain Analysis ===" | tee supply-chain.txt
-          echo "" >> supply-chain.txt
-          echo "Git dependencies:" >> supply-chain.txt
-          grep -E "git\s*=" Cargo.toml >> supply-chain.txt 2>/dev/null || echo "  None" >> supply-chain.txt
+          echo "# Supply Chain Report" > supply-chain.md
+          echo "" >> supply-chain.md
 
-          if grep -q "git\s*=" Cargo.toml; then
-            echo "::warning::Git dependencies found - verify sources are trusted"
-          fi
+          echo "## Git Dependencies" >> supply-chain.md
+          grep -E "git\s*=" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None" >> supply-chain.md
+          echo "" >> supply-chain.md
 
-      - name: Check for path dependencies
-        run: |
-          echo "" >> supply-chain.txt
-          echo "Path dependencies:" >> supply-chain.txt
-          grep -E "path\s*=" Cargo.toml >> supply-chain.txt 2>/dev/null || echo "  None" >> supply-chain.txt
+          echo "## Path Dependencies" >> supply-chain.md
+          grep -E "path\s*=" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None" >> supply-chain.md
+          echo "" >> supply-chain.md
 
-      - name: Check registry sources
-        run: |
-          echo "" >> supply-chain.txt
-          echo "Custom registries:" >> supply-chain.txt
-          if grep -E "registry\s*=" Cargo.toml 2>/dev/null; then
-            echo "::warning::Custom registry detected - verify it's trusted"
-            grep -E "registry\s*=" Cargo.toml >> supply-chain.txt
-          else
-            echo "  None (all from crates.io)" >> supply-chain.txt
+          echo "## Custom Registries" >> supply-chain.md
+          grep -E "registry\s*=" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None (all from crates.io)" >> supply-chain.md
+          echo "" >> supply-chain.md
+
+          echo "## Build Scripts" >> supply-chain.md
+          find . -name "build.rs" -type f >> supply-chain.md 2>/dev/null || echo "None" >> supply-chain.md
+          echo "" >> supply-chain.md
+
+          echo "## Proc Macros Used" >> supply-chain.md
+          grep -E "proc-macro" Cargo.toml >> supply-chain.md 2>/dev/null || echo "None directly declared" >> supply-chain.md
+
+          cat supply-chain.md
+
+          # Warn on risky patterns
+          if grep -qE "git\s*=" Cargo.toml; then
+            echo "::warning::Git dependencies found - verify sources"
           fi
 
       - name: Upload supply chain report
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: supply-chain-report
-          path: supply-chain.txt
+          path: supply-chain.md
+
+  # OpenSSF Scorecard
+  scorecard:
+    name: OpenSSF Scorecard
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'  # Only on push to main
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload Scorecard SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scorecard-results.sarif
+          category: scorecard
+
+  # Binary security analysis (on releases)
+  binary-security:
+    name: Binary Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev libpq-dev binutils
+
+      - name: Build release binary
+        run: cargo build --release --bin lonkero
+
+      - name: Analyze binary security features
+        run: |
+          echo "# Binary Security Analysis" > binary-security.md
+          echo "" >> binary-security.md
+          BINARY="target/release/lonkero"
+
+          echo "## Binary Info" >> binary-security.md
+          file $BINARY >> binary-security.md
+          echo "" >> binary-security.md
+
+          echo "## Security Features" >> binary-security.md
+          echo '```' >> binary-security.md
+
+          # Check for stack canary
+          if readelf -s $BINARY 2>/dev/null | grep -q "__stack_chk"; then
+            echo "✓ Stack Canary: ENABLED" >> binary-security.md
+          else
+            echo "✗ Stack Canary: NOT FOUND" >> binary-security.md
+          fi
+
+          # Check for RELRO
+          if readelf -l $BINARY 2>/dev/null | grep -q "GNU_RELRO"; then
+            echo "✓ RELRO: ENABLED" >> binary-security.md
+          else
+            echo "✗ RELRO: NOT FOUND" >> binary-security.md
+          fi
+
+          # Check for PIE
+          if readelf -h $BINARY 2>/dev/null | grep -q "DYN"; then
+            echo "✓ PIE: ENABLED" >> binary-security.md
+          else
+            echo "✗ PIE: NOT FOUND" >> binary-security.md
+          fi
+
+          # Check for NX (No Execute)
+          if readelf -l $BINARY 2>/dev/null | grep -q "GNU_STACK.*RW "; then
+            echo "✓ NX (No Execute): ENABLED" >> binary-security.md
+          else
+            echo "? NX: Could not determine" >> binary-security.md
+          fi
+
+          # Binary size
+          echo "" >> binary-security.md
+          echo "Binary size: $(du -h $BINARY | cut -f1)" >> binary-security.md
+          echo '```' >> binary-security.md
+
+          cat binary-security.md
+
+      - name: Upload binary analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-security
+          path: binary-security.md
