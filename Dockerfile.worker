@@ -21,7 +21,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # Build release binary
-RUN cargo build --release --bin scanner-worker
+RUN cargo build --release --bin lonkero-agent
 
 # Runtime stage
 FROM debian:13.1-slim
@@ -41,10 +41,10 @@ RUN useradd -m -u 1000 scanner && \
     chown -R scanner:scanner /app
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/scanner-worker /app/scanner-worker
+COPY --from=builder /app/target/release/lonkero-agent /app/lonkero-agent
 
 # Set ownership
-RUN chown scanner:scanner /app/scanner-worker
+RUN chown scanner:scanner /app/lonkero-agent
 
 # Switch to non-root user
 USER scanner
@@ -56,5 +56,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 # Expose health check port
 EXPOSE 8080
 
-# Run the worker
-CMD ["/app/scanner-worker"]
+# Run the agent
+CMD ["/app/lonkero-agent"]

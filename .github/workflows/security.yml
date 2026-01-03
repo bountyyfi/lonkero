@@ -191,7 +191,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@a54c7afe936fefeb4456b2dd8068152669aa8203 # stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-sbom
         run: cargo install cargo-sbom
@@ -221,7 +221,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@a54c7afe936fefeb4456b2dd8068152669aa8203 # stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-outdated
         run: cargo install cargo-outdated
@@ -392,7 +392,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@a54c7afe936fefeb4456b2dd8068152669aa8203 # stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
         run: |
