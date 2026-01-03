@@ -62,9 +62,6 @@ pub mod retest;
 // Nuclei custom template management
 pub mod nuclei;
 
-// Internal network agent
-pub mod agent;
-
 // Analysis module
 pub mod analysis;
 
