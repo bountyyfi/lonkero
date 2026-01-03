@@ -42,14 +42,14 @@ jobs:
         continue-on-error: true  # Don't fail workflow on findings
 
       - name: Upload SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@f09c1c0a94de965c15400f5634aa42fac8fb8f88 # v3.28.1
+        uses: github/codeql-action/upload-sarif@f67ec12472e1b361f5e1e2085f5e6f85a57e3cd6 # v3.28.1
         if: always()
         with:
           sarif_file: lonkero-results.sarif
           category: lonkero-dogfood
 
       - name: Upload results artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: scan-results-${{ github.run_id }}
