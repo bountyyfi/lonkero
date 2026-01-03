@@ -104,16 +104,7 @@ jobs:
           sudo apt-get install -y pkg-config libssl-dev libpq-dev
 
       - name: Run Clippy
-        run: |
-          # Run clippy - warn on issues but don't fail (existing codebase has many style warnings)
-          # Focus on correctness issues only
-          cargo clippy --all-targets 2>&1 | tee clippy-output.txt
-          # Fail only on actual correctness/soundness issues, not style
-          if grep -q "error\[E" clippy-output.txt; then
-            echo "Clippy found compilation errors"
-            exit 1
-          fi
-          echo "Clippy check passed (warnings are informational)"
+        run: cargo clippy --all-targets -- -D warnings
 
   fmt:
     name: Format
