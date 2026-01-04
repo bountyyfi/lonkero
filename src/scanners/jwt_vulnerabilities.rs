@@ -176,20 +176,44 @@ impl JwtVulnerabilitiesScanner {
     /// Test for weak JWT secrets
     async fn test_weak_secrets(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 3;
+        let tests_run = 10;
 
         debug!("Testing JWT weak secrets");
 
-        // Common weak secrets and their pre-computed tokens
-        // These are example tokens - in real scanning you'd try to crack discovered tokens
-        let weak_tokens = vec![
-            // Token signed with "secret" as key
-            ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.YzE2ZTU5YzI5OGViZjEwMGE4MzE3YmQxY2NjY2U4YmY", "secret"),
-            // Token signed with "password" as key
-            ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.invalid", "password"),
-            // Token signed with empty string
-            ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.invalid", ""),
+        // Common weak secrets to test - we'll generate tokens dynamically
+        let weak_secrets = vec![
+            "secret",
+            "password",
+            "key",
+            "12345",
+            "jwt_secret",
+            "changeme",
+            "admin",
+            "",  // Empty secret
+            "test",
+            "your-256-bit-secret",
         ];
+
+        // Generate test tokens with common weak secrets
+        use base64::{engine::general_purpose, Engine as _};
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+
+        let header = r#"{"alg":"HS256","typ":"JWT"}"#;
+        let payload = r#"{"sub":"admin","role":"admin","exp":9999999999}"#;
+        let header_b64 = general_purpose::URL_SAFE_NO_PAD.encode(header);
+        let payload_b64 = general_purpose::URL_SAFE_NO_PAD.encode(payload);
+        let message = format!("{}.{}", header_b64, payload_b64);
+
+        let mut weak_tokens = Vec::new();
+        for secret in &weak_secrets {
+            let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+            mac.update(message.as_bytes());
+            let signature = general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+            let token = format!("{}.{}", message, signature);
+            weak_tokens.push((token, *secret));
+        }
 
         for (token, secret) in weak_tokens {
             let auth_header = vec![("Authorization".to_string(), format!("Bearer {}", token))];

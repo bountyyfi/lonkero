@@ -140,13 +140,15 @@ impl JwtScanner {
     }
 
     /// Test alg:none bypass (CVE-2015-2951)
+    /// Creates a JWT with algorithm set to "none" and an empty signature
+    /// Format: header.payload. (note the trailing dot for empty signature)
     async fn test_alg_none(
         &self,
         base_url: &str,
         _header: &str,
         payload: &str,
     ) -> Option<Vulnerability> {
-        debug!("[JWT] Testing alg:none bypass");
+        debug!("[JWT] Testing alg:none bypass - creating unsigned token");
 
         // Create JWT with alg:none
         let none_header = json!({
@@ -157,8 +159,8 @@ impl JwtScanner {
         let header_b64 = general_purpose::URL_SAFE_NO_PAD.encode(none_header.to_string());
         let payload_b64 = general_purpose::URL_SAFE_NO_PAD.encode(payload);
 
-        // JWT with alg:none should have empty signature
-        let malicious_jwt = format!("{}{}.", header_b64, payload_b64);
+        // JWT with alg:none should have empty signature (header.payload.)
+        let malicious_jwt = format!("{}.{}.", header_b64, payload_b64);
 
         match self
             .http_client
@@ -339,27 +341,43 @@ impl JwtScanner {
         None
     }
 
-    /// Test weak signature
+    /// Test weak signature / weak secret detection
+    /// Attempts to sign JWTs with common weak secrets like "secret", "password", etc.
+    /// If the server accepts a token signed with a weak secret, it's vulnerable
     async fn test_weak_signature(
         &self,
         base_url: &str,
         header: &str,
         payload: &str,
     ) -> Option<Vulnerability> {
-        debug!("[JWT] Testing weak signatures");
+        debug!("[JWT] Testing weak signatures with common secrets");
 
         let header_b64 = general_purpose::URL_SAFE_NO_PAD.encode(header);
         let payload_b64 = general_purpose::URL_SAFE_NO_PAD.encode(payload);
 
-        // Try common weak secrets
+        // Try common weak secrets (expanded list for comprehensive testing)
         let weak_secrets = vec![
-            "".to_string(),
+            "".to_string(),              // Empty secret
             "secret".to_string(),
             "password".to_string(),
-            "test".to_string(),
             "key".to_string(),
+            "12345".to_string(),
+            "jwt_secret".to_string(),
+            "changeme".to_string(),
+            "admin".to_string(),
+            "test".to_string(),
             "jwt".to_string(),
             "token".to_string(),
+            "your-256-bit-secret".to_string(),
+            "your-secret-key".to_string(),
+            "mysecretkey".to_string(),
+            "supersecret".to_string(),
+            "qwerty".to_string(),
+            "123456".to_string(),
+            "password123".to_string(),
+            "secret123".to_string(),
+            "default".to_string(),
+            "root".to_string(),
         ];
 
         for secret in weak_secrets {
@@ -418,8 +436,8 @@ impl JwtScanner {
 
                 let payload_b64 = general_purpose::URL_SAFE_NO_PAD.encode(payload_json.to_string());
 
-                // Try with no signature
-                let malicious_jwt = format!("{}{}.", header_b64, payload_b64);
+                // Try with no signature (alg:none format: header.payload.)
+                let malicious_jwt = format!("{}.{}.", header_b64, payload_b64);
 
                 match self
                     .http_client
