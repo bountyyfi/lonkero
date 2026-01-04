@@ -597,11 +597,7 @@ impl EnhancedSqliScanner {
         let mut error_count = 0;
 
         for (payload, expect_success) in test_payloads {
-            let test_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(payload))
-            } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(payload))
-            };
+            let test_url = Self::build_test_url(url, param, payload);
 
             if let Ok(response) = self.http_client.get(&test_url).await {
                 // Check for ORDER BY pattern: 200 OK for valid, 500 for invalid column
@@ -797,11 +793,8 @@ impl EnhancedSqliScanner {
                 let baseline_clone = baseline.clone();
 
                 async move {
-                    let test_url = if url.contains('?') {
-                        format!("{}&{}={}", url, param, urlencoding::encode(&payload))
-                    } else {
-                        format!("{}?{}={}", url, param, urlencoding::encode(&payload))
-                    };
+                    // Build URL by replacing/adding the parameter with payload
+                    let test_url = Self::build_test_url(&url, &param, &payload);
 
                     match client.get(&test_url).await {
                         Ok(response) => Some((payload, response, test_url, baseline_clone)),
@@ -861,37 +854,8 @@ impl EnhancedSqliScanner {
                 break;
             }
 
-            let true_url = if url.contains('?') {
-                format!(
-                    "{}&{}={}",
-                    url,
-                    param,
-                    urlencoding::encode(pair.true_payload)
-                )
-            } else {
-                format!(
-                    "{}?{}={}",
-                    url,
-                    param,
-                    urlencoding::encode(pair.true_payload)
-                )
-            };
-
-            let false_url = if url.contains('?') {
-                format!(
-                    "{}&{}={}",
-                    url,
-                    param,
-                    urlencoding::encode(pair.false_payload)
-                )
-            } else {
-                format!(
-                    "{}?{}={}",
-                    url,
-                    param,
-                    urlencoding::encode(pair.false_payload)
-                )
-            };
+            let true_url = Self::build_test_url(url, param, pair.true_payload);
+            let false_url = Self::build_test_url(url, param, pair.false_payload);
 
             let true_response = match self.http_client.get(&true_url).await {
                 Ok(resp) => resp,
@@ -1216,11 +1180,7 @@ impl EnhancedSqliScanner {
 
         for i in 1..=MAX_COLUMNS {
             let payload = format!("' ORDER BY {}{}", i, terminator);
-            let test_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(&payload))
-            } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(&payload))
-            };
+            let test_url = Self::build_test_url(url, param, &payload);
 
             *tests_run += 1;
 
@@ -1266,11 +1226,7 @@ impl EnhancedSqliScanner {
         for i in 1..=MAX_COLUMNS {
             let nulls = vec!["NULL"; i].join(",");
             let payload = format!("' UNION SELECT {}{}", nulls, terminator);
-            let test_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(&payload))
-            } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(&payload))
-            };
+            let test_url = Self::build_test_url(url, param, &payload);
 
             *tests_run += 1;
 
@@ -1306,11 +1262,7 @@ impl EnhancedSqliScanner {
     ) -> Option<Vulnerability> {
         let nulls = vec!["NULL"; column_count].join(",");
         let payload = format!("' UNION SELECT {}{}", nulls, terminator);
-        let test_url = if url.contains('?') {
-            format!("{}&{}={}", url, param, urlencoding::encode(&payload))
-        } else {
-            format!("{}?{}={}", url, param, urlencoding::encode(&payload))
-        };
+        let test_url = Self::build_test_url(url, param, &payload);
 
         *tests_run += 1;
 
@@ -1638,17 +1590,8 @@ impl EnhancedSqliScanner {
         let verification_pairs = self.get_binary_search_verification_payloads(db_type, context);
 
         for (true_payload, false_payload, db_name) in verification_pairs {
-            let true_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(true_payload))
-            } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(true_payload))
-            };
-
-            let false_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(false_payload))
-            } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(false_payload))
-            };
+            let true_url = Self::build_test_url(url, param, true_payload);
+            let false_url = Self::build_test_url(url, param, false_payload);
 
             tests_run += 2;
 
@@ -1835,11 +1778,7 @@ impl EnhancedSqliScanner {
             let mid = (low + high + 1) / 2;
 
             let payload = self.build_binary_search_payload(db_type, context, position, mid);
-            let test_url = if url.contains('?') {
-                format!("{}&{}={}", url, param, urlencoding::encode(&payload))
-            } else {
-                format!("{}?{}={}", url, param, urlencoding::encode(&payload))
-            };
+            let test_url = Self::build_test_url(url, param, &payload);
 
             tests += 1;
 
@@ -1986,11 +1925,7 @@ impl EnhancedSqliScanner {
             // Test delay payload (3 samples for statistical significance)
             let mut delay_times = Vec::new();
             for _ in 0..3 {
-                let test_url = if url.contains('?') {
-                    format!("{}&{}={}", url, param, urlencoding::encode(payload))
-                } else {
-                    format!("{}?{}={}", url, param, urlencoding::encode(payload))
-                };
+                let test_url = Self::build_test_url(url, param, payload);
 
                 match self.http_client.get(&test_url).await {
                     Ok(response) => delay_times.push(response.duration_ms as f64),
@@ -2208,11 +2143,7 @@ impl EnhancedSqliScanner {
 
         let results = stream::iter(json_payloads)
             .map(|(payload, technique)| {
-                let test_url = if url.contains('?') {
-                    format!("{}&{}={}", url, param, urlencoding::encode(payload))
-                } else {
-                    format!("{}?{}={}", url, param, urlencoding::encode(payload))
-                };
+                let test_url = Self::build_test_url(url, param, payload);
                 let client = Arc::clone(&self.http_client);
                 let baseline_clone = baseline.clone();
                 let technique_name = technique.to_string();
@@ -2356,11 +2287,7 @@ impl EnhancedSqliScanner {
 
         let results = stream::iter(payloads)
             .map(|(payload, technique, error_pattern)| {
-                let test_url = if url.contains('?') {
-                    format!("{}&{}={}", url, param, urlencoding::encode(payload))
-                } else {
-                    format!("{}?{}={}", url, param, urlencoding::encode(payload))
-                };
+                let test_url = Self::build_test_url(url, param, payload);
                 let client = Arc::clone(&self.http_client);
                 let baseline_clone = baseline.clone();
                 let technique_name = technique.to_string();
@@ -2876,6 +2803,49 @@ impl EnhancedSqliScanner {
             }
         }
         None
+    }
+
+    /// Build test URL by replacing or adding a parameter with payload
+    /// This properly replaces existing parameters instead of adding duplicates
+    fn build_test_url(base_url: &str, param_name: &str, payload: &str) -> String {
+        if let Ok(mut parsed) = url::Url::parse(base_url) {
+            // Collect existing parameters, excluding the one we're testing
+            let existing_params: Vec<(String, String)> = parsed
+                .query_pairs()
+                .filter(|(name, _)| name != param_name)
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect();
+
+            // Clear query string and rebuild with our payload
+            parsed.set_query(None);
+            {
+                let mut query_pairs = parsed.query_pairs_mut();
+                // Re-add existing params (except the target)
+                for (name, value) in &existing_params {
+                    query_pairs.append_pair(name, value);
+                }
+                // Add our test parameter with payload
+                query_pairs.append_pair(param_name, payload);
+            }
+            parsed.to_string()
+        } else {
+            // Fallback for unparseable URLs
+            if base_url.contains('?') {
+                format!(
+                    "{}&{}={}",
+                    base_url,
+                    param_name,
+                    urlencoding::encode(payload)
+                )
+            } else {
+                format!(
+                    "{}?{}={}",
+                    base_url,
+                    param_name,
+                    urlencoding::encode(payload)
+                )
+            }
+        }
     }
 
     /// Bayesian hypothesis-guided SQL injection testing

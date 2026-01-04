@@ -828,32 +828,107 @@ impl ChromiumXssScanner {
         let mut results = Vec::new();
         let payloads = Self::get_xss_payloads(mode);
 
-        for payload_template in payloads.iter().take(10) {
-            let marker = format!(
-                "XSS{}",
-                uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
-            );
-            let payload = payload_template.replace("MARKER", &marker);
+        // Extract existing parameters from URL to test each one
+        let params_to_test = Self::extract_url_parameters(url);
 
-            let test_url = if url.contains('?') {
-                format!("{}&xss={}", url, urlencoding::encode(&payload))
-            } else {
-                format!("{}?xss={}", url, urlencoding::encode(&payload))
-            };
+        // If URL has existing parameters, test each one
+        // Otherwise, fall back to testing common parameter names
+        let test_params: Vec<String> = if params_to_test.is_empty() {
+            // Fallback: test common vulnerable parameter names
+            vec![
+                "xss".to_string(),
+                "q".to_string(),
+                "search".to_string(),
+                "query".to_string(),
+                "msg".to_string(),
+                "message".to_string(),
+                "text".to_string(),
+                "name".to_string(),
+                "input".to_string(),
+                "data".to_string(),
+                "callback".to_string(),
+                "url".to_string(),
+                "redirect".to_string(),
+                "return".to_string(),
+                "error".to_string(),
+            ]
+        } else {
+            // Test the actual parameters found in the URL
+            params_to_test.into_iter().map(|(name, _)| name).collect()
+        };
 
-            match Self::test_single_url(browser, &test_url, &marker) {
-                Ok(result) => {
-                    if result.xss_triggered {
-                        info!("[Chromium-XSS] CONFIRMED reflected XSS!");
-                        results.push(result);
-                        break;
+        'param_loop: for param_name in &test_params {
+            for payload_template in payloads.iter().take(5) {
+                let marker = format!(
+                    "XSS{}",
+                    uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
+                );
+                let payload = payload_template.replace("MARKER", &marker);
+
+                // Build test URL by replacing/adding the parameter
+                let test_url = Self::build_test_url(url, param_name, &payload);
+
+                match Self::test_single_url(browser, &test_url, &marker) {
+                    Ok(mut result) => {
+                        if result.xss_triggered {
+                            info!("[Chromium-XSS] CONFIRMED reflected XSS in parameter '{}'!", param_name);
+                            result.parameter = Some(param_name.clone());
+                            results.push(result);
+                            break 'param_loop; // Found XSS, stop testing
+                        }
                     }
+                    Err(e) => debug!("[Chromium-XSS] Reflected test error: {}", e),
                 }
-                Err(e) => debug!("[Chromium-XSS] Reflected test error: {}", e),
             }
         }
 
         Ok(results)
+    }
+
+    /// Extract parameters from URL query string
+    fn extract_url_parameters(url: &str) -> Vec<(String, String)> {
+        if let Ok(parsed) = url::Url::parse(url) {
+            parsed
+                .query_pairs()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Build test URL by replacing or adding a parameter with payload
+    fn build_test_url(base_url: &str, param_name: &str, payload: &str) -> String {
+        if let Ok(mut parsed) = url::Url::parse(base_url) {
+            // Collect existing parameters, replacing the target one
+            let existing_params: Vec<(String, String)> = parsed
+                .query_pairs()
+                .filter(|(name, _)| name != param_name)
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect();
+
+            // Clear query and rebuild
+            parsed.set_query(None);
+
+            // Add existing params back
+            {
+                let mut query_pairs = parsed.query_pairs_mut();
+                for (name, value) in &existing_params {
+                    query_pairs.append_pair(name, value);
+                }
+                // Add/replace the target parameter with payload
+                query_pairs.append_pair(param_name, payload);
+            }
+
+            parsed.to_string()
+        } else {
+            // Fallback: simple append
+            if base_url.contains('?') {
+                format!("{}&{}={}", base_url, param_name, urlencoding::encode(payload))
+            } else {
+                format!("{}?{}={}", base_url, param_name, urlencoding::encode(payload))
+            }
+        }
     }
 
     fn test_dom_xss(url: &str, browser: &SharedBrowser) -> Result<Vec<XssDetectionResult>> {
