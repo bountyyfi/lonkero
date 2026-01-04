@@ -40,8 +40,9 @@ jobs:
         id: bump
         run: |
           VERSION="${{ inputs.version }}"
-          # Remove 'v' prefix if present
+          # Remove 'v' or 'V' prefix if present
           VERSION="${VERSION#v}"
+          VERSION="${VERSION#V}"
           echo "version=v${VERSION}" >> $GITHUB_OUTPUT
 
           # Update Cargo.toml
