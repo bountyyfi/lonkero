@@ -547,6 +547,8 @@ pub enum ScannerType {
     SecondOrderInjection,
 
     // === Authentication Scanners ===
+    /// Authentication flow tester (session fixation, password reset IDOR, MFA bypass)
+    AuthFlowTester,
     /// JWT vulnerability detection
     Jwt,
     /// JWT specific vulnerabilities (algorithm confusion, etc.)
@@ -756,6 +758,7 @@ impl ScannerType {
             ScannerType::PathTraversal => "Path Traversal Scanner",
             ScannerType::Log4j => "Log4j Scanner",
             ScannerType::SecondOrderInjection => "Second-Order Injection Scanner",
+            ScannerType::AuthFlowTester => "Auth Flow Tester",
             ScannerType::Jwt => "JWT Scanner",
             ScannerType::JwtVulnerabilities => "JWT Vulnerabilities Scanner",
             ScannerType::OAuth => "OAuth Scanner",
@@ -1256,6 +1259,7 @@ impl ScannerRegistry {
             ScannerType::SsrfBlind,
             ScannerType::PathTraversal,
             ScannerType::SecondOrderInjection,
+            ScannerType::AuthFlowTester,
             // Authentication/Authorization - ALWAYS test
             ScannerType::Idor,
             ScannerType::Bola,
@@ -1355,6 +1359,8 @@ impl ScannerRegistry {
         self.default_priorities.insert(ScannerType::Log4j, 10);
         self.default_priorities
             .insert(ScannerType::SecondOrderInjection, 9);
+        self.default_priorities
+            .insert(ScannerType::AuthFlowTester, 8);
 
         // XSS and other injection
         self.default_priorities.insert(ScannerType::Xss, 8);
