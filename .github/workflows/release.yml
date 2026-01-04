@@ -55,7 +55,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml
-          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}" || echo "No changes to commit"
+
+          # Delete existing tag if present (re-release scenario)
+          git tag -d ${{ steps.bump.outputs.version }} 2>/dev/null || true
+          git push origin :refs/tags/${{ steps.bump.outputs.version }} 2>/dev/null || true
+
+          # Create and push new tag
           git tag ${{ steps.bump.outputs.version }}
           git push origin HEAD:${{ github.ref_name }}
           git push origin ${{ steps.bump.outputs.version }}
