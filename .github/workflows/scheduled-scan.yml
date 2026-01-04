@@ -45,6 +45,7 @@ jobs:
       - name: Scan training endpoint
         run: |
           lonkero scan \
+            --crawl \
             --format json \
             --output lonkero-results.json \
             https://training-data-lonkero.bountyy-fi-clients.workers.dev/
