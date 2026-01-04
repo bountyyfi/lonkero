@@ -23,6 +23,93 @@ impl BusinessLogicScanner {
         Self { http_client }
     }
 
+    /// Check if response indicates a "not found" or similar error
+    /// Returns true if the endpoint doesn't exist and should be skipped
+    fn is_not_found_response(&self, response: &crate::http_client::HttpResponse) -> bool {
+        // Check HTTP status codes that indicate non-existent endpoints
+        if response.status_code == 404 || response.status_code == 405 {
+            return true;
+        }
+
+        let body_lower = response.body.to_lowercase();
+
+        // Check for common API error patterns indicating resource not found
+        let not_found_patterns = [
+            "\"error\":\"not found\"",
+            "\"error\": \"not found\"",
+            "\"message\":\"the requested resource does not exist\"",
+            "\"message\": \"the requested resource does not exist\"",
+            "resource does not exist",
+            "endpoint not found",
+            "route not found",
+            "\"status\":\"not_found\"",
+            "\"status\": \"not_found\"",
+            "\"code\":404",
+            "\"code\": 404",
+            "cannot post",
+            "cannot get",
+            "method not allowed",
+        ];
+
+        for pattern in &not_found_patterns {
+            if body_lower.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check for JSON error response with success:false and error containing "not found"
+        if body_lower.contains("\"success\":false") || body_lower.contains("\"success\": false") {
+            if body_lower.contains("not found") || body_lower.contains("does not exist") {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if a response body indicates "not found" (for use with body string only)
+    fn is_not_found_body(&self, body: &str, status_code: u16) -> bool {
+        // Check HTTP status codes that indicate non-existent endpoints
+        if status_code == 404 || status_code == 405 {
+            return true;
+        }
+
+        let body_lower = body.to_lowercase();
+
+        // Check for common API error patterns indicating resource not found
+        let not_found_patterns = [
+            "\"error\":\"not found\"",
+            "\"error\": \"not found\"",
+            "\"message\":\"the requested resource does not exist\"",
+            "\"message\": \"the requested resource does not exist\"",
+            "resource does not exist",
+            "endpoint not found",
+            "route not found",
+            "\"status\":\"not_found\"",
+            "\"status\": \"not_found\"",
+            "\"code\":404",
+            "\"code\": 404",
+            "cannot post",
+            "cannot get",
+            "method not allowed",
+        ];
+
+        for pattern in &not_found_patterns {
+            if body_lower.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check for JSON error response with success:false and error containing "not found"
+        if body_lower.contains("\"success\":false") || body_lower.contains("\"success\": false") {
+            if body_lower.contains("not found") || body_lower.contains("does not exist") {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Scan endpoint for business logic vulnerabilities
     pub async fn scan(
         &self,
@@ -582,6 +669,12 @@ impl BusinessLogicScanner {
                     .await
                 {
                     Ok(response) => {
+                        // Skip if endpoint doesn't exist (404 or not-found error)
+                        if self.is_not_found_response(&response) {
+                            debug!("Skipping non-existent endpoint: {}", endpoint);
+                            break; // Skip this endpoint entirely
+                        }
+
                         // Check for coupon bypass
                         if self.detect_coupon_bypass(&response.body, value) {
                             vulnerabilities.push(self.create_vulnerability(
@@ -610,6 +703,10 @@ impl BusinessLogicScanner {
                             .await;
 
                         if let Ok(second_resp) = second_response {
+                            // Skip if second response also indicates endpoint doesn't exist
+                            if self.is_not_found_response(&second_resp) {
+                                continue;
+                            }
                             if self.detect_coupon_reuse(&response.body, &second_resp.body) {
                                 vulnerabilities.push(self.create_vulnerability(
                                     endpoint,
@@ -660,6 +757,12 @@ impl BusinessLogicScanner {
                 .await;
 
             if let Ok(first_resp) = first_response {
+                // Skip if endpoint doesn't exist (404 or not-found error)
+                if self.is_not_found_response(&first_resp) {
+                    debug!("Skipping non-existent endpoint: {}", endpoint);
+                    continue;
+                }
+
                 // Replay the same request
                 let second_response = self
                     .http_client
@@ -667,6 +770,11 @@ impl BusinessLogicScanner {
                     .await;
 
                 if let Ok(second_resp) = second_response {
+                    // Skip if second response also indicates endpoint doesn't exist
+                    if self.is_not_found_response(&second_resp) {
+                        continue;
+                    }
+
                     // Check if both transactions succeeded
                     let first_success = self.detect_successful_transaction(&first_resp.body);
                     let second_success = self.detect_successful_transaction(&second_resp.body);
@@ -1059,6 +1167,12 @@ impl BusinessLogicScanner {
                 .await
             {
                 Ok(response) => {
+                    // Skip if endpoint doesn't exist (404 or not-found error)
+                    if self.is_not_found_response(&response) {
+                        debug!("Skipping non-existent workflow endpoint: {}", complete_url);
+                        break;
+                    }
+
                     if self.detect_workflow_bypass_success(&response.body) {
                         info!("Workflow bypass successful: {}", attack_type);
                         vulnerabilities.push(self.create_vulnerability(
@@ -1100,6 +1214,12 @@ impl BusinessLogicScanner {
                 .await
             {
                 Ok(response) => {
+                    // Skip if endpoint doesn't exist (404 or not-found error)
+                    if self.is_not_found_response(&response) {
+                        debug!("Skipping non-existent payment endpoint: {}", payment_url);
+                        continue;
+                    }
+
                     if self.detect_payment_bypass(&response.body) {
                         vulnerabilities.push(self.create_vulnerability(
                             &payment_url,
@@ -1231,6 +1351,12 @@ impl BusinessLogicScanner {
                     .await
                 {
                     Ok(response) => {
+                        // Skip if endpoint doesn't exist (404 or not-found error)
+                        if self.is_not_found_response(&response) {
+                            debug!("Skipping non-existent form endpoint: {}", endpoint);
+                            break; // Skip this endpoint entirely, try next one
+                        }
+
                         if self.detect_form_bypass_success(&response.body, attack_type) {
                             info!("Form bypass successful: {}", attack_type);
                             vulnerabilities.push(self.create_vulnerability(
@@ -1533,6 +1659,12 @@ impl BusinessLogicScanner {
                 .await;
 
             if let Ok(first_resp) = first_result {
+                // Skip if endpoint doesn't exist (404 or not-found error)
+                if self.is_not_found_response(&first_resp) {
+                    debug!("Skipping non-existent endpoint: {}", endpoint);
+                    continue; // Skip to next endpoint
+                }
+
                 // Try to reuse the same coupon
                 let second_result = self
                     .http_client

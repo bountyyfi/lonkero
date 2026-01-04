@@ -36,6 +36,26 @@ impl SecurityHeadersScanner {
 
         match self.http_client.get(url).await {
             Ok(response) => {
+                // Skip if response is 404 Not Found or other error status codes
+                // Security headers on non-existent pages are not meaningful findings
+                if response.status_code == 404 {
+                    debug!("[Security Headers] Skipping 404 response: {}", url);
+                    return Ok((vulnerabilities, tests_run));
+                }
+
+                // Skip if response body indicates a "not found" error
+                // (some APIs return 200 with error JSON instead of proper 404)
+                if self.is_not_found_response(&response.body) {
+                    debug!("[Security Headers] Skipping not-found error response: {}", url);
+                    return Ok((vulnerabilities, tests_run));
+                }
+
+                // Skip 5xx server errors as they may have different header configurations
+                if response.status_code >= 500 {
+                    debug!("[Security Headers] Skipping server error response: {}", url);
+                    return Ok((vulnerabilities, tests_run));
+                }
+
                 // Check each security header
                 self.check_hsts(&response, url, &mut vulnerabilities);
                 self.check_csp(&response, url, &mut vulnerabilities);
@@ -57,6 +77,42 @@ impl SecurityHeadersScanner {
         );
 
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check if response body indicates a "not found" or similar error
+    /// Some APIs return 200 OK with error JSON instead of proper HTTP status codes
+    fn is_not_found_response(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check for common API error patterns indicating resource not found
+        let not_found_patterns = [
+            "\"error\":\"not found\"",
+            "\"error\": \"not found\"",
+            "\"message\":\"the requested resource does not exist\"",
+            "\"message\": \"the requested resource does not exist\"",
+            "resource does not exist",
+            "endpoint not found",
+            "route not found",
+            "\"status\":\"not_found\"",
+            "\"status\": \"not_found\"",
+            "\"code\":404",
+            "\"code\": 404",
+        ];
+
+        for pattern in &not_found_patterns {
+            if body_lower.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check for JSON error response with success:false and error containing "not found"
+        if body_lower.contains("\"success\":false") || body_lower.contains("\"success\": false") {
+            if body_lower.contains("not found") || body_lower.contains("does not exist") {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Check HSTS (HTTP Strict Transport Security)

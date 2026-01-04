@@ -159,6 +159,12 @@ impl InformationDisclosureScanner {
 
         debug!("Testing for stack traces");
 
+        // First get a baseline response to compare against
+        let baseline = match self.http_client.get(url).await {
+            Ok(r) => r,
+            Err(_) => return Ok((Vec::new(), 0)),
+        };
+
         let error_triggers = vec![
             "?error=1",
             "?debug=true",
@@ -172,6 +178,19 @@ impl InformationDisclosureScanner {
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
+                    // Skip 404 or not-found responses
+                    if response.status_code == 404 || self.is_not_found_response(&response.body) {
+                        debug!("Skipping 404/not-found response for stack trace check");
+                        continue;
+                    }
+
+                    // Check if response is significantly different from baseline
+                    // (if it's the same page, no error was triggered)
+                    if self.responses_are_similar(&baseline.body, &response.body) {
+                        debug!("Response similar to baseline, skipping stack trace check");
+                        continue;
+                    }
+
                     if self.detect_stack_trace(&response.body) {
                         info!("Stack trace detected in error response");
                         vulnerabilities.push(self.create_vulnerability(
@@ -193,6 +212,67 @@ impl InformationDisclosureScanner {
         }
 
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check if response body indicates a "not found" or similar error
+    fn is_not_found_response(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // Check for common API error patterns indicating resource not found
+        let not_found_patterns = [
+            "\"error\":\"not found\"",
+            "\"error\": \"not found\"",
+            "\"message\":\"the requested resource does not exist\"",
+            "resource does not exist",
+            "endpoint not found",
+            "route not found",
+        ];
+
+        for pattern in &not_found_patterns {
+            if body_lower.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check for JSON error response with success:false and error containing "not found"
+        if body_lower.contains("\"success\":false") || body_lower.contains("\"success\": false") {
+            if body_lower.contains("not found") || body_lower.contains("does not exist") {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if two responses are similar (same content = error trigger had no effect)
+    fn responses_are_similar(&self, baseline: &str, response: &str) -> bool {
+        // If lengths are very different, they're not similar
+        let len_diff = (baseline.len() as i64 - response.len() as i64).abs();
+        let max_len = baseline.len().max(response.len());
+
+        if max_len == 0 {
+            return true; // Both empty
+        }
+
+        // If length difference is more than 20%, they're different enough
+        if len_diff > (max_len as i64 / 5) {
+            return false;
+        }
+
+        // Simple character comparison for shorter strings
+        if max_len < 10000 {
+            let matching_chars = baseline
+                .chars()
+                .zip(response.chars())
+                .filter(|(a, b)| a == b)
+                .count();
+
+            let similarity = matching_chars as f64 / max_len as f64;
+            return similarity > 0.9; // 90% similar = same page
+        }
+
+        // For longer strings, just use length-based comparison
+        (len_diff as f64 / max_len as f64) < 0.1
     }
 
     /// Test for directory listing
