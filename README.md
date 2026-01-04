@@ -79,6 +79,7 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 - **Parameter Filtering** - Skips framework internals, prioritizes user input (80% faster scans)
 - **Blind Detection** - Time-based, error-based, boolean-based techniques
 - **Context-Aware** - Adapts testing based on detected technology stack
+- **ASN Blocklist** - Uses [bad-asn-list](https://github.com/bountyyfi/bad-asn-list) to identify VPN providers, datacenters, and hosting services commonly used for malicious traffic, scraping, and automated abuse
 - **SPA Detection** - Identifies React/Vue/Angular apps, handles soft-404 pages, discovers real API endpoints
 - **Route Discovery** - Automatically extracts routes from JavaScript bundles (Next.js App Router)
 - **Headless Browser** - Network interception, WebSocket capture, multi-stage form detection, authenticated crawling

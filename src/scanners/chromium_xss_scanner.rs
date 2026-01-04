@@ -526,6 +526,7 @@ impl SharedBrowser {
 
         let options = LaunchOptions::default_builder()
             .headless(true)
+            .sandbox(false) // Required for CI environments (GitHub Actions, Docker)
             .idle_browser_timeout(Duration::from_secs(300))
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build browser options: {}", e))?;
