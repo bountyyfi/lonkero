@@ -44,7 +44,7 @@ jobs:
 
       - name: Scan training endpoint
         env:
-          LONKERO_LICENSE: ${{ secrets.LONKERO_LICENSE }}
+          LONKERO_LICENSE_KEY: ${{ secrets.LONKERO_LICENSE }}
         run: |
           lonkero scan \
             --crawl \
