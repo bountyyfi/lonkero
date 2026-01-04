@@ -3164,7 +3164,12 @@ impl ScannerRegistry {
             );
         }
 
-        // Skip server-side injection scanners for static sites
+        // CRITICAL FIX: DO NOT skip injection scanners for "static" platforms
+        // Cloudflare Pages runs Workers (dynamic), Vercel runs Functions (dynamic)
+        // Netlify runs Functions (dynamic) - all can have SQLi, NoSQLi, etc.
+        // This skip logic was causing 0% detection rate on modern deployments
+        // DISABLED - Always run injection tests regardless of hosting platform
+        /*
         for platform in [
             StaticPlatform::CloudflarePages,
             StaticPlatform::Vercel,
@@ -3193,6 +3198,7 @@ impl ScannerRegistry {
                 );
             }
         }
+        */
 
         // Skip form-based injection tests for GraphQL
         self.skip_rules.insert(
@@ -3285,13 +3291,15 @@ impl ScannerRegistry {
             // Skip Django for non-Python
             (ScannerType::Django, tech) if !matches!(tech, TechCategory::Python(_)) => true,
 
-            // Skip server-side injection for static sites
-            (scanner, TechCategory::StaticSite(_))
-                if scanner.is_injection()
-                    && !matches!(scanner, ScannerType::Xss | ScannerType::HtmlInjection) =>
-            {
-                true
-            }
+            // CRITICAL FIX: DO NOT skip injection for "static" sites
+            // Cloudflare/Vercel/Netlify can run dynamic code
+            // DISABLED to ensure all sites are tested for injection
+            // (scanner, TechCategory::StaticSite(_))
+            //     if scanner.is_injection()
+            //         && !matches!(scanner, ScannerType::Xss | ScannerType::HtmlInjection) =>
+            // {
+            //     true
+            // }
 
             // Skip GraphQL scanners for non-GraphQL
             (ScannerType::GraphQL | ScannerType::GraphQLSecurity, tech)

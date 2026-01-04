@@ -85,6 +85,7 @@ impl SsrfBypassCategory {
 }
 
 /// SSRF payload with metadata
+#[derive(Clone)]
 struct SsrfPayload {
     payload: String,
     category: SsrfBypassCategory,
@@ -158,7 +159,7 @@ impl SsrfScanner {
         };
 
         let total_payloads = payloads.len();
-        info!("[SSRF] Testing {} generated payloads", total_payloads);
+        info!("[SSRF] Testing {} payloads in GET, POST JSON, and POST form-encoded", total_payloads);
 
         // Shared state for early termination
         let found_vuln = Arc::new(AtomicBool::new(false));
@@ -169,7 +170,8 @@ impl SsrfScanner {
         // High concurrency for fast scanning (200 concurrent requests)
         let concurrent_requests = 200;
 
-        stream::iter(payloads)
+        // Test GET parameters (query string)
+        stream::iter(payloads.clone())
             .for_each_concurrent(concurrent_requests, |ssrf_payload| {
                 let url = base_url.to_string();
                 let param = parameter.to_string();
@@ -213,7 +215,7 @@ impl SsrfScanner {
                                 &baseline,
                             ) {
                                 info!(
-                                    "[ALERT] SSRF vulnerability detected via {}",
+                                    "[ALERT] SSRF vulnerability detected via {} in GET parameter",
                                     ssrf_payload.category.as_str()
                                 );
                                 found_vuln.store(true, Ordering::Relaxed);
@@ -222,12 +224,119 @@ impl SsrfScanner {
                             }
                         }
                         Err(e) => {
-                            debug!("SSRF test error: {}", e);
+                            debug!("SSRF GET test error: {}", e);
                         }
                     }
                 }
             })
             .await;
+
+        // Test POST JSON body parameters
+        if !found_vuln.load(Ordering::Relaxed) {
+            stream::iter(payloads.clone())
+                .for_each_concurrent(concurrent_requests, |ssrf_payload| {
+                    let url = base_url.to_string();
+                    let param = parameter.to_string();
+                    let client = Arc::clone(&self.http_client);
+                    let found_vuln = Arc::clone(&found_vuln);
+                    let tests_completed = Arc::clone(&tests_completed);
+                    let vulnerabilities = Arc::clone(&vulnerabilities);
+                    let baseline = Arc::clone(&baseline);
+
+                    async move {
+                        // Early termination - skip if we already found a vulnerability
+                        if found_vuln.load(Ordering::Relaxed) {
+                            return;
+                        }
+
+                        // Create JSON payload with the parameter
+                        let json_body = format!(r#"{{"{}":"{}"}}"#, param, ssrf_payload.payload.replace('"', "\\\""));
+                        let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+                        match client.post_with_headers(&url, &json_body, headers).await {
+                            Ok(response) => {
+                                tests_completed.fetch_add(1, Ordering::Relaxed);
+
+                                if let Some(mut vuln) = Self::analyze_ssrf_response_static(
+                                    &response,
+                                    &ssrf_payload,
+                                    &param,
+                                    &url,
+                                    &baseline,
+                                ) {
+                                    info!(
+                                        "[ALERT] SSRF vulnerability detected via {} in POST JSON body",
+                                        ssrf_payload.category.as_str()
+                                    );
+                                    // Update vulnerability description to indicate POST JSON
+                                    vuln.description = format!("{} (POST JSON body)", vuln.description);
+                                    vuln.payload = json_body;
+                                    found_vuln.store(true, Ordering::Relaxed);
+                                    let mut vulns = vulnerabilities.lock().await;
+                                    vulns.push(vuln);
+                                }
+                            }
+                            Err(e) => {
+                                debug!("SSRF POST JSON test error: {}", e);
+                            }
+                        }
+                    }
+                })
+                .await;
+        }
+
+        // Test POST form-encoded body parameters
+        if !found_vuln.load(Ordering::Relaxed) {
+            stream::iter(payloads)
+                .for_each_concurrent(concurrent_requests, |ssrf_payload| {
+                    let url = base_url.to_string();
+                    let param = parameter.to_string();
+                    let client = Arc::clone(&self.http_client);
+                    let found_vuln = Arc::clone(&found_vuln);
+                    let tests_completed = Arc::clone(&tests_completed);
+                    let vulnerabilities = Arc::clone(&vulnerabilities);
+                    let baseline = Arc::clone(&baseline);
+
+                    async move {
+                        // Early termination - skip if we already found a vulnerability
+                        if found_vuln.load(Ordering::Relaxed) {
+                            return;
+                        }
+
+                        // Create form-encoded payload
+                        let form_body = format!("{}={}", param, urlencoding::encode(&ssrf_payload.payload));
+
+                        match client.post_form(&url, &form_body).await {
+                            Ok(response) => {
+                                tests_completed.fetch_add(1, Ordering::Relaxed);
+
+                                if let Some(mut vuln) = Self::analyze_ssrf_response_static(
+                                    &response,
+                                    &ssrf_payload,
+                                    &param,
+                                    &url,
+                                    &baseline,
+                                ) {
+                                    info!(
+                                        "[ALERT] SSRF vulnerability detected via {} in POST form body",
+                                        ssrf_payload.category.as_str()
+                                    );
+                                    // Update vulnerability description to indicate POST form
+                                    vuln.description = format!("{} (POST form-encoded body)", vuln.description);
+                                    vuln.payload = form_body;
+                                    found_vuln.store(true, Ordering::Relaxed);
+                                    let mut vulns = vulnerabilities.lock().await;
+                                    vulns.push(vuln);
+                                }
+                            }
+                            Err(e) => {
+                                debug!("SSRF POST form test error: {}", e);
+                            }
+                        }
+                    }
+                })
+                .await;
+        }
 
         // Extract results from Arc<Mutex<Vec>>
         let final_vulns = match Arc::try_unwrap(vulnerabilities) {
@@ -240,7 +349,7 @@ impl SsrfScanner {
         let tests_run = tests_completed.load(Ordering::Relaxed);
 
         info!(
-            "[SUCCESS] [SSRF] Completed {} tests, found {} vulnerabilities",
+            "[SUCCESS] [SSRF] Completed {} tests (GET + POST JSON + POST form), found {} vulnerabilities",
             tests_run,
             final_vulns.len()
         );

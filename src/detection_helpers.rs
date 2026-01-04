@@ -142,8 +142,10 @@ impl AppCharacteristics {
     }
 
     /// Should skip injection tests (SPAs return same HTML for all routes)
+    /// CRITICAL FIX: Never skip injection tests - SPAs have backend APIs that can be vulnerable
+    /// Cloudflare Workers, Vercel, Netlify are dynamic despite appearing "static"
     pub fn should_skip_injection_tests(&self) -> bool {
-        self.is_spa || self.is_static
+        false // Always test for injection vulnerabilities regardless of framework
     }
 
     /// Should skip auth tests (no authentication present)
