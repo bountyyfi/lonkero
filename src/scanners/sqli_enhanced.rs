@@ -1560,6 +1560,20 @@ impl EnhancedSqliScanner {
             "unknown column",
             "column not found",
             "wrong number of columns",
+            // Additional common SQL error patterns
+            "you have an error in your sql",
+            "mysql error",
+            "database error",
+            "query failed",
+            "sql error",
+            "invalid query",
+            "unexpected end of sql",
+            "near \"",
+            "at line ",
+            "column count",
+            "table doesn't exist",
+            "no such table",
+            "incorrect syntax near",
         ];
 
         error_patterns

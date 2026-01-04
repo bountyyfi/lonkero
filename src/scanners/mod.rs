@@ -927,14 +927,34 @@ impl ScanEngine {
             if test_parameters.is_empty() {
                 info!("[WARNING]  No parameters discovered - testing common parameter names");
                 test_parameters = vec![
+                    // Common ID/query parameters
                     ("id".to_string(), "1".to_string()),
                     ("q".to_string(), "test".to_string()),
                     ("search".to_string(), "test".to_string()),
                     ("query".to_string(), "test".to_string()),
                     ("page".to_string(), "1".to_string()),
+                    // Common user input parameters (XSS targets)
                     ("user".to_string(), "test".to_string()),
                     ("name".to_string(), "test".to_string()),
+                    ("msg".to_string(), "test".to_string()),
+                    ("message".to_string(), "test".to_string()),
+                    ("text".to_string(), "test".to_string()),
+                    ("content".to_string(), "test".to_string()),
+                    ("comment".to_string(), "test".to_string()),
+                    ("title".to_string(), "test".to_string()),
+                    ("input".to_string(), "test".to_string()),
+                    // SSRF/redirect parameters
                     ("url".to_string(), "http://example.com".to_string()),
+                    ("redirect".to_string(), "http://example.com".to_string()),
+                    ("callback".to_string(), "test".to_string()),
+                    ("from".to_string(), "test".to_string()),
+                    // Common API parameters
+                    ("username".to_string(), "test".to_string()),
+                    ("email".to_string(), "test@test.com".to_string()),
+                    ("file".to_string(), "test.txt".to_string()),
+                    ("code".to_string(), "test".to_string()),
+                    ("label".to_string(), "test".to_string()),
+                    ("header".to_string(), "test".to_string()),
                 ];
             }
         }
