@@ -22,11 +22,50 @@ env:
   BINARY_NAME: lonkero
 
 jobs:
+  version-bump:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump version in Cargo.toml
+        id: bump
+        run: |
+          VERSION="${{ inputs.version }}"
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+
+          # Update Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+
+          # Show the change
+          grep '^version = ' Cargo.toml
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          git tag ${{ steps.bump.outputs.version }}
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin ${{ steps.bump.outputs.version }}
+
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    # Skip build on release event (binaries uploaded separately)
-    if: github.event_name != 'release'
+    needs: [version-bump]
+    # Run on tag push, or after version-bump completes
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && needs.version-bump.result == 'success')
     strategy:
       fail-fast: false
       matrix:
@@ -105,15 +144,16 @@ jobs:
 
   release:
     name: Create Release
-    needs: build
+    needs: [version-bump, build]
     runs-on: ubuntu-latest
-    # Skip on release event (release already exists)
-    if: github.event_name != 'release'
+    if: always() && needs.build.result == 'success'
     permissions:
       contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.version-bump.outputs.version || github.ref }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -136,9 +176,7 @@ jobs:
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "release" ]; then
-            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "version=${{ needs.version-bump.outputs.version }}" >> $GITHUB_OUTPUT
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
@@ -158,13 +196,14 @@ jobs:
 
   publish:
     name: Publish to crates.io
-    needs: release
+    needs: [version-bump, release]
     runs-on: ubuntu-latest
-    # Publish after successful build (all triggers)
-    if: always() && (needs.release.result == 'success' || needs.release.result == 'skipped')
+    if: always() && needs.release.result == 'success'
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.version-bump.outputs.version || github.ref }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
