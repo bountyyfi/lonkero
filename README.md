@@ -13,7 +13,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**125+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **Scanner Intelligence** | **5% False Positives**
+**125+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **Scanner Intelligence** | **OOBZero Engine** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [ML Features](#machine-learning-features) · [Scanner Intelligence](#scanner-intelligence-system) · [Architecture](#architecture)
 
@@ -173,6 +173,38 @@ Lonkero automatically skips untestable elements (framework state, CSRF tokens, l
 ## Blind Vulnerability Detection
 
 Lonkero uses advanced techniques to detect blind vulnerabilities without relying on visible output:
+
+### OOBZero Engine (NEW)
+
+**Zero-infrastructure blind vulnerability detection** - detect blind SQLi, blind XSS, and other blind vulns WITHOUT callback servers.
+
+Traditional OOB detection requires external callback infrastructure (Burp Collaborator, Interactsh, custom DNS). OOBZero uses **multi-channel Bayesian inference** to achieve similar detection rates with zero infrastructure.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  OOBZero Engine - Probabilistic Blind Detection                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Signal Channels:                                                │
+│  • BooleanDifferential: AND 1=1 vs AND 1=2 response differences │
+│  • ArithmeticEval: 7-1 returning same as 6 (math evaluated)     │
+│  • QuoteCancellation: value'' returning same as value           │
+│  • Resonance: Quote oscillation pattern (', '', ''', '''')      │
+│  • Timing/Length/Entropy: Statistical content analysis          │
+├─────────────────────────────────────────────────────────────────┤
+│  Key Innovations:                                                │
+│  • Negative evidence SUBTRACTS from confidence (no false pos)   │
+│  • Confirmation requires 2+ INDEPENDENT signal classes          │
+│  • No single signal can contribute >60% of total weight         │
+│  • Cohen's d effect sizes instead of brittle thresholds         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Mathematical Foundation:**
+```
+L_posterior = L_prior + Σᵢ (wᵢ · cᵢ · logit(Sᵢ))
+P_posterior = σ(L_posterior)
+```
+Where negative evidence has negative weights, reducing confidence.
 
 ### Time-Based Detection
 - **Blind SQLi** - Binary search algorithm (5-7 requests vs 100+)
@@ -1246,7 +1278,7 @@ Plain text reports for documentation and version control.
 | **ML Auto-Learning** | Yes (federated) | No | No | No |
 | **Modern Framework Support** | Next.js, React, GraphQL | Limited | Limited | Limited |
 | **Smart Parameter Filtering** | Yes | No | No | No |
-| **OOB Detection** | Coming Soon | Yes | No | Yes |
+| **Blind Detection** | OOBZero Engine | Burp Collaborator | No | OOB callbacks |
 | **CI/CD Integration** | SARIF, JSON | Limited | JSON | Limited |
 | **Blind SQLi Binary Search** | Yes | No | No | Yes |
 | **GraphQL Security** | Yes | Extension | No | Limited |
