@@ -8,16 +8,37 @@
 use std::collections::HashMap;
 
 /// Signal types for vulnerability detection
+///
+/// IMPORTANT: Each signal type represents a DISTINCT measurement channel.
+/// Do NOT reuse signal types for semantically different measurements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SignalType {
-    Timing,         // Response time analysis
-    Length,         // Content length differential
-    Entropy,        // Response entropy changes
-    Compression,    // Compression ratio oracle
-    Resonance,      // Quote oscillation pattern
-    StatusCode,     // HTTP status changes
-    HeaderDiff,     // Header fingerprint changes
-    ErrorPattern,   // Error message detection
+    // === Timing-based signals ===
+    Timing,              // Response time analysis (z-score from baseline)
+
+    // === Content-based signals ===
+    Length,              // Content length differential
+    Entropy,             // Response entropy changes (Shannon entropy)
+    Compression,         // Compression ratio oracle
+    ContentHash,         // Structural content fingerprint
+
+    // === Behavioral signals ===
+    Resonance,           // Quote oscillation pattern (', '', ''', '''')
+    BooleanDifferential, // AND 1=1 vs AND 1=2 behavioral difference
+    ArithmeticEval,      // 7-1 = 6 math evaluation detected
+    QuoteCancellation,   // value'' = value detection
+    CommentInjection,    // value'-- = value detection
+
+    // === HTTP signals ===
+    StatusCode,          // HTTP status changes
+    HeaderDiff,          // Header fingerprint changes
+
+    // === Pattern detection ===
+    ErrorPattern,        // Error message detection (regex-based)
+
+    // === Negative evidence ===
+    NoChange,            // Response unchanged (reduces confidence)
+    ConsistentBehavior,  // Behavior is consistent regardless of payload
 }
 
 /// A single probabilistic signal
@@ -69,14 +90,35 @@ impl BayesianCombiner {
 
         // Initialize reliability weights
         // Higher = more reliable signal
-        combiner.weights.insert(SignalType::Timing, 0.7);
-        combiner.weights.insert(SignalType::Length, 0.6);
-        combiner.weights.insert(SignalType::Entropy, 0.5);
-        combiner.weights.insert(SignalType::Compression, 0.6);
-        combiner.weights.insert(SignalType::Resonance, 0.85);  // Very reliable
-        combiner.weights.insert(SignalType::StatusCode, 0.9);  // Very reliable
-        combiner.weights.insert(SignalType::HeaderDiff, 0.5);
-        combiner.weights.insert(SignalType::ErrorPattern, 0.95); // Most reliable
+        //
+        // Weight philosophy:
+        // - Direct evidence (error patterns, behavioral diffs) = high weight
+        // - Statistical signals (timing, length) = medium weight
+        // - Negative evidence = negative weight (subtracts confidence)
+        combiner.weights.insert(SignalType::Timing, 0.6);
+        combiner.weights.insert(SignalType::Length, 0.5);
+        combiner.weights.insert(SignalType::Entropy, 0.4);
+        combiner.weights.insert(SignalType::Compression, 0.5);
+        combiner.weights.insert(SignalType::ContentHash, 0.4);
+
+        // Behavioral signals - these are the strongest evidence
+        combiner.weights.insert(SignalType::Resonance, 0.8);
+        combiner.weights.insert(SignalType::BooleanDifferential, 0.85);
+        combiner.weights.insert(SignalType::ArithmeticEval, 0.9);
+        combiner.weights.insert(SignalType::QuoteCancellation, 0.85);
+        combiner.weights.insert(SignalType::CommentInjection, 0.85);
+
+        // HTTP signals
+        combiner.weights.insert(SignalType::StatusCode, 0.7);
+        combiner.weights.insert(SignalType::HeaderDiff, 0.4);
+
+        // Pattern detection - very high weight when found
+        combiner.weights.insert(SignalType::ErrorPattern, 0.95);
+
+        // NEGATIVE EVIDENCE - these REDUCE confidence
+        // Implemented as negative weights that subtract from log-odds
+        combiner.weights.insert(SignalType::NoChange, -0.6);
+        combiner.weights.insert(SignalType::ConsistentBehavior, -0.7);
 
         // Initialize correlation matrix
         combiner.init_correlations();
@@ -89,30 +131,56 @@ impl BayesianCombiner {
     fn init_correlations(&mut self) {
         use SignalType::*;
 
+        // All signal types
+        let all_types = [
+            Timing, Length, Entropy, Compression, ContentHash,
+            Resonance, BooleanDifferential, ArithmeticEval, QuoteCancellation, CommentInjection,
+            StatusCode, HeaderDiff, ErrorPattern,
+            NoChange, ConsistentBehavior,
+        ];
+
         // Self-correlation is always 1.0
-        for st in [Timing, Length, Entropy, Compression, Resonance, StatusCode, HeaderDiff, ErrorPattern] {
+        for st in all_types {
             self.correlations.insert((st, st), 1.0);
         }
 
         // Cross-correlations (symmetric)
+        // Philosophy: signals from same measurement channel = high correlation
+        //            signals from different channels = low/no correlation
         let pairs = [
-            // Timing correlates moderately with length (bigger response = slower)
-            ((Timing, Length), 0.3),
-            ((Timing, Resonance), 0.4),  // Both affected by query execution
-
-            // Length and entropy are related (more content = different entropy)
+            // === Content-based signals correlate with each other ===
             ((Length, Entropy), 0.5),
-            ((Length, Compression), 0.7), // Highly correlated!
-
-            // Entropy and compression measure similar things
+            ((Length, Compression), 0.7),      // Very correlated
+            ((Length, ContentHash), 0.6),
             ((Entropy, Compression), 0.6),
+            ((Entropy, ContentHash), 0.5),
 
-            // Status code and error pattern often go together
-            ((StatusCode, ErrorPattern), 0.8),
-            ((StatusCode, HeaderDiff), 0.6),
+            // === Timing correlates weakly with content ===
+            ((Timing, Length), 0.3),           // Bigger response = slower
 
-            // Error pattern and header diff
-            ((ErrorPattern, HeaderDiff), 0.5),
+            // === Behavioral signals are INDEPENDENT of each other ===
+            // This is critical - boolean diff, arithmetic, quote cancellation
+            // are distinct tests measuring different phenomena
+            ((BooleanDifferential, ArithmeticEval), 0.1),  // Low correlation
+            ((BooleanDifferential, QuoteCancellation), 0.15),
+            ((BooleanDifferential, CommentInjection), 0.15),
+            ((ArithmeticEval, QuoteCancellation), 0.1),
+            ((ArithmeticEval, CommentInjection), 0.1),
+            ((QuoteCancellation, CommentInjection), 0.2),
+
+            // === Resonance vs other behavioral signals ===
+            ((Resonance, BooleanDifferential), 0.3),
+            ((Resonance, QuoteCancellation), 0.4),  // Similar mechanism
+
+            // === HTTP signals ===
+            ((StatusCode, ErrorPattern), 0.7),     // Error often changes status
+            ((StatusCode, HeaderDiff), 0.5),
+            ((ErrorPattern, HeaderDiff), 0.4),
+
+            // === Negative evidence correlates with content signals ===
+            ((NoChange, Length), 0.8),
+            ((NoChange, ContentHash), 0.9),
+            ((ConsistentBehavior, NoChange), 0.7),
         ];
 
         for ((a, b), corr) in pairs {
@@ -168,9 +236,14 @@ impl BayesianCombiner {
     /// P_posterior = σ(L_posterior)
     ///
     /// Where:
-    ///   wᵢ = reliability weight
+    ///   wᵢ = reliability weight (can be negative for negative evidence)
     ///   cᵢ = correlation penalty
     ///   Sᵢ = signal probability
+    ///
+    /// Key improvements over naive weighted averaging:
+    /// 1. Negative evidence SUBTRACTS from log-odds
+    /// 2. Independence requirements for confirmation
+    /// 3. No single signal can contribute >60% of total weight
     pub fn combine(&self, signals: &[Signal]) -> CombinedResult {
         if signals.is_empty() {
             return CombinedResult {
@@ -178,6 +251,8 @@ impl BayesianCombiner {
                 confidence: Confidence::None,
                 log_odds: Self::logit(self.prior),
                 signals_used: 0,
+                independent_classes: 0,
+                max_signal_weight_ratio: 0.0,
                 explanation: "No signals provided".to_string(),
             };
         }
@@ -186,18 +261,18 @@ impl BayesianCombiner {
         let mut log_odds = Self::logit(self.prior);
         let mut processed: Vec<SignalType> = Vec::new();
         let mut explanations: Vec<String> = Vec::new();
-        let mut total_weight = 0.0;
+        let mut contributions: Vec<(SignalType, f64)> = Vec::new();
 
-        // Sort signals by reliability (most reliable first)
+        // Sort signals by absolute reliability (most reliable first)
         let mut sorted_signals = signals.to_vec();
         sorted_signals.sort_by(|a, b| {
-            let wa = self.weights.get(&a.signal_type).unwrap_or(&0.5);
-            let wb = self.weights.get(&b.signal_type).unwrap_or(&0.5);
-            wb.partial_cmp(wa).unwrap_or(std::cmp::Ordering::Equal)
+            let wa = self.weights.get(&a.signal_type).unwrap_or(&0.5).abs();
+            let wb = self.weights.get(&b.signal_type).unwrap_or(&0.5).abs();
+            wb.partial_cmp(&wa).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         for signal in &sorted_signals {
-            // Get reliability weight
+            // Get reliability weight (can be negative for negative evidence!)
             let weight = self.weights.get(&signal.signal_type).copied().unwrap_or(0.5);
 
             // Calculate correlation penalty
@@ -213,28 +288,43 @@ impl BayesianCombiner {
             }
 
             // Calculate log-odds contribution
+            // For negative evidence: weight is negative, so contribution subtracts
             let signal_logit = Self::logit(signal.probability);
             let contribution = weight * corr_penalty * signal_logit;
 
             // Update running log-odds
             log_odds += contribution;
-            total_weight += weight * corr_penalty;
 
             // Track what we've processed
             processed.push(signal.signal_type);
+            contributions.push((signal.signal_type, contribution.abs()));
 
             // Build explanation
-            let direction = if signal.probability > 0.5 { "↑" } else { "↓" };
+            let direction = if contribution > 0.0 { "↑" } else { "↓" };
+            let evidence_type = if weight < 0.0 { " [NEG]" } else { "" };
             explanations.push(format!(
-                "{} {:?}: P={:.2} w={:.2} c={:.2} → contribution={:+.3}",
+                "{} {:?}{}: P={:.2} w={:.2} c={:.2} → contribution={:+.3}",
                 direction,
                 signal.signal_type,
+                evidence_type,
                 signal.probability,
                 weight,
                 corr_penalty,
                 contribution
             ));
         }
+
+        // Count independent signal classes
+        let independent_classes = Self::count_independent_classes(&processed);
+
+        // Calculate max signal weight ratio (for independence check)
+        let total_contribution: f64 = contributions.iter().map(|(_, c)| c).sum();
+        let max_contribution = contributions.iter().map(|(_, c)| *c).fold(0.0_f64, f64::max);
+        let max_signal_weight_ratio = if total_contribution > 0.0 {
+            max_contribution / total_contribution
+        } else {
+            0.0
+        };
 
         // Apply confidence dampening for few signals
         // Prevent overconfidence from single strong signal
@@ -244,21 +334,56 @@ impl BayesianCombiner {
         // Convert back to probability
         let probability = Self::sigmoid(log_odds);
 
-        // Determine confidence level
-        let confidence = Confidence::from_probability_and_signals(probability, processed.len());
+        // Determine confidence level with independence requirements
+        let confidence = Confidence::from_combined_evidence(
+            probability,
+            processed.len(),
+            independent_classes,
+            max_signal_weight_ratio,
+        );
 
         CombinedResult {
             probability,
             confidence,
             log_odds,
             signals_used: processed.len(),
+            independent_classes,
+            max_signal_weight_ratio,
             explanation: format!(
-                "Prior: {:.3} → Posterior: {:.3}\n{}",
+                "Prior: {:.3} → Posterior: {:.3} (classes: {}, max_weight: {:.1}%)\n{}",
                 self.prior,
                 probability,
+                independent_classes,
+                max_signal_weight_ratio * 100.0,
                 explanations.join("\n")
             ),
         }
+    }
+
+    /// Count independent signal classes
+    /// Signals in the same class are considered correlated
+    fn count_independent_classes(signals: &[SignalType]) -> usize {
+        use SignalType::*;
+
+        // Define signal classes (groups of related signals)
+        let get_class = |s: SignalType| -> &'static str {
+            match s {
+                Timing => "timing",
+                Length | Entropy | Compression | ContentHash => "content",
+                Resonance | BooleanDifferential | ArithmeticEval |
+                QuoteCancellation | CommentInjection => "behavioral",
+                StatusCode | HeaderDiff => "http",
+                ErrorPattern => "pattern",
+                NoChange | ConsistentBehavior => "negative",
+            }
+        };
+
+        let classes: std::collections::HashSet<&str> = signals
+            .iter()
+            .map(|s| get_class(*s))
+            .collect();
+
+        classes.len()
     }
 
     /// Quick check: is this likely a vulnerability?
@@ -289,6 +414,13 @@ pub struct CombinedResult {
     /// Number of signals actually used (after correlation filtering)
     pub signals_used: usize,
 
+    /// Number of independent signal classes used
+    pub independent_classes: usize,
+
+    /// Maximum weight ratio of any single signal (for independence check)
+    /// If this is > 0.6, a single signal dominates
+    pub max_signal_weight_ratio: f64,
+
     /// Human-readable explanation of the combination
     pub explanation: String,
 }
@@ -296,22 +428,59 @@ pub struct CombinedResult {
 /// Confidence levels for detection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confidence {
-    None,       // No signals
+    None,       // No signals or probability too low
     Low,        // Weak signals, few sources
     Medium,     // Moderate signals or limited sources
     High,       // Strong signals from multiple sources
-    Confirmed,  // Very high probability, multiple independent sources
+    Confirmed,  // Very high probability, multiple INDEPENDENT sources
 }
 
 impl Confidence {
-    fn from_probability_and_signals(prob: f64, signal_count: usize) -> Self {
-        match (prob, signal_count) {
-            (p, _) if p < 0.3 => Confidence::None,
-            (p, n) if p < 0.5 || n < 2 => Confidence::Low,
-            (p, n) if p < 0.7 || n < 3 => Confidence::Medium,
-            (p, n) if p < 0.9 || n < 4 => Confidence::High,
-            _ => Confidence::Confirmed,
+    /// Determine confidence from combined evidence
+    ///
+    /// Requirements for each level:
+    /// - None: P < 0.3 or no signals
+    /// - Low: P < 0.5 or only 1 signal class
+    /// - Medium: P < 0.7 or only 2 signal classes
+    /// - High: P < 0.9 or max_weight > 0.6 (single signal dominates)
+    /// - Confirmed: P >= 0.9 AND 2+ independent classes AND no single signal > 60%
+    fn from_combined_evidence(
+        prob: f64,
+        signal_count: usize,
+        independent_classes: usize,
+        max_weight_ratio: f64,
+    ) -> Self {
+        // Base requirement: enough probability
+        if prob < 0.3 || signal_count == 0 {
+            return Confidence::None;
         }
+
+        if prob < 0.5 || independent_classes < 2 {
+            return Confidence::Low;
+        }
+
+        if prob < 0.7 || independent_classes < 2 {
+            return Confidence::Medium;
+        }
+
+        // For High/Confirmed, check independence requirements
+        // A single signal contributing > 60% = not truly confirmed
+        if max_weight_ratio > 0.6 {
+            return Confidence::High; // Capped due to single-signal dominance
+        }
+
+        if prob < 0.9 || independent_classes < 2 {
+            return Confidence::High;
+        }
+
+        // Confirmed: high probability + multiple independent classes + no dominance
+        Confidence::Confirmed
+    }
+
+    /// Legacy method for backwards compatibility
+    #[allow(dead_code)]
+    fn from_probability_and_signals(prob: f64, signal_count: usize) -> Self {
+        Self::from_combined_evidence(prob, signal_count, signal_count.min(3), 0.5)
     }
 }
 
@@ -419,5 +588,86 @@ mod tests {
         // Should partially cancel out
         assert!(result.probability > 0.3);
         assert!(result.probability < 0.7);
+    }
+
+    #[test]
+    fn test_negative_evidence_reduces_confidence() {
+        let combiner = BayesianCombiner::new();
+
+        // Positive signal
+        let positive_only = vec![
+            Signal::new(SignalType::ErrorPattern, 0.85, 1.0, "SQL error detected"),
+        ];
+        let result_positive = combiner.combine(&positive_only);
+
+        // Same positive signal + negative evidence
+        let with_negative = vec![
+            Signal::new(SignalType::ErrorPattern, 0.85, 1.0, "SQL error detected"),
+            Signal::new(SignalType::ConsistentBehavior, 0.9, 0.0, "No behavioral difference"),
+        ];
+        let result_with_neg = combiner.combine(&with_negative);
+
+        // Negative evidence should reduce probability
+        assert!(result_with_neg.probability < result_positive.probability,
+            "Negative evidence should reduce confidence: {} should be < {}",
+            result_with_neg.probability, result_positive.probability);
+    }
+
+    #[test]
+    fn test_independent_classes_counted() {
+        let combiner = BayesianCombiner::new();
+
+        // Signals from different classes
+        let signals = vec![
+            Signal::new(SignalType::Timing, 0.8, 50.0, "Timing anomaly"),           // timing class
+            Signal::new(SignalType::BooleanDifferential, 0.85, 2.0, "Boolean diff"), // behavioral class
+            Signal::new(SignalType::ErrorPattern, 0.9, 1.0, "SQL error"),           // pattern class
+        ];
+
+        let result = combiner.combine(&signals);
+
+        // Should have 3 independent classes
+        assert_eq!(result.independent_classes, 3,
+            "Should detect 3 independent signal classes");
+    }
+
+    #[test]
+    fn test_single_signal_dominance_capped() {
+        let combiner = BayesianCombiner::new();
+
+        // Single very strong signal should not reach Confirmed
+        let signals = vec![
+            Signal::new(SignalType::ErrorPattern, 0.99, 1.0, "Very strong error pattern"),
+        ];
+
+        let result = combiner.combine(&signals);
+
+        // Even with high probability, single signal shouldn't be Confirmed
+        assert!(result.confidence != Confidence::Confirmed,
+            "Single signal should not reach Confirmed status");
+        assert!(result.max_signal_weight_ratio > 0.9,
+            "Single signal should have >90% weight ratio");
+    }
+
+    #[test]
+    fn test_behavioral_signals_independent() {
+        let combiner = BayesianCombiner::new();
+
+        // Multiple behavioral signals are in same class, but correlation is low
+        let signals = vec![
+            Signal::new(SignalType::BooleanDifferential, 0.85, 2.0, "Boolean diff"),
+            Signal::new(SignalType::ArithmeticEval, 0.85, 0.95, "Arithmetic eval"),
+            Signal::new(SignalType::QuoteCancellation, 0.8, 0.9, "Quote cancellation"),
+        ];
+
+        let result = combiner.combine(&signals);
+
+        // All three should be used (low correlation between them)
+        assert_eq!(result.signals_used, 3,
+            "All behavioral signals should be used (low inter-correlation)");
+
+        // But they're in the same class
+        assert_eq!(result.independent_classes, 1,
+            "All behavioral signals are in same class");
     }
 }
