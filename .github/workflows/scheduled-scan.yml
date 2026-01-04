@@ -23,12 +23,21 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libpq-dev chromium-browser
+          sudo apt-get install -y pkg-config libssl-dev libpq-dev
 
-      - name: Verify Chrome installation
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@facf10a55b9caf92e0cc749b4f82bf8220989148 # v1.7.2
+        id: setup-chrome
+        with:
+          chrome-version: stable
+
+      - name: Setup Chrome for headless_chrome crate
         run: |
-          which chromium-browser || which chromium || which google-chrome || echo "No Chrome found in PATH"
-          chromium-browser --version || chromium --version || echo "Could not get version"
+          # Create symlink so headless_chrome can find it
+          sudo ln -sf "${{ steps.setup-chrome.outputs.chrome-path }}" /usr/bin/google-chrome
+          # Verify
+          which google-chrome
+          google-chrome --version
 
       - name: Install lonkero
         run: cargo install lonkero
