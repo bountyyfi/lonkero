@@ -1886,12 +1886,11 @@ async fn execute_standalone_scan(
             || t.contains("struts")
             || t.contains("jsp")
     });
-    let is_static_site = detected_technologies.iter().any(|t| {
-        t.contains("cloudflare pages")
-            || t.contains("vercel")
-            || t.contains("netlify")
-            || t.contains("github pages")
-    });
+    // CRITICAL FIX: Never skip injection tests based on hosting platform
+    // Cloudflare Workers, Vercel Functions, Netlify Functions are DYNAMIC
+    // Sites returning JSON are NOT static - they have backend APIs
+    // This was causing 0% SQLi detection rate on modern deployments
+    let is_static_site = false; // Always test for injection vulnerabilities
 
     // ==========================================================================
     // HEADLESS CRAWLER ENHANCEMENT (v3.0)
@@ -2964,14 +2963,11 @@ async fn execute_standalone_scan(
         }
 
         // Run Command Injection scanner
-        // SKIP for Node.js stacks (Next.js, React, Vue, Angular) - they use JavaScript APIs, not shell commands
-        // Command injection is only relevant for PHP, Python CGI, or legacy systems that shell out
+        // Command injection is relevant for ALL server-side stacks including Node.js
+        // Node.js can execute shell commands via child_process (exec, spawn, execSync, etc.)
         // Command Injection requires Professional+ license
         if scan_token.is_module_authorized(module_ids::advanced_scanning::COMMAND_INJECTION) {
-            if !is_static_site
-                && !is_nodejs_stack
-                && (is_php_stack || is_python_stack || is_java_stack)
-            {
+            if !is_static_site {
                 info!("  - Testing Command Injection");
                 for (param_name, _) in &test_params {
                     // In Intelligent mode, log per-parameter intensity
@@ -2989,10 +2985,6 @@ async fn execute_standalone_scan(
                     all_vulnerabilities.extend(vulns);
                     total_tests += tests as u64;
                 }
-            } else if !is_static_site && is_nodejs_stack {
-                info!(
-                    "  - Skipping Command Injection (Node.js stacks don't execute shell commands)"
-                );
             }
         } else {
             info!("  [SKIP] Command Injection scanner requires Professional or higher license");
