@@ -520,6 +520,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
@@ -673,6 +674,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch options error: {}", e))?,
@@ -938,7 +940,11 @@ impl HeadlessCrawler {
     /// Check if headless browser is available
     pub async fn is_available() -> bool {
         tokio::task::spawn_blocking(|| {
-            let options = match LaunchOptions::default_builder().headless(true).build() {
+            let options = match LaunchOptions::default_builder()
+                .headless(true)
+                .sandbox(false) // Required for CI environments
+                .build()
+            {
                 Ok(o) => o,
                 Err(_) => return false,
             };
@@ -1011,6 +1017,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
@@ -1220,6 +1227,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
@@ -1348,6 +1356,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
@@ -1830,6 +1839,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
@@ -2869,6 +2879,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
@@ -3751,6 +3762,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
@@ -4046,6 +4058,7 @@ impl HeadlessCrawler {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,

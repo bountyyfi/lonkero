@@ -236,6 +236,7 @@ impl Authenticator {
         let browser = Browser::new(
             LaunchOptions::default_builder()
                 .headless(true)
+                .sandbox(false) // Required for CI environments
                 .idle_browser_timeout(timeout)
                 .build()
                 .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
