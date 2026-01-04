@@ -23,21 +23,15 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libpq-dev
-
-      - name: Install Chrome
-        uses: browser-actions/setup-chrome@facf10a55b9caf92e0cc749b4f82bf8220989148 # v1.7.2
-        id: setup-chrome
-        with:
-          chrome-version: stable
-
-      - name: Install lonkero
-        run: cargo install lonkero
+          sudo apt-get install -y pkg-config libssl-dev libpq-dev chromium-browser
 
       - name: Verify Chrome installation
         run: |
-          echo "Chrome path: ${{ steps.setup-chrome.outputs.chrome-path }}"
-          ${{ steps.setup-chrome.outputs.chrome-path }} --version
+          which chromium-browser || which chromium || which google-chrome || echo "No Chrome found in PATH"
+          chromium-browser --version || chromium --version || echo "Could not get version"
+
+      - name: Install lonkero
+        run: cargo install lonkero
 
       - name: Scan training endpoint
         run: |
@@ -46,8 +40,6 @@ jobs:
             --output lonkero-results.json \
             https://training-data-lonkero.bountyy-fi-clients.workers.dev/
         continue-on-error: true  # Don't fail workflow on findings
-        env:
-          CHROME: ${{ steps.setup-chrome.outputs.chrome-path }}
 
       - name: Upload results artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
