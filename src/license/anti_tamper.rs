@@ -589,6 +589,18 @@ pub fn t_r(_r: &str) {
     S_H.store(0, Ordering::SeqCst);
 }
 
+/// Detect if running in a known CI environment
+#[inline(never)]
+fn is_ci_environment() -> bool {
+    std::env::var("CI").is_ok()
+        || std::env::var("GITHUB_ACTIONS").is_ok()
+        || std::env::var("GITLAB_CI").is_ok()
+        || std::env::var("JENKINS_URL").is_ok()
+        || std::env::var("CIRCLECI").is_ok()
+        || std::env::var("TRAVIS").is_ok()
+        || std::env::var("BUILDKITE").is_ok()
+}
+
 #[inline(never)]
 pub fn w_t() -> bool {
     T_F.load(Ordering::SeqCst)
@@ -602,6 +614,15 @@ pub fn f_i() -> bool {
     if !v_m() {
         return false;
     }
+
+    // In CI environments, use relaxed checks (skip memory/timing sensitive checks)
+    // License is still validated via server - this just prevents false positives
+    // from virtualization, timing variations, and memory layout differences in CI
+    if is_ci_environment() {
+        // Only verify magic constants and basic state in CI
+        return v_s() && v_c();
+    }
+
     if !v_s() {
         return false;
     }
