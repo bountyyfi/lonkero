@@ -36,22 +36,15 @@ jobs:
       - name: Scan training endpoint
         run: |
           lonkero scan \
-            --format sarif \
-            --output lonkero-results.sarif \
+            --format json \
+            --output lonkero-results.json \
             https://training-data-lonkero.bountyy-fi-clients.workers.dev/
         continue-on-error: true  # Don't fail workflow on findings
-
-      - name: Upload SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@f67ec12472e1b361f5e1e2085f5e6f85a57e3cd6 # v3.28.1
-        if: always()
-        with:
-          sarif_file: lonkero-results.sarif
-          category: lonkero-dogfood
 
       - name: Upload results artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: scan-results-${{ github.run_id }}
-          path: lonkero-results.sarif
+          path: lonkero-results.json
           if-no-files-found: ignore
