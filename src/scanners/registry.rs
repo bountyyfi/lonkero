@@ -543,6 +543,8 @@ pub enum ScannerType {
     PathTraversal,
     /// Log4j/Log4Shell vulnerability
     Log4j,
+    /// Second-Order Injection detection
+    SecondOrderInjection,
 
     // === Authentication Scanners ===
     /// JWT vulnerability detection
@@ -753,6 +755,7 @@ impl ScannerType {
             ScannerType::SsiInjection => "SSI Injection Scanner",
             ScannerType::PathTraversal => "Path Traversal Scanner",
             ScannerType::Log4j => "Log4j Scanner",
+            ScannerType::SecondOrderInjection => "Second-Order Injection Scanner",
             ScannerType::Jwt => "JWT Scanner",
             ScannerType::JwtVulnerabilities => "JWT Vulnerabilities Scanner",
             ScannerType::OAuth => "OAuth Scanner",
@@ -1252,6 +1255,7 @@ impl ScannerRegistry {
             ScannerType::Ssrf,
             ScannerType::SsrfBlind,
             ScannerType::PathTraversal,
+            ScannerType::SecondOrderInjection,
             // Authentication/Authorization - ALWAYS test
             ScannerType::Idor,
             ScannerType::Bola,
@@ -1349,6 +1353,8 @@ impl ScannerRegistry {
         self.default_priorities
             .insert(ScannerType::PathTraversal, 9);
         self.default_priorities.insert(ScannerType::Log4j, 10);
+        self.default_priorities
+            .insert(ScannerType::SecondOrderInjection, 9);
 
         // XSS and other injection
         self.default_priorities.insert(ScannerType::Xss, 8);
