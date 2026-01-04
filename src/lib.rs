@@ -32,6 +32,9 @@ pub mod subdomain_enum;
 pub mod types;
 pub mod vulnerability;
 
+// Probabilistic inference engine for side-channel vulnerability detection
+pub mod inference;
+
 // Cloud security infrastructure
 pub mod cloud;
 
