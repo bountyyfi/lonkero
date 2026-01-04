@@ -39,13 +39,16 @@ impl InformationDisclosureScanner {
         info!("Testing information disclosure vulnerabilities");
 
         // Baseline detection: check if site responds identically to all requests
+        // NOTE: We do NOT skip tests even if responses are identical, because
+        // some sites return the same 404 page for everything but still expose
+        // real sensitive files. Instead, we rely on pattern-based content detection.
         let baseline_result = self.baseline_detector.is_static_responder(url).await;
         if baseline_result.is_static_responder {
             warn!(
-                "Skipping info disclosure tests: Site appears to respond identically to all requests ({:.1}% similarity)",
+                "Site appears to respond identically to all requests ({:.1}% similarity). \
+                Will still check for sensitive files using pattern-based detection.",
                 baseline_result.similarity_score * 100.0
             );
-            return Ok((Vec::new(), 0));
         }
 
         // Test for sensitive file exposure
@@ -80,23 +83,41 @@ impl InformationDisclosureScanner {
     /// Test for sensitive file exposure
     async fn test_sensitive_files(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 12;
+        let tests_run = 25; // Updated count
 
         debug!("Testing sensitive file exposure");
 
         let sensitive_files = vec![
+            // Environment files
             "/.env",
             "/.env.local",
             "/.env.production",
+            "/.env.development",
+            "/.env.backup",
+            // Config files
             "/config.php",
             "/config.json",
+            "/config.yml",
             "/web.config",
             "/app.config",
+            "/configuration.php",
+            // Git files
             "/.git/config",
+            "/.git/HEAD",
+            // Package management
             "/composer.json",
             "/package.json",
+            // Web server configs
             "/.htaccess",
             "/phpinfo.php",
+            // Backup files
+            "/backup.sql",
+            "/db_backup.sql",
+            "/database.sql",
+            "/backup.zip",
+            "/config.php.bak",
+            "/index.php.old",
+            "/site.tar.gz",
         ];
 
         let base_url = self.extract_base_url(url);
@@ -412,92 +433,194 @@ impl InformationDisclosureScanner {
         }
     }
 
-    /// Detect sensitive content in file
+    /// Detect sensitive content in file using pattern-based detection
+    /// This ensures we only report findings when actual sensitive patterns are found,
+    /// not just based on response similarity or status codes.
     fn detect_sensitive_content(&self, body: &str, filename: &str) -> bool {
         if body.is_empty() || body.len() < 10 {
             return false;
         }
 
+        // Use pattern-based detection instead of relying on response similarity
         match filename {
+            // .env files - look for KEY=value patterns
             f if f.contains(".env") => {
-                body.contains("API_KEY")
-                    || body.contains("DATABASE")
-                    || body.contains("SECRET")
-                    || body.contains("PASSWORD")
+                // Specific .env patterns with KEY=VALUE format
+                body.contains("DB_PASSWORD=")
+                    || body.contains("DATABASE_PASSWORD=")
+                    || body.contains("API_KEY=")
+                    || body.contains("SECRET_KEY=")
+                    || body.contains("AWS_SECRET=")
+                    || body.contains("PRIVATE_KEY=")
+                    || body.contains("JWT_SECRET=")
+                    || body.contains("SESSION_SECRET=")
+                    // Generic patterns
+                    || (body.contains("=") && (
+                        body.contains("PASSWORD")
+                        || body.contains("SECRET")
+                        || body.contains("API_KEY")
+                        || body.contains("DATABASE")
+                        || body.contains("TOKEN")
+                    ))
             }
-            f if f.contains("config") => {
-                body.contains("password")
-                    || body.contains("secret")
-                    || body.contains("database")
-                    || body.contains("api")
-            }
+            // Git config files - look for git-specific patterns
             f if f.contains(".git") => {
-                body.contains("[core]") || body.contains("repositoryformatversion")
+                // Git config specific patterns
+                body.contains("[core]")
+                    || body.contains("[remote")
+                    || body.contains("repositoryformatversion")
+                    || body.contains("[branch")
+                    || body.contains("filemode")
+                    || body.contains("bare = ")
+                    // Git HEAD file pattern
+                    || body.contains("ref: refs/")
             }
+            // Config files - look for configuration patterns
+            f if f.contains("config") => {
+                let body_lower = body.to_lowercase();
+                // Must have actual config structure patterns
+                (body_lower.contains("password") && (body_lower.contains("=") || body_lower.contains(":")))
+                    || (body_lower.contains("secret") && (body_lower.contains("=") || body_lower.contains(":")))
+                    || (body_lower.contains("database") && body_lower.contains("host"))
+                    || (body_lower.contains("api") && (body_lower.contains("key") || body_lower.contains("token")))
+                    || body_lower.contains("connectionstring")
+            }
+            // Backup SQL files - look for SQL dump patterns
+            f if f.ends_with(".sql") || f.contains("backup.sql") || f.contains("db_backup") => {
+                // SQL dump specific patterns
+                body.contains("CREATE TABLE")
+                    || body.contains("INSERT INTO")
+                    || body.contains("DROP TABLE")
+                    || body.contains("-- MySQL dump")
+                    || body.contains("-- PostgreSQL database dump")
+                    || body.contains("-- Dumping data for table")
+                    || body.contains("LOCK TABLES")
+                    || body.contains("mysqldump")
+                    || body.contains("pg_dump")
+            }
+            // Backup archive files - look for archive patterns
+            f if f.ends_with(".zip") || f.ends_with(".tar.gz") || f.ends_with(".tar") => {
+                // Binary file signatures
+                let bytes = body.as_bytes();
+                body.starts_with("PK") // ZIP signature
+                    || (bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) // GZIP signature
+                    || body.contains("ustar") // TAR signature
+                    || body.len() > 1000 // Likely binary if large enough
+            }
+            // Backup source files (.bak, .old) - look for source code patterns
+            f if f.ends_with(".bak") || f.ends_with(".old") => {
+                // Source code patterns
+                body.contains("<?php")
+                    || body.contains("function ")
+                    || body.contains("class ")
+                    || body.contains("def ")
+                    || body.contains("import ")
+                    || body.contains("require(")
+                    || body.contains("include(")
+                    || (body.contains("=") && body.contains(";"))
+            }
+            // package.json / composer.json
             f if f.contains("package.json") || f.contains("composer.json") => {
-                body.contains("dependencies") || body.contains("require")
+                (body.contains("dependencies") || body.contains("require"))
+                    && (body.contains("{") && body.contains("}"))
             }
+            // phpinfo files
             f if f.contains("phpinfo") => {
                 // Must contain actual phpinfo() output indicators
                 body.contains("PHP Version")
                     || body.contains("phpinfo()")
                     || body.contains("php.ini")
                     || body.contains("Configuration File")
+                    || body.contains("Apache Environment")
             }
+            // .htaccess files
             f if f.contains(".htaccess") => {
                 body.contains("RewriteRule")
                     || body.contains("RewriteEngine")
                     || body.contains("AuthType")
-                    || body.contains("Require")
+                    || body.contains("Require ")
+                    || body.contains("AllowOverride")
             }
-            // For unknown files, don't assume they're sensitive - require actual sensitive patterns
+            // For unknown files, require strong sensitive patterns
             _ => {
                 let body_lower = body.to_lowercase();
-                body_lower.contains("password")
-                    || body_lower.contains("secret")
-                    || body_lower.contains("api_key")
-                    || body_lower.contains("private_key")
-                    || body_lower.contains("credentials")
+                // Must have key=value or key:value patterns with sensitive keywords
+                (body_lower.contains("password") && (body_lower.contains("=") || body_lower.contains(":")))
+                    || (body_lower.contains("secret") && body_lower.contains("="))
+                    || body_lower.contains("api_key=")
+                    || body_lower.contains("private_key=")
+                    || (body_lower.contains("credentials") && body_lower.contains(":"))
                     || body_lower.contains("token=")
             }
         }
     }
 
-    /// Detect stack trace in response
+    /// Detect stack trace in response with specific language patterns
+    /// Detects Python, Java, PHP, and Node.js error formats
     fn detect_stack_trace(&self, body: &str) -> bool {
+        // Python stack traces - specific patterns
+        if (body.contains("Traceback (most recent call last)")
+            || body.contains("File \"") && body.contains("line "))
+            && (body.contains(".py\"") || body.contains("in <module>") || body.contains("raise ")) {
+            return true;
+        }
+
+        // Java stack traces - specific patterns
+        if (body.contains("Exception") || body.contains("Error"))
+            && (body.contains("at ") && (body.contains(".java:") || body.contains("(") && body.contains(")")))
+            && (body.contains("Caused by:") || body.contains("at java.") || body.contains("at org.") || body.contains("at com.")) {
+            return true;
+        }
+
+        // PHP error messages - specific patterns
+        if (body.contains("Fatal error:")
+            || body.contains("Warning:") && body.contains(" in ") && body.contains(" on line ")
+            || body.contains("Parse error:")
+            || body.contains("Notice:") && body.contains(".php"))
+            && (body.contains("/") || body.contains("\\")) {
+            return true;
+        }
+
+        // Node.js / JavaScript stack traces - specific patterns
+        if (body.contains("Error:")
+            || body.contains("TypeError:")
+            || body.contains("ReferenceError:")
+            || body.contains("SyntaxError:"))
+            && (body.contains("at ") && (body.contains(".js:") || body.contains("(<anonymous>)") || body.contains("node_modules"))) {
+            return true;
+        }
+
+        // .NET / C# stack traces - specific patterns
+        if (body.contains("Exception") || body.contains("Error"))
+            && (body.contains(".cs:line ") || body.contains("at System.") || body.contains("at Microsoft.")) {
+            return true;
+        }
+
+        // Ruby stack traces - specific patterns
+        if (body.contains("Error") || body.contains("Exception"))
+            && (body.contains(".rb:") || body.contains("from ") && body.contains(":in `")) {
+            return true;
+        }
+
+        // Generic stack trace patterns (fallback with stricter requirements)
+        let body_lower = body.to_lowercase();
         let stack_trace_indicators = vec![
-            "at ",
             "stack trace",
             "stacktrace",
             "backtrace",
-            ".rb:",
-            ".py:",
-            ".java:",
-            ".cs:",
-            ".php:",
-            ".js:",
-            "line ",
-            "exception",
-            "error in",
-            "thrown at",
+            "call stack",
         ];
 
-        let body_lower = body.to_lowercase();
-
-        // Need multiple indicators for high confidence
-        let mut indicators_found = 0;
         for indicator in stack_trace_indicators {
             if body_lower.contains(indicator) {
-                indicators_found += 1;
-                if indicators_found >= 2 {
-                    return true;
-                }
+                return true;
             }
         }
 
-        // Check for common stack trace patterns
-        body.contains(" at ") && (body.contains("(") && body.contains(":"))
-            || body.contains("File \"") && body.contains("line ")
+        // Require strong evidence: file path + line number + function/method context
+        (body.contains(" at ") && body.contains("(") && body.contains(":") && body.contains(")"))
+            || (body.contains("File \"") && body.contains("line ") && body.contains(", in "))
+            || (body.contains(" in ") && body.contains(" on line ") && body.contains("/"))
     }
 
     /// Detect directory listing

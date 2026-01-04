@@ -17,6 +17,9 @@ struct SiteType {
     has_transaction_endpoints: bool,
     has_auth_endpoints: bool,
     has_ecommerce: bool,
+    has_registration: bool,
+    has_inventory: bool,
+    has_voting: bool,
     evidence: Vec<String>,
 }
 
@@ -65,6 +68,34 @@ impl RaceConditionScanner {
             tests_run += tests;
         }
 
+        // Test registration race conditions (duplicate username/email)
+        if site_type.has_registration && vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_registration_race(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
+        // Test inventory/stock race conditions
+        if site_type.has_inventory && vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_inventory_race(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
+        // Test voting/like race conditions (limited-action scenarios)
+        if site_type.has_voting && vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_voting_race(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
+        // Test single-use token redemption race conditions
+        if site_type.has_ecommerce && vulnerabilities.is_empty() {
+            let (vulns, tests) = self.test_token_redemption_race(url).await?;
+            vulnerabilities.extend(vulns);
+            tests_run += tests;
+        }
+
         // Test rate limit bypass via race (only if auth endpoints found)
         // NOTE: We do NOT test rate limiting on static/CDN sites - this creates false positives
         if site_type.has_auth_endpoints && vulnerabilities.is_empty() {
@@ -83,6 +114,9 @@ impl RaceConditionScanner {
             has_transaction_endpoints: false,
             has_auth_endpoints: false,
             has_ecommerce: false,
+            has_registration: false,
+            has_inventory: false,
+            has_voting: false,
             evidence: Vec::new(),
         };
 
@@ -153,6 +187,69 @@ impl RaceConditionScanner {
             }
         }
 
+        // Check for registration endpoints
+        let registration_indicators = [
+            "/api/register",
+            "/api/signup",
+            "/api/user/create",
+            "action=\"/register\"",
+            "action=\"/signup\"",
+            "name=\"username\"",
+            "name=\"email\"",
+        ];
+        for indicator in &registration_indicators {
+            if body_lower.contains(indicator) {
+                site_type.has_registration = true;
+                site_type.has_dynamic_endpoints = true;
+                site_type
+                    .evidence
+                    .push(format!("Registration: {}", indicator));
+                break;
+            }
+        }
+
+        // Check for inventory/stock endpoints
+        let inventory_indicators = [
+            "/api/inventory",
+            "/api/stock",
+            "/api/reserve",
+            "/api/book",
+            "stock",
+            "quantity",
+            "available",
+            "in_stock",
+        ];
+        for indicator in &inventory_indicators {
+            if body_lower.contains(indicator) {
+                site_type.has_inventory = true;
+                site_type.has_dynamic_endpoints = true;
+                site_type
+                    .evidence
+                    .push(format!("Inventory: {}", indicator));
+                break;
+            }
+        }
+
+        // Check for voting/like endpoints
+        let voting_indicators = [
+            "/api/vote",
+            "/api/like",
+            "/api/upvote",
+            "/api/favorite",
+            "/api/claim",
+            "btn-like",
+            "btn-vote",
+            "upvote",
+        ];
+        for indicator in &voting_indicators {
+            if body_lower.contains(indicator) {
+                site_type.has_voting = true;
+                site_type.has_dynamic_endpoints = true;
+                site_type.evidence.push(format!("Voting: {}", indicator));
+                break;
+            }
+        }
+
         // Check for Set-Cookie (indicates dynamic backend)
         if response.header("set-cookie").is_some() {
             site_type.has_dynamic_endpoints = true;
@@ -176,12 +273,15 @@ impl RaceConditionScanner {
         let concurrent_requests = 20;
         let mut join_set = JoinSet::new();
 
-        // Test POST endpoints that might be vulnerable
+        // Test POST endpoints that might be vulnerable to TOCTOU
         let test_paths = vec![
             "/api/withdraw",
             "/api/transfer",
+            "/api/pay",
+            "/api/payment",
             "/api/redeem",
             "/api/purchase",
+            "/api/checkout",
         ];
 
         for path in test_paths {
@@ -295,6 +395,329 @@ impl RaceConditionScanner {
                     "Race condition allows multiple uses of single-use coupons",
                     &format!(
                         "{} concurrent successful redemptions detected",
+                        success_count
+                    ),
+                    Severity::High,
+                    "CWE-362",
+                ));
+                break;
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test registration race conditions (duplicate username/email)
+    async fn test_registration_race(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 10;
+
+        debug!("Testing registration race conditions");
+
+        let concurrent_requests = 10;
+        let test_username = format!("racetest_{}", chrono::Utc::now().timestamp());
+
+        // Test registration endpoints
+        let registration_paths = vec![
+            "/api/register",
+            "/api/signup",
+            "/api/user/create",
+            "/register",
+            "/signup",
+        ];
+
+        for path in registration_paths {
+            let test_url = if url.ends_with('/') {
+                format!("{}{}", url.trim_end_matches('/'), path)
+            } else {
+                format!("{}{}", url, path)
+            };
+
+            let mut join_set = JoinSet::new();
+            let mut success_count = 0;
+
+            // Fire concurrent registration requests with same username
+            for _ in 0..concurrent_requests {
+                let http_client = Arc::clone(&self.http_client);
+                let url_clone = test_url.clone();
+                let username = test_username.clone();
+
+                join_set.spawn(async move {
+                    // Try POST request with username/email
+                    let body = format!(
+                        r#"{{"username": "{}", "email": "{}@test.com", "password": "Test123!"}}"#,
+                        username, username
+                    );
+                    http_client.post(&url_clone, &body).await
+                });
+            }
+
+            // Count successful registrations
+            while let Some(result) = join_set.join_next().await {
+                match result {
+                    Ok(Ok(response)) => {
+                        if (response.status_code == 200 || response.status_code == 201)
+                            && !response.body.to_lowercase().contains("already exists")
+                            && !response.body.to_lowercase().contains("duplicate")
+                            && !response.body.to_lowercase().contains("taken")
+                        {
+                            success_count += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // If more than 1 registration succeeded with same username, race condition exists
+            if success_count > 1 {
+                info!(
+                    "Registration race condition detected: {} duplicate accounts created",
+                    success_count
+                );
+                vulnerabilities.push(self.create_vulnerability(
+                    &test_url,
+                    "Registration Race Condition",
+                    format!("Concurrent registration with username: {}", test_username).as_str(),
+                    "Race condition allows creation of duplicate usernames/emails",
+                    &format!(
+                        "{} duplicate accounts created with same username",
+                        success_count
+                    ),
+                    Severity::High,
+                    "CWE-362",
+                ));
+                break;
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test inventory/stock race conditions
+    async fn test_inventory_race(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 10;
+
+        debug!("Testing inventory/stock race conditions");
+
+        let concurrent_requests = 10;
+
+        // Test inventory endpoints
+        let inventory_paths = vec![
+            "/api/inventory/reserve",
+            "/api/stock/reserve",
+            "/api/book",
+            "/api/checkout",
+            "/api/purchase",
+        ];
+
+        for path in inventory_paths {
+            let test_url = if url.ends_with('/') {
+                format!("{}{}?item_id=test123&quantity=1", url.trim_end_matches('/'), path)
+            } else {
+                format!("{}{}?item_id=test123&quantity=1", url, path)
+            };
+
+            let mut join_set = JoinSet::new();
+            let mut success_count = 0;
+
+            // Fire concurrent stock reservation requests
+            for _ in 0..concurrent_requests {
+                let http_client = Arc::clone(&self.http_client);
+                let url_clone = test_url.clone();
+
+                join_set.spawn(async move { http_client.post(&url_clone, "{}").await });
+            }
+
+            // Count successful reservations
+            while let Some(result) = join_set.join_next().await {
+                match result {
+                    Ok(Ok(response)) => {
+                        if (response.status_code == 200 || response.status_code == 201)
+                            && !response.body.to_lowercase().contains("out of stock")
+                            && !response.body.to_lowercase().contains("not available")
+                            && !response.body.to_lowercase().contains("insufficient")
+                        {
+                            success_count += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // If all or most requests succeeded, potential overselling
+            if success_count >= concurrent_requests - 2 {
+                info!(
+                    "Inventory race condition detected: {} concurrent reservations succeeded",
+                    success_count
+                );
+                vulnerabilities.push(self.create_vulnerability(
+                    &test_url,
+                    "Inventory/Stock Race Condition",
+                    "Concurrent stock reservations",
+                    "Race condition allows overselling - stock checks not atomic",
+                    &format!(
+                        "{} concurrent reservations succeeded (potential overselling)",
+                        success_count
+                    ),
+                    Severity::High,
+                    "CWE-362",
+                ));
+                break;
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test voting/like race conditions (limited-action scenarios)
+    async fn test_voting_race(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 10;
+
+        debug!("Testing voting/like race conditions");
+
+        let concurrent_requests = 10;
+
+        // Test voting endpoints
+        let voting_paths = vec![
+            "/api/vote",
+            "/api/like",
+            "/api/upvote",
+            "/api/favorite",
+            "/api/claim",
+        ];
+
+        for path in voting_paths {
+            let test_url = if url.ends_with('/') {
+                format!("{}{}?item_id=test123", url.trim_end_matches('/'), path)
+            } else {
+                format!("{}{}?item_id=test123", url, path)
+            };
+
+            let mut join_set = JoinSet::new();
+            let mut success_count = 0;
+
+            // Fire concurrent voting requests
+            for _ in 0..concurrent_requests {
+                let http_client = Arc::clone(&self.http_client);
+                let url_clone = test_url.clone();
+
+                join_set.spawn(async move { http_client.post(&url_clone, "{}").await });
+            }
+
+            // Count successful votes
+            while let Some(result) = join_set.join_next().await {
+                match result {
+                    Ok(Ok(response)) => {
+                        if (response.status_code == 200 || response.status_code == 201)
+                            && !response.body.to_lowercase().contains("already voted")
+                            && !response.body.to_lowercase().contains("already liked")
+                            && !response.body.to_lowercase().contains("already claimed")
+                        {
+                            success_count += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // If more than 1 vote succeeded, race condition exists
+            if success_count > 1 {
+                info!(
+                    "Voting race condition detected: {} concurrent votes/likes",
+                    success_count
+                );
+                vulnerabilities.push(self.create_vulnerability(
+                    &test_url,
+                    "Voting/Like Race Condition",
+                    "Concurrent voting/like requests",
+                    "Race condition allows multiple votes/likes from same user",
+                    &format!("{} concurrent votes/likes succeeded", success_count),
+                    Severity::Medium,
+                    "CWE-362",
+                ));
+                break;
+            }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Test single-use token redemption race conditions
+    async fn test_token_redemption_race(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let tests_run = 10;
+
+        debug!("Testing single-use token redemption race conditions");
+
+        let concurrent_requests = 10;
+        let test_token = format!("TOKEN_{}", chrono::Utc::now().timestamp());
+
+        // Test token redemption endpoints
+        let token_paths = vec![
+            "/api/redeem",
+            "/api/claim",
+            "/api/token/use",
+            "/api/gift/redeem",
+        ];
+
+        for path in token_paths {
+            let test_url = if url.ends_with('/') {
+                format!("{}{}?token={}", url.trim_end_matches('/'), path, test_token)
+            } else {
+                format!("{}{}?token={}", url, path, test_token)
+            };
+
+            let mut join_set = JoinSet::new();
+            let mut success_count = 0;
+
+            // Fire concurrent token redemption requests
+            for _ in 0..concurrent_requests {
+                let http_client = Arc::clone(&self.http_client);
+                let url_clone = test_url.clone();
+
+                join_set.spawn(async move { http_client.post(&url_clone, "{}").await });
+            }
+
+            // Count successful redemptions
+            while let Some(result) = join_set.join_next().await {
+                match result {
+                    Ok(Ok(response)) => {
+                        if (response.status_code == 200 || response.status_code == 201)
+                            && !response.body.to_lowercase().contains("already used")
+                            && !response.body.to_lowercase().contains("invalid")
+                            && !response.body.to_lowercase().contains("expired")
+                        {
+                            success_count += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // If more than 1 redemption succeeded, race condition exists
+            if success_count > 1 {
+                info!(
+                    "Token redemption race condition detected: {} concurrent redemptions",
+                    success_count
+                );
+                vulnerabilities.push(self.create_vulnerability(
+                    &test_url,
+                    "Single-Use Token Race Condition",
+                    format!("Concurrent redemption with token: {}", test_token).as_str(),
+                    "Race condition allows multiple uses of single-use tokens",
+                    &format!(
+                        "{} concurrent redemptions of single-use token",
                         success_count
                     ),
                     Severity::High,
