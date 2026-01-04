@@ -1120,7 +1120,7 @@ jobs:
 
       - name: Run Lonkero Scan
         env:
-          LONKERO_LICENSE: ${{ secrets.LONKERO_LICENSE }}
+          LONKERO_LICENSE_KEY: ${{ secrets.LONKERO_LICENSE }}
         run: |
           # v3.0: Intelligent mode is default - no --mode needed
           lonkero scan https://staging.example.com \
@@ -1140,7 +1140,7 @@ lonkero-scan:
   stage: security
   image: rust:1.85.1
   variables:
-    LONKERO_LICENSE: $LONKERO_LICENSE_KEY
+    LONKERO_LICENSE_KEY: $LONKERO_LICENSE
   script:
     - git clone https://github.com/bountyyfi/lonkero.git /tmp/lonkero
     - cd /tmp/lonkero && cargo build --release
