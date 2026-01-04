@@ -43,6 +43,8 @@ jobs:
         run: cargo install lonkero
 
       - name: Scan training endpoint
+        env:
+          LONKERO_LICENSE: ${{ secrets.LONKERO_LICENSE }}
         run: |
           lonkero scan \
             --crawl \
