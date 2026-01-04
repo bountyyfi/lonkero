@@ -1823,6 +1823,67 @@ async fn execute_standalone_scan(
         }
     }
 
+    // Endpoint discovery using wordlist-based fuzzing
+    info!("  - Running endpoint discovery (wordlist fuzzing)");
+    use lonkero_scanner::discovery::EndpointDiscovery;
+    let endpoint_discovery = EndpointDiscovery::new(Arc::clone(&http_client));
+    match endpoint_discovery.discover(target).await {
+        Ok(endpoints) => {
+            if !endpoints.is_empty() {
+                info!(
+                    "[SUCCESS] Discovered {} hidden endpoints via fuzzing",
+                    endpoints.len()
+                );
+                for endpoint in &endpoints {
+                    debug!(
+                        "    - {} [{}] {:?}",
+                        endpoint.url, endpoint.status_code, endpoint.category
+                    );
+                }
+
+                // Add discovered endpoints to crawl results as additional URLs to scan
+                if let Some(ref mut results) = crawl_results {
+                    for endpoint in &endpoints {
+                        results.links.insert(endpoint.url.clone());
+                        results.crawled_urls.insert(endpoint.url.clone());
+
+                        // Mark API endpoints
+                        if matches!(
+                            endpoint.category,
+                            lonkero_scanner::discovery::EndpointCategory::Api
+                        ) {
+                            results.api_endpoints.insert(endpoint.url.clone());
+                        }
+                    }
+                } else {
+                    // Initialize crawl results if crawler wasn't run
+                    let mut new_results = CrawlResults::new();
+                    for endpoint in &endpoints {
+                        new_results.links.insert(endpoint.url.clone());
+                        new_results.crawled_urls.insert(endpoint.url.clone());
+                        if matches!(
+                            endpoint.category,
+                            lonkero_scanner::discovery::EndpointCategory::Api
+                        ) {
+                            new_results.api_endpoints.insert(endpoint.url.clone());
+                        }
+                    }
+                    crawl_results = Some(new_results);
+                }
+
+                info!(
+                    "[SUCCESS] Endpoint discovery complete - added {} URLs to scan queue",
+                    endpoints.len()
+                );
+            } else {
+                info!("  - No hidden endpoints discovered");
+            }
+        }
+        Err(e) => {
+            warn!("  - Endpoint discovery failed: {}", e);
+        }
+    }
+
     // Technology detection - STORE RESULTS for smart filtering
     info!("  - Detecting technologies");
     let detector = FrameworkDetector::new(Arc::clone(&http_client));
