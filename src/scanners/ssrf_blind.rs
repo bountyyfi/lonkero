@@ -70,6 +70,7 @@ impl SsrfBlindScanner {
 
         let payloads = self.generate_blind_ssrf_payloads();
 
+        // Test GET parameters (query string)
         for payload in &payloads {
             tests_run += 1;
 
@@ -89,7 +90,7 @@ impl SsrfBlindScanner {
                 )
             };
 
-            debug!("[SSRF-Blind] Testing payload: {} -> {}", parameter, payload);
+            debug!("[SSRF-Blind] Testing GET payload: {} -> {}", parameter, payload);
 
             // Measure request timing for blind SSRF detection
             let request_start = Instant::now();
@@ -109,7 +110,7 @@ impl SsrfBlindScanner {
                             *baseline_duration,
                         ) {
                             info!(
-                                "[ALERT] Blind SSRF vulnerability detected in parameter '{}'",
+                                "[ALERT] Blind SSRF vulnerability detected in GET parameter '{}'",
                                 parameter
                             );
                             vulnerabilities.push(vuln);
@@ -119,10 +120,9 @@ impl SsrfBlindScanner {
                 }
                 Err(e) => {
                     let request_duration = request_start.elapsed();
-                    debug!("[SSRF-Blind] Request error: {}", e);
+                    debug!("[SSRF-Blind] GET request error: {}", e);
 
                     // Error-based blind SSRF detection
-                    // Different errors for valid vs invalid URLs can indicate SSRF processing
                     if let Some(vuln) = self.analyze_error_based_ssrf(
                         &e,
                         request_duration,
@@ -131,7 +131,7 @@ impl SsrfBlindScanner {
                         &test_url,
                     ) {
                         info!(
-                            "[ALERT] Error-based blind SSRF vulnerability detected in parameter '{}'",
+                            "[ALERT] Error-based blind SSRF vulnerability detected in GET parameter '{}'",
                             parameter
                         );
                         vulnerabilities.push(vuln);
@@ -141,8 +141,135 @@ impl SsrfBlindScanner {
             }
         }
 
+        // Test POST JSON body parameters if no vulnerability found in GET
+        if vulnerabilities.is_empty() {
+            for payload in &payloads {
+                tests_run += 1;
+
+                // Create JSON payload with the parameter
+                let json_body = format!(r#"{{"{}":"{}"}}"#, parameter, payload.replace('"', "\\\""));
+
+                debug!("[SSRF-Blind] Testing POST JSON payload: {} -> {}", parameter, payload);
+
+                // Measure request timing for blind SSRF detection
+                let request_start = Instant::now();
+                let headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+                match self.http_client.post_with_headers(base_url, &json_body, headers).await {
+                    Ok(response) => {
+                        let request_duration = request_start.elapsed();
+
+                        if let Some((baseline_response, baseline_duration)) = &baseline {
+                            if let Some(mut vuln) = self.analyze_blind_ssrf_response(
+                                &response,
+                                request_duration,
+                                payload,
+                                parameter,
+                                base_url,
+                                baseline_response,
+                                *baseline_duration,
+                            ) {
+                                info!(
+                                    "[ALERT] Blind SSRF vulnerability detected in POST JSON body parameter '{}'",
+                                    parameter
+                                );
+                                vuln.description = format!("{} (POST JSON body)", vuln.description);
+                                vuln.payload = json_body;
+                                vulnerabilities.push(vuln);
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let request_duration = request_start.elapsed();
+                        debug!("[SSRF-Blind] POST JSON request error: {}", e);
+
+                        if let Some(mut vuln) = self.analyze_error_based_ssrf(
+                            &e,
+                            request_duration,
+                            payload,
+                            parameter,
+                            base_url,
+                        ) {
+                            info!(
+                                "[ALERT] Error-based blind SSRF vulnerability detected in POST JSON body parameter '{}'",
+                                parameter
+                            );
+                            vuln.description = format!("{} (POST JSON body)", vuln.description);
+                            vuln.payload = json_body;
+                            vulnerabilities.push(vuln);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Test POST form-encoded body parameters if no vulnerability found
+        if vulnerabilities.is_empty() {
+            for payload in &payloads {
+                tests_run += 1;
+
+                // Create form-encoded payload
+                let form_body = format!("{}={}", parameter, urlencoding::encode(payload));
+
+                debug!("[SSRF-Blind] Testing POST form payload: {} -> {}", parameter, payload);
+
+                // Measure request timing for blind SSRF detection
+                let request_start = Instant::now();
+
+                match self.http_client.post_form(base_url, &form_body).await {
+                    Ok(response) => {
+                        let request_duration = request_start.elapsed();
+
+                        if let Some((baseline_response, baseline_duration)) = &baseline {
+                            if let Some(mut vuln) = self.analyze_blind_ssrf_response(
+                                &response,
+                                request_duration,
+                                payload,
+                                parameter,
+                                base_url,
+                                baseline_response,
+                                *baseline_duration,
+                            ) {
+                                info!(
+                                    "[ALERT] Blind SSRF vulnerability detected in POST form body parameter '{}'",
+                                    parameter
+                                );
+                                vuln.description = format!("{} (POST form-encoded body)", vuln.description);
+                                vuln.payload = form_body;
+                                vulnerabilities.push(vuln);
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let request_duration = request_start.elapsed();
+                        debug!("[SSRF-Blind] POST form request error: {}", e);
+
+                        if let Some(mut vuln) = self.analyze_error_based_ssrf(
+                            &e,
+                            request_duration,
+                            payload,
+                            parameter,
+                            base_url,
+                        ) {
+                            info!(
+                                "[ALERT] Error-based blind SSRF vulnerability detected in POST form body parameter '{}'",
+                                parameter
+                            );
+                            vuln.description = format!("{} (POST form-encoded body)", vuln.description);
+                            vuln.payload = form_body;
+                            vulnerabilities.push(vuln);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         info!(
-            "[SUCCESS] [SSRF-Blind] Completed {} tests on parameter '{}', found {} vulnerabilities",
+            "[SUCCESS] [SSRF-Blind] Completed {} tests (GET + POST JSON + POST form) on parameter '{}', found {} vulnerabilities",
             tests_run,
             parameter,
             vulnerabilities.len()

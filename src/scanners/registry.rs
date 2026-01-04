@@ -543,8 +543,12 @@ pub enum ScannerType {
     PathTraversal,
     /// Log4j/Log4Shell vulnerability
     Log4j,
+    /// Second-Order Injection detection
+    SecondOrderInjection,
 
     // === Authentication Scanners ===
+    /// Authentication flow tester (session fixation, password reset IDOR, MFA bypass)
+    AuthFlowTester,
     /// JWT vulnerability detection
     Jwt,
     /// JWT specific vulnerabilities (algorithm confusion, etc.)
@@ -753,6 +757,8 @@ impl ScannerType {
             ScannerType::SsiInjection => "SSI Injection Scanner",
             ScannerType::PathTraversal => "Path Traversal Scanner",
             ScannerType::Log4j => "Log4j Scanner",
+            ScannerType::SecondOrderInjection => "Second-Order Injection Scanner",
+            ScannerType::AuthFlowTester => "Auth Flow Tester",
             ScannerType::Jwt => "JWT Scanner",
             ScannerType::JwtVulnerabilities => "JWT Vulnerabilities Scanner",
             ScannerType::OAuth => "OAuth Scanner",
@@ -1252,6 +1258,8 @@ impl ScannerRegistry {
             ScannerType::Ssrf,
             ScannerType::SsrfBlind,
             ScannerType::PathTraversal,
+            ScannerType::SecondOrderInjection,
+            ScannerType::AuthFlowTester,
             // Authentication/Authorization - ALWAYS test
             ScannerType::Idor,
             ScannerType::Bola,
@@ -1349,6 +1357,10 @@ impl ScannerRegistry {
         self.default_priorities
             .insert(ScannerType::PathTraversal, 9);
         self.default_priorities.insert(ScannerType::Log4j, 10);
+        self.default_priorities
+            .insert(ScannerType::SecondOrderInjection, 9);
+        self.default_priorities
+            .insert(ScannerType::AuthFlowTester, 8);
 
         // XSS and other injection
         self.default_priorities.insert(ScannerType::Xss, 8);
@@ -3164,7 +3176,12 @@ impl ScannerRegistry {
             );
         }
 
-        // Skip server-side injection scanners for static sites
+        // CRITICAL FIX: DO NOT skip injection scanners for "static" platforms
+        // Cloudflare Pages runs Workers (dynamic), Vercel runs Functions (dynamic)
+        // Netlify runs Functions (dynamic) - all can have SQLi, NoSQLi, etc.
+        // This skip logic was causing 0% detection rate on modern deployments
+        // DISABLED - Always run injection tests regardless of hosting platform
+        /*
         for platform in [
             StaticPlatform::CloudflarePages,
             StaticPlatform::Vercel,
@@ -3193,6 +3210,7 @@ impl ScannerRegistry {
                 );
             }
         }
+        */
 
         // Skip form-based injection tests for GraphQL
         self.skip_rules.insert(
@@ -3285,13 +3303,15 @@ impl ScannerRegistry {
             // Skip Django for non-Python
             (ScannerType::Django, tech) if !matches!(tech, TechCategory::Python(_)) => true,
 
-            // Skip server-side injection for static sites
-            (scanner, TechCategory::StaticSite(_))
-                if scanner.is_injection()
-                    && !matches!(scanner, ScannerType::Xss | ScannerType::HtmlInjection) =>
-            {
-                true
-            }
+            // CRITICAL FIX: DO NOT skip injection for "static" sites
+            // Cloudflare/Vercel/Netlify can run dynamic code
+            // DISABLED to ensure all sites are tested for injection
+            // (scanner, TechCategory::StaticSite(_))
+            //     if scanner.is_injection()
+            //         && !matches!(scanner, ScannerType::Xss | ScannerType::HtmlInjection) =>
+            // {
+            //     true
+            // }
 
             // Skip GraphQL scanners for non-GraphQL
             (ScannerType::GraphQL | ScannerType::GraphQLSecurity, tech)

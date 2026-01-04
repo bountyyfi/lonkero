@@ -8,12 +8,12 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.0-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.1-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Release](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml/badge.svg)](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**120+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **Scanner Intelligence** | **5% False Positives**
+**125+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **Scanner Intelligence** | **5% False Positives**
 
 **[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [ML Features](#machine-learning-features) · [Scanner Intelligence](#scanner-intelligence-system) · [Architecture](#architecture)
 
@@ -39,6 +39,26 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 ---
 
+## v3.1 New Features
+
+### Detection Improvements
+- **Fixed Static/SPA Skip Logic** - Cloudflare Workers, Vercel Functions, and Netlify Functions are now properly tested (they're dynamic, not static)
+- **Fixed Node.js Command Injection** - Removed incorrect assumption that Node.js can't execute shell commands (`child_process` exists)
+- **SSRF POST Body Testing** - Now tests POST JSON and form-encoded bodies, not just query parameters
+- **Enhanced Endpoint Discovery** - 244+ new endpoint patterns for API, admin, debug, and tool paths
+
+### New Scanners
+- **Second-Order Injection** - Stores payloads in one endpoint, detects execution in another (XSS, SQLi, CMDi)
+- **Auth Flow Tester** - Session fixation, password reset IDOR, MFA bypass, predictable session tokens
+
+### Enhanced Scanners
+- **JWT** - Expanded weak secret wordlist (21 secrets), fixed `alg:none` token format
+- **Race Conditions** - Registration, inventory, voting, and single-use token TOCTOU tests
+- **WebSocket** - Active endpoint discovery, CSWSH testing with 9 origin bypasses
+- **Information Disclosure** - Pattern-based content detection (won't skip even if 404s are identical)
+
+---
+
 ## Core Capabilities
 
 ### v3.0 Intelligent Scanning Architecture
@@ -61,12 +81,12 @@ Unlike generic scanners that spam thousands of useless payloads, Lonkero uses co
 
 **Key insight**: When technology detection fails, the fallback layer runs MORE comprehensive tests to ensure nothing is missed.
 
-### 120+ Security Scanners
+### 125+ Security Scanners
 
 | Category | Scanners | Focus Areas |
 |----------|----------|-------------|
-| **Injection** | 30 scanners | SQLi, XSS, DOM XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header, Log4j/JNDI, DOM Clobbering |
-| **Authentication** | 26 scanners | JWT, OAuth, OIDC, SAML, MFA, 2FA Bypass, Session, Auth Bypass, IDOR, BOLA, Account Takeover, Password Reset Poisoning, Timing Attacks, Cognito Enum, Client Route Bypass |
+| **Injection** | 31 scanners | SQLi, XSS, DOM XSS, XXE, NoSQL, Command, LDAP, XPath, SSRF, Template, Prototype Pollution, Host Header, Log4j/JNDI, DOM Clobbering, **Second-Order Injection (v3.1)** |
+| **Authentication** | 28 scanners | JWT, OAuth, OIDC, SAML, MFA, 2FA Bypass, Session, Auth Bypass, IDOR, BOLA, Account Takeover, Password Reset Poisoning, Timing Attacks, Cognito Enum, Client Route Bypass, **Auth Flow Tester (v3.1)** |
 | **API Security** | 20 scanners | GraphQL (advanced), GraphQL Batching, gRPC, REST, WebSocket, Rate Limiting, CORS, HTTP/3, Azure APIM, BFLA, API Versioning, OpenAPI Analyzer |
 | **Frameworks** | 15 scanners | Next.js (route discovery), React, Django, Laravel, WordPress, Drupal, Joomla, Express, SvelteKit, Ruby on Rails, Spring Boot |
 | **Configuration** | 17 scanners | Headers, CSP Bypass, SSL/TLS, Cloud, Containers, WAF Bypass, CSRF, DNS Security, Web Cache Deception, PostMessage Vulns |

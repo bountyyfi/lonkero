@@ -39,7 +39,7 @@ impl WebSocketScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // Test 1: Detect WebSocket endpoints
+        // Test 1: Detect WebSocket endpoints (passive detection from response)
         tests_run += 1;
         let response = match self.http_client.get(url).await {
             Ok(r) => r,
@@ -52,82 +52,107 @@ impl WebSocketScanner {
         // Intelligent detection
         let characteristics = AppCharacteristics::from_response(&response, url);
         let is_websocket = self.detect_websocket_endpoint(&response, url);
-        if !is_websocket {
+
+        // Test 2: Active WebSocket endpoint discovery (probe common paths)
+        tests_run += 1;
+        let discovered_endpoints = self.discover_websocket_endpoints(url).await;
+
+        // If not detected passively and no active discovery, skip WebSocket tests
+        if !is_websocket && discovered_endpoints.is_empty() {
             debug!("[NOTE] [WebSocket] Not a WebSocket endpoint");
             return Ok((vulnerabilities, tests_run));
         }
+
         // Store characteristics for later use in tests
         let _app_chars = characteristics;
 
         info!("[SUCCESS] [WebSocket] WebSocket endpoint detected");
 
-        // Test 2: Check for missing origin validation
+        // Report discovered endpoints
+        if !discovered_endpoints.is_empty() {
+            info!(
+                "[WebSocket] Discovered {} WebSocket endpoints: {:?}",
+                discovered_endpoints.len(),
+                discovered_endpoints
+            );
+        }
+
+        // Test 3: Check for missing origin validation
         tests_run += 1;
         self.check_origin_validation(&response, url, &mut vulnerabilities);
 
-        // Test 3: Check for missing authentication
+        // Test 4: Check for missing authentication
         tests_run += 1;
         self.check_authentication(&response, url, &mut vulnerabilities);
 
-        // Test 4: Test CSWSH (Cross-Site WebSocket Hijacking)
+        // Test 5: Test CSWSH (Cross-Site WebSocket Hijacking)
         tests_run += 1;
         if let Ok(cswsh_response) = self.test_cswsh(url).await {
             self.check_cswsh(&cswsh_response, url, &mut vulnerabilities);
         }
 
-        // Test 5: Check for sensitive data in WebSocket URL
+        // Test 6: Check for sensitive data in WebSocket URL
         tests_run += 1;
         self.check_sensitive_data_in_url(url, &mut vulnerabilities);
 
-        // Test 6: Check for tunnel/message injection
+        // Test 7: Check for tunnel/message injection
         tests_run += 1;
         self.check_message_injection(&response, url, &mut vulnerabilities);
 
-        // Test 7: Check for rate limiting
+        // Test 8: Check for rate limiting
         tests_run += 1;
         self.check_rate_limiting(&response, url, &mut vulnerabilities);
 
-        // Test 8: Check WebSocket Sec headers
+        // Test 9: Check WebSocket Sec headers
         tests_run += 1;
         self.check_sec_headers(&response, url, &mut vulnerabilities);
 
         // Try to convert HTTP(S) URL to WebSocket URL for exploitation tests
         let ws_url = self.convert_to_ws_url(url);
         if let Some(ws_url) = &ws_url {
-            // Test 9: WebSocket CSRF
+            // Test 10: WebSocket CSRF
             tests_run += 1;
             if let Ok(csrf_vulns) = self.test_websocket_csrf(ws_url).await {
                 vulnerabilities.extend(csrf_vulns);
             }
 
-            // Test 10: WebSocket Message Injection
+            // Test 11: WebSocket Message Injection
             tests_run += 1;
             if let Ok(injection_vulns) = self.test_message_injection(ws_url).await {
                 vulnerabilities.extend(injection_vulns);
             }
 
-            // Test 11: WebSocket Origin Bypass (exploitation)
+            // Test 12: WebSocket Origin Bypass (exploitation)
             tests_run += 1;
             if let Ok(origin_vulns) = self.test_origin_bypass(ws_url).await {
                 vulnerabilities.extend(origin_vulns);
             }
 
-            // Test 12: WebSocket Hijacking
+            // Test 13: WebSocket Hijacking
             tests_run += 1;
             if let Ok(hijack_vulns) = self.test_websocket_hijacking(ws_url).await {
                 vulnerabilities.extend(hijack_vulns);
             }
 
-            // Test 13: WebSocket Denial of Service (limited)
+            // Test 14: WebSocket Denial of Service (limited)
             tests_run += 1;
             if let Ok(dos_vulns) = self.test_websocket_dos(ws_url).await {
                 vulnerabilities.extend(dos_vulns);
             }
 
-            // Test 14: WebSocket Protocol Confusion
+            // Test 15: WebSocket Protocol Confusion
             tests_run += 1;
             if let Ok(confusion_vulns) = self.test_protocol_confusion(ws_url).await {
                 vulnerabilities.extend(confusion_vulns);
+            }
+        }
+
+        // Test discovered endpoints as well
+        for endpoint in discovered_endpoints {
+            // Test 16+: Test each discovered endpoint for CSWSH
+            tests_run += 1;
+            if let Ok(origin_vulns) = self.test_origin_bypass(&endpoint).await {
+                vulnerabilities.extend(origin_vulns);
             }
         }
 
@@ -163,6 +188,77 @@ impl WebSocketScanner {
             || response
                 .header("upgrade")
                 .map_or(false, |h| h.to_lowercase() == "websocket")
+    }
+
+    /// Actively discover WebSocket endpoints by probing common paths
+    async fn discover_websocket_endpoints(&self, url: &str) -> Vec<String> {
+        let mut discovered = Vec::new();
+
+        // Parse base URL
+        let base_url = if let Ok(parsed) = url::Url::parse(url) {
+            let scheme = if parsed.scheme() == "https" {
+                "wss"
+            } else {
+                "ws"
+            };
+            let host = parsed.host_str().unwrap_or("localhost");
+            let port = if let Some(p) = parsed.port() {
+                format!(":{}", p)
+            } else {
+                String::new()
+            };
+            format!("{}://{}{}", scheme, host, port)
+        } else {
+            return discovered;
+        };
+
+        // Common WebSocket endpoint paths
+        let common_paths = vec![
+            "/ws",
+            "/wss",
+            "/websocket",
+            "/socket",
+            "/socket.io",
+            "/sockjs",
+            "/api/ws",
+            "/api/websocket",
+            "/realtime",
+            "/live",
+            "/chat",
+            "/stream",
+            "/events",
+            "/notifications",
+        ];
+
+        // Try to connect to each common path
+        for path in common_paths {
+            let ws_url = format!("{}{}", base_url, path);
+
+            // Try to establish WebSocket connection with a short timeout
+            match timeout(Duration::from_secs(2), connect_async(&ws_url)).await {
+                Ok(Ok((ws_stream, _response))) => {
+                    debug!("[WebSocket Discovery] Found endpoint: {}", ws_url);
+                    discovered.push(ws_url.clone());
+
+                    // Close the connection
+                    let (mut write, _) = ws_stream.split();
+                    let _ = write.send(Message::Close(None)).await;
+                }
+                Ok(Err(e)) => {
+                    // Connection failed, but check if it's an HTTP upgrade response
+                    let error_str = e.to_string().to_lowercase();
+                    if error_str.contains("upgrade") || error_str.contains("101") {
+                        debug!("[WebSocket Discovery] Potential endpoint: {} (upgrade-related error)", ws_url);
+                        discovered.push(ws_url);
+                    }
+                }
+                Err(_) => {
+                    // Timeout - skip
+                }
+            }
+        }
+
+        discovered
     }
 
     /// Check origin validation
@@ -404,11 +500,14 @@ impl WebSocketScanner {
         // Try common WebSocket paths
         let paths = vec![
             "/ws",
+            "/wss",
             "/websocket",
             "/socket.io",
+            "/sockjs",
             "/socket",
             "/chat",
             "/realtime",
+            "/live",
             "/api/ws",
             "/api/websocket",
         ];
@@ -434,13 +533,30 @@ impl WebSocketScanner {
         // Try to connect WITHOUT cookies/auth
         let connect_result = timeout(Duration::from_secs(5), connect_async(ws_url)).await;
 
-        let (ws_stream, _) = match connect_result {
+        let ws_stream = match connect_result {
             Ok(Ok((stream, response))) => {
                 debug!(
                     "[WebSocket CSRF] Connected successfully: {:?}",
                     response.status()
                 );
-                (stream, response)
+
+                // If connection succeeds without authentication, that's already a vulnerability
+                if response.status().is_success() || response.status().as_u16() == 101 {
+                    vulnerabilities.push(self.create_vulnerability(
+                        "WebSocket Connection Without Authentication",
+                        ws_url,
+                        Severity::High,
+                        Confidence::High,
+                        "WebSocket accepts connections without authentication tokens or cookies",
+                        format!(
+                            "Connected to WebSocket without credentials. Status: {}",
+                            response.status()
+                        ),
+                        7.5,
+                    ));
+                }
+
+                stream
             }
             Ok(Err(e)) => {
                 debug!("[WebSocket CSRF] Connection failed: {}", e);
@@ -631,14 +747,24 @@ impl WebSocketScanner {
         Ok(vulnerabilities)
     }
 
-    /// Test WebSocket Origin Bypass
+    /// Test WebSocket Origin Bypass (Cross-Site WebSocket Hijacking)
     async fn test_origin_bypass(&self, ws_url: &str) -> Result<Vec<Vulnerability>> {
         let mut vulnerabilities = Vec::new();
 
         info!("[WebSocket Origin] Testing: {}", ws_url);
 
-        // Test with malicious origin
-        let evil_origins = vec!["https://evil.com", "http://attacker.evil", "null", ""];
+        // Test with malicious origins - comprehensive list
+        let evil_origins = vec![
+            "https://evil.com",
+            "http://attacker.evil",
+            "https://attacker.com",
+            "http://malicious.net",
+            "null",
+            "",
+            "file://",
+            "data://",
+            "javascript://evil.com",
+        ];
 
         for origin in &evil_origins {
             // Create custom request with Origin header
@@ -1372,5 +1498,87 @@ mod tests {
         };
 
         assert!(!scanner.detect_websocket_endpoint(&response, "https://example.com"));
+    }
+
+    #[test]
+    fn test_websocket_url_detection() {
+        let scanner = WebSocketScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let response = crate::http_client::HttpResponse {
+            status_code: 200,
+            body: String::new(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        // Should detect ws:// URL
+        assert!(scanner.detect_websocket_endpoint(&response, "ws://example.com/socket"));
+
+        // Should detect wss:// URL
+        assert!(scanner.detect_websocket_endpoint(&response, "wss://example.com/socket"));
+    }
+
+    #[test]
+    fn test_convert_to_ws_url() {
+        let scanner = WebSocketScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        // HTTPS should convert to WSS
+        let ws_url = scanner.convert_to_ws_url("https://example.com/api/ws");
+        assert!(ws_url.is_some());
+        assert!(ws_url.unwrap().starts_with("wss://"));
+
+        // HTTP should convert to WS
+        let ws_url = scanner.convert_to_ws_url("http://example.com/socket");
+        assert!(ws_url.is_some());
+        assert!(ws_url.unwrap().starts_with("ws://"));
+
+        // Already WebSocket URL should be preserved
+        let ws_url = scanner.convert_to_ws_url("wss://example.com/chat");
+        assert_eq!(ws_url, Some("wss://example.com/chat".to_string()));
+    }
+
+    #[test]
+    fn test_sockjs_detection() {
+        let scanner = WebSocketScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let response = crate::http_client::HttpResponse {
+            status_code: 200,
+            body: r#"const socket = new SockJS('/sockjs');"#.to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        assert!(scanner.detect_websocket_endpoint(&response, "https://example.com"));
+    }
+
+    #[test]
+    fn test_socket_io_detection() {
+        let scanner = WebSocketScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let response = crate::http_client::HttpResponse {
+            status_code: 200,
+            body: r#"const socket = io.connect('http://localhost:3000');"#.to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        assert!(scanner.detect_websocket_endpoint(&response, "http://localhost:3000"));
+    }
+
+    #[test]
+    fn test_upgrade_header_detection() {
+        let scanner = WebSocketScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let mut headers = HashMap::new();
+        headers.insert("upgrade".to_string(), "websocket".to_string());
+
+        let response = crate::http_client::HttpResponse {
+            status_code: 101,
+            body: String::new(),
+            headers,
+            duration_ms: 100,
+        };
+
+        assert!(scanner.detect_websocket_endpoint(&response, "https://example.com"));
     }
 }

@@ -523,10 +523,12 @@ impl ParameterFilter {
                 false
             }
             ScannerType::SSRF => {
-                // SSRF needs URL/URI/host parameters
+                // SSRF needs URL/URI/host parameters - common in webhooks, PDF generators, image processors
                 let url_indicators = [
                     "url", "uri", "host", "domain", "link", "href", "callback", "webhook",
-                    "redirect",
+                    "redirect", "src", "source", "next", "return", "returnurl", "return_url",
+                    "image", "imageurl", "img", "file", "fileurl", "template", "templateurl",
+                    "template_url", "endpoint", "target", "targeturl", "proxy", "fetch",
                 ];
                 let skip = !url_indicators.iter().any(|ind| param_lower.contains(ind))
                     && (param_lower.starts_with("is") || param_lower.starts_with("has"));

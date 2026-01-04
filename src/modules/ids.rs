@@ -241,6 +241,12 @@ pub mod advanced_scanning {
     pub const JWT_ANALYZER: &str = "jwt_analyzer";
     /// Session analyzer (session token analysis)
     pub const SESSION_ANALYZER: &str = "session_analyzer";
+
+    // === New Scanners (v3.1) ===
+    /// Second-order injection scanner (stored payloads, delayed execution)
+    pub const SECOND_ORDER_INJECTION: &str = "second_order_injection";
+    /// Authentication flow tester (session fixation, password reset IDOR, MFA bypass)
+    pub const AUTH_FLOW_TESTER: &str = "auth_flow_tester";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -448,6 +454,9 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::IDOR_ANALYZER,
         advanced_scanning::JWT_ANALYZER,
         advanced_scanning::SESSION_ANALYZER,
+        // New Scanners (v3.1)
+        advanced_scanning::SECOND_ORDER_INJECTION,
+        advanced_scanning::AUTH_FLOW_TESTER,
         // Cloud Scanning (Team+)
         cloud_scanning::CONTAINER_SCANNER,
         cloud_scanning::CLOUD_STORAGE,
