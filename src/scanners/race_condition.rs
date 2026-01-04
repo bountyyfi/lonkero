@@ -451,7 +451,7 @@ impl RaceConditionScanner {
                         r#"{{"username": "{}", "email": "{}@test.com", "password": "Test123!"}}"#,
                         username, username
                     );
-                    http_client.post(&url_clone, &body).await
+                    http_client.post(&url_clone, body).await
                 });
             }
 
@@ -532,7 +532,7 @@ impl RaceConditionScanner {
                 let http_client = Arc::clone(&self.http_client);
                 let url_clone = test_url.clone();
 
-                join_set.spawn(async move { http_client.post(&url_clone, "{}").await });
+                join_set.spawn(async move { http_client.post(&url_clone, "{}".to_string()).await });
             }
 
             // Count successful reservations
@@ -609,7 +609,7 @@ impl RaceConditionScanner {
                 let http_client = Arc::clone(&self.http_client);
                 let url_clone = test_url.clone();
 
-                join_set.spawn(async move { http_client.post(&url_clone, "{}").await });
+                join_set.spawn(async move { http_client.post(&url_clone, "{}".to_string()).await });
             }
 
             // Count successful votes
@@ -686,7 +686,7 @@ impl RaceConditionScanner {
                 let http_client = Arc::clone(&self.http_client);
                 let url_clone = test_url.clone();
 
-                join_set.spawn(async move { http_client.post(&url_clone, "{}").await });
+                join_set.spawn(async move { http_client.post(&url_clone, "{}".to_string()).await });
             }
 
             // Count successful redemptions
