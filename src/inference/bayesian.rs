@@ -19,6 +19,8 @@ pub enum SignalType {
     MicroTimingLeak,     // Advanced: bottom-quartile, 50+ samples, bootstrapped CI
     RaceOracle,          // HTTP/2 response race (no timing, just ordering)
     SinglePacket,        // Single-packet attack (eliminates network jitter)
+    TrueSinglePacket,    // Raw TCP single-packet attack (microsecond precision)
+    CalibratedSleep,     // Multi-value SLEEP correlation (SLEEP(0), SLEEP(2), SLEEP(5))
 
     // === Content-based signals ===
     Length,              // Content length differential
@@ -32,6 +34,9 @@ pub enum SignalType {
     ArithmeticEval,      // 7-1 = 6 math evaluation detected
     QuoteCancellation,   // value'' = value detection
     CommentInjection,    // value'-- = value detection
+
+    // === Data extraction signals (PROOF of SQLi) ===
+    DataExtraction,      // Successfully extracted data via blind injection
 
     // === Encoding signals (NEW) ===
     HexEncoding,         // 0x61646D696E = admin (SQL decoded hex)
@@ -127,6 +132,8 @@ impl BayesianCombiner {
         combiner.weights.insert(SignalType::MicroTimingLeak, 0.85); // Advanced: high confidence
         combiner.weights.insert(SignalType::RaceOracle, 0.9);   // Very high: no jitter
         combiner.weights.insert(SignalType::SinglePacket, 0.92); // Highest: microsecond precision
+        combiner.weights.insert(SignalType::TrueSinglePacket, 0.96); // Raw TCP: near-perfect precision
+        combiner.weights.insert(SignalType::CalibratedSleep, 0.98); // Correlation = definitive proof
         combiner.weights.insert(SignalType::Length, 0.5);
         combiner.weights.insert(SignalType::Entropy, 0.4);
         combiner.weights.insert(SignalType::Compression, 0.5);
@@ -138,6 +145,9 @@ impl BayesianCombiner {
         combiner.weights.insert(SignalType::ArithmeticEval, 0.9);
         combiner.weights.insert(SignalType::QuoteCancellation, 0.85);
         combiner.weights.insert(SignalType::CommentInjection, 0.85);
+
+        // Data extraction - PROOF of SQLi (highest possible weight)
+        combiner.weights.insert(SignalType::DataExtraction, 0.99);
 
         // Encoding signals - strong evidence when detected
         combiner.weights.insert(SignalType::HexEncoding, 0.9);      // Very strong
@@ -175,8 +185,10 @@ impl BayesianCombiner {
         // All signal types
         let all_types = [
             Timing, MicroTiming, MicroTimingLeak, RaceOracle, SinglePacket,
+            TrueSinglePacket, CalibratedSleep,
             Length, Entropy, Compression, ContentHash,
             Resonance, BooleanDifferential, ArithmeticEval, QuoteCancellation, CommentInjection,
+            DataExtraction,
             HexEncoding, UnicodeNorm, NullByteTrunc, CaseSensitivity,
             WafBlock, WafBypass,
             StatusCode, HeaderDiff, ErrorPattern,
@@ -209,6 +221,12 @@ impl BayesianCombiner {
             ((MicroTimingLeak, RaceOracle), 0.4), // Different measurement principles
             ((MicroTimingLeak, SinglePacket), 0.7), // Both high-precision
             ((RaceOracle, SinglePacket), 0.5), // Independent techniques
+            ((SinglePacket, TrueSinglePacket), 0.9), // Both single-packet variants
+            ((RaceOracle, TrueSinglePacket), 0.5), // Different approaches
+            ((TrueSinglePacket, CalibratedSleep), 0.3), // Both timing but different methods
+            ((Timing, CalibratedSleep), 0.6), // Both measure timing
+            ((MicroTiming, CalibratedSleep), 0.5),
+            ((MicroTimingLeak, CalibratedSleep), 0.4),
             ((Timing, Length), 0.3),           // Bigger response = slower
             ((Timing, Entropy), 0.15),         // Processing complexity
             ((MicroTiming, Length), 0.25),     // Less affected by content size
@@ -237,6 +255,11 @@ impl BayesianCombiner {
             ((Resonance, QuoteCancellation), 0.4),  // Similar mechanism
             ((Resonance, ArithmeticEval), 0.15),
             ((Resonance, CommentInjection), 0.35),
+
+            // === Data extraction follows from boolean differential ===
+            ((DataExtraction, BooleanDifferential), 0.7), // Extraction uses boolean oracle
+            ((DataExtraction, CalibratedSleep), 0.3),     // Could use timing extraction
+            ((DataExtraction, Timing), 0.2),
 
             // === HTTP signals ===
             ((StatusCode, ErrorPattern), 0.7),     // Error often changes status
@@ -459,10 +482,12 @@ impl BayesianCombiner {
         // Define signal classes (groups of related signals)
         let get_class = |s: SignalType| -> &'static str {
             match s {
-                Timing | MicroTiming | MicroTimingLeak | RaceOracle | SinglePacket => "timing",
+                Timing | MicroTiming | MicroTimingLeak | RaceOracle | SinglePacket |
+                TrueSinglePacket | CalibratedSleep => "timing",
                 Length | Entropy | Compression | ContentHash => "content",
                 Resonance | BooleanDifferential | ArithmeticEval |
                 QuoteCancellation | CommentInjection => "behavioral",
+                DataExtraction => "extraction", // Separate class - PROOF of vulnerability
                 HexEncoding | UnicodeNorm | NullByteTrunc | CaseSensitivity => "encoding",
                 WafBlock | WafBypass => "waf",
                 StatusCode | HeaderDiff => "http",
