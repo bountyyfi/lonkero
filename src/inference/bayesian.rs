@@ -15,6 +15,7 @@ use std::collections::HashMap;
 pub enum SignalType {
     // === Timing-based signals ===
     Timing,              // Response time analysis (z-score from baseline)
+    MicroTiming,         // Statistical micro-timing analysis (50+ samples)
 
     // === Content-based signals ===
     Length,              // Content length differential
@@ -119,6 +120,7 @@ impl BayesianCombiner {
         // - Statistical signals (timing, length) = medium weight
         // - Negative evidence = negative weight (subtracts confidence)
         combiner.weights.insert(SignalType::Timing, 0.6);
+        combiner.weights.insert(SignalType::MicroTiming, 0.8);  // High confidence when statistical
         combiner.weights.insert(SignalType::Length, 0.5);
         combiner.weights.insert(SignalType::Entropy, 0.4);
         combiner.weights.insert(SignalType::Compression, 0.5);
@@ -166,7 +168,7 @@ impl BayesianCombiner {
 
         // All signal types
         let all_types = [
-            Timing, Length, Entropy, Compression, ContentHash,
+            Timing, MicroTiming, Length, Entropy, Compression, ContentHash,
             Resonance, BooleanDifferential, ArithmeticEval, QuoteCancellation, CommentInjection,
             HexEncoding, UnicodeNorm, NullByteTrunc, CaseSensitivity,
             WafBlock, WafBypass,
@@ -191,9 +193,11 @@ impl BayesianCombiner {
             ((Entropy, ContentHash), 0.5),
             ((Compression, ContentHash), 0.5),
 
-            // === Timing correlates weakly with content ===
+            // === Timing signals ===
+            ((Timing, MicroTiming), 0.7),      // Both measure timing, but different methods
             ((Timing, Length), 0.3),           // Bigger response = slower
             ((Timing, Entropy), 0.15),         // Processing complexity
+            ((MicroTiming, Length), 0.25),     // Less affected by content size
 
             // === Timing vs behavioral signals (weak correlation) ===
             // Behavioral tests might affect timing slightly
@@ -438,7 +442,7 @@ impl BayesianCombiner {
         // Define signal classes (groups of related signals)
         let get_class = |s: SignalType| -> &'static str {
             match s {
-                Timing => "timing",
+                Timing | MicroTiming => "timing",
                 Length | Entropy | Compression | ContentHash => "content",
                 Resonance | BooleanDifferential | ArithmeticEval |
                 QuoteCancellation | CommentInjection => "behavioral",

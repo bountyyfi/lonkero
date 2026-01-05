@@ -97,6 +97,16 @@ impl SideChannelAnalyzer {
         all_signals.extend(waf_signals);
 
         // ================================================================
+        // Test 8: Micro-timing analysis (statistical, 20+ samples)
+        // Only run if we don't have strong signals yet
+        // ================================================================
+        let current_prob = self.combiner.combine(&all_signals).probability;
+        if current_prob < 0.7 {
+            let timing_signals = self.analyze_micro_timing(base_url, parameter).await;
+            all_signals.extend(timing_signals);
+        }
+
+        // ================================================================
         // Combine all signals
         // ================================================================
         let result = self.combiner.combine(&all_signals);
@@ -512,6 +522,157 @@ impl SideChannelAnalyzer {
         ];
 
         waf_patterns.iter().any(|p| body_lower.contains(p))
+    }
+
+    /// Micro-timing analysis using statistical methods
+    ///
+    /// Principle: SQL operations have timing signatures even without SLEEP()
+    /// - String comparison: O(n) timing leak
+    /// - Hash lookup vs table scan: 10-100μs difference
+    /// - Index hit vs miss: measurable difference
+    ///
+    /// Challenge: Network jitter (10-50ms) >> SQL timing (10-100μs)
+    /// Solution: Many samples + statistical analysis (Mann-Whitney U test)
+    async fn analyze_micro_timing(
+        &self,
+        base_url: &str,
+        parameter: &str,
+    ) -> Vec<Signal> {
+        let mut signals = Vec::new();
+
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "1".to_string());
+
+        // Payload that should cause different DB behavior
+        // Short string vs long string comparison (O(n) timing)
+        let short_payload = format!("{}", current_value);
+        let long_payload = format!("{}AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", current_value);
+
+        let short_url = self.build_test_url(base_url, parameter, &short_payload);
+        let long_url = self.build_test_url(base_url, parameter, &long_payload);
+
+        // Collect timing samples (alternating to reduce temporal bias)
+        let n_samples = 20; // Balance between accuracy and speed
+        let mut short_times: Vec<f64> = Vec::with_capacity(n_samples);
+        let mut long_times: Vec<f64> = Vec::with_capacity(n_samples);
+
+        for _ in 0..n_samples {
+            // Alternate to reduce temporal correlation
+            if let Ok(resp) = self.http_client.get(&short_url).await {
+                short_times.push(resp.duration_ms as f64);
+            }
+            if let Ok(resp) = self.http_client.get(&long_url).await {
+                long_times.push(resp.duration_ms as f64);
+            }
+        }
+
+        if short_times.len() >= 10 && long_times.len() >= 10 {
+            // Calculate statistics
+            let short_mean = short_times.iter().sum::<f64>() / short_times.len() as f64;
+            let long_mean = long_times.iter().sum::<f64>() / long_times.len() as f64;
+
+            let short_var = short_times.iter()
+                .map(|x| (x - short_mean).powi(2))
+                .sum::<f64>() / (short_times.len() - 1) as f64;
+            let long_var = long_times.iter()
+                .map(|x| (x - long_mean).powi(2))
+                .sum::<f64>() / (long_times.len() - 1) as f64;
+
+            let short_std = short_var.sqrt().max(0.1);
+            let long_std = long_var.sqrt().max(0.1);
+
+            // Effect size (Cohen's d)
+            let pooled_std = ((short_var + long_var) / 2.0).sqrt().max(0.1);
+            let effect_size = (long_mean - short_mean).abs() / pooled_std;
+
+            // Mann-Whitney U approximation via z-score
+            // (Simplified: use t-test approximation for speed)
+            let se = (short_var / short_times.len() as f64 + long_var / long_times.len() as f64).sqrt();
+            let t_stat = if se > 0.0 { (long_mean - short_mean).abs() / se } else { 0.0 };
+
+            // Consistency check: is the direction consistent?
+            // Long payload should take LONGER if there's O(n) string comparison
+            let direction_correct = long_mean > short_mean;
+
+            // Calculate probability based on statistical significance
+            let probability = if effect_size > 0.8 && t_stat > 2.5 && direction_correct {
+                0.85  // Large effect, significant, correct direction
+            } else if effect_size > 0.5 && t_stat > 2.0 && direction_correct {
+                0.7   // Medium effect, significant
+            } else if effect_size > 0.3 && t_stat > 1.5 {
+                0.55  // Small effect, marginally significant
+            } else {
+                0.3   // No significant difference
+            };
+
+            if probability > 0.5 {
+                signals.push(Signal::new(
+                    SignalType::MicroTiming,
+                    probability,
+                    effect_size,
+                    &format!(
+                        "Micro-timing: short={:.1}ms±{:.1}, long={:.1}ms±{:.1}, d={:.2}, t={:.2}",
+                        short_mean, short_std, long_mean, long_std, effect_size, t_stat
+                    ),
+                ));
+            }
+        }
+
+        // Test 2: Compare baseline timing to payload timing
+        // Check if SQLi payload causes timing anomaly
+        let sqli_payloads = [
+            format!("{}'", current_value),
+            format!("{}--", current_value),
+            format!("{} AND 1=1", current_value),
+        ];
+
+        let mut baseline_times: Vec<f64> = Vec::new();
+        let mut payload_times: Vec<f64> = Vec::new();
+
+        // Collect baseline samples
+        for _ in 0..10 {
+            if let Ok(resp) = self.http_client.get(base_url).await {
+                baseline_times.push(resp.duration_ms as f64);
+            }
+        }
+
+        // Collect payload samples
+        for payload in &sqli_payloads {
+            let url = self.build_test_url(base_url, parameter, payload);
+            for _ in 0..5 {
+                if let Ok(resp) = self.http_client.get(&url).await {
+                    payload_times.push(resp.duration_ms as f64);
+                }
+            }
+        }
+
+        if baseline_times.len() >= 5 && payload_times.len() >= 5 {
+            let baseline_mean = baseline_times.iter().sum::<f64>() / baseline_times.len() as f64;
+            let payload_mean = payload_times.iter().sum::<f64>() / payload_times.len() as f64;
+
+            let baseline_var = baseline_times.iter()
+                .map(|x| (x - baseline_mean).powi(2))
+                .sum::<f64>() / (baseline_times.len() - 1) as f64;
+
+            // Check for timing anomaly (payload significantly slower OR faster)
+            let z_score = (payload_mean - baseline_mean).abs() / baseline_var.sqrt().max(1.0);
+
+            if z_score > 3.0 {
+                // Significant timing difference with SQLi payloads
+                let prob = if z_score > 5.0 { 0.75 } else { 0.6 };
+                signals.push(Signal::new(
+                    SignalType::MicroTiming,
+                    prob,
+                    z_score,
+                    &format!(
+                        "SQLi payload timing anomaly: baseline={:.1}ms, payload={:.1}ms, z={:.2}",
+                        baseline_mean, payload_mean, z_score
+                    ),
+                ));
+            }
+        }
+
+        signals
     }
 
     /// Calculate similarity between two responses (0.0 to 1.0)
