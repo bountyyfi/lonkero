@@ -298,21 +298,49 @@ impl ParameterFilter {
                 false
             }
             ScannerType::XSS => {
-                // XSS needs string fields that get rendered
-                // Skip numeric/boolean params
-                let numeric_suffixes = [
-                    "id", "count", "weight", "height", "depth", "price", "size", "width", "length",
-                ];
-                let skip = numeric_suffixes.iter().any(|s| param_lower.ends_with(s)) &&
-                           !param_lower.contains("name") && // "product_id_name" should not be skipped
-                           !param_lower.contains("description");
-                if skip {
+                // XSS can occur in many unexpected places - be less restrictive
+                // Only skip obvious non-injectable contexts
+
+                // Skip CSRF tokens - not displayed to users
+                if param_lower.contains("csrf")
+                    || param_lower.contains("_token")
+                    || param_lower.contains("authenticity")
+                {
                     debug!(
-                        "[ParameterFilter] Skipping numeric parameter for XSS: {}",
+                        "[ParameterFilter] Skipping security token for XSS: {}",
                         param_name
                     );
+                    return true;
                 }
-                skip
+
+                // Skip pure pagination (these are typically numeric only)
+                if param_lower == "page"
+                    || param_lower == "limit"
+                    || param_lower == "offset"
+                    || param_lower == "count"
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping pagination field for XSS: {}",
+                        param_name
+                    );
+                    return true;
+                }
+
+                // Skip boolean flags
+                if param_lower.starts_with("is")
+                    || param_lower.starts_with("has")
+                    || param_lower.starts_with("enable")
+                    || param_lower.starts_with("disable")
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping boolean parameter for XSS: {}",
+                        param_name
+                    );
+                    return true;
+                }
+
+                // Test ALL other parameters - XSS can be in IDs, names, any reflected value
+                false
             }
             ScannerType::NoSQL => {
                 // NoSQL injection targets database query parameters
@@ -870,13 +898,25 @@ mod tests {
             ScannerType::SQLi
         ));
 
-        // XSS should skip numeric params
+        // XSS should skip tokens and booleans, but test most params including IDs
         assert!(ParameterFilter::should_skip_parameter(
-            "user_id",
+            "csrf_token",
+            ScannerType::XSS
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "isEnabled",
+            ScannerType::XSS
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "user_id",  // Now tested - IDs can be reflected in XSS contexts
             ScannerType::XSS
         ));
         assert!(!ParameterFilter::should_skip_parameter(
             "username",
+            ScannerType::XSS
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "search",
             ScannerType::XSS
         ));
 
