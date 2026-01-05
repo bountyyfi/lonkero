@@ -2947,22 +2947,22 @@ async fn execute_standalone_scan(
             }
         };
 
+        // Collect all URLs to test for XSS: target + crawled URLs (deduplicated)
+        let mut xss_urls_to_test: Vec<String> = vec![target.to_string()];
+        if let Some(ref crawl_data) = crawl_results {
+            for crawled_url in &crawl_data.crawled_urls {
+                if crawled_url != target && !xss_urls_to_test.contains(crawled_url) {
+                    xss_urls_to_test.push(crawled_url.clone());
+                }
+            }
+        }
+
         // THEN: Test URL with Chromium-based XSS detection (runs on target + ALL crawled URLs)
         // Uses real browser execution to detect reflected, DOM, and stored XSS
         // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
         // XSS requires Professional+ license
         if scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER) {
             if !is_graphql_only {
-                // Collect all URLs to test: target + crawled URLs (deduplicated)
-                let mut xss_urls_to_test: Vec<String> = vec![target.to_string()];
-                if let Some(ref crawl_data) = crawl_results {
-                    for crawled_url in &crawl_data.crawled_urls {
-                        if crawled_url != target && !xss_urls_to_test.contains(crawled_url) {
-                            xss_urls_to_test.push(crawled_url.clone());
-                        }
-                    }
-                }
-
                 // Use parallel XSS scanning for 3-5x speedup
                 // Concurrency of 3 is a good balance between speed and stability
                 let xss_concurrency = 3;
@@ -2988,6 +2988,20 @@ async fn execute_standalone_scan(
             }
         } else {
             info!("  [SKIP] XSS scanner requires Professional or higher license");
+        }
+
+        // Also run reflection-based XSS scanner (no Chrome required, catches different vectors)
+        // This scanner detects reflected XSS by analyzing HTTP responses for payload reflection
+        if !is_graphql_only && !is_static_site {
+            info!("  - Testing Reflected XSS (response analysis) on {} URLs", xss_urls_to_test.len());
+            for xss_url in &xss_urls_to_test {
+                let (vulns, tests) = engine
+                    .reflection_xss_scanner
+                    .scan(xss_url, scan_config)
+                    .await?;
+                all_vulnerabilities.extend(vulns);
+                total_tests += tests as u64;
+            }
         }
 
         // Run SQLi scanner (skip for static sites and GraphQL-only backends)

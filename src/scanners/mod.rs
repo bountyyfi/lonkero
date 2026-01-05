@@ -119,6 +119,7 @@ pub mod rails_scanner;
 pub mod rate_limiting;
 pub mod react_security;
 pub mod redos;
+pub mod reflection_xss_scanner;
 pub mod registry;
 pub mod saml;
 pub mod second_order_injection;
@@ -174,6 +175,7 @@ pub use broken_function_auth::BrokenFunctionAuthScanner;
 pub use business_logic::BusinessLogicScanner;
 pub use cache_poisoning::CachePoisoningScanner;
 pub use chromium_xss_scanner::{ChromiumXssScanner, SharedBrowser};
+pub use reflection_xss_scanner::ReflectionXssScanner;
 pub use clickjacking::ClickjackingScanner;
 pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
 pub use cloud_security_scanner::CloudSecurityScanner;
@@ -291,6 +293,7 @@ pub struct ScanEngine {
     /// Shared browser instance for Chromium-based scanning (XSS, DOM analysis)
     pub shared_browser: Option<SharedBrowser>,
     pub chromium_xss_scanner: ChromiumXssScanner,
+    pub reflection_xss_scanner: ReflectionXssScanner,
     pub sqli_scanner: SqliScanner,
     pub cmdi_scanner: CommandInjectionScanner,
     pub path_scanner: PathTraversalScanner,
@@ -522,6 +525,7 @@ impl ScanEngine {
             dns_cache,
             shared_browser,
             chromium_xss_scanner: ChromiumXssScanner::new(Arc::clone(&http_client)),
+            reflection_xss_scanner: ReflectionXssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
             path_scanner: PathTraversalScanner::new(Arc::clone(&http_client)),
