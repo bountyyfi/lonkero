@@ -44,6 +44,25 @@ impl ClickjackingScanner {
 
         match self.http_client.get(url).await {
             Ok(response) => {
+                // Skip if response is 404 Not Found or other error status codes
+                // Clickjacking on non-existent pages is not a meaningful finding
+                if response.status_code == 404 {
+                    debug!("[Clickjacking] Skipping 404 response: {}", url);
+                    return Ok((vulnerabilities, tests_run));
+                }
+
+                // Skip if response body indicates a "not found" error
+                if self.is_not_found_response(&response.body) {
+                    debug!("[Clickjacking] Skipping not-found error response: {}", url);
+                    return Ok((vulnerabilities, tests_run));
+                }
+
+                // Skip 5xx server errors
+                if response.status_code >= 500 {
+                    debug!("[Clickjacking] Skipping server error response: {}", url);
+                    return Ok((vulnerabilities, tests_run));
+                }
+
                 // Store characteristics for intelligent detection
                 let _characteristics = AppCharacteristics::from_response(&response, url);
                 let headers_vec: Vec<(String, String)> = response
@@ -61,6 +80,34 @@ impl ClickjackingScanner {
         }
 
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check if response body indicates a "not found" or similar error
+    fn is_not_found_response(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        let not_found_patterns = [
+            "\"error\":\"not found\"",
+            "\"error\": \"not found\"",
+            "\"message\":\"the requested resource does not exist\"",
+            "resource does not exist",
+            "endpoint not found",
+            "route not found",
+        ];
+
+        for pattern in &not_found_patterns {
+            if body_lower.contains(pattern) {
+                return true;
+            }
+        }
+
+        if body_lower.contains("\"success\":false") || body_lower.contains("\"success\": false") {
+            if body_lower.contains("not found") || body_lower.contains("does not exist") {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Analyze headers for clickjacking protection

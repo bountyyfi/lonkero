@@ -828,32 +828,153 @@ impl ChromiumXssScanner {
         let mut results = Vec::new();
         let payloads = Self::get_xss_payloads(mode);
 
-        for payload_template in payloads.iter().take(10) {
-            let marker = format!(
-                "XSS{}",
-                uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
-            );
-            let payload = payload_template.replace("MARKER", &marker);
+        // Extract existing parameters from URL to test each one
+        let url_params = Self::extract_url_parameters(url);
 
-            let test_url = if url.contains('?') {
-                format!("{}&xss={}", url, urlencoding::encode(&payload))
-            } else {
-                format!("{}?xss={}", url, urlencoding::encode(&payload))
-            };
+        // If URL has parameters, test those. Otherwise, try to discover from page.
+        let test_params: Vec<String> = if !url_params.is_empty() {
+            // Test the actual parameters found in the URL
+            url_params.into_iter().map(|(name, _)| name).collect()
+        } else {
+            // No URL params - try to discover input fields from the page
+            Self::discover_page_parameters(browser, url).unwrap_or_default()
+        };
 
-            match Self::test_single_url(browser, &test_url, &marker) {
-                Ok(result) => {
-                    if result.xss_triggered {
-                        info!("[Chromium-XSS] CONFIRMED reflected XSS!");
-                        results.push(result);
-                        break;
+        // If no parameters discovered at all, skip reflected XSS testing
+        // (stored XSS via forms is handled separately in test_stored_xss)
+        if test_params.is_empty() {
+            debug!("[Chromium-XSS] No parameters to test for reflected XSS on {}", url);
+            return Ok(results);
+        }
+
+        'param_loop: for param_name in &test_params {
+            for payload_template in payloads.iter().take(5) {
+                let marker = format!(
+                    "XSS{}",
+                    uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
+                );
+                let payload = payload_template.replace("MARKER", &marker);
+
+                // Build test URL by replacing/adding the parameter
+                let test_url = Self::build_test_url(url, param_name, &payload);
+
+                match Self::test_single_url(browser, &test_url, &marker) {
+                    Ok(mut result) => {
+                        if result.xss_triggered {
+                            info!("[Chromium-XSS] CONFIRMED reflected XSS in parameter '{}'!", param_name);
+                            result.parameter = Some(param_name.clone());
+                            results.push(result);
+                            break 'param_loop; // Found XSS, stop testing
+                        }
                     }
+                    Err(e) => debug!("[Chromium-XSS] Reflected test error: {}", e),
                 }
-                Err(e) => debug!("[Chromium-XSS] Reflected test error: {}", e),
             }
         }
 
         Ok(results)
+    }
+
+    /// Extract parameters from URL query string
+    fn extract_url_parameters(url: &str) -> Vec<(String, String)> {
+        if let Ok(parsed) = url::Url::parse(url) {
+            parsed
+                .query_pairs()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Build test URL by replacing or adding a parameter with payload
+    fn build_test_url(base_url: &str, param_name: &str, payload: &str) -> String {
+        if let Ok(mut parsed) = url::Url::parse(base_url) {
+            // Collect existing parameters, replacing the target one
+            let existing_params: Vec<(String, String)> = parsed
+                .query_pairs()
+                .filter(|(name, _)| name != param_name)
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect();
+
+            // Clear query and rebuild
+            parsed.set_query(None);
+
+            // Add existing params back
+            {
+                let mut query_pairs = parsed.query_pairs_mut();
+                for (name, value) in &existing_params {
+                    query_pairs.append_pair(name, value);
+                }
+                // Add/replace the target parameter with payload
+                query_pairs.append_pair(param_name, payload);
+            }
+
+            parsed.to_string()
+        } else {
+            // Fallback: simple append
+            if base_url.contains('?') {
+                format!("{}&{}={}", base_url, param_name, urlencoding::encode(payload))
+            } else {
+                format!("{}?{}={}", base_url, param_name, urlencoding::encode(payload))
+            }
+        }
+    }
+
+    /// Discover input parameters from the page by analyzing forms and input fields
+    fn discover_page_parameters(browser: &SharedBrowser, url: &str) -> Result<Vec<String>> {
+        let browser_guard = browser.browser.read()
+            .map_err(|e| anyhow::anyhow!("Browser lock failed: {}", e))?;
+        let tab = browser_guard
+            .new_tab()
+            .map_err(|e| anyhow::anyhow!("Failed to create tab: {}", e))?;
+
+        tab.set_default_timeout(Duration::from_secs(5));
+        if tab.navigate_to(url).is_err() {
+            return Ok(Vec::new());
+        }
+
+        // Wait briefly for page to load
+        std::thread::sleep(Duration::from_millis(500));
+
+        // JavaScript to extract all input field names from forms
+        let discover_js = r#"
+            (function() {
+                const params = new Set();
+
+                // Get all input, textarea, select elements
+                document.querySelectorAll('input, textarea, select').forEach(el => {
+                    if (el.name && el.name.trim() !== '') {
+                        params.add(el.name);
+                    }
+                });
+
+                // Also check for data attributes that might indicate parameters
+                document.querySelectorAll('[data-param], [data-field]').forEach(el => {
+                    const param = el.getAttribute('data-param') || el.getAttribute('data-field');
+                    if (param) params.add(param);
+                });
+
+                return JSON.stringify(Array.from(params));
+            })()
+        "#;
+
+        let result = tab.evaluate(discover_js, false);
+        let _ = tab.close(false);
+
+        match result {
+            Ok(eval_result) => {
+                if let Some(value) = eval_result.value {
+                    if let Some(json_str) = value.as_str() {
+                        let params: Vec<String> = serde_json::from_str(json_str).unwrap_or_default();
+                        debug!("[Chromium-XSS] Discovered {} parameters from page: {:?}", params.len(), params);
+                        return Ok(params);
+                    }
+                }
+                Ok(Vec::new())
+            }
+            Err(_) => Ok(Vec::new()),
+        }
     }
 
     fn test_dom_xss(url: &str, browser: &SharedBrowser) -> Result<Vec<XssDetectionResult>> {
