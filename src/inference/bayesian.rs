@@ -38,22 +38,6 @@ pub enum SignalType {
     // === Data extraction signals (PROOF of SQLi) ===
     DataExtraction,      // Successfully extracted data via blind injection
 
-    // === XXE signals ===
-    XxeTiming,           // XXE entity processing timing differential
-    XxeErrorLeak,        // XXE error message contains file/data
-    XxeContentReflect,   // XXE entity value reflected in response
-
-    // === SSRF signals ===
-    SsrfTiming,          // SSRF internal vs external timing differential
-    SsrfErrorLeak,       // SSRF error reveals internal network info
-    SsrfStatusDiff,      // Different status for internal vs external URLs
-    SsrfContentDiff,     // Response contains internal resource content
-
-    // === RCE signals ===
-    RceTiming,           // Command execution timing (sleep/ping)
-    RceErrorLeak,        // Command error in response
-    RceOutputReflect,    // Command output in response
-
     // === Encoding signals ===
     HexEncoding,         // 0x61646D696E = admin (SQL decoded hex)
     UnicodeNorm,         // café vs cafe\u0301 normalization
@@ -165,22 +149,6 @@ impl BayesianCombiner {
         // Data extraction - PROOF of SQLi (highest possible weight)
         combiner.weights.insert(SignalType::DataExtraction, 0.99);
 
-        // XXE signals
-        combiner.weights.insert(SignalType::XxeTiming, 0.8);
-        combiner.weights.insert(SignalType::XxeErrorLeak, 0.98);      // Error with data = proof
-        combiner.weights.insert(SignalType::XxeContentReflect, 0.99); // Content reflected = proof
-
-        // SSRF signals
-        combiner.weights.insert(SignalType::SsrfTiming, 0.85);
-        combiner.weights.insert(SignalType::SsrfErrorLeak, 0.95);     // Error reveals internal = proof
-        combiner.weights.insert(SignalType::SsrfStatusDiff, 0.8);
-        combiner.weights.insert(SignalType::SsrfContentDiff, 0.98);   // Internal content = proof
-
-        // RCE signals
-        combiner.weights.insert(SignalType::RceTiming, 0.9);          // sleep worked = strong
-        combiner.weights.insert(SignalType::RceErrorLeak, 0.95);      // Command error = proof
-        combiner.weights.insert(SignalType::RceOutputReflect, 0.999); // Command output = definitive
-
         // Encoding signals - strong evidence when detected
         combiner.weights.insert(SignalType::HexEncoding, 0.9);      // Very strong
         combiner.weights.insert(SignalType::UnicodeNorm, 0.75);     // Good signal
@@ -221,9 +189,6 @@ impl BayesianCombiner {
             Length, Entropy, Compression, ContentHash,
             Resonance, BooleanDifferential, ArithmeticEval, QuoteCancellation, CommentInjection,
             DataExtraction,
-            XxeTiming, XxeErrorLeak, XxeContentReflect,
-            SsrfTiming, SsrfErrorLeak, SsrfStatusDiff, SsrfContentDiff,
-            RceTiming, RceErrorLeak, RceOutputReflect,
             HexEncoding, UnicodeNorm, NullByteTrunc, CaseSensitivity,
             WafBlock, WafBypass,
             StatusCode, HeaderDiff, ErrorPattern,
@@ -318,28 +283,6 @@ impl BayesianCombiner {
             ((WafBlock, WafBypass), 0.6),            // Related but different
             ((WafBlock, StatusCode), 0.5),           // WAF often returns 403
             ((WafBypass, ErrorPattern), 0.3),        // Bypass might expose errors
-
-            // === XXE signals (correlated within class) ===
-            ((XxeTiming, XxeErrorLeak), 0.4),
-            ((XxeTiming, XxeContentReflect), 0.3),
-            ((XxeErrorLeak, XxeContentReflect), 0.6), // Both reveal content
-            ((XxeTiming, Timing), 0.5),               // Both use timing
-
-            // === SSRF signals (correlated within class) ===
-            ((SsrfTiming, SsrfErrorLeak), 0.3),
-            ((SsrfTiming, SsrfStatusDiff), 0.4),
-            ((SsrfTiming, SsrfContentDiff), 0.3),
-            ((SsrfErrorLeak, SsrfStatusDiff), 0.5),
-            ((SsrfErrorLeak, SsrfContentDiff), 0.6),
-            ((SsrfStatusDiff, SsrfContentDiff), 0.4),
-            ((SsrfTiming, Timing), 0.5),              // Both use timing
-
-            // === RCE signals (correlated within class) ===
-            ((RceTiming, RceErrorLeak), 0.3),
-            ((RceTiming, RceOutputReflect), 0.4),
-            ((RceErrorLeak, RceOutputReflect), 0.7),  // Both reveal output
-            ((RceTiming, Timing), 0.6),               // Both use timing
-            ((RceTiming, CalibratedSleep), 0.4),      // Both use sleep
 
             // === Negative evidence correlates with content signals ===
             ((NoChange, Length), 0.8),
@@ -545,9 +488,6 @@ impl BayesianCombiner {
                 Resonance | BooleanDifferential | ArithmeticEval |
                 QuoteCancellation | CommentInjection => "behavioral",
                 DataExtraction => "extraction", // Separate class - PROOF of vulnerability
-                XxeTiming | XxeErrorLeak | XxeContentReflect => "xxe",
-                SsrfTiming | SsrfErrorLeak | SsrfStatusDiff | SsrfContentDiff => "ssrf",
-                RceTiming | RceErrorLeak | RceOutputReflect => "rce",
                 HexEncoding | UnicodeNorm | NullByteTrunc | CaseSensitivity => "encoding",
                 WafBlock | WafBypass => "waf",
                 StatusCode | HeaderDiff => "http",
