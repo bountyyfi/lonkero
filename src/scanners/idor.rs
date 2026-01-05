@@ -33,49 +33,51 @@ impl IdorScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // Test 1: Check for numeric ID patterns
+        // Test 1: Check for numeric ID patterns in URL/response
+        // This runs regardless of auth since predictable IDs are always a concern
         tests_run += 1;
         let response = self.http_client.get(url).await?;
-
-        // Intelligent detection - skip if no auth context
         let characteristics = AppCharacteristics::from_response(&response, url);
-        if characteristics.should_skip_auth_tests() {
-            info!("[IDOR] Skipping - no authentication detected");
-            return Ok((Vec::new(), tests_run));
-        }
+        let has_auth = !characteristics.should_skip_auth_tests();
+
+        // Always check for numeric ID patterns - predictable IDs are a problem even without auth
         self.check_numeric_ids(&response, url, &mut vulnerabilities);
 
-        // Test 2: Test predictable sequential IDs
+        // Test 2: Test predictable sequential IDs (always run - ID enumeration doesn't need auth)
         tests_run += 1;
         if let Ok(seq_response) = self.test_sequential_access(url).await {
             self.check_sequential_access(&seq_response, url, &mut vulnerabilities);
         }
 
-        // Test 3: Test UUID predictability
+        // Test 3: Test UUID predictability (always run - weak UUIDs are always a risk)
         tests_run += 1;
         if let Ok(uuid_response) = self.test_uuid_predictability(url).await {
             self.check_uuid_security(&uuid_response, url, &mut vulnerabilities);
         }
 
-        // Test 4: Test horizontal privilege escalation
-        tests_run += 1;
-        if let Ok(horiz_response) = self.test_horizontal_escalation(url).await {
-            self.check_horizontal_escalation(&horiz_response, url, &mut vulnerabilities);
+        // Test 4: Test horizontal privilege escalation (needs auth context)
+        if has_auth {
+            tests_run += 1;
+            if let Ok(horiz_response) = self.test_horizontal_escalation(url).await {
+                self.check_horizontal_escalation(&horiz_response, url, &mut vulnerabilities);
+            }
         }
 
-        // Test 5: Test vertical privilege escalation
-        tests_run += 1;
-        if let Ok(vert_response) = self.test_vertical_escalation(url).await {
-            self.check_vertical_escalation(&vert_response, url, &mut vulnerabilities);
+        // Test 5: Test vertical privilege escalation (needs auth context)
+        if has_auth {
+            tests_run += 1;
+            if let Ok(vert_response) = self.test_vertical_escalation(url).await {
+                self.check_vertical_escalation(&vert_response, url, &mut vulnerabilities);
+            }
         }
 
-        // Test 6: Test authorization headers
+        // Test 6: Test authorization headers (always run - missing auth enforcement is always bad)
         tests_run += 1;
         if let Ok(auth_response) = self.test_missing_authorization(url).await {
             self.check_authorization_enforcement(&auth_response, url, &mut vulnerabilities);
         }
 
-        // Test 7: Test file access control
+        // Test 7: Test file access control (always run - file access issues are always a concern)
         tests_run += 1;
         if let Ok(file_response) = self.test_file_access(url).await {
             self.check_file_access_control(&file_response, url, &mut vulnerabilities);

@@ -210,41 +210,16 @@ impl SecurityHeadersScanner {
     }
 
     /// Check X-Frame-Options
+    /// NOTE: Clickjacking detection is handled by the dedicated ClickjackingScanner
+    /// to avoid duplicate findings. This function is kept for reference but disabled.
     fn check_x_frame_options(
         &self,
-        response: &HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let xfo = response.header("x-frame-options");
-        let frame_ancestors = response
-            .header("content-security-policy")
-            .map(|csp| csp.contains("frame-ancestors"))
-            .unwrap_or(false);
-
-        if xfo.is_none() && !frame_ancestors {
-            vulnerabilities.push(self.create_vulnerability(
-                "Missing Clickjacking Protection",
-                url,
-                Severity::Medium,
-                Confidence::High,
-                "X-Frame-Options header is missing and CSP frame-ancestors not set",
-                "Application vulnerable to clickjacking attacks".to_string(),
-                4.3,
-            ));
-        } else if let Some(xfo_value) = xfo {
-            if xfo_value.to_lowercase() == "allow" {
-                vulnerabilities.push(self.create_vulnerability(
-                    "Permissive X-Frame-Options",
-                    url,
-                    Severity::Medium,
-                    Confidence::High,
-                    "X-Frame-Options set to ALLOW - allows framing from any origin",
-                    format!("X-Frame-Options: {}", xfo_value),
-                    4.3,
-                ));
-            }
-        }
+        // Disabled - clickjacking is detected by the dedicated ClickjackingScanner
+        // to avoid duplicate vulnerability reports
     }
 
     /// Check X-Content-Type-Options

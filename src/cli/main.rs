@@ -3668,16 +3668,14 @@ async fn execute_standalone_scan(
     all_vulnerabilities.extend(vulns);
     total_tests += tests as u64;
 
-    // Sensitive Data (Professional+)
-    if scan_token.is_module_authorized(module_ids::advanced_scanning::SENSITIVE_DATA) {
-        info!("  - Testing Sensitive Data Exposure");
-        let (vulns, tests) = engine
-            .sensitive_data_scanner
-            .scan(target, scan_config)
-            .await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests as u64;
-    }
+    // Sensitive Data - always run (critical for finding exposed .env, .git, credentials)
+    info!("  - Testing Sensitive Data Exposure");
+    let (vulns, tests) = engine
+        .sensitive_data_scanner
+        .scan(target, scan_config)
+        .await?;
+    all_vulnerabilities.extend(vulns);
+    total_tests += tests as u64;
 
     // Cache Poisoning (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::CACHE_POISONING) {
