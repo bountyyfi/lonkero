@@ -14,6 +14,7 @@ use crate::analysis::{
     ResponseHints,
 };
 use crate::http_client::{HttpClient, HttpResponse};
+use crate::inference::{SideChannelAnalyzer, Confidence as InferenceConfidence};
 use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
 use crate::types::{
@@ -390,6 +391,19 @@ impl EnhancedSqliScanner {
                 .await?;
             total_tests += enhanced_error_tests;
             all_vulnerabilities.extend(enhanced_error_vulns);
+
+            // ============================================================
+            // TECHNIQUE 9: OOBZero INFERENCE ENGINE
+            // Zero-infrastructure blind detection via multi-channel Bayesian inference
+            // Runs only if no vulnerabilities found yet to avoid redundant testing
+            // ============================================================
+            if all_vulnerabilities.is_empty() {
+                let (oobzero_vulns, oobzero_tests) = self
+                    .scan_oobzero_inference(base_url, parameter, &baseline, config)
+                    .await?;
+                total_tests += oobzero_tests;
+                all_vulnerabilities.extend(oobzero_vulns);
+            }
         }
 
         Ok((all_vulnerabilities, total_tests))
@@ -3072,6 +3086,110 @@ impl EnhancedSqliScanner {
                 ));
                 return Ok((vulnerabilities, tests_run));
             }
+        }
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// OOBZero Inference Engine for blind SQLi detection
+    ///
+    /// Uses multi-channel Bayesian inference to detect blind vulnerabilities
+    /// WITHOUT requiring external callback servers.
+    ///
+    /// Combines:
+    /// - Boolean differential (AND 1=1 vs AND 1=2)
+    /// - Arithmetic evaluation (7-1 = 6)
+    /// - Quote oscillation pattern
+    /// - Timing/length/entropy analysis
+    /// - Negative evidence (no change = reduces confidence)
+    async fn scan_oobzero_inference(
+        &self,
+        base_url: &str,
+        parameter: &str,
+        baseline: &HttpResponse,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+
+        info!(
+            "[OOBZero] Running inference engine for '{}' parameter",
+            parameter
+        );
+
+        // Create the side-channel analyzer
+        let analyzer = SideChannelAnalyzer::new(Arc::clone(&self.http_client));
+
+        // Run comprehensive side-channel analysis
+        let result = analyzer.analyze_sqli(base_url, parameter, baseline).await;
+
+        // The analyzer makes ~15-20 requests across all tests
+        let tests_run = 18; // Approximate: 6 resonance + 6 boolean + 6 arithmetic
+
+        // Log the inference result
+        info!(
+            "[OOBZero] Result for '{}': P={:.1}% confidence={} classes={} signals={}",
+            parameter,
+            result.combined.probability * 100.0,
+            result.combined.confidence,
+            result.combined.independent_classes,
+            result.combined.signals_used
+        );
+
+        // Check if we have a confirmed or high-confidence finding
+        if result.is_confirmed() {
+            info!(
+                "[OOBZero] CONFIRMED blind SQLi: {} (P={:.1}%, {} independent classes)",
+                parameter,
+                result.combined.probability * 100.0,
+                result.combined.independent_classes
+            );
+            vulnerabilities.push(self.create_vulnerability(
+                base_url,
+                parameter,
+                "[OOBZero multi-signal detection]",
+                "Blind SQL Injection (OOBZero Confirmed)",
+                &format!(
+                    "Multi-channel Bayesian inference detected blind SQLi with {:.1}% confidence across {} independent signal classes. {}",
+                    result.combined.probability * 100.0,
+                    result.combined.independent_classes,
+                    result.summary()
+                ),
+                Severity::Critical,
+                Confidence::High,  // types::Confidence doesn't have Confirmed
+            ));
+        } else if result.is_likely_vulnerable() {
+            // High probability but not fully confirmed
+            let confidence = match result.combined.confidence {
+                InferenceConfidence::High => Confidence::High,
+                InferenceConfidence::Medium => Confidence::Medium,
+                _ => Confidence::Low,
+            };
+
+            info!(
+                "[OOBZero] Likely blind SQLi: {} (P={:.1}%, confidence={})",
+                parameter,
+                result.combined.probability * 100.0,
+                result.combined.confidence
+            );
+            vulnerabilities.push(self.create_vulnerability(
+                base_url,
+                parameter,
+                "[OOBZero inference detection]",
+                "Potential Blind SQL Injection (OOBZero)",
+                &format!(
+                    "Probabilistic inference suggests blind SQLi with {:.1}% confidence. {}",
+                    result.combined.probability * 100.0,
+                    result.summary()
+                ),
+                Severity::High,
+                confidence,
+            ));
+        } else {
+            debug!(
+                "[OOBZero] No SQLi detected for '{}': P={:.1}%",
+                parameter,
+                result.combined.probability * 100.0
+            );
         }
 
         Ok((vulnerabilities, tests_run))
