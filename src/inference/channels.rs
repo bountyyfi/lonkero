@@ -9,8 +9,9 @@ use crate::http_client::{HttpClient, HttpResponse};
 use crate::inference::bayesian::{BayesianCombiner, CombinedResult, Signal, SignalType};
 use crate::inference::signals::{ResonanceAnalyzer, SideChannelSuite};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_native_tls::TlsConnector;
 use tracing::{debug, info, warn};
 
 /// Side-channel analyzer for blind vulnerability detection
@@ -1362,12 +1363,7 @@ impl SideChannelAnalyzer {
         };
 
         let port = parsed.port().unwrap_or(if parsed.scheme() == "https" { 443 } else { 80 });
-
-        // Skip HTTPS for now - would need TLS stream handling
-        if parsed.scheme() == "https" {
-            debug!("[TrueSinglePacket] Skipping HTTPS target (requires TLS handling)");
-            return signals;
-        }
+        let use_tls = parsed.scheme() == "https";
 
         let current_value = self.extract_param_value(base_url, parameter)
             .unwrap_or_else(|| "1".to_string());
@@ -1386,7 +1382,7 @@ impl SideChannelAnalyzer {
 
         for _round in 0..n_rounds {
             if let Some(result) = self.single_packet_round(
-                &host, port, &parsed, parameter, &payloads
+                &host, port, &parsed, parameter, &payloads, use_tls
             ).await {
                 round_results.push(result);
             }
@@ -1498,7 +1494,7 @@ impl SideChannelAnalyzer {
         signals
     }
 
-    /// Execute one round of single-packet attack
+    /// Execute one round of single-packet attack (supports HTTP and HTTPS)
     async fn single_packet_round(
         &self,
         host: &str,
@@ -1506,6 +1502,7 @@ impl SideChannelAnalyzer {
         parsed: &url::Url,
         parameter: &str,
         payloads: &[(String, &str)],
+        use_tls: bool,
     ) -> Option<Vec<(String, u128)>> {
         let addr = format!("{}:{}", host, port);
 
@@ -1530,10 +1527,23 @@ impl SideChannelAnalyzer {
             (incomplete_request, label.to_string())
         }).collect();
 
+        if use_tls {
+            self.single_packet_round_tls(host, &addr, &requests).await
+        } else {
+            self.single_packet_round_plain(&addr, &requests).await
+        }
+    }
+
+    /// Single-packet round for plain HTTP
+    async fn single_packet_round_plain(
+        &self,
+        addr: &str,
+        requests: &[(String, String)],
+    ) -> Option<Vec<(String, u128)>> {
         // Open all connections
         let mut streams: Vec<(TcpStream, String, String)> = Vec::new();
-        for (incomplete_req, label) in &requests {
-            match TcpStream::connect(&addr).await {
+        for (incomplete_req, label) in requests {
+            match TcpStream::connect(addr).await {
                 Ok(stream) => {
                     streams.push((stream, label.clone(), incomplete_req.clone()));
                 }
@@ -1544,7 +1554,7 @@ impl SideChannelAnalyzer {
             }
         }
 
-        if streams.len() != payloads.len() {
+        if streams.len() != requests.len() {
             return None;
         }
 
@@ -1559,7 +1569,7 @@ impl SideChannelAnalyzer {
         tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
 
         // NOW: send final byte to ALL connections as fast as possible
-        let final_byte = b"\n"; // The missing final newline
+        let final_byte = b"\n";
 
         for (stream, _, _) in &mut streams {
             let _ = stream.write_all(final_byte).await;
@@ -1568,7 +1578,6 @@ impl SideChannelAnalyzer {
         // Measure when each response arrives
         let mut results: Vec<(String, u128)> = Vec::new();
 
-        // Read responses with timeout
         for (stream, label, _) in &mut streams {
             let read_start = std::time::Instant::now();
             let mut buf = [0u8; 1024];
@@ -1582,7 +1591,96 @@ impl SideChannelAnalyzer {
                     results.push((label.clone(), elapsed));
                 }
                 _ => {
-                    // Timeout or error - use max timing
+                    results.push((label.clone(), 10_000_000));
+                }
+            }
+        }
+
+        Some(results)
+    }
+
+    /// Single-packet round for HTTPS with TLS
+    async fn single_packet_round_tls(
+        &self,
+        host: &str,
+        addr: &str,
+        requests: &[(String, String)],
+    ) -> Option<Vec<(String, u128)>> {
+        // Create TLS connector
+        let native_connector = match native_tls::TlsConnector::builder()
+            .danger_accept_invalid_certs(true) // For testing - accept self-signed
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("[TrueSinglePacket] TLS connector build failed: {}", e);
+                return None;
+            }
+        };
+        let connector = TlsConnector::from(native_connector);
+
+        // Open all TLS connections
+        let mut streams: Vec<(tokio_native_tls::TlsStream<TcpStream>, String, String)> = Vec::new();
+
+        for (incomplete_req, label) in requests {
+            // Connect TCP
+            let tcp_stream = match TcpStream::connect(addr).await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("[TrueSinglePacket] TCP connection failed: {}", e);
+                    return None;
+                }
+            };
+
+            // Upgrade to TLS
+            let tls_stream = match connector.connect(host, tcp_stream).await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("[TrueSinglePacket] TLS handshake failed: {}", e);
+                    return None;
+                }
+            };
+
+            streams.push((tls_stream, label.clone(), incomplete_req.clone()));
+        }
+
+        if streams.len() != requests.len() {
+            return None;
+        }
+
+        // Send incomplete requests to all connections
+        for (stream, _, incomplete_req) in &mut streams {
+            if stream.write_all(incomplete_req.as_bytes()).await.is_err() {
+                return None;
+            }
+        }
+
+        // Brief pause to ensure all requests are buffered at server
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+
+        // NOW: send final byte to ALL connections as fast as possible
+        let final_byte = b"\n";
+
+        for (stream, _, _) in &mut streams {
+            let _ = stream.write_all(final_byte).await;
+        }
+
+        // Measure when each response arrives
+        let mut results: Vec<(String, u128)> = Vec::new();
+
+        for (stream, label, _) in &mut streams {
+            let read_start = std::time::Instant::now();
+            let mut buf = [0u8; 1024];
+
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(10),
+                stream.read(&mut buf)
+            ).await {
+                Ok(Ok(_)) => {
+                    let elapsed = read_start.elapsed().as_micros();
+                    results.push((label.clone(), elapsed));
+                }
+                _ => {
                     results.push((label.clone(), 10_000_000));
                 }
             }
