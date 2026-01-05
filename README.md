@@ -8,7 +8,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.1-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.2-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Release](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml/badge.svg)](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
@@ -36,6 +36,31 @@ Lonkero is a production-grade web security scanner designed for professional sec
 - **When tech detection fails, we run MORE tests, not fewer** - fallback layer with 35+ scanners
 
 Unlike generic scanners that spam thousands of useless payloads, Lonkero uses context-aware filtering to test only what matters.
+
+---
+
+## v3.2 New Features
+
+### Zero OOB: Blind SQL Injection Without External Callbacks
+
+Traditional blind SQLi needs out-of-band callbacks. Collaborator, Interactsh, custom DNS. Infrastructure to deploy and maintain.
+
+There's another way.
+
+Test SLEEP(0), SLEEP(1), SLEEP(2), SLEEP(5). Calculate Pearson correlation. If r > 0.95, that's not noise - that's the database responding to your commands.
+
+Better yet: extract data. Binary search on ASCII values, 7 requests per character. When you pull "admin" out of the database byte by byte, that's not inference. That's proof.
+
+Combine signals with Bayesian weighting. Timing, content length, quote oscillation, boolean differentials. Each channel is weak alone. Together, they converge on certainty.
+
+Trade-off: more requests than a single OOB callback. But zero external dependencies.
+
+**New detection techniques:**
+- **Calibrated SLEEP Correlation** - Multi-value timing analysis with Pearson correlation (r > 0.95 = confirmed)
+- **Boolean Data Extraction** - Extract actual database content character by character (proof, not inference)
+- **True Single-Packet Attack** - Raw TCP/TLS socket control for microsecond precision timing
+- **Quote Oscillation Detection** - Pattern matching on ', '', ''', '''' responses
+- **HTTPS Support** - TLS stream handling for single-packet timing attacks
 
 ---
 
@@ -174,28 +199,33 @@ Lonkero automatically skips untestable elements (framework state, CSRF tokens, l
 
 Lonkero uses advanced techniques to detect blind vulnerabilities without relying on visible output:
 
-### OOBZero Engine (NEW)
+### OOBZero Engine (v3.2)
 
-**Zero-infrastructure blind vulnerability detection** - detect blind SQLi, blind XSS, and other blind vulns WITHOUT callback servers.
+**Zero-infrastructure blind SQL injection detection** - detect blind SQLi WITHOUT callback servers.
 
-Traditional OOB detection requires external callback infrastructure (Burp Collaborator, Interactsh, custom DNS). OOBZero uses **multi-channel Bayesian inference** to achieve similar detection rates with zero infrastructure.
+Traditional OOB detection requires external callback infrastructure (Burp Collaborator, Interactsh, custom DNS). OOBZero uses **multi-channel Bayesian inference combined with deterministic confirmation** to achieve similar detection rates with zero infrastructure.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  OOBZero Engine - Probabilistic Blind Detection                  │
+│  OOBZero Engine - Statistical Inference + Deterministic Proof    │
 ├─────────────────────────────────────────────────────────────────┤
-│  Signal Channels:                                                │
+│  Inference Channels:                                             │
 │  • BooleanDifferential: AND 1=1 vs AND 1=2 response differences │
 │  • ArithmeticEval: 7-1 returning same as 6 (math evaluated)     │
 │  • QuoteCancellation: value'' returning same as value           │
 │  • Resonance: Quote oscillation pattern (', '', ''', '''')      │
 │  • Timing/Length/Entropy: Statistical content analysis          │
 ├─────────────────────────────────────────────────────────────────┤
+│  Confirmation Techniques (v3.2):                                 │
+│  • CalibratedSleep: SLEEP(0,1,2,5) with Pearson r > 0.95        │
+│  • DataExtraction: Binary search ASCII extraction (7 req/char)  │
+│  • TrueSinglePacket: Raw TCP/TLS microsecond timing             │
+├─────────────────────────────────────────────────────────────────┤
 │  Key Innovations:                                                │
 │  • Negative evidence SUBTRACTS from confidence (no false pos)   │
 │  • Confirmation requires 2+ INDEPENDENT signal classes          │
-│  • No single signal can contribute >60% of total weight         │
-│  • Cohen's d effect sizes instead of brittle thresholds         │
+│  • Data extraction = PROOF, not inference                       │
+│  • Pearson correlation on timing = deterministic confirmation   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -205,6 +235,16 @@ L_posterior = L_prior + Σᵢ (wᵢ · cᵢ · logit(Sᵢ))
 P_posterior = σ(L_posterior)
 ```
 Where negative evidence has negative weights, reducing confidence.
+
+**Calibrated SLEEP Correlation:**
+```
+SLEEP(0) → baseline
+SLEEP(1) → +1000ms
+SLEEP(2) → +2000ms
+SLEEP(5) → +5000ms
+
+Pearson r > 0.95 = confirmed SQLi (not statistical inference)
+```
 
 ### Time-Based Detection
 - **Blind SQLi** - Binary search algorithm (5-7 requests vs 100+)
