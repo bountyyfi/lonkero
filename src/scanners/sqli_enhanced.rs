@@ -392,18 +392,20 @@ impl EnhancedSqliScanner {
             total_tests += enhanced_error_tests;
             all_vulnerabilities.extend(enhanced_error_vulns);
 
-            // ============================================================
-            // TECHNIQUE 9: OOBZero INFERENCE ENGINE
-            // Zero-infrastructure blind detection via multi-channel Bayesian inference
-            // Runs only if no vulnerabilities found yet to avoid redundant testing
-            // ============================================================
-            if all_vulnerabilities.is_empty() {
-                let (oobzero_vulns, oobzero_tests) = self
-                    .scan_oobzero_inference(base_url, parameter, &baseline, config)
-                    .await?;
-                total_tests += oobzero_tests;
-                all_vulnerabilities.extend(oobzero_vulns);
-            }
+        }
+
+        // ============================================================
+        // TECHNIQUE 9: OOBZero INFERENCE ENGINE (ALL MODES)
+        // Zero-infrastructure blind detection via multi-channel Bayesian inference
+        // Runs in ALL modes (including intelligent) when no vulnerabilities found
+        // This is the fallback for blind SQLi that escapes traditional detection
+        // ============================================================
+        if all_vulnerabilities.is_empty() {
+            let (oobzero_vulns, oobzero_tests) = self
+                .scan_oobzero_inference(base_url, parameter, &baseline, config)
+                .await?;
+            total_tests += oobzero_tests;
+            all_vulnerabilities.extend(oobzero_vulns);
         }
 
         Ok((all_vulnerabilities, total_tests))

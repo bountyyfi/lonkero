@@ -234,7 +234,7 @@ impl SideChannelAnalyzer {
             let mut similarities: Vec<f64> = Vec::new();
             for _ in 0..2 {
                 if let Ok(resp) = self.http_client.get(&url).await {
-                    let sim = self.calculate_similarity_statistical(baseline, &resp);
+                    let sim = self.calculate_similarity(baseline, &resp);
                     similarities.push(sim);
                 }
             }
@@ -280,66 +280,42 @@ impl SideChannelAnalyzer {
         signals
     }
 
-    /// Statistical similarity using relative difference and hash comparison
-    fn calculate_similarity_statistical(&self, a: &HttpResponse, b: &HttpResponse) -> f64 {
-        let mut score = 0.0;
-
+    /// Calculate similarity between two responses (0.0 to 1.0)
+    ///
+    /// Unified similarity function with configurable weighting:
+    /// - Status code match: 20-30% weight
+    /// - Length ratio: 30-40% weight
+    /// - Content hash: 30-50% weight (exact match detection)
+    fn calculate_similarity(&self, a: &HttpResponse, b: &HttpResponse) -> f64 {
         // Length similarity: relative difference
         let len_a = a.body.len() as f64;
         let len_b = b.body.len() as f64;
         let len_ratio = 1.0 - (len_a - len_b).abs() / len_a.max(len_b).max(1.0);
-        score += 0.3 * len_ratio;
 
-        // Status match
-        if a.status_code == b.status_code {
-            score += 0.2;
+        // Status code match
+        let status_match = if a.status_code == b.status_code { 1.0 } else { 0.0 };
+
+        // Content hash (structural similarity via FNV-1a)
+        let hash_a = self.fnv1a_hash(&a.body);
+        let hash_b = self.fnv1a_hash(&b.body);
+        let hash_match = if hash_a == hash_b { 1.0 } else { 0.0 };
+
+        // Weighted combination
+        // If exact hash match, that's very strong evidence
+        if hash_match > 0.5 {
+            0.2 * status_match + 0.3 * len_ratio + 0.5 * hash_match
+        } else {
+            // No exact match - rely more on length and status
+            0.3 * status_match + 0.5 * len_ratio + 0.2 * (if len_ratio > 0.95 { 1.0 } else { 0.0 })
         }
-
-        // Content hash (structural similarity)
-        let hash_a = self.simple_hash(&a.body);
-        let hash_b = self.simple_hash(&b.body);
-        if hash_a == hash_b {
-            score += 0.5;  // Exact content match
-        } else if len_ratio > 0.95 {
-            score += 0.2;  // Very similar length
-        }
-
-        score
     }
 
-    /// Calculate similarity between two responses (0.0 to 1.0)
-    fn calculate_similarity(&self, a: &HttpResponse, b: &HttpResponse) -> f64 {
-        let mut score = 0.0;
-        let mut factors = 0.0;
-
-        // Status code match (weight: 0.3)
-        if a.status_code == b.status_code {
-            score += 0.3;
-        }
-        factors += 0.3;
-
-        // Length similarity (weight: 0.4)
-        let len_ratio = a.body.len().min(b.body.len()) as f64
-            / a.body.len().max(b.body.len()).max(1) as f64;
-        score += 0.4 * len_ratio;
-        factors += 0.4;
-
-        // Content hash (weight: 0.3)
-        let hash_a = self.simple_hash(&a.body);
-        let hash_b = self.simple_hash(&b.body);
-        if hash_a == hash_b {
-            score += 0.3;
-        }
-        factors += 0.3;
-
-        score / factors
-    }
-
-    fn simple_hash(&self, s: &str) -> u64 {
-        let mut h: u64 = 0xcbf29ce484222325;
+    /// FNV-1a hash for structural content comparison
+    fn fnv1a_hash(&self, s: &str) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325; // FNV offset basis
         for b in s.bytes() {
             h ^= b as u64;
-            h = h.wrapping_mul(0x100000001b3);
+            h = h.wrapping_mul(0x100000001b3); // FNV prime
         }
         h
     }

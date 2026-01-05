@@ -72,6 +72,12 @@ pub struct BayesianCombiner {
     /// Correlation matrix between signal types
     /// correlation[i][j] = how correlated signals i and j are
     correlations: HashMap<(SignalType, SignalType), f64>,
+
+    /// Temperature for probability calibration
+    /// T > 1.0 = softer probabilities (less extreme, more calibrated)
+    /// T < 1.0 = sharper probabilities (more extreme)
+    /// T = 1.0 = no scaling (default)
+    temperature: f64,
 }
 
 impl Default for BayesianCombiner {
@@ -82,10 +88,17 @@ impl Default for BayesianCombiner {
 
 impl BayesianCombiner {
     pub fn new() -> Self {
+        Self::with_temperature(1.0)
+    }
+
+    /// Create a combiner with custom temperature for calibration
+    /// T > 1.0 = softer (more calibrated), T < 1.0 = sharper
+    pub fn with_temperature(temperature: f64) -> Self {
         let mut combiner = Self {
             prior: 0.05, // 5% prior - vulnerabilities are relatively rare
             weights: HashMap::new(),
             correlations: HashMap::new(),
+            temperature: temperature.max(0.1), // Prevent division issues
         };
 
         // Initialize reliability weights
@@ -154,9 +167,17 @@ impl BayesianCombiner {
             ((Length, ContentHash), 0.6),
             ((Entropy, Compression), 0.6),
             ((Entropy, ContentHash), 0.5),
+            ((Compression, ContentHash), 0.5),
 
             // === Timing correlates weakly with content ===
             ((Timing, Length), 0.3),           // Bigger response = slower
+            ((Timing, Entropy), 0.15),         // Processing complexity
+
+            // === Timing vs behavioral signals (weak correlation) ===
+            // Behavioral tests might affect timing slightly
+            ((Timing, BooleanDifferential), 0.2),
+            ((Timing, ArithmeticEval), 0.2),
+            ((Timing, Resonance), 0.25),
 
             // === Behavioral signals are INDEPENDENT of each other ===
             // This is critical - boolean diff, arithmetic, quote cancellation
@@ -171,16 +192,22 @@ impl BayesianCombiner {
             // === Resonance vs other behavioral signals ===
             ((Resonance, BooleanDifferential), 0.3),
             ((Resonance, QuoteCancellation), 0.4),  // Similar mechanism
+            ((Resonance, ArithmeticEval), 0.15),
+            ((Resonance, CommentInjection), 0.35),
 
             // === HTTP signals ===
             ((StatusCode, ErrorPattern), 0.7),     // Error often changes status
             ((StatusCode, HeaderDiff), 0.5),
             ((ErrorPattern, HeaderDiff), 0.4),
+            ((StatusCode, Length), 0.4),           // Error pages often different size
+            ((StatusCode, Timing), 0.25),          // Errors may be faster/slower
 
             // === Negative evidence correlates with content signals ===
             ((NoChange, Length), 0.8),
             ((NoChange, ContentHash), 0.9),
+            ((NoChange, Entropy), 0.6),
             ((ConsistentBehavior, NoChange), 0.7),
+            ((ConsistentBehavior, Length), 0.5),
         ];
 
         for ((a, b), corr) in pairs {
@@ -331,8 +358,13 @@ impl BayesianCombiner {
         let signal_count_factor = (processed.len() as f64 / 3.0).min(1.0);
         log_odds *= signal_count_factor;
 
+        // Apply temperature scaling for calibration
+        // T > 1 softens probabilities (more calibrated)
+        // T < 1 sharpens probabilities (more extreme)
+        let scaled_log_odds = log_odds / self.temperature;
+
         // Convert back to probability
-        let probability = Self::sigmoid(log_odds);
+        let probability = Self::sigmoid(scaled_log_odds);
 
         // Determine confidence level with independence requirements
         let confidence = Confidence::from_combined_evidence(
