@@ -110,6 +110,27 @@ impl ParameterFilter {
             }
         }
 
+        // Skip HTML placeholder text being extracted as parameter names
+        // These are not real parameters: "Search articles...", "Enter coupon code (e.g., SAVE50)"
+        if param_name.contains("...")
+            || param_name.contains("e.g.")
+            || param_name.contains("(e.g.,")
+            || param_name.contains("Enter ")
+            || param_name.contains("Search ")
+            || param_name.contains("Type ")
+            || param_name.contains("Select ")
+            || param_name.contains("Choose ")
+            || param_name.contains("Click ")
+            || param_name.len() > 50  // Real param names are rarely this long
+            || param_name.contains(' ') && param_name.len() > 20  // "Search in Drive" etc.
+        {
+            debug!(
+                "[ParameterFilter] Skipping placeholder text as parameter: {}",
+                param_name
+            );
+            return true;
+        }
+
         // Skip obvious test/debug parameters
         if param_lower.starts_with("test_")
             || param_lower.starts_with("debug_")
@@ -153,33 +174,128 @@ impl ParameterFilter {
         // Scanner-specific skipping
         match scanner_type {
             ScannerType::XXE | ScannerType::XML => {
-                // XXE only works on XML-processing endpoints
-                // Skip if no XML content-type and parameter doesn't suggest XML
-                let skip = !param_lower.contains("xml")
-                    && !param_lower.contains("soap")
-                    && !param_lower.contains("document");
-                if skip {
+                // XXE can occur in ANY parameter that accepts structured data
+                // Many XML injection points use generic names like "data", "payload", "content", "body"
+                // Only skip obvious non-XML parameters like boolean flags
+
+                // Skip boolean/flag parameters - these can't be XXE vectors
+                if param_lower.starts_with("is")
+                    || param_lower.starts_with("has")
+                    || param_lower.starts_with("enable")
+                    || param_lower.starts_with("disable")
+                    || param_lower.starts_with("show")
+                    || param_lower.starts_with("hide")
+                    || param_lower == "remember"
+                    || param_lower == "rememberme"
+                    || param_lower == "remember_me"
+                {
                     debug!(
-                        "[ParameterFilter] Skipping non-XML parameter for XXE: {}",
+                        "[ParameterFilter] Skipping boolean parameter for XXE: {}",
                         param_name
                     );
+                    return true;
                 }
-                skip
+
+                // Skip CSRF tokens and auth tokens - not XXE vectors
+                if param_lower.contains("csrf")
+                    || param_lower.contains("token")
+                    || param_lower == "_token"
+                    || param_lower.contains("authenticity")
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping security token for XXE: {}",
+                        param_name
+                    );
+                    return true;
+                }
+
+                // Skip pagination/sort fields
+                if param_lower == "page"
+                    || param_lower == "limit"
+                    || param_lower == "offset"
+                    || param_lower == "sort"
+                    || param_lower == "order"
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping pagination field for XXE: {}",
+                        param_name
+                    );
+                    return true;
+                }
+
+                // Test ALL other parameters - XXE can be in unexpected places
+                false
             }
             ScannerType::SQLi => {
-                // Skip obvious non-database params
-                let skip = param_lower.starts_with("is") || // isSubcontracting, isDayjs
-                           param_lower.starts_with("skip") || // skipAll
-                           param_lower.starts_with("has") || // hasPermission
-                           param_lower.starts_with("enable") || // enableFeature
-                           param_lower.starts_with("show"); // showDetails
-                if skip {
+                // Skip boolean-like parameters (Quote Cancellation false positives)
+                if param_lower.starts_with("is") // isSubcontracting, isDayjs
+                    || param_lower.starts_with("skip") // skipAll
+                    || param_lower.starts_with("has") // hasPermission
+                    || param_lower.starts_with("enable") // enableFeature
+                    || param_lower.starts_with("show") // showDetails
+                    || param_lower.starts_with("hide")
+                    || param_lower.starts_with("disable")
+                {
                     debug!(
                         "[ParameterFilter] Skipping boolean-like parameter for SQLi: {}",
                         param_name
                     );
+                    return true;
                 }
-                skip
+
+                // Skip file input parameters (Quote Cancellation false positives)
+                // Files are binary data, not SQL string contexts
+                if param_lower.contains("file")
+                    && (param_lower.contains("input")
+                        || param_lower.contains("upload")
+                        || param_lower.contains("avatar")
+                        || param_lower.contains("image")
+                        || param_lower.contains("document")
+                        || param_lower.contains("attachment"))
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping file input parameter for SQLi: {}",
+                        param_name
+                    );
+                    return true;
+                }
+
+                // Skip checkbox/toggle parameters - these are boolean values, not SQL injectable
+                if param_lower == "remember"
+                    || param_lower == "rememberme"
+                    || param_lower == "remember_me"
+                    || param_lower == "keeploggedin"
+                    || param_lower == "keep_logged_in"
+                    || param_lower == "stayloggedin"
+                    || param_lower == "terms"
+                    || param_lower == "agree"
+                    || param_lower == "consent"
+                    || param_lower == "subscribe"
+                    || param_lower == "newsletter"
+                    || param_lower.ends_with("_checkbox")
+                    || param_lower.ends_with("_check")
+                    || param_lower.ends_with("_toggle")
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping checkbox/toggle parameter for SQLi: {}",
+                        param_name
+                    );
+                    return true;
+                }
+
+                // Skip CSRF tokens - not SQL injectable
+                if param_lower.contains("csrf")
+                    || param_lower.contains("_token")
+                    || param_lower.contains("authenticity")
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping security token for SQLi: {}",
+                        param_name
+                    );
+                    return true;
+                }
+
+                false
             }
             ScannerType::XSS => {
                 // XSS needs string fields that get rendered
@@ -307,21 +423,19 @@ impl ParameterFilter {
                 false
             }
             ScannerType::CommandInjection => {
-                // Command injection typically targets file/path/command parameters
-                // NOT password fields, checkboxes, or login forms
+                // Command injection can occur in many parameter types, not just "cmd" named fields
+                // Only skip obvious non-targets: auth fields, boolean flags, and pure pagination
 
-                // Skip authentication/login fields - these are NEVER command injection targets
+                // Skip authentication/login fields - these are processed differently
                 let auth_fields = [
                     "password",
                     "passwd",
                     "pwd",
                     "pass",
                     "secret",
-                    "token",
                     "username",
                     "user",
                     "login",
-                    "log",
                     "email",
                     "mail",
                     "rememberme",
@@ -347,13 +461,11 @@ impl ParameterFilter {
                     return true;
                 }
 
-                // Skip boolean/checkbox fields
+                // Skip pure boolean/checkbox fields
                 if param_lower.starts_with("is")
                     || param_lower.starts_with("has")
                     || param_lower.starts_with("enable")
                     || param_lower.starts_with("disable")
-                    || param_lower.starts_with("show")
-                    || param_lower.starts_with("hide")
                     || param_lower.ends_with("_flag")
                     || param_lower.ends_with("_checkbox")
                 {
@@ -364,14 +476,12 @@ impl ParameterFilter {
                     return true;
                 }
 
-                // Skip pagination/UI fields
+                // Skip pure pagination fields (these are typically numeric)
                 if param_lower == "count"
                     || param_lower == "limit"
                     || param_lower == "offset"
                     || param_lower == "page"
                     || param_lower == "size"
-                    || param_lower == "sort"
-                    || param_lower == "order"
                 {
                     debug!(
                         "[ParameterFilter] Skipping pagination field for Command Injection: {}",
@@ -380,67 +490,24 @@ impl ParameterFilter {
                     return true;
                 }
 
-                // Only test parameters that suggest command/file operations
-                let cmd_indicators = [
-                    "cmd",
-                    "command",
-                    "exec",
-                    "execute",
-                    "run",
-                    "shell",
-                    "file",
-                    "filename",
-                    "filepath",
-                    "path",
-                    "dir",
-                    "directory",
-                    "script",
-                    "process",
-                    "program",
-                    "bin",
-                    "binary",
-                    "host",
-                    "hostname",
-                    "ip",
-                    "address",
-                    "ping",
-                    "target",
-                    "action",
-                    "operation",
-                    "func",
-                    "function",
-                    "method",
-                    "template",
-                    "include",
-                    "require",
-                    "load",
-                    "import",
-                ];
-                let has_cmd_indicator = cmd_indicators.iter().any(|ind| param_lower.contains(ind));
-
-                if !has_cmd_indicator {
-                    debug!("[ParameterFilter] Skipping non-command parameter for Command Injection: {} (no cmd indicators)", param_name);
-                    return true;
-                }
-
+                // Test ALL other parameters - command injection can be in unexpected places
+                // Parameters like "query", "search", "name", "data", "input", "value" are all valid targets
                 false
             }
             ScannerType::PathTraversal => {
-                // Path traversal needs file/path-related parameters
-                // NOT password fields, checkboxes, or login forms
+                // Path traversal can occur in many parameter types
+                // Only skip obvious non-targets: auth fields and boolean flags
 
-                // Skip authentication/login fields - these are NEVER path traversal targets
+                // Skip authentication/login fields
                 let auth_fields = [
                     "password",
                     "passwd",
                     "pwd",
                     "pass",
                     "secret",
-                    "token",
                     "username",
                     "user",
                     "login",
-                    "log",
                     "email",
                     "mail",
                     "rememberme",
@@ -479,47 +546,24 @@ impl ParameterFilter {
                     return true;
                 }
 
-                // Only test parameters that suggest file/path operations
-                let path_indicators = [
-                    "file",
-                    "filename",
-                    "filepath",
-                    "path",
-                    "dir",
-                    "directory",
-                    "folder",
-                    "document",
-                    "upload",
-                    "download",
-                    "attachment",
-                    "include",
-                    "require",
-                    "load",
-                    "import",
-                    "template",
-                    "view",
-                    "src",
-                    "source",
-                    "dest",
-                    "destination",
-                    "target",
-                    "config",
-                    "conf",
-                    "logfile",
-                    "logpath",
-                    "backup",
-                    "image",
-                    "img",
-                    "asset",
-                ];
-                let has_path_indicator =
-                    path_indicators.iter().any(|ind| param_lower.contains(ind));
-
-                if !has_path_indicator {
-                    debug!("[ParameterFilter] Skipping non-path parameter for Path Traversal: {} (no path indicators)", param_name);
+                // Skip pure pagination fields
+                if param_lower == "count"
+                    || param_lower == "limit"
+                    || param_lower == "offset"
+                    || param_lower == "page"
+                    || param_lower == "size"
+                    || param_lower == "sort"
+                    || param_lower == "order"
+                {
+                    debug!(
+                        "[ParameterFilter] Skipping pagination field for Path Traversal: {}",
+                        param_name
+                    );
                     return true;
                 }
 
+                // Test ALL other parameters - path traversal can be in unexpected places
+                // Parameters like "name", "data", "input", "value", "id" are all valid targets
                 false
             }
             ScannerType::SSRF => {
@@ -793,15 +837,28 @@ mod tests {
 
     #[test]
     fn test_scanner_specific_filtering() {
-        // XXE should skip non-XML params
+        // XXE should test most params now (loosened filter)
+        // Only skip boolean flags, tokens, and pagination
         assert!(ParameterFilter::should_skip_parameter(
-            "username",
+            "isActive",
             ScannerType::XXE
         ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "csrfToken",
+            ScannerType::XXE
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "username",
+            ScannerType::XXE
+        )); // Now tested!
         assert!(!ParameterFilter::should_skip_parameter(
             "xmlData",
             ScannerType::XXE
         ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "data",
+            ScannerType::XXE
+        )); // Generic param - now tested
 
         // SQLi should skip boolean-like params
         assert!(ParameterFilter::should_skip_parameter(
@@ -822,6 +879,42 @@ mod tests {
             "username",
             ScannerType::XSS
         ));
+
+        // Command Injection tests most params now (loosened filter)
+        assert!(ParameterFilter::should_skip_parameter(
+            "password",
+            ScannerType::CommandInjection
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "isEnabled",
+            ScannerType::CommandInjection
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "query",
+            ScannerType::CommandInjection
+        )); // Generic param - now tested
+        assert!(!ParameterFilter::should_skip_parameter(
+            "name",
+            ScannerType::CommandInjection
+        )); // Generic param - now tested
+
+        // Path Traversal tests most params now (loosened filter)
+        assert!(ParameterFilter::should_skip_parameter(
+            "password",
+            ScannerType::PathTraversal
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "hasPermission",
+            ScannerType::PathTraversal
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "filename",
+            ScannerType::PathTraversal
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "data",
+            ScannerType::PathTraversal
+        )); // Generic param - now tested
     }
 
     #[test]
@@ -841,5 +934,94 @@ mod tests {
         assert_eq!(ParameterFilter::should_test_value("true"), (true, 1));
         assert_eq!(ParameterFilter::should_test_value("<script>"), (true, 9));
         assert_eq!(ParameterFilter::should_test_value("normal text"), (true, 5));
+    }
+
+    #[test]
+    fn test_placeholder_text_filtered() {
+        // Placeholder text extracted as parameter names should be skipped
+        assert!(ParameterFilter::should_skip_parameter(
+            "Search articles...",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "Enter coupon code (e.g., SAVE50)",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "Search in Drive",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "Type your message here...",
+            ScannerType::XSS
+        ));
+        // Very long parameter names should be skipped
+        assert!(ParameterFilter::should_skip_parameter(
+            "this_is_a_very_long_parameter_name_that_is_probably_not_real_and_should_be_filtered",
+            ScannerType::SQLi
+        ));
+    }
+
+    #[test]
+    fn test_sqli_false_positive_filters() {
+        // File input parameters should be skipped for SQLi
+        assert!(ParameterFilter::should_skip_parameter(
+            "avatarFileInput",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "documentFileUpload",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "imageFileInput",
+            ScannerType::SQLi
+        ));
+
+        // Checkbox/toggle parameters should be skipped for SQLi
+        assert!(ParameterFilter::should_skip_parameter(
+            "remember",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "rememberme",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "terms",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "newsletter",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "agree_checkbox",
+            ScannerType::SQLi
+        ));
+
+        // CSRF tokens should be skipped for SQLi
+        assert!(ParameterFilter::should_skip_parameter(
+            "csrf_token",
+            ScannerType::SQLi
+        ));
+        assert!(ParameterFilter::should_skip_parameter(
+            "authenticity_token",
+            ScannerType::SQLi
+        ));
+
+        // Normal params should NOT be skipped
+        assert!(!ParameterFilter::should_skip_parameter(
+            "username",
+            ScannerType::SQLi
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "search",
+            ScannerType::SQLi
+        ));
+        assert!(!ParameterFilter::should_skip_parameter(
+            "id",
+            ScannerType::SQLi
+        ));
     }
 }
