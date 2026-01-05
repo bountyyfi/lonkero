@@ -29,6 +29,16 @@ pub enum SignalType {
     QuoteCancellation,   // value'' = value detection
     CommentInjection,    // value'-- = value detection
 
+    // === Encoding signals (NEW) ===
+    HexEncoding,         // 0x61646D696E = admin (SQL decoded hex)
+    UnicodeNorm,         // café vs cafe\u0301 normalization
+    NullByteTrunc,       // value%00garbage = value (null truncation)
+    CaseSensitivity,     // ADMIN vs admin (collation detection)
+
+    // === WAF signals (NEW) ===
+    WafBlock,            // WAF blocked payload (inverted signal)
+    WafBypass,           // WAF bypassed = likely vulnerable
+
     // === HTTP signals ===
     StatusCode,          // HTTP status changes
     HeaderDiff,          // Header fingerprint changes
@@ -121,6 +131,16 @@ impl BayesianCombiner {
         combiner.weights.insert(SignalType::QuoteCancellation, 0.85);
         combiner.weights.insert(SignalType::CommentInjection, 0.85);
 
+        // Encoding signals - strong evidence when detected
+        combiner.weights.insert(SignalType::HexEncoding, 0.9);      // Very strong
+        combiner.weights.insert(SignalType::UnicodeNorm, 0.75);     // Good signal
+        combiner.weights.insert(SignalType::NullByteTrunc, 0.85);   // Classic SQLi indicator
+        combiner.weights.insert(SignalType::CaseSensitivity, 0.6);  // Weaker but useful
+
+        // WAF signals - inverted logic
+        combiner.weights.insert(SignalType::WafBlock, 0.5);         // WAF blocked = payload is "dangerous"
+        combiner.weights.insert(SignalType::WafBypass, 0.7);        // Bypass worked = likely vuln
+
         // HTTP signals
         combiner.weights.insert(SignalType::StatusCode, 0.7);
         combiner.weights.insert(SignalType::HeaderDiff, 0.4);
@@ -148,6 +168,8 @@ impl BayesianCombiner {
         let all_types = [
             Timing, Length, Entropy, Compression, ContentHash,
             Resonance, BooleanDifferential, ArithmeticEval, QuoteCancellation, CommentInjection,
+            HexEncoding, UnicodeNorm, NullByteTrunc, CaseSensitivity,
+            WafBlock, WafBypass,
             StatusCode, HeaderDiff, ErrorPattern,
             NoChange, ConsistentBehavior,
         ];
@@ -201,6 +223,22 @@ impl BayesianCombiner {
             ((ErrorPattern, HeaderDiff), 0.4),
             ((StatusCode, Length), 0.4),           // Error pages often different size
             ((StatusCode, Timing), 0.25),          // Errors may be faster/slower
+
+            // === Encoding signals are INDEPENDENT of behavioral signals ===
+            // They measure different phenomena (encoding vs query structure)
+            ((HexEncoding, ArithmeticEval), 0.15),
+            ((HexEncoding, BooleanDifferential), 0.1),
+            ((HexEncoding, UnicodeNorm), 0.3),       // Both test encoding
+            ((HexEncoding, NullByteTrunc), 0.2),
+            ((UnicodeNorm, NullByteTrunc), 0.25),
+            ((UnicodeNorm, CaseSensitivity), 0.4),   // Both test string handling
+            ((NullByteTrunc, QuoteCancellation), 0.2),
+            ((CaseSensitivity, BooleanDifferential), 0.15),
+
+            // === WAF signals ===
+            ((WafBlock, WafBypass), 0.6),            // Related but different
+            ((WafBlock, StatusCode), 0.5),           // WAF often returns 403
+            ((WafBypass, ErrorPattern), 0.3),        // Bypass might expose errors
 
             // === Negative evidence correlates with content signals ===
             ((NoChange, Length), 0.8),
@@ -404,6 +442,8 @@ impl BayesianCombiner {
                 Length | Entropy | Compression | ContentHash => "content",
                 Resonance | BooleanDifferential | ArithmeticEval |
                 QuoteCancellation | CommentInjection => "behavioral",
+                HexEncoding | UnicodeNorm | NullByteTrunc | CaseSensitivity => "encoding",
+                WafBlock | WafBypass => "waf",
                 StatusCode | HeaderDiff => "http",
                 ErrorPattern => "pattern",
                 NoChange | ConsistentBehavior => "negative",
