@@ -26,7 +26,7 @@ jobs:
           sudo apt-get install -y pkg-config libssl-dev libpq-dev
 
       - name: Install Chrome
-        uses: browser-actions/setup-chrome@facf10a55b9caf92e0cc749b4f82bf8220989148 # v1.7.2
+        uses: browser-actions/setup-chrome@b94431e051d1c52dcbe9a7092a4f10f827795416 # v2.1.0
         id: setup-chrome
         with:
           chrome-version: stable
