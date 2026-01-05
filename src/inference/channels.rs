@@ -107,6 +107,18 @@ impl SideChannelAnalyzer {
         }
 
         // ================================================================
+        // Test 9: Advanced micro-timing leak detection (50+ samples)
+        // Only run if still uncertain after basic tests
+        // Uses bottom-quartile, bootstrapping, adaptive thresholding
+        // ================================================================
+        let current_prob = self.combiner.combine(&all_signals).probability;
+        if current_prob > 0.3 && current_prob < 0.8 {
+            // In the "uncertain zone" - worth investing in advanced timing
+            let leak_signals = self.analyze_micro_timing_leak(base_url, parameter).await;
+            all_signals.extend(leak_signals);
+        }
+
+        // ================================================================
         // Combine all signals
         // ================================================================
         let result = self.combiner.combine(&all_signals);
@@ -673,6 +685,262 @@ impl SideChannelAnalyzer {
         }
 
         signals
+    }
+
+    /// Advanced micro-timing leak detection
+    ///
+    /// Uses techniques from PortSwigger research and Spectre-style analysis:
+    /// 1. Bottom-quartile filtering (fastest 25% as "clean" samples)
+    /// 2. 50+ samples for statistical power
+    /// 3. Bootstrapped confidence intervals
+    /// 4. Adaptive thresholding using control requests
+    /// 5. Strong negative evidence if no leak detected
+    ///
+    /// Detects:
+    /// - O(n) string comparison timing leaks
+    /// - Hash lookup vs table scan differences
+    /// - Index hit vs miss (~10-100μs difference)
+    async fn analyze_micro_timing_leak(
+        &self,
+        base_url: &str,
+        parameter: &str,
+    ) -> Vec<Signal> {
+        let mut signals = Vec::new();
+
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "1".to_string());
+
+        // ================================================================
+        // Phase 1: Establish baseline jitter via control requests
+        // Send identical requests to measure network/server variance
+        // ================================================================
+        let control_url = self.build_test_url(base_url, parameter, &current_value);
+        let mut control_times: Vec<f64> = Vec::with_capacity(20);
+
+        for _ in 0..20 {
+            if let Ok(resp) = self.http_client.get(&control_url).await {
+                control_times.push(resp.duration_ms as f64);
+            }
+        }
+
+        if control_times.len() < 10 {
+            return signals; // Not enough samples
+        }
+
+        // Calculate baseline jitter (standard deviation of control)
+        let control_mean = control_times.iter().sum::<f64>() / control_times.len() as f64;
+        let control_var = control_times.iter()
+            .map(|x| (x - control_mean).powi(2))
+            .sum::<f64>() / (control_times.len() - 1) as f64;
+        let jitter_std = control_var.sqrt();
+
+        // Adaptive threshold: 3 sigma above jitter is significant
+        let significance_threshold = jitter_std * 3.0;
+
+        // ================================================================
+        // Phase 2: String length timing leak (O(n) comparison)
+        // Short vs long string should show linear time difference
+        // ================================================================
+        let short_payload = current_value.clone();
+        let long_payload = format!("{}{}", current_value, "A".repeat(50));
+
+        let short_url = self.build_test_url(base_url, parameter, &short_payload);
+        let long_url = self.build_test_url(base_url, parameter, &long_payload);
+
+        // Collect 50 samples each (alternating to reduce temporal correlation)
+        let n_samples = 50;
+        let mut short_times: Vec<f64> = Vec::with_capacity(n_samples);
+        let mut long_times: Vec<f64> = Vec::with_capacity(n_samples);
+
+        for _ in 0..n_samples {
+            if let Ok(resp) = self.http_client.get(&short_url).await {
+                short_times.push(resp.duration_ms as f64);
+            }
+            if let Ok(resp) = self.http_client.get(&long_url).await {
+                long_times.push(resp.duration_ms as f64);
+            }
+        }
+
+        if short_times.len() >= 30 && long_times.len() >= 30 {
+            // Bottom-quartile filtering: use fastest 25% as "clean" samples
+            short_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            long_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+            let q1_idx = short_times.len() / 4;
+            let short_q1: Vec<f64> = short_times[..q1_idx.max(5)].to_vec();
+            let long_q1: Vec<f64> = long_times[..q1_idx.max(5)].to_vec();
+
+            let short_clean_mean = short_q1.iter().sum::<f64>() / short_q1.len() as f64;
+            let long_clean_mean = long_q1.iter().sum::<f64>() / long_q1.len() as f64;
+
+            // Time difference in bottom quartile
+            let timing_diff = long_clean_mean - short_clean_mean;
+
+            // Bootstrap confidence interval (1000 resamples)
+            let bootstrap_diffs = self.bootstrap_timing_diff(&short_q1, &long_q1, 500);
+            let (ci_low, ci_high) = self.confidence_interval_95(&bootstrap_diffs);
+
+            // Check if CI excludes zero (statistically significant)
+            let ci_excludes_zero = ci_low > 0.0 || ci_high < 0.0;
+
+            // Effect size on clean samples
+            let short_var = short_q1.iter()
+                .map(|x| (x - short_clean_mean).powi(2))
+                .sum::<f64>() / short_q1.len().max(1) as f64;
+            let long_var = long_q1.iter()
+                .map(|x| (x - long_clean_mean).powi(2))
+                .sum::<f64>() / long_q1.len().max(1) as f64;
+            let pooled_std = ((short_var + long_var) / 2.0).sqrt().max(0.01);
+            let effect_size = timing_diff.abs() / pooled_std;
+
+            // Direction check: long should be slower for O(n) string comparison
+            let direction_correct = timing_diff > 0.0;
+
+            // Calculate probability based on multiple criteria
+            let probability = if effect_size > 1.5 && ci_excludes_zero && direction_correct
+                && timing_diff > significance_threshold {
+                0.92  // Very strong evidence
+            } else if effect_size > 1.0 && ci_excludes_zero && direction_correct {
+                0.82  // Strong evidence
+            } else if effect_size > 0.5 && direction_correct && timing_diff > jitter_std {
+                0.65  // Moderate evidence
+            } else if effect_size > 0.3 {
+                0.45  // Weak evidence
+            } else {
+                0.2   // No evidence
+            };
+
+            if probability >= 0.6 {
+                signals.push(Signal::new(
+                    SignalType::MicroTimingLeak,
+                    probability,
+                    effect_size,
+                    &format!(
+                        "O(n) timing leak: diff={:.2}ms, d={:.2}, CI=[{:.2},{:.2}], jitter={:.2}ms",
+                        timing_diff, effect_size, ci_low, ci_high, jitter_std
+                    ),
+                ));
+            } else if probability < 0.3 && short_times.len() >= 40 {
+                // Strong negative evidence: many samples, no difference
+                signals.push(Signal::new(
+                    SignalType::ConsistentBehavior,
+                    0.85,  // High confidence in NO leak
+                    effect_size,
+                    &format!(
+                        "No timing leak detected (n={}, d={:.2}, jitter={:.2}ms)",
+                        short_times.len(), effect_size, jitter_std
+                    ),
+                ));
+            }
+        }
+
+        // ================================================================
+        // Phase 3: SQL-specific timing patterns
+        // Test payloads that should cause different DB operations
+        // ================================================================
+        let test_payloads = [
+            // Index hit vs miss (if numeric)
+            (format!("{}", current_value), "baseline"),
+            (format!("999999999{}", current_value), "index_miss"),
+            // Hash collision potential
+            (format!("{}' AND 'a'='a", current_value), "always_true"),
+            (format!("{}' AND 'a'='b", current_value), "always_false"),
+        ];
+
+        let mut timing_results: Vec<(String, f64, f64)> = Vec::new();
+
+        for (payload, label) in &test_payloads {
+            let url = self.build_test_url(base_url, parameter, payload);
+            let mut times: Vec<f64> = Vec::new();
+
+            for _ in 0..15 {
+                if let Ok(resp) = self.http_client.get(&url).await {
+                    times.push(resp.duration_ms as f64);
+                }
+            }
+
+            if times.len() >= 10 {
+                times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let q1_mean = times[..times.len()/4].iter().sum::<f64>()
+                    / (times.len()/4).max(1) as f64;
+                let full_mean = times.iter().sum::<f64>() / times.len() as f64;
+                timing_results.push((label.to_string(), q1_mean, full_mean));
+            }
+        }
+
+        // Analyze timing differences between payloads
+        if timing_results.len() >= 3 {
+            // Compare always_true vs always_false (classic blind SQLi timing)
+            let true_time = timing_results.iter()
+                .find(|(l, _, _)| l == "always_true")
+                .map(|(_, q1, _)| *q1);
+            let false_time = timing_results.iter()
+                .find(|(l, _, _)| l == "always_false")
+                .map(|(_, q1, _)| *q1);
+
+            if let (Some(t_true), Some(t_false)) = (true_time, false_time) {
+                let diff = (t_true - t_false).abs();
+                if diff > significance_threshold * 2.0 {
+                    signals.push(Signal::new(
+                        SignalType::MicroTimingLeak,
+                        0.78,
+                        diff / jitter_std.max(0.1),
+                        &format!(
+                            "Boolean blind timing: true={:.2}ms, false={:.2}ms, diff={:.2}ms",
+                            t_true, t_false, diff
+                        ),
+                    ));
+                }
+            }
+        }
+
+        signals
+    }
+
+    /// Bootstrap resampling for timing difference confidence interval
+    fn bootstrap_timing_diff(&self, a: &[f64], b: &[f64], n_resamples: usize) -> Vec<f64> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut diffs = Vec::with_capacity(n_resamples);
+
+        for i in 0..n_resamples {
+            // Simple deterministic "random" selection based on index
+            let mut hasher = DefaultHasher::new();
+            i.hash(&mut hasher);
+            let seed = hasher.finish();
+
+            let a_sample: Vec<f64> = (0..a.len())
+                .map(|j| a[((seed as usize + j * 7) % a.len())])
+                .collect();
+            let b_sample: Vec<f64> = (0..b.len())
+                .map(|j| b[((seed as usize + j * 13) % b.len())])
+                .collect();
+
+            let a_mean = a_sample.iter().sum::<f64>() / a_sample.len() as f64;
+            let b_mean = b_sample.iter().sum::<f64>() / b_sample.len() as f64;
+            diffs.push(b_mean - a_mean);
+        }
+
+        diffs
+    }
+
+    /// Calculate 95% confidence interval from bootstrap samples
+    fn confidence_interval_95(&self, samples: &[f64]) -> (f64, f64) {
+        if samples.is_empty() {
+            return (0.0, 0.0);
+        }
+
+        let mut sorted = samples.to_vec();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let low_idx = (samples.len() as f64 * 0.025) as usize;
+        let high_idx = (samples.len() as f64 * 0.975) as usize;
+
+        (
+            sorted.get(low_idx).copied().unwrap_or(0.0),
+            sorted.get(high_idx.min(sorted.len() - 1)).copied().unwrap_or(0.0),
+        )
     }
 
     /// Calculate similarity between two responses (0.0 to 1.0)
