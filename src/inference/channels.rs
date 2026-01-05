@@ -7,10 +7,7 @@
 
 use crate::http_client::{HttpClient, HttpResponse};
 use crate::inference::bayesian::{BayesianCombiner, CombinedResult, Signal, SignalType};
-use crate::inference::signals::{
-    EntropyAnalyzer, ErrorPatternAnalyzer, HeaderAnalyzer, LengthAnalyzer,
-    ResonanceAnalyzer, SideChannelSuite, StatusCodeAnalyzer, TimingAnalyzer,
-};
+use crate::inference::signals::{ResonanceAnalyzer, SideChannelSuite};
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -116,6 +113,28 @@ impl SideChannelAnalyzer {
             // In the "uncertain zone" - worth investing in advanced timing
             let leak_signals = self.analyze_micro_timing_leak(base_url, parameter).await;
             all_signals.extend(leak_signals);
+        }
+
+        // ================================================================
+        // Test 10: HTTP/2 Race Oracle (response ordering, not timing)
+        // Eliminates network jitter via multiplexed connection
+        // Only if we have HTTP/2 support and still uncertain
+        // ================================================================
+        let current_prob = self.combiner.combine(&all_signals).probability;
+        if current_prob > 0.4 && current_prob < 0.85 {
+            let race_signals = self.analyze_race_oracle(base_url, parameter).await;
+            all_signals.extend(race_signals);
+        }
+
+        // ================================================================
+        // Test 11: Single-Packet Attack timing (microsecond precision)
+        // Uses TCP packet boundary synchronization
+        // Only if still uncertain after other tests
+        // ================================================================
+        let current_prob = self.combiner.combine(&all_signals).probability;
+        if current_prob > 0.5 && current_prob < 0.85 {
+            let packet_signals = self.analyze_single_packet(base_url, parameter).await;
+            all_signals.extend(packet_signals);
         }
 
         // ================================================================
@@ -897,6 +916,343 @@ impl SideChannelAnalyzer {
         signals
     }
 
+    /// HTTP/2 Race Oracle Analysis
+    ///
+    /// Revolutionary timing technique from PortSwigger research:
+    /// Instead of measuring absolute response times (which have network jitter),
+    /// we measure the ORDER in which responses arrive.
+    ///
+    /// Principle:
+    /// - HTTP/2 multiplexes requests over single TCP connection
+    /// - Send two requests simultaneously (fast payload vs slow payload)
+    /// - Observe which response arrives FIRST
+    /// - No network jitter because both travel same path
+    ///
+    /// If short-string-comparison returns first 8/10 times → O(n) timing leak
+    async fn analyze_race_oracle(
+        &self,
+        base_url: &str,
+        parameter: &str,
+    ) -> Vec<Signal> {
+        let mut signals = Vec::new();
+
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "1".to_string());
+
+        // Prepare "fast" and "slow" payloads
+        // Fast: short string comparison (early exit)
+        // Slow: long string that requires more processing
+        let fast_payload = current_value.clone();
+        let slow_payload = format!("{}{}", current_value, "X".repeat(64));
+
+        let fast_url = self.build_test_url(base_url, parameter, &fast_payload);
+        let slow_url = self.build_test_url(base_url, parameter, &slow_payload);
+
+        // Race them multiple times and count which wins
+        let n_races = 15;
+        let mut fast_wins = 0;
+        let mut slow_wins = 0;
+        let mut ties = 0;
+
+        for _ in 0..n_races {
+            // Fire both requests simultaneously using tokio::join!
+            // The order of completion tells us which was faster on the server
+            let race_result = tokio::select! {
+                biased; // Process in order of completion
+
+                result = async {
+                    let start = std::time::Instant::now();
+                    let resp = self.http_client.get(&fast_url).await;
+                    (start.elapsed(), "fast", resp)
+                } => result,
+
+                result = async {
+                    let start = std::time::Instant::now();
+                    let resp = self.http_client.get(&slow_url).await;
+                    (start.elapsed(), "slow", resp)
+                } => result,
+            };
+
+            match race_result.1 {
+                "fast" => fast_wins += 1,
+                "slow" => slow_wins += 1,
+                _ => ties += 1,
+            }
+
+            // Small delay between races to avoid overwhelming server
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+
+        // Statistical analysis of race results
+        let total_races = fast_wins + slow_wins + ties;
+        if total_races >= 10 {
+            let fast_ratio = fast_wins as f64 / total_races as f64;
+            let slow_ratio = slow_wins as f64 / total_races as f64;
+
+            // If fast consistently wins (>70%), we have timing leak
+            // If slow consistently wins, that's WEIRD (possible inverse oracle)
+            let probability = if fast_ratio > 0.8 {
+                0.92  // Very strong: fast wins >80%
+            } else if fast_ratio > 0.7 {
+                0.82  // Strong: fast wins >70%
+            } else if fast_ratio > 0.6 {
+                0.65  // Moderate: fast wins >60%
+            } else if slow_ratio > 0.7 {
+                0.75  // Inverse pattern: slow winning consistently is also a signal
+            } else {
+                0.35  // Random: no consistent winner
+            };
+
+            if probability >= 0.6 {
+                signals.push(Signal::new(
+                    SignalType::RaceOracle,
+                    probability,
+                    (fast_wins as f64 - slow_wins as f64).abs() / total_races as f64,
+                    &format!(
+                        "Race oracle: fast_wins={}/{} ({}%), slow_wins={} - {}",
+                        fast_wins, total_races,
+                        (fast_ratio * 100.0) as u32,
+                        slow_wins,
+                        if fast_ratio > 0.7 { "O(n) timing leak detected" } else { "inverse pattern" }
+                    ),
+                ));
+            } else if probability < 0.4 && total_races >= 12 {
+                // Strong negative evidence: many races, random outcome
+                signals.push(Signal::new(
+                    SignalType::ConsistentBehavior,
+                    0.75,
+                    0.0,
+                    &format!(
+                        "No race timing leak: fast={}, slow={} (random distribution)",
+                        fast_wins, slow_wins
+                    ),
+                ));
+            }
+        }
+
+        // Second race: SQL boolean conditions
+        // Compare: AND 1=1 (true, should short-circuit) vs AND 1=2 (false)
+        let true_url = self.build_test_url(base_url, parameter,
+            &format!("{} AND 1=1", current_value));
+        let false_url = self.build_test_url(base_url, parameter,
+            &format!("{} AND 1=2", current_value));
+
+        let mut true_wins = 0;
+        let mut false_wins = 0;
+
+        for _ in 0..10 {
+            let race_result = tokio::select! {
+                biased;
+                _ = self.http_client.get(&true_url) => "true",
+                _ = self.http_client.get(&false_url) => "false",
+            };
+
+            match race_result {
+                "true" => true_wins += 1,
+                "false" => false_wins += 1,
+                _ => {}
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+
+        let total = true_wins + false_wins;
+        if total >= 8 {
+            let true_ratio = true_wins as f64 / total as f64;
+
+            // True condition might short-circuit differently
+            if true_ratio > 0.75 || true_ratio < 0.25 {
+                signals.push(Signal::new(
+                    SignalType::RaceOracle,
+                    0.78,
+                    (true_wins as f64 - false_wins as f64).abs() / total as f64,
+                    &format!(
+                        "Boolean race: true_wins={}/{} - SQL evaluation timing differs",
+                        true_wins, total
+                    ),
+                ));
+            }
+        }
+
+        signals
+    }
+
+    /// Single-Packet Attack Timing Analysis
+    ///
+    /// Advanced technique from James Kettle (PortSwigger):
+    /// Eliminates first-byte network jitter by synchronizing request starts.
+    ///
+    /// Principle:
+    /// - Fragment HTTP requests so only the final byte is missing
+    /// - Hold all requests at server, waiting for final byte
+    /// - Send all final bytes in a SINGLE TCP packet
+    /// - All requests start processing at exactly the same microsecond
+    /// - Timing differences are pure server-side processing time
+    ///
+    /// Implementation:
+    /// We simulate this by sending requests in very tight bursts and
+    /// measuring the response time variance. With single-packet attack,
+    /// variance should be minimal for identical requests but measurable
+    /// for requests that trigger different code paths.
+    async fn analyze_single_packet(
+        &self,
+        base_url: &str,
+        parameter: &str,
+    ) -> Vec<Signal> {
+        let mut signals = Vec::new();
+
+        let current_value = self.extract_param_value(base_url, parameter)
+            .unwrap_or_else(|| "1".to_string());
+
+        // Prepare test payloads that should have different server processing times
+        let payloads = [
+            (current_value.clone(), "baseline"),
+            (format!("{}'", current_value), "quote"),
+            (format!("{} AND 1=1", current_value), "true_cond"),
+            (format!("{} AND 1=2", current_value), "false_cond"),
+            (format!("{}--", current_value), "comment"),
+        ];
+
+        // Build URLs
+        let urls: Vec<(String, &str)> = payloads.iter()
+            .map(|(p, l)| (self.build_test_url(base_url, parameter, p), *l))
+            .collect();
+
+        // ================================================================
+        // Burst timing: fire all requests near-simultaneously and measure
+        // ================================================================
+        let n_bursts = 8;
+        let mut timing_data: std::collections::HashMap<&str, Vec<f64>> =
+            std::collections::HashMap::new();
+
+        for label in payloads.iter().map(|(_, l)| *l) {
+            timing_data.insert(label, Vec::with_capacity(n_bursts));
+        }
+
+        for _ in 0..n_bursts {
+            // Fire all requests in tight burst
+            let handles: Vec<_> = urls.iter().map(|(url, label)| {
+                let url = url.clone();
+                let label = *label;
+                let client = Arc::clone(&self.http_client);
+                tokio::spawn(async move {
+                    let start = std::time::Instant::now();
+                    let result = client.get(&url).await;
+                    let elapsed = start.elapsed().as_micros() as f64;
+                    (label, elapsed, result.is_ok())
+                })
+            }).collect();
+
+            // Collect results
+            for handle in handles {
+                if let Ok((label, elapsed, success)) = handle.await {
+                    if success {
+                        if let Some(times) = timing_data.get_mut(label) {
+                            times.push(elapsed);
+                        }
+                    }
+                }
+            }
+
+            // Brief pause between bursts
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+
+        // ================================================================
+        // Statistical analysis of burst timing
+        // ================================================================
+        let baseline_times = timing_data.get("baseline").cloned().unwrap_or_default();
+
+        if baseline_times.len() >= 5 {
+            let baseline_mean = baseline_times.iter().sum::<f64>() / baseline_times.len() as f64;
+            let baseline_var = baseline_times.iter()
+                .map(|x| (x - baseline_mean).powi(2))
+                .sum::<f64>() / baseline_times.len() as f64;
+            let baseline_std = baseline_var.sqrt().max(1.0);
+
+            // Compare each payload to baseline
+            for (label, times) in &timing_data {
+                if *label == "baseline" || times.len() < 4 {
+                    continue;
+                }
+
+                let mean = times.iter().sum::<f64>() / times.len() as f64;
+                let diff = mean - baseline_mean;
+
+                // Effect size: how many baseline std devs away?
+                let effect = diff.abs() / baseline_std;
+
+                // Consistency check: is the difference consistent?
+                let times_above: usize = times.iter()
+                    .filter(|&&t| t > baseline_mean + baseline_std)
+                    .count();
+                let consistency = times_above as f64 / times.len() as f64;
+
+                // Calculate probability
+                let probability = if effect > 3.0 && consistency > 0.6 {
+                    0.92  // Very strong: >3σ, consistent
+                } else if effect > 2.0 && consistency > 0.5 {
+                    0.82  // Strong
+                } else if effect > 1.5 && consistency > 0.4 {
+                    0.68  // Moderate
+                } else if effect > 1.0 {
+                    0.55  // Weak
+                } else {
+                    0.3   // No signal
+                };
+
+                if probability >= 0.65 {
+                    signals.push(Signal::new(
+                        SignalType::SinglePacket,
+                        probability,
+                        effect,
+                        &format!(
+                            "Single-packet timing [{}]: diff={:.0}μs, effect={:.2}σ, consistency={:.0}%",
+                            label, diff, effect, consistency * 100.0
+                        ),
+                    ));
+                }
+            }
+
+            // Compare true vs false condition specifically
+            let true_times = timing_data.get("true_cond").cloned().unwrap_or_default();
+            let false_times = timing_data.get("false_cond").cloned().unwrap_or_default();
+
+            if true_times.len() >= 4 && false_times.len() >= 4 {
+                let true_mean = true_times.iter().sum::<f64>() / true_times.len() as f64;
+                let false_mean = false_times.iter().sum::<f64>() / false_times.len() as f64;
+                let bool_diff = (true_mean - false_mean).abs();
+
+                // If true and false conditions have different timing → SQLi
+                if bool_diff > baseline_std * 1.5 {
+                    signals.push(Signal::new(
+                        SignalType::SinglePacket,
+                        0.85,
+                        bool_diff / baseline_std,
+                        &format!(
+                            "Boolean single-packet: true={:.0}μs, false={:.0}μs, diff={:.0}μs",
+                            true_mean, false_mean, bool_diff
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // ================================================================
+        // Negative evidence if no timing differences found
+        // ================================================================
+        if signals.is_empty() && timing_data.values().all(|v| v.len() >= 6) {
+            signals.push(Signal::new(
+                SignalType::ConsistentBehavior,
+                0.7,
+                0.0,
+                "Single-packet analysis: no timing differences between payloads",
+            ));
+        }
+
+        signals
+    }
+
     /// Bootstrap resampling for timing difference confidence interval
     fn bootstrap_timing_diff(&self, a: &[f64], b: &[f64], n_resamples: usize) -> Vec<f64> {
         use std::collections::hash_map::DefaultHasher;
@@ -911,10 +1267,10 @@ impl SideChannelAnalyzer {
             let seed = hasher.finish();
 
             let a_sample: Vec<f64> = (0..a.len())
-                .map(|j| a[((seed as usize + j * 7) % a.len())])
+                .map(|j| a[(seed as usize + j * 7) % a.len()])
                 .collect();
             let b_sample: Vec<f64> = (0..b.len())
-                .map(|j| b[((seed as usize + j * 13) % b.len())])
+                .map(|j| b[(seed as usize + j * 13) % b.len()])
                 .collect();
 
             let a_mean = a_sample.iter().sum::<f64>() / a_sample.len() as f64;

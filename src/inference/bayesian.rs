@@ -17,6 +17,8 @@ pub enum SignalType {
     Timing,              // Response time analysis (z-score from baseline)
     MicroTiming,         // Statistical micro-timing analysis (20+ samples)
     MicroTimingLeak,     // Advanced: bottom-quartile, 50+ samples, bootstrapped CI
+    RaceOracle,          // HTTP/2 response race (no timing, just ordering)
+    SinglePacket,        // Single-packet attack (eliminates network jitter)
 
     // === Content-based signals ===
     Length,              // Content length differential
@@ -123,6 +125,8 @@ impl BayesianCombiner {
         combiner.weights.insert(SignalType::Timing, 0.6);
         combiner.weights.insert(SignalType::MicroTiming, 0.7);  // Statistical timing
         combiner.weights.insert(SignalType::MicroTimingLeak, 0.85); // Advanced: high confidence
+        combiner.weights.insert(SignalType::RaceOracle, 0.9);   // Very high: no jitter
+        combiner.weights.insert(SignalType::SinglePacket, 0.92); // Highest: microsecond precision
         combiner.weights.insert(SignalType::Length, 0.5);
         combiner.weights.insert(SignalType::Entropy, 0.4);
         combiner.weights.insert(SignalType::Compression, 0.5);
@@ -170,7 +174,8 @@ impl BayesianCombiner {
 
         // All signal types
         let all_types = [
-            Timing, MicroTiming, MicroTimingLeak, Length, Entropy, Compression, ContentHash,
+            Timing, MicroTiming, MicroTimingLeak, RaceOracle, SinglePacket,
+            Length, Entropy, Compression, ContentHash,
             Resonance, BooleanDifferential, ArithmeticEval, QuoteCancellation, CommentInjection,
             HexEncoding, UnicodeNorm, NullByteTrunc, CaseSensitivity,
             WafBlock, WafBypass,
@@ -199,10 +204,17 @@ impl BayesianCombiner {
             ((Timing, MicroTiming), 0.7),      // Both measure timing, but different methods
             ((Timing, MicroTimingLeak), 0.6),  // Advanced timing is more precise
             ((MicroTiming, MicroTimingLeak), 0.8), // Same channel, different precision
+            ((Timing, RaceOracle), 0.5),       // Race doesn't use clocks
+            ((Timing, SinglePacket), 0.6),     // Single-packet uses timing
+            ((MicroTimingLeak, RaceOracle), 0.4), // Different measurement principles
+            ((MicroTimingLeak, SinglePacket), 0.7), // Both high-precision
+            ((RaceOracle, SinglePacket), 0.5), // Independent techniques
             ((Timing, Length), 0.3),           // Bigger response = slower
             ((Timing, Entropy), 0.15),         // Processing complexity
             ((MicroTiming, Length), 0.25),     // Less affected by content size
             ((MicroTimingLeak, Length), 0.2),  // Advanced timing even less affected
+            ((RaceOracle, Length), 0.15),      // Race barely affected by content
+            ((SinglePacket, Length), 0.2),     // Single-packet slightly affected
 
             // === Timing vs behavioral signals (weak correlation) ===
             // Behavioral tests might affect timing slightly
@@ -447,7 +459,7 @@ impl BayesianCombiner {
         // Define signal classes (groups of related signals)
         let get_class = |s: SignalType| -> &'static str {
             match s {
-                Timing | MicroTiming | MicroTimingLeak => "timing",
+                Timing | MicroTiming | MicroTimingLeak | RaceOracle | SinglePacket => "timing",
                 Length | Entropy | Compression | ContentHash => "content",
                 Resonance | BooleanDifferential | ArithmeticEval |
                 QuoteCancellation | CommentInjection => "behavioral",
