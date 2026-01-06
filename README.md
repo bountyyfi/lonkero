@@ -8,7 +8,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.2-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.3-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Release](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml/badge.svg)](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
@@ -36,6 +36,29 @@ Lonkero is a production-grade web security scanner designed for professional sec
 - **When tech detection fails, we run MORE tests, not fewer** - fallback layer with 35+ scanners
 
 Unlike generic scanners that spam thousands of useless payloads, Lonkero uses context-aware filtering to test only what matters.
+
+---
+
+## v3.3 New Features
+
+### XSS Scanner Improvements
+
+Major improvements to XSS detection accuracy and coverage:
+
+**Chromium XSS Scanner (Premium)**
+- **Increased payload coverage** - Intelligent mode now uses all available payloads instead of just 5 per parameter
+- **Loosened parameter filtering** - Parameters like `user_id`, `product_id`, `name` are now tested (IDs can be reflected in XSS contexts)
+- **Only skips non-injectable contexts** - CSRF tokens, pure pagination fields, and boolean flags
+
+**New: Reflection XSS Scanner (Free)**
+- **No Chrome required** - HTTP response-based XSS detection
+- **Tests 6 payload types** - Script injection, img onerror, svg onload, body onload, input autofocus, attribute breakout
+- **Automatic fallback** - Runs when Chromium scanner is unavailable
+
+### Parameter Filter Improvements
+
+- **XSS filter expanded** - Now tests parameters ending in `id`, `count`, `weight`, etc. (these can be reflected in HTML)
+- **Better false positive prevention** - Still skips CSRF tokens, pagination, and boolean flags where XSS is impossible
 
 ---
 

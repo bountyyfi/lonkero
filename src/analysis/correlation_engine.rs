@@ -410,7 +410,7 @@ mod tests {
             verified: false,
             false_positive: false,
             remediation: None,
-            discovered_at: chrono::Utc::now(),
+            discovered_at: chrono::Utc::now().to_rfc3339(),
         }
     }
 

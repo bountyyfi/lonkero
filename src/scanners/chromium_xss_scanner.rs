@@ -713,7 +713,9 @@ impl ChromiumXssScanner {
         config: &ScanConfig,
         shared_browser: Option<&SharedBrowser>,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // License check - Chromium XSS is a premium feature
         if !crate::license::verify_scan_authorized() {
+            debug!("[Chromium-XSS] Scan skipped: No valid license");
             return Ok((Vec::new(), 0));
         }
         if !crate::signing::is_scan_authorized() {
@@ -847,8 +849,17 @@ impl ChromiumXssScanner {
             return Ok(results);
         }
 
+        // Intelligent mode (v3.0 default) uses all payloads
+        // Legacy modes have reduced payloads for backwards compatibility
+        let payload_limit = match mode {
+            ScanMode::Intelligent => payloads.len(),  // Full coverage
+            ScanMode::Fast => 3,
+            ScanMode::Normal => 6,
+            ScanMode::Thorough | ScanMode::Insane => payloads.len(),
+        };
+
         'param_loop: for param_name in &test_params {
-            for payload_template in payloads.iter().take(5) {
+            for payload_template in payloads.iter().take(payload_limit) {
                 let marker = format!(
                     "XSS{}",
                     uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
@@ -1556,6 +1567,7 @@ impl ChromiumXssScanner {
         shared_browser: Option<&SharedBrowser>,
         concurrency: usize,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        // License check - Chromium XSS is a premium feature
         if !crate::license::verify_scan_authorized() {
             return Ok((Vec::new(), 0));
         }

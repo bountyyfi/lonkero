@@ -27,11 +27,8 @@ impl TemplateInjectionScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        // PREMIUM FEATURE: Template Injection requires Professional license
-        if !crate::license::is_feature_available("template_injection") {
-            debug!("[SSTI] Feature requires Professional license or higher");
-            return Ok((vulnerabilities, tests_run));
-        }
+        // NOTE: License check removed to enable detection in all scan modes
+        // Template injection is a critical vulnerability that should always be tested
 
         // Skip if GraphQL endpoint
         if let Some(ctx) = context {
