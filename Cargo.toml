@@ -134,7 +134,7 @@ csv = "1.3"
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 
 # Excel/XLSX generation
-rust_xlsxwriter = "0.92.1"
+rust_xlsxwriter = "0.92.3"
 
 # Additional security dependencies
 hex = "0.4"

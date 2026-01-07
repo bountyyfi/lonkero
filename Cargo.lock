@@ -2132,7 +2132,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lonkero"
-version = "3.3.0"
+version = "3.4.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3238,9 +3238,9 @@ dependencies = [
 
 [[package]]
 name = "rust_xlsxwriter"
-version = "0.92.2"
+version = "0.92.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca8b9faf2c68874f865272c92493e9bb811e5fdff197a56ecc4748885ec5a874"
+checksum = "0733a44f344e900c4221f33a16aa92a59e3e7c7ad37d39a1c753afecb1f2bd02"
 dependencies = [
  "zip",
 ]
