@@ -565,6 +565,115 @@ impl LicenseManager {
             }
         }
 
+        // Windows: Get MachineGuid from registry and other hardware identifiers
+        #[cfg(target_os = "windows")]
+        {
+            // Try to get MachineGuid from registry using reg query
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    // Parse the registry output to extract the GUID
+                    for line in output_str.lines() {
+                        if line.contains("MachineGuid") {
+                            if let Some(guid) = line.split_whitespace().last() {
+                                components.push(format!("mid:{}", guid.trim()));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Get Windows Product ID
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v ProductId"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for line in output_str.lines() {
+                        if line.contains("ProductId") {
+                            if let Some(pid) = line.split_whitespace().last() {
+                                components.push(format!("pid:{}", pid.trim()));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Get CPU info via WMIC
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "wmic cpu get processorid"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for line in output_str.lines().skip(1) {
+                        let cpu_id = line.trim();
+                        if !cpu_id.is_empty() {
+                            components.push(format!("cpu:{}", cpu_id));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Get BIOS serial number
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "wmic bios get serialnumber"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for line in output_str.lines().skip(1) {
+                        let serial = line.trim();
+                        if !serial.is_empty() && serial != "To be filled by O.E.M." {
+                            components.push(format!("bios:{}", serial));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Get MAC address using getmac
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "getmac /fo csv /nh"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    if let Some(first_line) = output_str.lines().next() {
+                        // Parse CSV format: "MAC","Transport Name"
+                        if let Some(mac) = first_line.split(',').next() {
+                            let mac = mac.trim().trim_matches('"');
+                            if !mac.is_empty() && mac != "N/A" {
+                                components.push(format!("mac:{}", mac));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Get baseboard serial
+            if let Ok(output) = std::process::Command::new("cmd")
+                .args(["/C", "wmic baseboard get serialnumber"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for line in output_str.lines().skip(1) {
+                        let serial = line.trim();
+                        if !serial.is_empty() && serial != "To be filled by O.E.M." {
+                            components.push(format!("board:{}", serial));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         // Component 2: CPU info (harder to spoof)
         #[cfg(target_os = "linux")]
         {
@@ -595,7 +704,7 @@ impl LicenseManager {
             }
         }
 
-        // Component 4: Hostname
+        // Component 4: Hostname (all platforms)
         if let Ok(hostname) = hostname::get() {
             if let Ok(hostname_str) = hostname.into_string() {
                 components.push(format!("host:{}", hostname_str));
