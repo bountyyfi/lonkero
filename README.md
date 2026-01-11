@@ -587,6 +587,12 @@ sudo cp target/release/lonkero /usr/local/bin/
 - OpenSSL development libraries
 - Valid license key (for premium features)
 
+**Debian/Ubuntu:** Install required system dependencies before building:
+
+```bash
+sudo apt update && sudo apt install build-essential pkg-config libssl-dev -y
+```
+
 ---
 
 ## Quick Start
@@ -1226,6 +1232,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-action@stable
 
+      - name: Install Dependencies
+        run: sudo apt update && sudo apt install build-essential pkg-config libssl-dev -y
+
       - name: Clone and Build Lonkero
         run: |
           git clone https://github.com/bountyyfi/lonkero.git /tmp/lonkero
@@ -1257,6 +1266,7 @@ lonkero-scan:
   variables:
     LONKERO_LICENSE_KEY: $LONKERO_LICENSE
   script:
+    - apt update && apt install -y build-essential pkg-config libssl-dev
     - git clone https://github.com/bountyyfi/lonkero.git /tmp/lonkero
     - cd /tmp/lonkero && cargo build --release
     # v3.0: Intelligent mode is default
