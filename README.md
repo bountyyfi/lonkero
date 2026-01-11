@@ -587,6 +587,12 @@ sudo cp target/release/lonkero /usr/local/bin/
 - OpenSSL development libraries
 - Valid license key (for premium features)
 
+**Debian/Ubuntu:** Install required system dependencies before building:
+
+```bash
+sudo apt update && sudo apt install build-essential pkg-config libssl-dev -y
+```
+
 ---
 
 ## Quick Start
