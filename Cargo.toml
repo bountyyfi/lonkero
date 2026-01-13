@@ -28,10 +28,8 @@ futures-util = "0.3"
 
 # HTTP client with HTTP/2 support
 reqwest = { version = "0.12.28", features = ["json", "cookies", "stream", "rustls-tls-native-roots"] }
-h2 = "0.4"
 
-# Redis for queue and caching (use version compatible with deadpool-redis)
-redis = { version = "1.0", features = ["tokio-comp", "connection-manager", "aio"] }
+# Redis for queue and caching
 deadpool-redis = "0.22"
 
 # PostgreSQL database
@@ -49,11 +47,10 @@ urlencoding = "2.1"
 # Regex
 regex = "1.10"
 
-# Logging & Tracing & Metrics
+# Logging & Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-log = "0.2"
-metrics = "0.24"
 
 # Error handling
 anyhow = "1.0"
@@ -160,10 +157,4 @@ strip = false
 debug = true
 
 [dev-dependencies]
-criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
-tokio-test = "0.4"
-mockito = "1.7"
-wiremock = "0.6"
-assert_matches = "1.5"
-serial_test = "3.3"
 tempfile = "3.15"
