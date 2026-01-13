@@ -204,7 +204,7 @@ jobs:
           cargo sbom --output-format spdx_json_2_3 > sbom-spdx.json
 
       - name: Scan SBOM with Grype
-        uses: anchore/scan-action@3c9a191a0fbab285ca6b8530b5de5a642cba332f # v4.1.2
+        uses: anchore/scan-action@62b74fb7bb810d2c45b1865f47a77655621862a5 # v4.1.2
         with:
           sbom: sbom-cyclonedx.json
           fail-build: false
