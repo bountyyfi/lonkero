@@ -78,7 +78,7 @@ ahash = "0.8"
 # Cryptography (for JWT testing and quantum-safe signing)
 hmac = "0.12"
 sha2 = "0.10"
-blake3 = "1.5"
+blake3 = "1.8"
 
 # SSH client for secure authenticated scanning
 ssh2 = "0.9"
