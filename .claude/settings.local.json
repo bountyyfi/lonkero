@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./target/release/lonkero.exe:*)",
+      "Bash(git cherry-pick:*)"
+    ]
+  }
+}

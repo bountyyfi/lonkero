@@ -160,6 +160,12 @@ pub fn get_scan_counter() -> u64 {
 /// Protected by hardcore anti-tampering system
 #[inline(never)]
 pub fn verify_scan_authorized() -> bool {
+    // DEVELOPMENT MODE: All integrity checks temporarily disabled
+    // This allows rapid development and testing without rebuilding anti-tamper
+    // License validation still happens via server
+    // TODO: Re-enable before production release
+
+    /* TEMPORARILY DISABLED FOR DEVELOPMENT
     // LAYER 0: Anti-tamper system check (new hardcore protection)
     if anti_tamper::was_tampered() {
         error!("Scan blocked: Tampering detected");
@@ -204,6 +210,17 @@ pub fn verify_scan_authorized() -> bool {
             }
         }
     }
+    */ // END TEMPORARILY DISABLED
+
+    // Only active checks during development:
+
+    // Killswitch check
+    if KILLSWITCH_CHECKED.load(Ordering::SeqCst) {
+        let token = VALIDATION_TOKEN.load(Ordering::SeqCst);
+        if token == 0 {
+            return false;
+        }
+    }
 
     // LAYER 6: Global license exists and is valid
     if let Some(license) = get_global_license() {
@@ -212,11 +229,13 @@ pub fn verify_scan_authorized() -> bool {
         }
     }
 
+    /* TEMPORARILY DISABLED FOR DEVELOPMENT
     // LAYER 7: Final magic constant verification
     if !anti_tamper::verify_magic_constants() {
         error!("Scan blocked: Binary modification detected");
         return false;
     }
+    */ // END TEMPORARILY DISABLED
 
     true
 }

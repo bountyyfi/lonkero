@@ -307,6 +307,21 @@ impl CrawlResults {
             return true;
         }
 
+        // CRITICAL FIX: Allow dotted parameters even if prefix looks like hex/UUID
+        // Examples: "8fef29790e84b063164e7980881d837566359d8d.searchText", "csrf.token"
+        if name.contains('.') {
+            if let Some((_prefix, suffix)) = name.rsplit_once('.') {
+                // If the suffix (part after dot) is a meaningful field name, allow it
+                // Meaningful = not just digits/hex, has alpha characters
+                let has_meaningful_suffix = suffix.chars()
+                    .any(|c| c.is_ascii_alphabetic() && !c.is_ascii_hexdigit());
+
+                if has_meaningful_suffix && suffix.len() >= 3 {
+                    return false;  // DON'T FILTER - IT'S A REAL PARAMETER
+                }
+            }
+        }
+
         // Skip auto-generated field names like checkbox_field_0, radio_field_1, etc.
         if name.starts_with("checkbox_field_") || name.starts_with("radio_field_") {
             return true;
