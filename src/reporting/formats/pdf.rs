@@ -4,8 +4,6 @@
 use crate::reporting::types::{BrandingConfig, EnhancedReport};
 use crate::types::Severity;
 use anyhow::{anyhow, Result};
-use headless_chrome::{Browser, LaunchOptions};
-use std::ffi::OsStr;
 
 pub struct PdfReportGenerator;
 
@@ -812,62 +810,19 @@ impl PdfReportGenerator {
     }
 
     fn html_to_pdf(&self, html: &str) -> Result<Vec<u8>> {
-        let launch_options = LaunchOptions {
-            headless: true,
-            sandbox: true,
-            args: vec![
-                OsStr::new("--disable-gpu"),
-                OsStr::new("--no-sandbox"),
-                OsStr::new("--disable-dev-shm-usage"),
-                OsStr::new("--disable-setuid-sandbox"),
-            ],
-            ..Default::default()
-        };
+        // For now, return the HTML as UTF-8 bytes
+        // PDF generation requires the 'pdf' feature in kalamari
+        // or an external PDF library like wkhtmltopdf/weasyprint
+        //
+        // Users can convert the HTML to PDF using external tools:
+        // - wkhtmltopdf
+        // - weasyprint
+        // - Chrome/Chromium headless --print-to-pdf
 
-        let browser =
-            Browser::new(launch_options).map_err(|e| anyhow!("Failed to launch browser: {}", e))?;
-
-        let tab = browser
-            .new_tab()
-            .map_err(|e| anyhow!("Failed to create tab: {}", e))?;
-
-        // Navigate to data URL with HTML content
-        let data_url = format!("data:text/html;charset=utf-8,{}", urlencoding::encode(html));
-
-        tab.navigate_to(&data_url)
-            .map_err(|e| anyhow!("Failed to navigate: {}", e))?;
-
-        tab.wait_until_navigated()
-            .map_err(|e| anyhow!("Failed to wait for navigation: {}", e))?;
-
-        // Wait for fonts and styles
-        std::thread::sleep(std::time::Duration::from_millis(800));
-
-        // Print to PDF
-        let pdf_data = tab
-            .print_to_pdf(Some(headless_chrome::types::PrintToPdfOptions {
-                landscape: Some(false),
-                display_header_footer: Some(false),
-                print_background: Some(true),
-                scale: Some(1.0),
-                paper_width: Some(8.27),
-                paper_height: Some(11.69),
-                margin_top: Some(0.0),
-                margin_bottom: Some(0.0),
-                margin_left: Some(0.0),
-                margin_right: Some(0.0),
-                page_ranges: None,
-                ignore_invalid_page_ranges: Some(true),
-                header_template: None,
-                footer_template: None,
-                prefer_css_page_size: Some(true),
-                transfer_mode: None,
-                generate_tagged_pdf: None,
-                generate_document_outline: None,
-            }))
-            .map_err(|e| anyhow!("Failed to generate PDF: {}", e))?;
-
-        Ok(pdf_data)
+        // Return error indicating PDF generation needs external tooling
+        Err(anyhow!(
+            "PDF generation requires external tooling. Save the HTML report and convert using wkhtmltopdf or similar."
+        ))
     }
 }
 
