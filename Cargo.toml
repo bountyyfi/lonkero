@@ -64,7 +64,7 @@ rand = "0.9"
 
 # Lightweight headless browser for JavaScript-rendered pages (SPA form detection)
 # Pure Rust, no Chrome binary required - 10MB vs 200MB
-kalamari = "0.0.1"
+kalamari = "0.0.2"
 
 # Base64
 base64 = "0.22.1"

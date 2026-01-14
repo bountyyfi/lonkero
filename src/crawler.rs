@@ -610,7 +610,22 @@ impl WebCrawler {
             }; // document is dropped here, before any await
 
             // Now process the extracted data
-            results.forms.extend(forms);
+            results.forms.extend(forms.clone());
+
+            // CRITICAL FIX #1: Queue form action URLs for crawling
+            // Forms often point to pages with testable parameters (e.g., /search-result/)
+            for form in &forms {
+                let action_url = &form.action;
+
+                // Only queue if it's a different URL and within scope
+                if !action_url.is_empty() && action_url != &url {
+                    if !visited.contains(action_url) {
+                        to_visit.push(UrlPrioritizer::prioritize(action_url.clone(), depth + 1));
+                        results.links.insert(action_url.clone());
+                        debug!("Queued form action URL for crawling: {}", action_url);
+                    }
+                }
+            }
 
             for link in links {
                 if !visited.contains(&link) {

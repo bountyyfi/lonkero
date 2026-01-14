@@ -140,7 +140,7 @@ impl VaultClient {
     }
 
     fn read_secret(&self, path: &str) -> Result<String> {
-        let runtime = tokio::runtime::Handle::current();
+        let runtime = tokio::runtime::Runtime::new()?;
         runtime.block_on(async {
             let url = format!("{}/v1/{}", self.address, path);
             let response = self
@@ -163,7 +163,7 @@ impl VaultClient {
     }
 
     fn write_secret(&self, path: &str, value: &str) -> Result<()> {
-        let runtime = tokio::runtime::Handle::current();
+        let runtime = tokio::runtime::Runtime::new()?;
         runtime.block_on(async {
             let url = format!("{}/v1/{}", self.address, path);
             let payload = serde_json::json!({
@@ -183,7 +183,7 @@ impl VaultClient {
     }
 
     fn delete_secret(&self, path: &str) -> Result<()> {
-        let runtime = tokio::runtime::Handle::current();
+        let runtime = tokio::runtime::Runtime::new()?;
         runtime.block_on(async {
             let url = format!("{}/v1/{}", self.address, path);
 
@@ -199,7 +199,7 @@ impl VaultClient {
     }
 
     fn list_secrets(&self, path: &str) -> Result<Vec<String>> {
-        let runtime = tokio::runtime::Handle::current();
+        let runtime = tokio::runtime::Runtime::new()?;
         runtime.block_on(async {
             let url = format!("{}/v1/{}?list=true", self.address, path);
             let response = self

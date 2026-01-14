@@ -44,8 +44,12 @@ impl SharedBrowser {
         let config = BrowserConfig::for_security_scanning()
             .timeout(Duration::from_secs(30));
 
-        let browser = tokio::runtime::Handle::current()
-            .block_on(Browser::new(config))
+        // CRITICAL FIX: Use Runtime::new() instead of Handle::current()
+        // Handle::current() panics when called from non-async context
+        let runtime = tokio::runtime::Runtime::new()
+            .context("Failed to create tokio runtime for browser initialization")?;
+
+        let browser = runtime.block_on(Browser::new(config))
             .context("Failed to launch kalamari browser")?;
 
         info!("[SharedBrowser] Kalamari browser launched successfully");
@@ -393,6 +397,26 @@ impl ChromiumXssScanner {
             "filter", "tag", "category", "type",      // Filtering
         ].into_iter().map(|s| s.to_string()));
 
+        // TIER 1.5: CRITICAL FIX - Compound parameters (ALWAYS test, don't require base param)
+        // These are common patterns missed because we only generate IF base param exists
+        // Examples: search-article, filterType, filter-type
+        params.extend(vec![
+            // Search compound variations
+            "search-article", "search-result", "search-query", "search-text",
+            "search-product", "search-item", "search-term", "search-keyword",
+            "searchText", "searchQuery", "searchResult", "searchArticle",
+            // Filter compound variations
+            "filter-type", "filter-text", "filter-category", "filter-value",
+            "filterType", "filterText", "filterCategory", "filterValue",
+            // Query compound variations
+            "query-type", "query-text", "queryText", "queryType",
+            // Sort compound variations
+            "sort-by", "sort-order", "sortBy", "sortOrder",
+            // Common compound patterns
+            "article-id", "post-id", "user-id", "item-id",
+            "page-id", "product-id", "category-id",
+        ].into_iter().map(|s| s.to_string()));
+
         // TIER 2: Learn from existing URL - if ANY param exists, test common variations
         if url.contains('?') {
             // Parse existing parameters and generate variations
@@ -459,6 +483,38 @@ impl ChromiumXssScanner {
                 "callback", "continue", "destination", "returnUrl",
                 "filterType", "filterText", "searchText", "searchQuery",
             ].into_iter().map(|s| s.to_string()));
+
+            // TIER 4: CRITICAL FIX - Wildcard dotted notation testing
+            // Handles UUID/hash-prefixed params like: 8fef29790e84b063164e7980881d837566359d8d.filterType
+            // Strategy: If URL has ANY params, test common dotted suffixes with various prefixes
+            let dotted_suffixes = vec![
+                "searchText", "filterType", "search", "filter", "query",
+                "text", "value", "type", "category", "term", "keyword",
+                "sort", "order", "page", "limit", "offset",
+            ];
+
+            // Test with generic wildcard prefixes (common patterns)
+            for suffix in &dotted_suffixes {
+                params.push(format!("id.{}", suffix));
+                params.push(format!("csrf.{}", suffix));
+                params.push(format!("token.{}", suffix));
+                params.push(format!("hash.{}", suffix));
+                params.push(format!("state.{}", suffix));
+            }
+
+            // If we discovered ANY dotted param, extract its prefix and test variations
+            if let Ok(parsed) = url::Url::parse(url) {
+                for (param_name, _) in parsed.query_pairs() {
+                    if param_name.contains('.') {
+                        if let Some(prefix) = param_name.split('.').next() {
+                            // Test all common suffixes with this discovered prefix
+                            for suffix in &dotted_suffixes {
+                                params.push(format!("{}.{}", prefix, suffix));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Deduplicate while preserving order (tier 1 params tested first)
