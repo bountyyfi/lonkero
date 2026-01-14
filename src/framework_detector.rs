@@ -128,143 +128,73 @@ impl FrameworkDetector {
 
     /// Detect technologies using headless browser (for WAF-blocked sites)
     async fn detect_with_headless(&self, url: &str) -> HashSet<DetectedTechnology> {
-        use headless_chrome::{Browser, LaunchOptionsBuilder};
+        use kalamari::{Browser, BrowserConfig};
         use std::time::Duration;
 
         let mut detected = HashSet::new();
 
-        info!("[Headless-Tech] Using headless browser to bypass WAF for tech detection");
+        info!("[Headless-Tech] Using kalamari browser to bypass WAF for tech detection");
 
-        let launch_options = LaunchOptionsBuilder::default()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(30))
-            .build()
-            .ok();
+        let browser_config = BrowserConfig::default()
+            .timeout(Duration::from_secs(30));
 
-        let browser = match launch_options {
-            Some(opts) => Browser::new(opts).ok(),
-            None => None,
+        let browser = match Browser::new(browser_config).await {
+            Ok(b) => b,
+            Err(e) => {
+                debug!("[Headless-Tech] Failed to launch browser: {}", e);
+                return detected;
+            }
         };
 
-        if let Some(browser) = browser {
-            if let Ok(tab) = browser.new_tab() {
-                if tab.navigate_to(url).is_ok() {
-                    // Wait for page to load
-                    std::thread::sleep(Duration::from_secs(3));
+        let page = match browser.new_page().await {
+            Ok(p) => p,
+            Err(e) => {
+                debug!("[Headless-Tech] Failed to create page: {}", e);
+                return detected;
+            }
+        };
 
-                    // Get rendered HTML
-                    if let Ok(html) = tab.get_content() {
-                        let html_lower = html.to_lowercase();
+        if page.navigate(url).await.is_ok() {
+            // Wait for page to load
+            tokio::time::sleep(Duration::from_secs(3)).await;
 
-                        // Detect frameworks from rendered HTML
-                        let html_patterns = vec![
-                            (
-                                "__next",
-                                "Next.js",
-                                TechCategory::Framework,
-                                Confidence::High,
-                            ),
-                            (
-                                "_next/",
-                                "Next.js",
-                                TechCategory::Framework,
-                                Confidence::High,
-                            ),
-                            (
-                                "__next_data__",
-                                "Next.js",
-                                TechCategory::Framework,
-                                Confidence::High,
-                            ),
-                            (
-                                "data-next-head",
-                                "Next.js",
-                                TechCategory::Framework,
-                                Confidence::High,
-                            ),
-                            (
-                                "__nuxt",
-                                "Nuxt.js",
-                                TechCategory::Framework,
-                                Confidence::High,
-                            ),
-                            (
-                                "_nuxt/",
-                                "Nuxt.js",
-                                TechCategory::Framework,
-                                Confidence::High,
-                            ),
-                            (
-                                "data-reactroot",
-                                "React",
-                                TechCategory::JavaScript,
-                                Confidence::High,
-                            ),
-                            (
-                                "data-react-helmet",
-                                "React",
-                                TechCategory::JavaScript,
-                                Confidence::High,
-                            ),
-                            (
-                                "data-v-",
-                                "Vue.js",
-                                TechCategory::JavaScript,
-                                Confidence::High,
-                            ),
-                            (
-                                "__vue__",
-                                "Vue.js",
-                                TechCategory::JavaScript,
-                                Confidence::High,
-                            ),
-                            (
-                                "ng-version",
-                                "Angular",
-                                TechCategory::JavaScript,
-                                Confidence::High,
-                            ),
-                            (
-                                "_nghost",
-                                "Angular",
-                                TechCategory::JavaScript,
-                                Confidence::High,
-                            ),
-                            (
-                                "wp-content",
-                                "WordPress",
-                                TechCategory::CMS,
-                                Confidence::High,
-                            ),
-                            (
-                                "wp-includes",
-                                "WordPress",
-                                TechCategory::CMS,
-                                Confidence::High,
-                            ),
-                            ("shopify", "Shopify", TechCategory::CMS, Confidence::High),
-                            (
-                                "cdn.shopify.com",
-                                "Shopify",
-                                TechCategory::CMS,
-                                Confidence::High,
-                            ),
-                        ];
+            // Get rendered HTML
+            let html = match page.content() {
+                Some(h) => h,
+                None => return detected,
+            };
+            let html_lower = html.to_lowercase();
 
-                        for (pattern, name, category, confidence) in html_patterns {
-                            if html_lower.contains(pattern) {
-                                info!("[Headless-Tech] Detected {} via headless browser", name);
-                                detected.insert(DetectedTechnology {
-                                    name: name.to_string(),
-                                    category,
-                                    version: None,
-                                    confidence,
-                                    evidence: vec![format!("Headless browser found: {}", pattern)],
-                                });
-                            }
-                        }
-                    }
+            // Detect frameworks from rendered HTML
+            let html_patterns = vec![
+                ("__next", "Next.js", TechCategory::Framework, Confidence::High),
+                ("_next/", "Next.js", TechCategory::Framework, Confidence::High),
+                ("__next_data__", "Next.js", TechCategory::Framework, Confidence::High),
+                ("data-next-head", "Next.js", TechCategory::Framework, Confidence::High),
+                ("__nuxt", "Nuxt.js", TechCategory::Framework, Confidence::High),
+                ("_nuxt/", "Nuxt.js", TechCategory::Framework, Confidence::High),
+                ("data-reactroot", "React", TechCategory::JavaScript, Confidence::High),
+                ("data-react-helmet", "React", TechCategory::JavaScript, Confidence::High),
+                ("data-v-", "Vue.js", TechCategory::JavaScript, Confidence::High),
+                ("__vue__", "Vue.js", TechCategory::JavaScript, Confidence::High),
+                ("ng-version", "Angular", TechCategory::JavaScript, Confidence::High),
+                ("_nghost", "Angular", TechCategory::JavaScript, Confidence::High),
+                ("wp-content", "WordPress", TechCategory::CMS, Confidence::High),
+                ("wp-includes", "WordPress", TechCategory::CMS, Confidence::High),
+                ("shopify", "Shopify", TechCategory::CMS, Confidence::High),
+                ("cdn.shopify.com", "Shopify", TechCategory::CMS, Confidence::High),
+            ];
+
+            for (pattern, name, category, confidence) in html_patterns {
+                if html_lower.contains(pattern) {
+                    info!("[Headless-Tech] Detected {} via kalamari browser", name);
+                    detected.insert(DetectedTechnology {
+                        name: name.to_string(),
+                        category,
+                        version: None,
+                        confidence,
+                        evidence: vec![format!("Kalamari browser found: {}", pattern)],
+                    });
                 }
             }
         }

@@ -62,9 +62,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # Random
 rand = "0.9"
 
-# Headless browser for JavaScript-rendered pages (SPA form detection)
-# Using fetch feature for network request interception to discover actual form endpoints
-headless_chrome = { version = "1.0", features = ["fetch"] }
+# Lightweight headless browser for JavaScript-rendered pages (SPA form detection)
+# Pure Rust, no Chrome binary required - 10MB vs 200MB
+kalamari = "0.0.1"
 
 # Base64
 base64 = "0.22.1"

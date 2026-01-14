@@ -1286,7 +1286,7 @@ impl FormReplayer {
                     .any(|f| f.token_type == Some(TokenType::Csrf))
             {
                 if let Some(csrf) = self.refresh_csrf_for_submission(submission).await? {
-                    refreshed_tokens.push(csrf.field_name.clone());
+                    refreshed_tokens.push(csrf.name.clone());
                 }
             }
 
@@ -1301,13 +1301,13 @@ impl FormReplayer {
 
             match result {
                 Ok(submit_result) => {
-                    let has_errors = submit_result.has_error;
+                    let has_errors = !submit_result.success;
 
                     submission_results.push(ReplaySubmissionResult {
                         submission: modified_submission.clone(),
                         success: submit_result.success,
-                        response_url: submit_result.final_url,
-                        status_code: None, // Would need to capture from browser
+                        response_url: submit_result.redirect_url,
+                        status_code: submit_result.status_code,
                         has_errors,
                         response_excerpt: None,
                         duration_ms,
@@ -1328,7 +1328,7 @@ impl FormReplayer {
                         errors.push(format!(
                             "Step {} failed: {}",
                             idx + 1,
-                            submit_result.submit_status
+                            submit_result.error.unwrap_or_else(|| "Unknown error".to_string())
                         ));
                     }
                 }

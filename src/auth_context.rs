@@ -7,7 +7,7 @@
 //! for scanning authenticated endpoints.
 
 use anyhow::{Context, Result};
-use headless_chrome::{Browser, LaunchOptions};
+use kalamari::{Browser, BrowserConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -132,6 +132,7 @@ impl AuthSession {
     }
 }
 
+
 /// Login credentials for automatic authentication
 #[derive(Debug, Clone)]
 pub struct LoginCredentials {
@@ -187,69 +188,19 @@ impl Authenticator {
             .clone()
             .unwrap_or_else(|| self.find_login_url(base_url));
 
-        let creds = credentials.clone();
-        let timeout = self.timeout;
+        let browser_config = BrowserConfig::default()
+            .timeout(self.timeout);
 
-        let session =
-            tokio::task::spawn_blocking(move || Self::login_sync(&login_url, &creds, timeout))
-                .await
-                .context("Login task panicked")??;
+        let browser = Browser::new(browser_config).await
+            .context("Failed to launch kalamari browser")?;
 
-        if session.is_authenticated {
-            info!(
-                "[Auth] Login successful! Extracted {} cookies, {} storage items",
-                session.cookies.len(),
-                session.local_storage.len() + session.session_storage.len()
-            );
-            if session.find_jwt().is_some() {
-                info!("[Auth] JWT token detected in session");
-            }
-        } else {
-            warn!("[Auth] Login may have failed - no clear auth indicators found");
-        }
-
-        Ok(session)
-    }
-
-    /// Find login URL from base URL
-    fn find_login_url(&self, base_url: &str) -> String {
-        // Common login paths
-        let _login_paths = [
-            "/login",
-            "/signin",
-            "/auth/login",
-            "/user/login",
-            "/account/login",
-            "/api/auth/login",
-        ];
-
-        // For now, just try /login - in production would probe each
-        format!("{}/login", base_url.trim_end_matches('/'))
-    }
-
-    /// Synchronous login implementation
-    fn login_sync(
-        login_url: &str,
-        credentials: &LoginCredentials,
-        timeout: Duration,
-    ) -> Result<AuthSession> {
-        let browser = Browser::new(
-            LaunchOptions::default_builder()
-                .headless(true)
-                .sandbox(false) // Required for CI environments
-                .idle_browser_timeout(timeout)
-                .build()
-                .map_err(|e| anyhow::anyhow!("Browser launch error: {}", e))?,
-        )
-        .context("Failed to launch Chrome/Chromium")?;
-
-        let tab = browser.new_tab().context("Failed to create tab")?;
+        let page = browser.new_page().await?;
 
         // Navigate to login page
-        tab.navigate_to(login_url)
+        page.navigate(&login_url).await
             .context("Failed to navigate to login page")?;
-        tab.wait_until_navigated().context("Navigation timeout")?;
-        std::thread::sleep(Duration::from_secs(2));
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Find and fill login form
         let username_selectors = credentials
@@ -304,8 +255,8 @@ impl Authenticator {
             credentials.username.replace("'", "\\'")
         );
 
-        let username_result = tab.evaluate(&js_fill_username, true)?;
-        debug!("[Auth] Username field: {:?}", username_result.value);
+        let username_result = page.evaluate(&js_fill_username)?;
+        debug!("[Auth] Username field: {:?}", username_result);
 
         // Fill password
         let js_fill_password = format!(
@@ -328,11 +279,11 @@ impl Authenticator {
             credentials.password.replace("'", "\\'")
         );
 
-        let password_result = tab.evaluate(&js_fill_password, true)?;
-        debug!("[Auth] Password field: {:?}", password_result.value);
+        let password_result = page.evaluate(&js_fill_password)?;
+        debug!("[Auth] Password field: {:?}", password_result);
 
         // Small delay to let form validation run
-        std::thread::sleep(Duration::from_millis(500));
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         // Submit form
         let js_submit = r#"
@@ -366,146 +317,76 @@ impl Authenticator {
             })()
         "#;
 
-        let submit_result = tab.evaluate(js_submit, true)?;
-        debug!("[Auth] Submit result: {:?}", submit_result.value);
+        let submit_result = page.evaluate(js_submit)?;
+        debug!("[Auth] Submit result: {:?}", submit_result);
 
         // Wait for login to complete (navigation or AJAX)
-        std::thread::sleep(Duration::from_secs(3));
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
-        // Try waiting for any navigation
-        let _ = tab.wait_until_navigated();
-        std::thread::sleep(Duration::from_secs(1));
+        // Manually extract auth data
+        let mut session = AuthSession::empty();
+        session.authenticated_url = login_url.clone();
 
-        // Extract all auth data
-        Self::extract_auth_session(&tab, login_url)
-    }
-
-    /// Extract authentication session from browser tab
-    fn extract_auth_session(tab: &headless_chrome::Tab, original_url: &str) -> Result<AuthSession> {
-        let js_extract = r#"
+        // Extract cookies via JS evaluation (document.cookie)
+        let js_cookies = r#"
             (function() {
-                const result = {
-                    cookies: {},
-                    localStorage: {},
-                    sessionStorage: {},
-                    authHeader: null,
-                    csrfToken: null,
-                    currentUrl: window.location.href
-                };
-
-                // Get cookies
-                document.cookie.split(';').forEach(cookie => {
-                    const [name, value] = cookie.trim().split('=');
-                    if (name && value) {
-                        result.cookies[name] = value;
+                var cookies = {};
+                document.cookie.split(';').forEach(function(cookie) {
+                    var parts = cookie.trim().split('=');
+                    if (parts.length >= 2) {
+                        cookies[parts[0].trim()] = parts.slice(1).join('=');
                     }
                 });
-
-                // Get localStorage
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    result.localStorage[key] = localStorage.getItem(key);
-                }
-
-                // Get sessionStorage
-                for (let i = 0; i < sessionStorage.length; i++) {
-                    const key = sessionStorage.key(i);
-                    result.sessionStorage[key] = sessionStorage.getItem(key);
-                }
-
-                // Look for CSRF tokens in meta tags
-                const csrfMeta = document.querySelector('meta[name="csrf-token"], meta[name="_csrf"], meta[name="csrf"]');
-                if (csrfMeta) {
-                    result.csrfToken = csrfMeta.getAttribute('content');
-                }
-
-                // Look for CSRF in hidden inputs
-                if (!result.csrfToken) {
-                    const csrfInput = document.querySelector('input[name="_csrf"], input[name="csrf_token"], input[name="_token"]');
-                    if (csrfInput) {
-                        result.csrfToken = csrfInput.value;
-                    }
-                }
-
-                // Check for auth token in common locations
-                const tokenKeys = ['token', 'jwt', 'access_token', 'accessToken', 'auth_token', 'authToken'];
-                for (const key of tokenKeys) {
-                    if (result.localStorage[key]) {
-                        result.authHeader = 'Bearer ' + result.localStorage[key];
-                        break;
-                    }
-                    if (result.sessionStorage[key]) {
-                        result.authHeader = 'Bearer ' + result.sessionStorage[key];
-                        break;
-                    }
-                }
-
-                return JSON.stringify(result);
+                return JSON.stringify(cookies);
             })()
         "#;
-
-        let result = tab
-            .evaluate(js_extract, true)
-            .context("Failed to extract auth data")?;
-
-        let mut session = AuthSession::empty();
-        session.authenticated_url = original_url.to_string();
-
-        if let Some(json_str) = result.value {
-            if let Some(s) = json_str.as_str() {
-                if let Ok(data) = serde_json::from_str::<serde_json::Value>(s) {
-                    // Extract cookies
-                    if let Some(cookies) = data.get("cookies").and_then(|v| v.as_object()) {
-                        for (k, v) in cookies {
-                            if let Some(val) = v.as_str() {
-                                session.cookies.insert(k.clone(), val.to_string());
-                            }
-                        }
-                    }
-
-                    // Extract localStorage
-                    if let Some(storage) = data.get("localStorage").and_then(|v| v.as_object()) {
-                        for (k, v) in storage {
-                            if let Some(val) = v.as_str() {
-                                session.local_storage.insert(k.clone(), val.to_string());
-                            }
-                        }
-                    }
-
-                    // Extract sessionStorage
-                    if let Some(storage) = data.get("sessionStorage").and_then(|v| v.as_object()) {
-                        for (k, v) in storage {
-                            if let Some(val) = v.as_str() {
-                                session.session_storage.insert(k.clone(), val.to_string());
-                            }
-                        }
-                    }
-
-                    // Extract auth header
-                    if let Some(auth) = data.get("authHeader").and_then(|v| v.as_str()) {
-                        session.auth_header = Some(auth.to_string());
-                    }
-
-                    // Extract CSRF
-                    if let Some(csrf) = data.get("csrfToken").and_then(|v| v.as_str()) {
-                        session.csrf_token = Some(csrf.to_string());
-                    }
-
-                    // Check current URL to see if we redirected (sign of successful login)
-                    if let Some(current_url) = data.get("currentUrl").and_then(|v| v.as_str()) {
-                        // If URL changed from login page, likely logged in
-                        if current_url != original_url
-                            && !current_url.contains("login")
-                            && !current_url.contains("error")
-                        {
-                            session.is_authenticated = true;
-                        }
-                    }
+        if let Ok(result) = page.evaluate(js_cookies) {
+            if let Some(json_str) = result.as_string() {
+                if let Ok(cookies) = serde_json::from_str::<HashMap<String, String>>(&json_str) {
+                    session.cookies = cookies;
                 }
             }
         }
 
-        // Also check if we have session cookies (another sign of auth)
+        // Extract localStorage via JS evaluation
+        let js_local_storage = r#"
+            (function() {
+                var items = {};
+                for (var i = 0; i < localStorage.length; i++) {
+                    var key = localStorage.key(i);
+                    items[key] = localStorage.getItem(key);
+                }
+                return JSON.stringify(items);
+            })()
+        "#;
+        if let Ok(result) = page.evaluate(js_local_storage) {
+            if let Some(json_str) = result.as_string() {
+                if let Ok(storage) = serde_json::from_str::<HashMap<String, String>>(&json_str) {
+                    session.local_storage = storage;
+                }
+            }
+        }
+
+        // Extract sessionStorage via JS evaluation
+        let js_session_storage = r#"
+            (function() {
+                var items = {};
+                for (var i = 0; i < sessionStorage.length; i++) {
+                    var key = sessionStorage.key(i);
+                    items[key] = sessionStorage.getItem(key);
+                }
+                return JSON.stringify(items);
+            })()
+        "#;
+        if let Ok(result) = page.evaluate(js_session_storage) {
+            if let Some(json_str) = result.as_string() {
+                if let Ok(storage) = serde_json::from_str::<HashMap<String, String>>(&json_str) {
+                    session.session_storage = storage;
+                }
+            }
+        }
+
+        // Check for session cookies
         let session_cookie_names = [
             "session",
             "sess",
@@ -519,7 +400,7 @@ impl Authenticator {
             if session
                 .cookies
                 .keys()
-                .any(|k| k.to_lowercase().contains(name))
+                .any(|k: &String| k.to_lowercase().contains(name))
             {
                 session.is_authenticated = true;
                 break;
@@ -531,7 +412,36 @@ impl Authenticator {
             session.is_authenticated = true;
         }
 
+        if session.is_authenticated {
+            info!(
+                "[Auth] Login successful! Extracted {} cookies, {} storage items",
+                session.cookies.len(),
+                session.local_storage.len() + session.session_storage.len()
+            );
+            if session.find_jwt().is_some() {
+                info!("[Auth] JWT token detected in session");
+            }
+        } else {
+            warn!("[Auth] Login may have failed - no clear auth indicators found");
+        }
+
         Ok(session)
+    }
+
+    /// Find login URL from base URL
+    fn find_login_url(&self, base_url: &str) -> String {
+        // Common login paths
+        let _login_paths = [
+            "/login",
+            "/signin",
+            "/auth/login",
+            "/user/login",
+            "/account/login",
+            "/api/auth/login",
+        ];
+
+        // For now, just try /login - in production would probe each
+        format!("{}/login", base_url.trim_end_matches('/'))
     }
 
     /// Extract session from provided cookies/tokens (no login needed)
