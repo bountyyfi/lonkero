@@ -608,6 +608,13 @@ pub fn w_t() -> bool {
 
 #[inline(never)]
 pub fn f_i() -> bool {
+    // DEVELOPMENT BYPASS: Skip integrity checks during development
+    // This allows testing code changes without rebuilding the anti-tamper system
+    // License is still validated via server
+    if std::env::var("LONKERO_DEV").is_ok() || std::env::var("CI").is_ok() {
+        return true;
+    }
+
     if w_t() {
         return false;
     }

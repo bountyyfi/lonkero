@@ -15,3 +15,6 @@ Thumbs.db
 .env
 .env.local
 infrastructure/
+
+# Claude Code
+.claude/
