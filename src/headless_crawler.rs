@@ -542,6 +542,7 @@ impl HeadlessCrawler {
                             url: endpoint,
                             method: "GET".to_string(),
                             source: "script_analysis".to_string(),
+                            content_type: None,
                         });
                     }
                 }
@@ -556,6 +557,7 @@ impl HeadlessCrawler {
                         url: url.clone(),
                         method: event.request.method.clone(),
                         source: "network_capture".to_string(),
+                        content_type: None,
                     });
                 }
             }
@@ -634,6 +636,123 @@ impl HeadlessCrawler {
         }
     }
 
+    /// Extract CSRF token from a page's forms
+    pub async fn extract_csrf_token(&self, url: &str) -> Result<Option<CsrfTokenInfo>> {
+        let browser_config = BrowserConfig::default().timeout(self.timeout);
+        let browser = Browser::new(browser_config).await?;
+        let page = browser.new_page().await?;
+
+        page.navigate(url).await?;
+        tokio::time::sleep(Duration::from_millis(JS_RENDER_WAIT_MS)).await;
+
+        // Look for CSRF tokens in forms
+        for form in page.forms() {
+            if let Some(token) = form.csrf_token() {
+                // Find the field name
+                for field in &form.fields {
+                    if let Some(name) = &field.name {
+                        let name_lower = name.to_lowercase();
+                        if name_lower.contains("csrf") || name_lower.contains("token") || name_lower.contains("_token") {
+                            if field.value.as_ref().map(|v| v == &token).unwrap_or(false) {
+                                return Ok(Some(CsrfTokenInfo {
+                                    name: name.clone(),
+                                    value: token,
+                                    input_type: field.field_type.clone(),
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Submit a form with CSRF token handling
+    pub async fn submit_form_with_csrf(
+        &self,
+        source_url: &str,
+        action_url: &str,
+        form_data: &HashMap<String, String>,
+    ) -> Result<FormSubmissionResult> {
+        let browser_config = BrowserConfig::default().timeout(self.timeout);
+        let browser = Browser::new(browser_config).await?;
+        let page = browser.new_page().await?;
+
+        // Navigate to source page first to establish session/get CSRF
+        page.navigate(source_url).await?;
+        tokio::time::sleep(Duration::from_millis(JS_RENDER_WAIT_MS)).await;
+
+        // Fill form fields via JavaScript
+        for (name, value) in form_data {
+            let selector = format!("[name='{}']", name);
+            let _ = page.fill(&selector, value);
+        }
+
+        // Submit via JavaScript
+        let js_submit = r#"
+            (function() {
+                var form = document.querySelector('form');
+                if (form) {
+                    form.submit();
+                    return true;
+                }
+                return false;
+            })()
+        "#;
+        let _ = page.evaluate(js_submit);
+
+        // Wait for navigation
+        tokio::time::sleep(Duration::from_millis(FORM_SUBMIT_WAIT_MS)).await;
+
+        // Get current URL after submission
+        let current_url = page.url();
+
+        Ok(FormSubmissionResult {
+            success: true,
+            status_code: None,
+            redirect_url: current_url,
+            response_body: page.content(),
+            error: None,
+        })
+    }
+
+    /// Crawl an authenticated site (uses session from auth_context)
+    pub async fn crawl_authenticated_site(&self, url: &str, max_pages: usize) -> Result<SiteCrawlResults> {
+        // For now, delegate to regular crawl - auth is handled via browser.set_auth_token
+        let mut config = self.config.clone();
+        config.max_pages = max_pages;
+
+        let crawler = HeadlessCrawler {
+            config,
+            auth_token: self.auth_token.clone(),
+            custom_headers: self.custom_headers.clone(),
+            timeout: self.timeout,
+            session_state: self.session_state.clone(),
+        };
+
+        crawler.crawl_site(url).await
+    }
+
+    /// Discover form endpoints on a page (intercepts form submissions)
+    pub async fn discover_form_endpoints(&self, url: &str) -> Result<Vec<DiscoveredEndpoint>> {
+        let forms = self.extract_forms(url).await?;
+
+        // Convert forms to discovered endpoints
+        let endpoints: Vec<DiscoveredEndpoint> = forms
+            .iter()
+            .map(|form| DiscoveredEndpoint {
+                url: form.action.clone(),
+                method: form.method.clone(),
+                source: "form_discovery".to_string(),
+                content_type: Some("application/x-www-form-urlencoded".to_string()),
+            })
+            .collect();
+
+        Ok(endpoints)
+    }
+
     /// Extract GraphQL operations from script content
     fn extract_graphql_operations(&self, content: &str) -> Vec<GraphQLOperation> {
         let mut operations = Vec::new();
@@ -644,6 +763,7 @@ impl HeadlessCrawler {
             operations.push(GraphQLOperation {
                 operation_type: cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
                 name: cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default(),
+                source: "script_analysis".to_string(),
             });
         }
 
@@ -656,6 +776,11 @@ impl HeadlessCrawler {
 
         if let Some(doc) = page.document() {
             for script_element in doc.scripts() {
+                let script_type = script_element.get_attribute("type");
+                let is_async = script_element.get_attribute("async").is_some();
+                let is_defer = script_element.get_attribute("defer").is_some();
+                let nonce = script_element.get_attribute("nonce");
+
                 if let Some(src) = script_element.src() {
                     // External script - we'd need to fetch it
                     // For now, just record it with empty content
@@ -663,6 +788,10 @@ impl HeadlessCrawler {
                         url: src,
                         content: String::new(),
                         is_inline: false,
+                        script_type,
+                        is_async,
+                        is_defer,
+                        nonce,
                     });
                 } else {
                     // Inline script
@@ -672,6 +801,10 @@ impl HeadlessCrawler {
                             url: "inline".to_string(),
                             content,
                             is_inline: true,
+                            script_type,
+                            is_async,
+                            is_defer,
+                            nonce,
                         });
                     }
                 }
@@ -835,6 +968,7 @@ pub struct DiscoveredEndpoint {
     pub url: String,
     pub method: String,
     pub source: String,
+    pub content_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -847,6 +981,10 @@ pub struct SiteCrawlResults {
     pub websocket_endpoints: Vec<String>,
     pub discovered_endpoints: Vec<DiscoveredEndpoint>,
     pub auth_session: Option<AuthSession>,
+    pub pages_visited: HashSet<String>,
+    pub api_endpoints: Vec<DiscoveredEndpoint>,
+    pub js_files: Vec<String>,
+    pub graphql_endpoints: HashSet<String>,
 }
 
 impl SiteCrawlResults {
@@ -860,6 +998,10 @@ impl SiteCrawlResults {
             websocket_endpoints: Vec::new(),
             discovered_endpoints: Vec::new(),
             auth_session: None,
+            pages_visited: HashSet::new(),
+            api_endpoints: Vec::new(),
+            js_files: Vec::new(),
+            graphql_endpoints: HashSet::new(),
         }
     }
 
@@ -870,8 +1012,22 @@ impl SiteCrawlResults {
         self.graphql_operations.extend(other.graphql_operations);
         self.websocket_endpoints.extend(other.websocket_endpoints);
         self.discovered_endpoints.extend(other.discovered_endpoints);
+        self.pages_visited.extend(other.pages_visited);
+        self.api_endpoints.extend(other.api_endpoints);
+        self.js_files.extend(other.js_files);
+        self.graphql_endpoints.extend(other.graphql_endpoints);
         if self.auth_session.is_none() {
             self.auth_session = other.auth_session;
+        }
+    }
+
+    /// Merge results into a CrawlResults struct
+    pub fn merge_into(&self, crawl_results: &mut crate::crawler::CrawlResults) {
+        crawl_results.links.extend(self.links.clone());
+        crawl_results.api_endpoints.extend(self.api_endpoints.iter().map(|ep| ep.url.clone()));
+        crawl_results.websocket_endpoints.extend(self.websocket_endpoints.iter().cloned());
+        for form in &self.forms {
+            crawl_results.forms.push(form.clone());
         }
     }
 }
@@ -888,6 +1044,7 @@ pub struct SpaRoute {
 pub struct GraphQLOperation {
     pub operation_type: String,
     pub name: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone)]
@@ -918,13 +1075,30 @@ pub struct LoginResult {
 // ============================================================================
 
 /// Determine if a page needs headless browser rendering
-pub fn should_use_headless(html: &str, content_type: Option<&str>) -> bool {
-    // Check content type
-    if let Some(ct) = content_type {
-        if !ct.contains("html") {
-            return false;
+pub fn should_use_headless(
+    crawl_results: &crate::crawler::CrawlResults,
+    detected_technologies: &std::collections::HashSet<String>,
+    html_content: Option<&str>,
+) -> bool {
+    // If crawl results indicate SPA, use headless
+    if crawl_results.is_spa {
+        return true;
+    }
+
+    // Check detected technologies for SPA frameworks
+    let spa_technologies = [
+        "react", "vue", "angular", "nuxt", "next", "svelte", "ember", "gatsby"
+    ];
+    for tech in &spa_technologies {
+        if detected_technologies.iter().any(|t| t.to_lowercase().contains(tech)) {
+            return true;
         }
     }
+
+    // Check HTML content if provided
+    let Some(html) = html_content else {
+        return false;
+    };
 
     let html_lower = html.to_lowercase();
 

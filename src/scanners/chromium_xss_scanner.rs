@@ -41,9 +41,8 @@ impl SharedBrowser {
     pub fn new() -> Result<Self> {
         info!("[SharedBrowser] Launching kalamari headless browser...");
 
-        let config = BrowserConfig::default()
-            .timeout(Duration::from_secs(30))
-            .enable_xss_detection(true);
+        let config = BrowserConfig::for_security_scanning()
+            .timeout(Duration::from_secs(30));
 
         let browser = tokio::runtime::Handle::current()
             .block_on(Browser::new(config))
@@ -152,39 +151,38 @@ impl From<KalamariXssTriggerType> for XssTriggerType {
             KalamariXssTriggerType::Prompt => XssTriggerType::PromptDialog,
             KalamariXssTriggerType::Eval => XssTriggerType::Eval,
             KalamariXssTriggerType::InnerHtml => XssTriggerType::InnerHtml,
-            KalamariXssTriggerType::OuterHtml => XssTriggerType::InnerHtml,
             KalamariXssTriggerType::DocumentWrite => XssTriggerType::DocumentWrite,
-            KalamariXssTriggerType::LocationChange => XssTriggerType::LocationChange,
-            KalamariXssTriggerType::DomMutation => XssTriggerType::DomExecution,
-            KalamariXssTriggerType::ShadowDom => XssTriggerType::ShadowDom,
-            KalamariXssTriggerType::FetchUrl | KalamariXssTriggerType::ImageSrc => XssTriggerType::DataExfil,
-            _ => XssTriggerType::DomExecution,
+            KalamariXssTriggerType::EventHandler => XssTriggerType::DomExecution,
+            KalamariXssTriggerType::DomManipulation => XssTriggerType::DomExecution,
+            KalamariXssTriggerType::ScriptInjection => XssTriggerType::DomExecution,
+            KalamariXssTriggerType::ErrorBased => XssTriggerType::DomExecution,
+            KalamariXssTriggerType::CustomMarker => XssTriggerType::DomExecution,
         }
     }
 }
 
 impl From<&XssTrigger> for XssDetectionResult {
     fn from(trigger: &XssTrigger) -> Self {
-        let severity = match trigger.severity.as_str() {
-            "CRITICAL" => XssSeverity::Critical,
-            "HIGH" => XssSeverity::High,
-            "MEDIUM" => XssSeverity::Medium,
-            "LOW" => XssSeverity::Low,
-            _ => XssSeverity::Unknown,
+        // Determine severity based on trigger type
+        let severity = match trigger.trigger_type {
+            KalamariXssTriggerType::Alert | KalamariXssTriggerType::Confirm | KalamariXssTriggerType::Prompt => XssSeverity::High,
+            KalamariXssTriggerType::Eval | KalamariXssTriggerType::ScriptInjection => XssSeverity::Critical,
+            KalamariXssTriggerType::DocumentWrite | KalamariXssTriggerType::InnerHtml => XssSeverity::High,
+            _ => XssSeverity::Medium,
         };
 
         XssDetectionResult {
             xss_triggered: true,
-            trigger_type: trigger.trigger_type.clone().into(),
+            trigger_type: trigger.trigger_type.into(),
             payload: trigger.payload.clone(),
-            dialog_message: trigger.message.clone(),
-            url: trigger.url.clone(),
+            dialog_message: Some(trigger.context.clone()),
+            url: trigger.url.clone().unwrap_or_default(),
             severity,
-            stack_trace: trigger.stack_trace.clone(),
-            source: trigger.source.clone(),
-            timestamp: trigger.timestamp,
+            stack_trace: None,
+            source: Some(trigger.context.clone()),
+            timestamp: Some(chrono::Utc::now().timestamp_millis() as u64),
             parameter: None,
-            injection_point: trigger.injection_point.clone(),
+            injection_point: None,
         }
     }
 }

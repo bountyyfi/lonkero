@@ -1306,7 +1306,7 @@ impl FormReplayer {
                     submission_results.push(ReplaySubmissionResult {
                         submission: modified_submission.clone(),
                         success: submit_result.success,
-                        response_url: submit_result.redirect_url,
+                        response_url: submit_result.redirect_url.unwrap_or_default(),
                         status_code: submit_result.status_code,
                         has_errors,
                         response_excerpt: None,
@@ -1408,7 +1408,7 @@ impl FormReplayer {
         if let Some(ref t) = token {
             debug!(
                 "[FormReplayer] Refreshed CSRF token: {} = {}...",
-                t.field_name,
+                t.name,
                 &t.value[..t.value.len().min(20)]
             );
         }
@@ -1437,7 +1437,8 @@ impl FormReplayer {
 
     /// Submit a form using the headless browser
     async fn submit_form(&self, submission: &FormSubmission) -> Result<FormSubmissionResult> {
-        let form_data = submission.to_form_data();
+        let form_data: std::collections::HashMap<String, String> =
+            submission.to_form_data().into_iter().collect();
 
         self.crawler
             .submit_form_with_csrf(&submission.source_url, &submission.action_url, &form_data)
