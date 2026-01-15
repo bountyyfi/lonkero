@@ -2,12 +2,12 @@
 // This software is proprietary and confidential.
 
 /**
- * Lonkero v3.0 - Enterprise Web Security Scanner
+ * Lonkero v3.5 - Enterprise Web Security Scanner
  * Standalone CLI with Intelligent Mode
  *
  * Features:
  * - 94+ vulnerability scanner modules
- * - Intelligent context-aware scanning (v3.0)
+ * - Intelligent context-aware scanning (v3.5)
  * - Tech detection with fallback layer
  * - Endpoint deduplication & parameter risk scoring
  * - Multiple output formats (JSON, HTML, PDF, SARIF, Markdown)
@@ -44,7 +44,7 @@ use lonkero_scanner::analysis::{AttackPlanner, IntelligenceBus, ResponseAnalyzer
 #[derive(Parser)]
 #[command(name = "lonkero")]
 #[command(author = "Bountyy Oy <info@bountyy.fi>")]
-#[command(version = "3.0.0")]
+#[command(version = "3.5.0")]
 #[command(about = "Web scanner built for actual pentests. Fast, modular, Rust.", long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
@@ -286,7 +286,7 @@ enum MlAction {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum ScanModeArg {
-    /// Context-aware intelligent scanning (v3.0 default)
+    /// Context-aware intelligent scanning (v3.5 default)
     /// Uses tech detection, endpoint deduplication, and per-parameter risk scoring
     Intelligent,
     /// Legacy: 50 payloads globally
@@ -1004,7 +1004,7 @@ async fn run_scan(
 
     print_banner();
 
-    info!("Initializing Lonkero Scanner v3.0.0");
+    info!("Initializing Lonkero Scanner v3.5.0");
     info!("Scan mode: {:?}", mode);
     info!("Targets: {}", targets.len());
 
@@ -1221,7 +1221,7 @@ async fn run_scan(
             scan_mode: mode,
             enable_crawler: crawl,
             max_depth,
-            max_pages: 100,
+            max_pages: 1000,
             enum_subdomains: subdomains,
             auth_cookie: cookie.clone(),
             auth_token: token.clone(),
@@ -1737,7 +1737,7 @@ async fn execute_standalone_scan(
     let mut total_tests: u64 = 0;
 
     // ==========================================================================
-    // INTELLIGENCE SYSTEM INITIALIZATION (v3.0)
+    // INTELLIGENCE SYSTEM INITIALIZATION (v3.5)
     // Creates the scanner intelligence components for real-time communication,
     // semantic response analysis, and multi-step attack planning.
     // ==========================================================================
@@ -1954,7 +1954,7 @@ async fn execute_standalone_scan(
     let is_static_site = false; // Always test for injection vulnerabilities
 
     // ==========================================================================
-    // HEADLESS CRAWLER ENHANCEMENT (v3.0)
+    // HEADLESS CRAWLER ENHANCEMENT (v3.5)
     // Automatically switch to headless crawling for SPAs and JS-heavy sites
     // Uses weighted scoring to decide when static crawling isn't enough
     // ==========================================================================
@@ -2047,7 +2047,7 @@ async fn execute_standalone_scan(
     }
 
     // ==========================================================================
-    // INTELLIGENT SCAN ORCHESTRATION (v3.0)
+    // INTELLIGENT SCAN ORCHESTRATION (v3.5)
     // When in Intelligent mode, generate a context-aware scan plan that:
     // - Selects scanners based on detected technologies
     // - Deduplicates endpoints to avoid redundant testing
@@ -4214,7 +4214,7 @@ async fn execute_standalone_scan(
     );
 
     // ==========================================================================
-    // INTELLIGENCE SYSTEM POST-PROCESSING (v3.0)
+    // INTELLIGENCE SYSTEM POST-PROCESSING (v3.5)
     // Update attack planner with discovered vulnerabilities and analyze chains
     // ==========================================================================
     {
@@ -4362,20 +4362,19 @@ async fn execute_standalone_scan(
 }
 
 fn print_banner() {
-    // Christmas colors: Red (\x1b[91m), Green (\x1b[92m), White (\x1b[97m), Bold (\x1b[1m), Reset (\x1b[0m)
-    print!("\x1b[92m");
+    // Cyan color (\x1b[96m), Bold (\x1b[1m), Reset (\x1b[0m)
+    print!("\x1b[96m\x1b[1m");
     println!("   __                __");
     println!("  / /   ____  ____  / /_____  _________");
     println!(" / /   / __ \\/ __ \\/ //_/ _ \\/ ___/ __ \\");
-    print!("\x1b[91m");
     println!(" / /___/ /_/ / / / / ,< /  __/ /  / /_/ /");
     println!("/_____/\\____/_/ /_/_/|_|\\___/_/   \\____/");
     print!("\x1b[0m");
     println!();
-    print!("\x1b[1m\x1b[97m");
+    print!("\x1b[97m");
     println!("    Wraps around your attack surface");
-    print!("\x1b[0m\x1b[92m");
-    println!("      v3.0 - Intelligent Mode - (c) 2026 Bountyy Oy");
+    print!("\x1b[0m\x1b[90m");
+    println!("      v3.5 - Intelligent Mode - (c) 2026 Bountyy Oy");
     print!("\x1b[0m");
     println!();
 }
@@ -5092,7 +5091,7 @@ fn generate_markdown_report(results: &[ScanResults]) -> Result<String> {
 
     let current_year = chrono::Utc::now().format("%Y");
     md.push_str(&format!(
-        "\n---\n*Generated by Lonkero v3.0.0 | (c) {} Bountyy Oy*\n",
+        "\n---\n*Generated by Lonkero v3.5.0 | (c) {} Bountyy Oy*\n",
         current_year
     ));
 
@@ -5108,7 +5107,7 @@ fn generate_sarif_report(results: &[ScanResults]) -> Result<String> {
                 "tool": {
                     "driver": {
                         "name": "Lonkero",
-                        "version": "3.0.0",
+                        "version": "3.5.0",
                         "informationUri": "https://github.com/bountyyfi/lonkero"
                     }
                 },
@@ -5238,7 +5237,7 @@ fn generate_pdf_report(results: &[ScanResults]) -> Result<Vec<u8>> {
         duration_seconds: results.iter().map(|r| r.duration_seconds).sum(),
         early_terminated: false,
         termination_reason: None,
-        scanner_version: Some("3.0.0".to_string()),
+        scanner_version: Some("3.5.0".to_string()),
         license_signature: Some(String::new()),
         quantum_signature: None,
         authorization_token_id: None,
@@ -5762,7 +5761,7 @@ verify_tls = true
 
 fn show_version() -> Result<()> {
     let current_year = chrono::Utc::now().format("%Y");
-    println!("Lonkero v3.0.0");
+    println!("Lonkero v3.5.0");
     println!("Wraps around your attack surface");
     println!();
     println!("(c) {} Bountyy Oy", current_year);

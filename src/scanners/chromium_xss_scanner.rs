@@ -864,7 +864,7 @@ impl ChromiumXssScanner {
 
         debug!("[Chromium-XSS] Testing {} parameters on {}: {:?}", test_params.len(), url, test_params);
 
-        // Intelligent mode (v3.0 default) uses all payloads
+        // Intelligent mode (v3.5 default) uses all payloads
         // Legacy modes have reduced payloads for backwards compatibility
         let payload_limit = match mode {
             ScanMode::Intelligent => payloads.len(),  // Full coverage

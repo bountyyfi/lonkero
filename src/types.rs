@@ -106,7 +106,7 @@ fn default_max_depth() -> u32 {
 }
 
 fn default_max_pages() -> u32 {
-    100
+    1000
 }
 
 impl Default for ScanConfig {
@@ -115,7 +115,7 @@ impl Default for ScanConfig {
             scan_mode: ScanMode::Fast,
             enable_crawler: false,
             max_depth: 3,
-            max_pages: 100,
+            max_pages: 1000,
             enum_subdomains: false,
             auth_cookie: None,
             auth_token: None,
