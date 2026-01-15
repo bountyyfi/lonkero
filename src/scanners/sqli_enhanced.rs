@@ -1491,6 +1491,7 @@ impl EnhancedSqliScanner {
     }
 
     /// Calculate content similarity
+    /// IMPROVED: Strip dynamic content before comparison to reduce false positives
     fn calculate_content_similarity(&self, text_a: &str, text_b: &str) -> f64 {
         if text_a.is_empty() && text_b.is_empty() {
             return 1.0;
@@ -1499,15 +1500,19 @@ impl EnhancedSqliScanner {
             return 0.0;
         }
 
-        let sample_a = if text_a.len() > 5000 {
-            &text_a[..5000]
+        // Strip dynamic content that changes on every request
+        let cleaned_a = Self::strip_dynamic_content(text_a);
+        let cleaned_b = Self::strip_dynamic_content(text_b);
+
+        let sample_a = if cleaned_a.len() > 5000 {
+            &cleaned_a[..5000]
         } else {
-            text_a
+            &cleaned_a
         };
-        let sample_b = if text_b.len() > 5000 {
-            &text_b[..5000]
+        let sample_b = if cleaned_b.len() > 5000 {
+            &cleaned_b[..5000]
         } else {
-            text_b
+            &cleaned_b
         };
 
         let matches = sample_a
@@ -1523,6 +1528,43 @@ impl EnhancedSqliScanner {
         } else {
             matches as f64 / max_len as f64
         }
+    }
+
+    /// Strip dynamic content that changes on every request
+    /// This prevents false positives from timestamps, nonces, session IDs, etc.
+    fn strip_dynamic_content(text: &str) -> String {
+        use regex::Regex;
+
+        let mut cleaned = text.to_string();
+
+        // Remove common dynamic patterns
+        let patterns = vec![
+            // WordPress nonces
+            (Regex::new(r#"_wpnonce=[a-f0-9]+"#).unwrap(), "_wpnonce=NONCE"),
+            (Regex::new(r#"nonce":\s*"[a-f0-9]+""#).unwrap(), r#"nonce":"NONCE""#),
+
+            // Session IDs
+            (Regex::new(r#"PHPSESSID=[a-zA-Z0-9]+"#).unwrap(), "PHPSESSID=SESSION"),
+            (Regex::new(r#"session_id=[a-zA-Z0-9]+"#).unwrap(), "session_id=SESSION"),
+
+            // CSRFs
+            (Regex::new(r#"csrf[-_]token[\"']?\s*[:=]\s*[\"']?[a-zA-Z0-9/+=]+"#).unwrap(), "csrf_token=CSRF"),
+
+            // Timestamps (Unix epoch)
+            (Regex::new(r"\b1[67]\d{8}\b").unwrap(), "TIMESTAMP"),
+
+            // UUIDs
+            (Regex::new(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}").unwrap(), "UUID"),
+
+            // Random hashes (32+ hex chars)
+            (Regex::new(r"\b[a-f0-9]{32,}\b").unwrap(), "HASH"),
+        ];
+
+        for (pattern, replacement) in patterns {
+            cleaned = pattern.replace_all(&cleaned, replacement).to_string();
+        }
+
+        cleaned
     }
 
     /// Check if response has SQL error indicators
@@ -2902,7 +2944,10 @@ impl EnhancedSqliScanner {
         let num_value: i64 = current_value.parse().unwrap_or(1);
 
         // Response similarity threshold
-        let similarity_threshold = 0.85;
+        // CRITICAL: Raised to 0.95 to reduce false positives on WordPress sites
+        // WordPress pages are 85%+ identical (same header/footer/sidebar)
+        // Real SQLi should produce 95%+ identical responses
+        let similarity_threshold = 0.95;
 
         // ============================================================
         // TEST 1: Arithmetic operations (numeric parameters)

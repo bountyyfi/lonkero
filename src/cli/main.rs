@@ -2721,10 +2721,46 @@ async fn execute_standalone_scan(
         // FIRST: Test discovered forms with POST (full form body)
         // SKIP for GraphQL backends - forms submit via GraphQL mutations, not POST
         if !discovered_forms.is_empty() && !is_graphql_only {
-            info!(
-                "  - Testing {} discovered forms with POST",
-                discovered_forms.len()
-            );
+            // SMART DEDUPLICATION: Group forms by signature to avoid testing identical forms 100+ times
+            // Example: Don't test wpDiscuz comment form on every blog post - test once
+            use std::collections::HashMap;
+            let mut form_signatures: HashMap<String, (String, Vec<&lonkero_scanner::crawler::FormInput>)> = HashMap::new();
+
+            for (action_url, form_inputs) in &discovered_forms {
+                // Create signature: sorted field names + types
+                let mut sig_parts: Vec<String> = form_inputs.iter()
+                    .map(|f| format!("{}:{}", f.name, f.input_type))
+                    .collect();
+                sig_parts.sort();
+                let signature = sig_parts.join("|");
+
+                // Only keep first occurrence of each signature
+                form_signatures.entry(signature)
+                    .or_insert((action_url.clone(), form_inputs.iter().collect()));
+            }
+
+            let original_count = discovered_forms.len();
+            let deduplicated_count = form_signatures.len();
+
+            if deduplicated_count < original_count {
+                info!(
+                    "  - Testing {} unique forms (deduplicated from {} total forms)",
+                    deduplicated_count, original_count
+                );
+                info!(
+                    "  - Skipped {} duplicate forms (same fields on different pages)",
+                    original_count - deduplicated_count
+                );
+            } else {
+                info!(
+                    "  - Testing {} discovered forms with POST",
+                    discovered_forms.len()
+                );
+            }
+
+            // Convert back to vec for processing
+            let discovered_forms: Vec<(String, Vec<&lonkero_scanner::crawler::FormInput>)> =
+                form_signatures.into_values().collect();
 
             // Log all discovered API endpoints for debugging
             if !js_miner_results.api_endpoints.is_empty() {

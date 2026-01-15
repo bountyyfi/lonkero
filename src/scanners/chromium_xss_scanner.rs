@@ -822,6 +822,210 @@ impl ChromiumXssScanner {
             .collect()
     }
 
+    /// Run XSS tests without form testing (Phases 1 & 2 only)
+    fn run_batch_xss_tests_no_forms_sync(
+        urls: &[String],
+        mode: &ScanMode,
+        browser: &SharedBrowser,
+    ) -> Vec<(String, Result<Vec<XssDetectionResult>>)> {
+        urls.par_iter()
+            .map(|url| {
+                let mut results = Vec::new();
+
+                // Phase 1: Test reflected XSS
+                if let Ok(reflected) = Self::test_reflected_xss(url, mode, browser) {
+                    let found_reflected = reflected.iter().any(|r| r.xss_triggered);
+                    results.extend(reflected);
+
+                    // Early exit: if we found reflected XSS, skip DOM phase (same vector)
+                    if !found_reflected {
+                        if let Ok(dom) = Self::test_dom_xss(url, browser) {
+                            results.extend(dom);
+                        }
+                    }
+                }
+
+                (url.clone(), Ok(results))
+            })
+            .collect()
+    }
+
+    /// Discover all forms across multiple URLs
+    fn discover_all_forms_sync(
+        urls: &[String],
+        browser: &SharedBrowser,
+    ) -> Result<Vec<(String, Vec<serde_json::Value>)>> {
+        let mut all_forms = Vec::new();
+
+        for url in urls {
+            if let Ok(forms) = Self::discover_forms_on_page(url, browser) {
+                all_forms.push((url.clone(), forms));
+            }
+        }
+
+        Ok(all_forms)
+    }
+
+    /// Discover forms on a single page
+    fn discover_forms_on_page(
+        url: &str,
+        browser: &SharedBrowser,
+    ) -> Result<Vec<serde_json::Value>> {
+        let marker = format!("DISCOVER{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+        let guard = browser.new_guarded_tab(&marker)?;
+        let tab = guard.tab();
+        tab.set_default_timeout(Duration::from_secs(5));
+        tab.navigate_to(url)?;
+
+        let forms_js = r#"
+            (function() {
+                const forms = [];
+                document.querySelectorAll('form').forEach((form, idx) => {
+                    const inputs = [];
+                    form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea').forEach(el => {
+                        if (el.type !== 'checkbox' && el.type !== 'radio' && el.type !== 'file') {
+                            inputs.push({
+                                name: el.name || el.id || '',
+                                type: el.type || 'text',
+                                selector: el.name ? `[name="${el.name}"]` : (el.id ? `#${el.id}` : null)
+                            });
+                        }
+                    });
+                    if (inputs.length > 0) {
+                        forms.push({ index: idx, inputs: inputs });
+                    }
+                });
+                return JSON.stringify(forms);
+            })()
+        "#;
+
+        let forms_result = tab.evaluate(forms_js, false)?;
+        let forms: Vec<serde_json::Value> = if let Some(value) = forms_result.value {
+            if let Some(json_str) = value.as_str() {
+                serde_json::from_str(json_str).unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        Ok(forms)
+    }
+
+    /// Test a batch of deduplicated forms
+    fn test_forms_batch_sync(
+        forms: &[(String, Vec<serde_json::Value>)],
+        browser: &SharedBrowser,
+    ) -> Result<Vec<XssDetectionResult>> {
+        let mut all_results = Vec::new();
+
+        for (url, form_list) in forms {
+            for form in form_list {
+                if let Ok(result) = Self::test_single_form(url, form, browser) {
+                    all_results.push(result);
+                }
+            }
+        }
+
+        Ok(all_results)
+    }
+
+    /// Test a single form for stored XSS
+    fn test_single_form(
+        url: &str,
+        form: &serde_json::Value,
+        browser: &SharedBrowser,
+    ) -> Result<XssDetectionResult> {
+        let marker = format!("STORED{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+        let guard = browser.new_guarded_tab(&marker)?;
+        let tab = guard.tab();
+        tab.set_default_timeout(Duration::from_secs(8));
+        tab.navigate_to(url)?;
+
+        Self::poll_for_xss_or_stability(&tab, 600, 100);
+
+        let inputs = form.get("inputs").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let form_idx = form.get("index").and_then(|v| v.as_i64()).unwrap_or(0);
+        let stored_payload = format!("<img src=x onerror=alert('{}')>", marker);
+
+        let _ = tab.evaluate(&format!(
+            "window.__xssMarker = '{}'; window.__xssTriggered = false; window.__xssTriggerType = 'none'; window.__xssMessage = '';",
+            marker
+        ), false);
+
+        // Fill form inputs
+        for input in &inputs {
+            if let Some(selector) = input.get("selector").and_then(|v| v.as_str()) {
+                if !selector.is_empty() {
+                    let escaped_selector = serde_json::to_string(selector).unwrap_or_else(|_| format!("\"{}\"", selector));
+                    let escaped_payload = serde_json::to_string(&stored_payload).unwrap_or_else(|_| format!("\"{}\"", stored_payload));
+                    let fill_js = format!(
+                        r#"(function() {{
+                            const el = document.querySelector({});
+                            if (el) {{
+                                el.value = {};
+                            }}
+                        }})()"#,
+                        escaped_selector, escaped_payload
+                    );
+                    let _ = tab.evaluate(&fill_js, false);
+                }
+            }
+        }
+
+        // Submit form
+        let submit_js = format!(
+            r#"(function() {{
+                const form = document.querySelectorAll('form')[{}];
+                if (form) {{
+                    const btn = form.querySelector('[type="submit"], button:not([type="button"])');
+                    if (btn) btn.click(); else form.submit();
+                }}
+            }})()"#,
+            form_idx
+        );
+        let _ = tab.evaluate(&submit_js, false);
+
+        Self::poll_for_xss_or_stability(&tab, 1500, 150);
+
+        // Check for XSS
+        let check_js = "JSON.stringify({ triggered: window.__xssTriggered, type: window.__xssTriggerType, msg: window.__xssMessage })";
+        let result = tab.evaluate(check_js, false)?;
+
+        let mut xss_result = XssDetectionResult {
+            url: url.to_string(),
+            xss_triggered: false,
+            trigger_type: XssTriggerType::None,
+            payload: stored_payload.clone(),
+            dialog_message: None,
+            severity: XssSeverity::High,
+            stack_trace: None,
+            source: None,
+            timestamp: None,
+            parameter: None,
+            injection_point: Some("form".to_string()),
+        };
+
+        if let Some(value) = result.value {
+            if let Some(json_str) = value.as_str() {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    if let Some(triggered) = parsed.get("triggered").and_then(|v| v.as_bool()) {
+                        if triggered {
+                            xss_result.xss_triggered = true;
+                            xss_result.trigger_type = XssTriggerType::AlertDialog;
+                            if let Some(msg) = parsed.get("msg").and_then(|v| v.as_str()) {
+                                xss_result.dialog_message = Some(msg.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(xss_result)
+    }
+
     fn test_reflected_xss(
         url: &str,
         mode: &ScanMode,
@@ -1764,13 +1968,53 @@ impl ChromiumXssScanner {
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
 
+        // STEP 1: Collect all forms from all URLs for deduplication
+        // This prevents testing the same WordPress comment form 100+ times
+        use std::collections::HashMap;
+        let mut all_forms: HashMap<String, (String, Vec<serde_json::Value>)> = HashMap::new();
+
+        info!("[Chromium-XSS] Discovering forms across {} URLs for deduplication", urls.len());
+
+        let urls_clone = urls.to_vec();
+        let browser_clone = browser.clone();
+        let discovery_results = tokio::task::spawn_blocking(move || {
+            Self::discover_all_forms_sync(&urls_clone, &browser_clone)
+        }).await;
+
+        if let Ok(Ok(discovered)) = discovery_results {
+            for (url, forms) in discovered {
+                for form in forms {
+                    // Create form signature: sorted field names + types
+                    if let Some(inputs) = form.get("inputs").and_then(|v| v.as_array()) {
+                        let mut sig_parts: Vec<String> = inputs.iter()
+                            .filter_map(|input| {
+                                let name = input.get("name")?.as_str()?;
+                                let input_type = input.get("type").and_then(|v| v.as_str()).unwrap_or("text");
+                                Some(format!("{}:{}", name, input_type))
+                            })
+                            .collect();
+                        sig_parts.sort();
+                        let signature = sig_parts.join("|");
+
+                        // Only keep first occurrence of each signature
+                        all_forms.entry(signature).or_insert((url.clone(), vec![form.clone()]));
+                    }
+                }
+            }
+        }
+
+        let total_forms_discovered = all_forms.len();
+        if total_forms_discovered > 0 {
+            info!("[Chromium-XSS] Deduplicated {} unique forms from {} URLs", total_forms_discovered, urls.len());
+        }
+
+        // STEP 2: Test Reflected/DOM XSS on all URLs (Phases 1 & 2)
         // Process URLs in chunks - use batch processing to reduce spawn_blocking overhead
-        // Instead of 1 spawn per URL, we do 1 spawn per chunk (5x fewer spawns)
         for (chunk_idx, chunk) in urls.chunks(concurrency).enumerate() {
             let chunk_start = chunk_idx * concurrency + 1;
             let chunk_end = (chunk_start + chunk.len() - 1).min(urls.len());
             info!(
-                "    [XSS] Testing URLs {}-{}/{}",
+                "    [XSS] Testing URLs {}-{}/{} (Reflected/DOM only)",
                 chunk_start,
                 chunk_end,
                 urls.len()
@@ -1784,7 +2028,7 @@ impl ChromiumXssScanner {
             let batch_results = tokio::task::spawn_blocking(move || {
                 // Use catch_unwind to prevent panics from leaking tabs
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    Self::run_batch_xss_tests_sync(&chunk_urls, &mode, &browser_clone)
+                    Self::run_batch_xss_tests_no_forms_sync(&chunk_urls, &mode, &browser_clone)
                 }))
             })
             .await;
@@ -1825,6 +2069,35 @@ impl ChromiumXssScanner {
                 }
                 Err(e) => {
                     warn!("[Chromium-XSS] Task join error: {}", e);
+                }
+            }
+        }
+
+        // STEP 3: Test deduplicated forms (Stored XSS - Phase 3)
+        if !all_forms.is_empty() {
+            info!("[Chromium-XSS] Testing {} unique forms for stored XSS", all_forms.len());
+
+            let forms_to_test: Vec<(String, Vec<serde_json::Value>)> = all_forms.into_values().collect();
+            let browser_clone = browser.clone();
+
+            let form_results = tokio::task::spawn_blocking(move || {
+                Self::test_forms_batch_sync(&forms_to_test, &browser_clone)
+            }).await;
+
+            if let Ok(Ok(results)) = form_results {
+                for r in results {
+                    if r.xss_triggered {
+                        if let Ok(vuln) = self.create_vulnerability(&r) {
+                            let vuln_key = format!("{}:{:?}", r.url, r.trigger_type);
+                            let mut confirmed = self.confirmed_vulns.lock().unwrap();
+                            if !confirmed.contains(&vuln_key) {
+                                confirmed.insert(vuln_key);
+                                info!("    [XSS] CONFIRMED stored XSS via form");
+                                all_vulnerabilities.push(vuln);
+                            }
+                        }
+                    }
+                    total_tests += 1;
                 }
             }
         }
