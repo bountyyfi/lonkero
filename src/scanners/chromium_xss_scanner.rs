@@ -527,7 +527,7 @@ impl SharedBrowser {
         let options = LaunchOptions::default_builder()
             .headless(true)
             .sandbox(false) // Required for CI environments (GitHub Actions, Docker)
-            .idle_browser_timeout(Duration::from_secs(300))
+            .idle_browser_timeout(Duration::from_secs(18000)) // 5 hours
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build browser options: {}", e))?;
 
@@ -1306,26 +1306,26 @@ impl ChromiumXssScanner {
         // Wait briefly for page to load
         std::thread::sleep(Duration::from_millis(500));
 
-        // JavaScript to extract all input field names from forms
+        // JavaScript to extract all input field names from forms and JS framework component parameters
         let discover_js = r#"
             (function() {
                 const params = new Set();
+                const componentIds = new Set();
 
-                // Get all input, textarea, select elements
+                // PHASE 1: Get all input, textarea, select elements
                 document.querySelectorAll('input, textarea, select').forEach(el => {
                     if (el.name && el.name.trim() !== '') {
                         params.add(el.name);
                     }
                 });
 
-                // Also check for data attributes that might indicate parameters
+                // PHASE 2: Check for data attributes that might indicate parameters
                 document.querySelectorAll('[data-param], [data-field]').forEach(el => {
                     const param = el.getAttribute('data-param') || el.getAttribute('data-field');
                     if (param) params.add(param);
                 });
 
                 // PHASE 3: Extract parameters from form action query strings
-                // This catches cases like <form action="/search?type=article">
                 document.querySelectorAll('form').forEach(form => {
                     const action = form.getAttribute('action');
                     if (action && action.includes('?')) {
@@ -1334,11 +1334,51 @@ impl ChromiumXssScanner {
                             for (const [paramName, _] of urlParams) {
                                 params.add(paramName);
                             }
-                        } catch (e) {
-                            // Invalid query string, skip
-                        }
+                        } catch (e) {}
                     }
                 });
+
+                // PHASE 4: Extract component IDs from data-component-param attributes (AEM/Henkel pattern)
+                document.querySelectorAll('[data-component-param-SearchResults], [data-component-param-FacetedTags], [data-components]').forEach(el => {
+                    // Extract componentId from JSON in data attributes
+                    const attrs = Array.from(el.attributes);
+                    attrs.forEach(attr => {
+                        if (attr.name.startsWith('data-component-param-')) {
+                            try {
+                                const config = JSON.parse(attr.value);
+                                if (config.componentId) {
+                                    componentIds.add(config.componentId);
+                                }
+                            } catch (e) {}
+                        }
+                    });
+                });
+
+                // PHASE 5: Extract componentId from Pagination and other components
+                document.querySelectorAll('[data-component-param-Pagination]').forEach(el => {
+                    try {
+                        const config = JSON.parse(el.getAttribute('data-component-param-Pagination'));
+                        if (config.id) componentIds.add(config.id);
+                        if (config.componentId) componentIds.add(config.componentId);
+                    } catch (e) {}
+                });
+
+                // PHASE 6: Generate framework-specific parameters from discovered component IDs
+                // Common patterns: componentId.paramName (Henkel/AEM pattern)
+                const commonParams = ['searchText', 'filterType', 'query', 'filter', 'sort', 'category', 'type', 'q', 'search'];
+                componentIds.forEach(id => {
+                    commonParams.forEach(param => {
+                        params.add(id + '.' + param);
+                    });
+                });
+
+                // PHASE 7: Extract parameters from current URL (in case page was loaded with params)
+                try {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    for (const [paramName, _] of urlParams) {
+                        params.add(paramName);
+                    }
+                } catch (e) {}
 
                 return JSON.stringify(Array.from(params));
             })()
@@ -1957,7 +1997,7 @@ impl ChromiumXssScanner {
             concurrency
         );
 
-        let browser: SharedBrowser = match shared_browser {
+        let mut browser: SharedBrowser = match shared_browser {
             Some(b) => b.clone(),
             None => {
                 warn!("[Chromium-XSS] No shared browser, creating temporary instance");
@@ -2001,6 +2041,14 @@ impl ChromiumXssScanner {
                     }
                 }
             }
+        } else {
+            warn!("[Chromium-XSS] Form discovery failed or timed out, continuing with URL-based testing");
+        }
+
+        // Check browser health after form discovery - if timeout occurred, browser may be broken
+        if !browser.is_alive() {
+            warn!("[Chromium-XSS] Browser unhealthy after form discovery, creating new instance");
+            browser = SharedBrowser::new()?;
         }
 
         let total_forms_discovered = all_forms.len();
@@ -2057,7 +2105,7 @@ impl ChromiumXssScanner {
                                 }
                             }
                             Err(e) => {
-                                debug!("[Chromium-XSS] Error scanning {}: {}", url, e);
+                                warn!("[Chromium-XSS] Failed to scan {}: {}", url, e);
                             }
                         }
                     }

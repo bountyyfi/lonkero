@@ -549,7 +549,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send PUT request with payload
@@ -614,7 +616,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send DELETE request
@@ -672,7 +676,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send POST request with custom headers
@@ -744,7 +750,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send POST request with JSON payload
@@ -812,7 +820,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send POST request with form-encoded data
@@ -879,7 +889,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send GET request with custom headers
@@ -950,7 +962,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send request with custom HTTP method (e.g., PURGE, OPTIONS, PATCH)
@@ -1012,7 +1026,9 @@ impl HttpClient {
             }
         }
 
-        Err(last_error.unwrap().into())
+        Err(last_error
+            .map(|e| e.into())
+            .unwrap_or_else(|| anyhow::anyhow!("Max retries exceeded due to rate limiting")))
     }
 
     /// Send authenticated GET request using AuthSession
