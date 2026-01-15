@@ -2115,6 +2115,7 @@ impl ChromiumXssScanner {
     fn get_xss_payloads(mode: &ScanMode) -> Vec<String> {
         let base = vec![
             "<img src=x onerror=alert('MARKER')>".to_string(),
+            "\"><img src=x onerror=alert('MARKER')>".to_string(),  // Break out of attribute with ">
             "<svg onload=alert('MARKER')>".to_string(),
             "'\"><script>alert('MARKER')</script>".to_string(),
             "<body onload=alert('MARKER')>".to_string(),
