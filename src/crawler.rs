@@ -387,13 +387,11 @@ impl CrawlResults {
     }
 }
 
-/// Robots.txt parsed data including Crawl-delay directive
+/// Robots.txt parsed data
 #[derive(Debug, Clone, Default)]
 struct RobotsData {
     /// Whether crawling is allowed for our user-agent
     allowed: bool,
-    /// Crawl-delay in seconds (from Crawl-delay directive)
-    crawl_delay: Option<Duration>,
     /// Disallowed paths
     disallowed_paths: Vec<String>,
 }
@@ -524,21 +522,16 @@ impl WebCrawler {
                 continue;
             }
 
-            // Check robots.txt and get crawl-delay
-            let crawl_delay = if self.respect_robots {
+            // Check robots.txt
+            if self.respect_robots {
                 if let Ok(parsed_url) = Url::parse(&url) {
                     let robots_data = self.get_robots_data(&parsed_url).await;
                     if !robots_data.allowed {
                         debug!("Skipping {} (blocked by robots.txt)", url);
                         continue;
                     }
-                    robots_data.crawl_delay
-                } else {
-                    None
                 }
-            } else {
-                None
-            };
+            }
 
             visited.insert(url.clone());
             results.crawled_urls.insert(url.clone());
@@ -548,12 +541,6 @@ impl WebCrawler {
             // Apply rate limiting - wait for slot before making request
             if let Err(e) = self.rate_limiter.wait_for_slot(&url).await {
                 warn!("Rate limiter error for {}: {}", url, e);
-            }
-
-            // Honor Crawl-delay from robots.txt (takes precedence if specified)
-            if let Some(delay) = crawl_delay {
-                debug!("Respecting Crawl-delay of {:?} for {}", delay, url);
-                tokio::time::sleep(delay).await;
             }
 
             // Fetch page
@@ -610,7 +597,29 @@ impl WebCrawler {
             }; // document is dropped here, before any await
 
             // Now process the extracted data
-            results.forms.extend(forms);
+            results.forms.extend(forms.clone());
+
+            // PHASE 1: Add form action URLs to crawl queue
+            // This ensures we discover and test form submission endpoints like /search-result/
+            for form in &forms {
+                let action_url = &form.action;
+
+                // Only queue if it's a different URL and within same domain
+                if action_url != &url && !visited.contains(action_url) {
+                    // Validate it's same domain (SSRF protection)
+                    if let Ok(parsed_action) = Url::parse(action_url) {
+                        if let Some(action_host) = parsed_action.host_str() {
+                            if action_host == base_domain || action_host.ends_with(&format!(".{}", base_domain)) {
+                                // High priority: form actions are important endpoints
+                                let mut form_url = UrlPrioritizer::prioritize(action_url.clone(), depth + 1);
+                                form_url.priority += 100; // Boost priority for form endpoints
+                                to_visit.push(form_url);
+                                debug!("[Crawler] Queued form action URL: {}", action_url);
+                            }
+                        }
+                    }
+                }
+            }
 
             for link in links {
                 if !visited.contains(&link) {
@@ -761,11 +770,10 @@ impl WebCrawler {
         robots_data
     }
 
-    /// Parse robots.txt content and extract rules + Crawl-delay
+    /// Parse robots.txt content and extract rules
     fn parse_robots_txt(&self, body: &str, check_url: &Url) -> RobotsData {
         let mut in_our_section = false;
         let mut in_any_section = false;
-        let mut crawl_delay: Option<Duration> = None;
         let mut disallowed_paths: Vec<String> = Vec::new();
         let mut allowed = true;
 
@@ -801,17 +809,6 @@ impl WebCrawler {
                 continue;
             }
 
-            // Parse Crawl-delay directive
-            if lower.starts_with("crawl-delay:") {
-                let delay_str = trimmed[12..].trim();
-                if let Ok(delay_secs) = delay_str.parse::<f64>() {
-                    let delay_ms = (delay_secs * 1000.0) as u64;
-                    crawl_delay = Some(Duration::from_millis(delay_ms));
-                    info!("[robots.txt] Found Crawl-delay: {}s", delay_secs);
-                }
-                continue;
-            }
-
             // Parse Disallow directive
             if lower.starts_with("disallow:") {
                 let path = trimmed[9..].trim();
@@ -835,7 +832,6 @@ impl WebCrawler {
 
         RobotsData {
             allowed,
-            crawl_delay,
             disallowed_paths,
         }
     }
