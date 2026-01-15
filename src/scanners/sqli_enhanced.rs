@@ -395,18 +395,27 @@ impl EnhancedSqliScanner {
         }
 
         // ============================================================
-        // TECHNIQUE 9: OOBZero INFERENCE ENGINE (ALL MODES)
+        // TECHNIQUE 9: OOBZero INFERENCE ENGINE (ALWAYS RUNS)
         // Zero-infrastructure blind detection via multi-channel Bayesian inference
-        // Runs in ALL modes (including intelligent) when no vulnerabilities found
-        // This is the fallback for blind SQLi that escapes traditional detection
+        //
+        // Runs ALWAYS as final safety net because:
+        // 1. Catches blind SQLi that ALL traditional techniques missed
+        // 2. Can EXTRACT actual DB data as definitive proof (@@version, user(), etc)
+        // 3. Uses 16 independent signal channels with Bayesian inference
+        // 4. Provides negative evidence to confirm true negatives
+        // 5. Only ~18-50 requests - worth it for zero false negatives
+        //
+        // Why always run (even if other techniques found SQLi)?
+        // - Data extraction (extract_data_proof) provides DEFINITIVE confirmation
+        // - Reduces false positives from error-based detection
+        // - Probability of FP with 6 chars extraction: 1/281 trillion
+        // - As good as OOB callbacks but zero infrastructure needed
         // ============================================================
-        if all_vulnerabilities.is_empty() {
-            let (oobzero_vulns, oobzero_tests) = self
-                .scan_oobzero_inference(base_url, parameter, &baseline, config)
-                .await?;
-            total_tests += oobzero_tests;
-            all_vulnerabilities.extend(oobzero_vulns);
-        }
+        let (oobzero_vulns, oobzero_tests) = self
+            .scan_oobzero_inference(base_url, parameter, &baseline, config)
+            .await?;
+        total_tests += oobzero_tests;
+        all_vulnerabilities.extend(oobzero_vulns);
 
         Ok((all_vulnerabilities, total_tests))
     }
@@ -1568,43 +1577,151 @@ impl EnhancedSqliScanner {
     }
 
     /// Check if response has SQL error indicators
+    /// Uses highly specific patterns to minimize false positives
     fn has_sql_error(&self, response: &HttpResponse) -> bool {
         let body_lower = response.body.to_lowercase();
 
-        let error_patterns = [
-            "sql syntax",
-            "mysql_fetch",
-            "ora-",
-            "postgresql",
+        // CRITICAL: Only match actual database error message formats, not generic keywords
+        // Each pattern must be specific enough to not match article content, tutorials, or form validation
+
+        // MySQL specific error formats (very specific)
+        let mysql_errors = [
+            "you have an error in your sql syntax",  // Complete MySQL error message
+            "check the manual that corresponds to your mysql",
+            "mysql_fetch_array() expects parameter",
+            "mysql_fetch_assoc() expects parameter",
+            "mysql_num_rows() expects parameter",
+            "warning: mysql_",  // PHP MySQL warnings
+            "mysqli_",  // MySQLi function errors
+            "mysql server version for the right syntax",
+        ];
+
+        // PostgreSQL specific
+        let postgres_errors = [
+            "postgresql query failed",
+            "pg_query() expects",
+            "pg_exec() expects",
+            "supplied argument is not a valid postgresql",
+        ];
+
+        // MSSQL specific
+        let mssql_errors = [
             "microsoft sql server",
-            "sqlite",
-            "syntax error",
-            "warning: mysql",
-            "pg_query",
-            "mysqli",
-            "sqlstate",
-            "unknown column",
-            "column not found",
-            "wrong number of columns",
-            // Additional common SQL error patterns
-            "you have an error in your sql",
-            "mysql error",
-            "database error",
-            "query failed",
-            "sql error",
-            "invalid query",
-            "unexpected end of sql",
-            "near \"",
-            "at line ",
-            "column count",
-            "table doesn't exist",
-            "no such table",
+            "odbc sql server driver",
+            "unclosed quotation mark after the character string",
             "incorrect syntax near",
         ];
 
-        error_patterns
-            .iter()
-            .any(|pattern| body_lower.contains(pattern))
+        // Oracle specific
+        let oracle_errors = [
+            "ora-00933",  // Oracle error codes
+            "ora-01756",
+            "ora-00923",
+        ];
+
+        // SQLite specific
+        let sqlite_errors = [
+            "sqlite3::query()",
+            "sqlite3_prepare",
+            "near \"select\"",  // SQLite syntax error format
+        ];
+
+        // SQLSTATE error codes (database-agnostic but very specific)
+        let sqlstate_errors = [
+            "sqlstate[",  // PDO error format
+            "sqlstate[hy000]",
+            "sqlstate[42000]",
+        ];
+
+        // Database-specific column/table errors (with context to avoid false positives)
+        let structural_errors = [
+            "unknown column '",  // Must have quote to be specific
+            "column '",  // Combined with other context
+            "table '",
+            "table doesn't exist",
+            "no such table:",  // SQLite format with colon
+        ];
+
+        // Check for highly specific patterns only
+        let all_patterns = [
+            mysql_errors.as_slice(),
+            postgres_errors.as_slice(),
+            mssql_errors.as_slice(),
+            oracle_errors.as_slice(),
+            sqlite_errors.as_slice(),
+            sqlstate_errors.as_slice(),
+            structural_errors.as_slice(),
+        ].concat();
+
+        for pattern in &all_patterns {
+            if body_lower.contains(pattern) {
+                // Additional validation: Make sure it's not in a <script> tag or article content
+                // by checking for HTML context clues
+                if self.is_likely_database_error(&response.body, pattern) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Validate that the error pattern is in an actual error context, not article content
+    fn is_likely_database_error(&self, body: &str, pattern: &str) -> bool {
+        let body_lower = body.to_lowercase();
+        let pattern_lower = pattern.to_lowercase();
+
+        // Find the position of the pattern
+        if let Some(pos) = body_lower.find(&pattern_lower) {
+            // Get surrounding context (100 chars before and after)
+            let start = pos.saturating_sub(100);
+            let end = (pos + pattern_lower.len() + 100).min(body.len());
+            let context = &body_lower[start..end];
+
+            // FALSE POSITIVE indicators - pattern is in these contexts
+            let false_positive_indicators = [
+                "<article",      // In article content
+                "<p>",           // In paragraph (likely article)
+                "class=\"post",  // Blog post content
+                "class=\"article",
+                "<script",       // In JavaScript code
+                "console.log",   // JavaScript logging
+                "// ",           // Code comments
+                "/* ",           // Code comments
+                "tutorial",      // Tutorial content
+                "example",       // Example code
+                "<!-- ",         // HTML comments
+            ];
+
+            // If pattern appears near false positive indicators, reject it
+            for indicator in &false_positive_indicators {
+                if context.contains(indicator) {
+                    return false;
+                }
+            }
+
+            // TRUE POSITIVE indicators - pattern is in these contexts
+            let true_positive_indicators = [
+                "error",
+                "warning",
+                "exception",
+                "fatal",
+                "<br",           // Error messages often have line breaks
+                "\n",            // Multi-line error output
+                "stack trace",
+                "backtrace",
+            ];
+
+            // Require at least one true positive indicator for high confidence
+            for indicator in &true_positive_indicators {
+                if context.contains(indicator) {
+                    return true;
+                }
+            }
+        }
+
+        // Default to false - require positive evidence
+        false
     }
 
     /// Check if injection was successful
@@ -3761,6 +3878,27 @@ impl EnhancedSqliScanner {
             Confidence::Low
         };
 
+        // Determine severity based on evidence quality
+        // CRITICAL requires actual database errors or successful data extraction
+        // HIGH for behavioral evidence only (quote cancellation, timing differences)
+        let has_error_evidence = hypothesis
+            .evidence
+            .iter()
+            .any(|e| matches!(e.evidence_type, EvidenceType::ErrorMessage));
+
+        let has_exploit_success = hypothesis
+            .evidence
+            .iter()
+            .any(|e| matches!(e.evidence_type, EvidenceType::ExploitSuccess));
+
+        let severity = if has_error_evidence || has_exploit_success {
+            Severity::Critical  // Confirmed with database errors or successful exploitation
+        } else if hypothesis.posterior_probability > 0.90 {
+            Severity::High  // High confidence but only behavioral evidence
+        } else {
+            Severity::Medium  // Lower confidence, behavioral evidence only
+        };
+
         // Get the most impactful payload used
         let payload = hypothesis
             .evidence
@@ -3773,7 +3911,7 @@ impl EnhancedSqliScanner {
         Vulnerability {
             id: format!("sqli_hypothesis_{}", Self::generate_id()),
             vuln_type: "Bayesian-Confirmed SQL Injection".to_string(),
-            severity: Severity::Critical,
+            severity,
             confidence,
             category: "Injection".to_string(),
             url: url.to_string(),
@@ -3790,8 +3928,14 @@ impl EnhancedSqliScanner {
             ),
             evidence: Some(evidence_text),
             cwe: "CWE-89".to_string(),
-            cvss: 9.8,
-            verified: true,
+            cvss: match severity {
+                Severity::Critical => 9.8,
+                Severity::High => 8.6,
+                Severity::Medium => 6.5,
+                Severity::Low => 3.5,
+                Severity::Info => 0.0,
+            },
+            verified: has_error_evidence || has_exploit_success,
             false_positive: false,
             remediation: "1. Use parameterized queries (prepared statements) exclusively\n\
                           2. Implement strict input validation and sanitization\n\

@@ -851,19 +851,28 @@ impl ChromiumXssScanner {
     }
 
     /// Discover all forms across multiple URLs
+    /// OPTIMIZED: Use parallel execution with rayon instead of sequential loop
     fn discover_all_forms_sync(
         urls: &[String],
         browser: &SharedBrowser,
     ) -> Result<Vec<(String, Vec<serde_json::Value>)>> {
-        let mut all_forms = Vec::new();
+        use rayon::prelude::*;
 
-        for url in urls {
-            if let Ok(forms) = Self::discover_forms_on_page(url, browser) {
-                all_forms.push((url.clone(), forms));
-            }
-        }
+        // Limit to first 50 URLs to prevent excessive discovery time
+        // Forms are usually consistent across pages (e.g., same contact form on every page)
+        let urls_to_scan: Vec<String> = urls.iter().take(50).cloned().collect();
 
-        Ok(all_forms)
+        let results: Vec<(String, Vec<serde_json::Value>)> = urls_to_scan
+            .par_iter()
+            .filter_map(|url| {
+                match Self::discover_forms_on_page(url, browser) {
+                    Ok(forms) if !forms.is_empty() => Some((url.clone(), forms)),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        Ok(results)
     }
 
     /// Discover forms on a single page
@@ -874,7 +883,7 @@ impl ChromiumXssScanner {
         let marker = format!("DISCOVER{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
         let guard = browser.new_guarded_tab(&marker)?;
         let tab = guard.tab();
-        tab.set_default_timeout(Duration::from_secs(5));
+        tab.set_default_timeout(Duration::from_secs(3));  // Reduced from 5s to 3s
         tab.navigate_to(url)?;
 
         let forms_js = r#"
@@ -2013,7 +2022,7 @@ impl ChromiumXssScanner {
         use std::collections::HashMap;
         let mut all_forms: HashMap<String, (String, Vec<serde_json::Value>)> = HashMap::new();
 
-        info!("[Chromium-XSS] Discovering forms across {} URLs for deduplication", urls.len());
+        info!("[Chromium-XSS] Discovering forms across {} URLs (sampling first 50 for deduplication)", urls.len());
 
         let urls_clone = urls.to_vec();
         let browser_clone = browser.clone();
