@@ -18,7 +18,6 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, info, warn};
 use url::Url;
 
