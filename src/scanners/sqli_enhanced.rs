@@ -3899,6 +3899,15 @@ impl EnhancedSqliScanner {
             Severity::Medium  // Lower confidence, behavioral evidence only
         };
 
+        // Calculate CVSS score based on severity
+        let cvss = match severity {
+            Severity::Critical => 9.8,
+            Severity::High => 8.6,
+            Severity::Medium => 6.5,
+            Severity::Low => 3.5,
+            Severity::Info => 0.0,
+        };
+
         // Get the most impactful payload used
         let payload = hypothesis
             .evidence
@@ -3928,13 +3937,7 @@ impl EnhancedSqliScanner {
             ),
             evidence: Some(evidence_text),
             cwe: "CWE-89".to_string(),
-            cvss: match severity {
-                Severity::Critical => 9.8,
-                Severity::High => 8.6,
-                Severity::Medium => 6.5,
-                Severity::Low => 3.5,
-                Severity::Info => 0.0,
-            },
+            cvss,
             verified: has_error_evidence || has_exploit_success,
             false_positive: false,
             remediation: "1. Use parameterized queries (prepared statements) exclusively\n\
