@@ -2057,7 +2057,7 @@ impl ChromiumXssScanner {
             discovery_task
         ).await;
 
-        match discovery_results {
+        let had_timeout = match discovery_results {
             Ok(Ok(Ok(discovered))) => {
                 // Successfully discovered forms
                 for (url, forms) in discovered {
@@ -2079,20 +2079,28 @@ impl ChromiumXssScanner {
                     }
                 }
                 }
+                false
             }
             Err(_) => {
                 warn!("[Chromium-XSS] Form discovery timed out after 15s, continuing with URL-based testing");
+                true
             }
             Ok(Err(e)) => {
                 warn!("[Chromium-XSS] Form discovery task join error: {}, continuing with URL-based testing", e);
+                true
             }
             Ok(Ok(Err(e))) => {
                 warn!("[Chromium-XSS] Form discovery failed: {}, continuing with URL-based testing", e);
+                false
             }
-        }
+        };
 
-        // Check browser health after form discovery - if timeout occurred, browser may be broken
-        if !browser.is_alive() {
+        // CRITICAL: Always create fresh browser after timeout
+        // browser.is_alive() check is unreliable when threads are stuck in browser.new_tab()
+        if had_timeout {
+            warn!("[Chromium-XSS] Creating fresh browser instance after timeout (previous may have stuck threads)");
+            browser = SharedBrowser::new()?;
+        } else if !browser.is_alive() {
             warn!("[Chromium-XSS] Browser unhealthy after form discovery, creating new instance");
             browser = SharedBrowser::new()?;
         }
@@ -2136,7 +2144,7 @@ impl ChromiumXssScanner {
             .await;
 
             // Process batch results
-            match batch_results {
+            let batch_had_timeout = match batch_results {
                 Ok(Ok(Ok(url_results))) => {
                     for (url, result) in url_results {
                         match result {
@@ -2163,18 +2171,32 @@ impl ChromiumXssScanner {
                             }
                         }
                     }
+                    false
                 }
                 Ok(Ok(Err(_))) => {
                     warn!("[Chromium-XSS] Batch panicked, cleaning up browser tabs");
-                    // Force browser tab cleanup on panic
                     let _ = browser.cleanup_stale_tabs();
+                    true
                 }
                 Ok(Err(e)) => {
                     warn!("[Chromium-XSS] Task join error: {}", e);
+                    true
                 }
                 Err(_) => {
                     warn!("[Chromium-XSS] Batch timed out after 60s, skipping chunk and cleaning up");
                     let _ = browser.cleanup_stale_tabs();
+                    true
+                }
+            };
+
+            // Create fresh browser after timeout to prevent subsequent freezes
+            if batch_had_timeout {
+                warn!("[Chromium-XSS] Creating fresh browser instance after batch timeout");
+                match SharedBrowser::new() {
+                    Ok(new_browser) => browser = new_browser,
+                    Err(e) => {
+                        warn!("[Chromium-XSS] Failed to create new browser: {}, continuing with existing", e);
+                    }
                 }
             }
         }
