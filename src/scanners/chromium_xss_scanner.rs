@@ -856,10 +856,10 @@ impl ChromiumXssScanner {
         urls: &[String],
         browser: &SharedBrowser,
     ) -> Result<Vec<(String, Vec<serde_json::Value>)>> {
-        // Limit to first 10 URLs to prevent browser freeze
+        // Limit to first 3 URLs to prevent browser freeze
         // Forms are usually consistent across pages (e.g., same contact form on every page)
-        // Reduced from 50 to 10 to minimize freeze risk
-        let urls_to_scan: Vec<String> = urls.iter().take(10).cloned().collect();
+        // Reduced from 50 → 10 → 3 due to persistent browser.new_tab() hangs
+        let urls_to_scan: Vec<String> = urls.iter().take(3).cloned().collect();
 
         info!("[Chromium-XSS] Starting sequential form discovery on {} URLs", urls_to_scan.len());
 
@@ -2040,19 +2040,20 @@ impl ChromiumXssScanner {
         use std::collections::HashMap;
         let mut all_forms: HashMap<String, (String, Vec<serde_json::Value>)> = HashMap::new();
 
-        info!("[Chromium-XSS] Discovering forms across {} URLs (sampling first 10 for deduplication)", urls.len());
+        info!("[Chromium-XSS] Discovering forms across {} URLs (sampling first 3 for deduplication)", urls.len());
 
         let urls_clone = urls.to_vec();
         let browser_clone = browser.clone();
 
         // Wrap spawn_blocking with timeout to prevent indefinite hangs
-        // 10 URLs × 3-5s per page = ~50s max, using 60s timeout with buffer
+        // 3 URLs × 3-5s per page = ~15s max, using 15s timeout
+        // Reduced from 60s to fail faster when browser.new_tab() hangs
         let discovery_task = tokio::task::spawn_blocking(move || {
             Self::discover_all_forms_sync(&urls_clone, &browser_clone)
         });
 
         let discovery_results = tokio::time::timeout(
-            Duration::from_secs(60),
+            Duration::from_secs(15),
             discovery_task
         ).await;
 
@@ -2080,7 +2081,7 @@ impl ChromiumXssScanner {
                 }
             }
             Err(_) => {
-                warn!("[Chromium-XSS] Form discovery timed out after 60s, continuing with URL-based testing");
+                warn!("[Chromium-XSS] Form discovery timed out after 15s, continuing with URL-based testing");
             }
             Ok(Err(e)) => {
                 warn!("[Chromium-XSS] Form discovery task join error: {}, continuing with URL-based testing", e);
@@ -2125,10 +2126,11 @@ impl ChromiumXssScanner {
                 }))
             });
 
-            // Timeout: concurrency URLs × ~10 params × ~3 payloads × 3s = ~270s per URL worst case
-            // Use 5 minutes per chunk to be safe
+            // Timeout: concurrency (3-5) URLs × 3-5s each = ~15-25s expected
+            // Use 60s timeout to catch hangs but not wait too long
+            // Reduced from 300s to fail faster
             let batch_results = tokio::time::timeout(
-                Duration::from_secs(300),
+                Duration::from_secs(60),
                 batch_task
             )
             .await;
@@ -2171,7 +2173,7 @@ impl ChromiumXssScanner {
                     warn!("[Chromium-XSS] Task join error: {}", e);
                 }
                 Err(_) => {
-                    warn!("[Chromium-XSS] Batch timed out after 5 minutes, skipping chunk and cleaning up");
+                    warn!("[Chromium-XSS] Batch timed out after 60s, skipping chunk and cleaning up");
                     let _ = browser.cleanup_stale_tabs();
                 }
             }
