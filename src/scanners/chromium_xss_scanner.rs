@@ -14,7 +14,6 @@ use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, ScanMode, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use headless_chrome::{Browser, LaunchOptions, Tab};
-use rayon::prelude::*;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -857,22 +856,34 @@ impl ChromiumXssScanner {
         urls: &[String],
         browser: &SharedBrowser,
     ) -> Result<Vec<(String, Vec<serde_json::Value>)>> {
-        // Limit to first 50 URLs to prevent excessive discovery time
+        // Limit to first 10 URLs to prevent browser freeze
         // Forms are usually consistent across pages (e.g., same contact form on every page)
-        let urls_to_scan: Vec<String> = urls.iter().take(50).cloned().collect();
+        // Reduced from 50 to 10 to minimize freeze risk
+        let urls_to_scan: Vec<String> = urls.iter().take(10).cloned().collect();
+
+        info!("[Chromium-XSS] Starting sequential form discovery on {} URLs", urls_to_scan.len());
 
         // Process sequentially to avoid overwhelming the browser with concurrent tab creation
         // Previously used par_iter() which caused browser freezes due to lock contention
-        let results: Vec<(String, Vec<serde_json::Value>)> = urls_to_scan
-            .iter()
-            .filter_map(|url| {
-                match Self::discover_forms_on_page(url, browser) {
-                    Ok(forms) if !forms.is_empty() => Some((url.clone(), forms)),
-                    _ => None,
-                }
-            })
-            .collect();
+        let mut results: Vec<(String, Vec<serde_json::Value>)> = Vec::new();
 
+        for (idx, url) in urls_to_scan.iter().enumerate() {
+            debug!("[Chromium-XSS] Discovering forms {}/{}: {}", idx + 1, urls_to_scan.len(), url);
+            match Self::discover_forms_on_page(url, browser) {
+                Ok(forms) if !forms.is_empty() => {
+                    debug!("[Chromium-XSS] Found {} forms on {}", forms.len(), url);
+                    results.push((url.clone(), forms));
+                }
+                Ok(_) => {
+                    debug!("[Chromium-XSS] No forms found on {}", url);
+                }
+                Err(e) => {
+                    debug!("[Chromium-XSS] Error discovering forms on {}: {}", url, e);
+                }
+            }
+        }
+
+        info!("[Chromium-XSS] Form discovery complete, found forms on {} URLs", results.len());
         Ok(results)
     }
 
@@ -882,10 +893,16 @@ impl ChromiumXssScanner {
         browser: &SharedBrowser,
     ) -> Result<Vec<serde_json::Value>> {
         let marker = format!("DISCOVER{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+
+        debug!("[Chromium-XSS] Creating tab for form discovery: {}", url);
         let guard = browser.new_guarded_tab(&marker)?;
         let tab = guard.tab();
         tab.set_default_timeout(Duration::from_secs(3));  // Reduced from 5s to 3s
+
+        debug!("[Chromium-XSS] Navigating to: {}", url);
         tab.navigate_to(url)?;
+
+        debug!("[Chromium-XSS] Evaluating form extraction JS on: {}", url);
 
         let forms_js = r#"
             (function() {
@@ -2023,16 +2040,26 @@ impl ChromiumXssScanner {
         use std::collections::HashMap;
         let mut all_forms: HashMap<String, (String, Vec<serde_json::Value>)> = HashMap::new();
 
-        info!("[Chromium-XSS] Discovering forms across {} URLs (sampling first 50 for deduplication)", urls.len());
+        info!("[Chromium-XSS] Discovering forms across {} URLs (sampling first 10 for deduplication)", urls.len());
 
         let urls_clone = urls.to_vec();
         let browser_clone = browser.clone();
-        let discovery_results = tokio::task::spawn_blocking(move || {
-            Self::discover_all_forms_sync(&urls_clone, &browser_clone)
-        }).await;
 
-        if let Ok(Ok(discovered)) = discovery_results {
-            for (url, forms) in discovered {
+        // Wrap spawn_blocking with timeout to prevent indefinite hangs
+        // 10 URLs × 3-5s per page = ~50s max, using 60s timeout with buffer
+        let discovery_task = tokio::task::spawn_blocking(move || {
+            Self::discover_all_forms_sync(&urls_clone, &browser_clone)
+        });
+
+        let discovery_results = tokio::time::timeout(
+            Duration::from_secs(60),
+            discovery_task
+        ).await;
+
+        match discovery_results {
+            Ok(Ok(Ok(discovered))) => {
+                // Successfully discovered forms
+                for (url, forms) in discovered {
                 for form in forms {
                     // Create form signature: sorted field names + types
                     if let Some(inputs) = form.get("inputs").and_then(|v| v.as_array()) {
@@ -2050,9 +2077,17 @@ impl ChromiumXssScanner {
                         all_forms.entry(signature).or_insert((url.clone(), vec![form.clone()]));
                     }
                 }
+                }
             }
-        } else {
-            warn!("[Chromium-XSS] Form discovery failed or timed out, continuing with URL-based testing");
+            Err(_) => {
+                warn!("[Chromium-XSS] Form discovery timed out after 60s, continuing with URL-based testing");
+            }
+            Ok(Err(e)) => {
+                warn!("[Chromium-XSS] Form discovery task join error: {}, continuing with URL-based testing", e);
+            }
+            Ok(Ok(Err(e))) => {
+                warn!("[Chromium-XSS] Form discovery failed: {}, continuing with URL-based testing", e);
+            }
         }
 
         // Check browser health after form discovery - if timeout occurred, browser may be broken
@@ -2083,17 +2118,24 @@ impl ChromiumXssScanner {
             let mode = config.scan_mode.clone();
             let browser_clone = browser.clone();
 
-            let batch_results = tokio::task::spawn_blocking(move || {
+            let batch_task = tokio::task::spawn_blocking(move || {
                 // Use catch_unwind to prevent panics from leaking tabs
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     Self::run_batch_xss_tests_no_forms_sync(&chunk_urls, &mode, &browser_clone)
                 }))
-            })
+            });
+
+            // Timeout: concurrency URLs × ~10 params × ~3 payloads × 3s = ~270s per URL worst case
+            // Use 5 minutes per chunk to be safe
+            let batch_results = tokio::time::timeout(
+                Duration::from_secs(300),
+                batch_task
+            )
             .await;
 
             // Process batch results
             match batch_results {
-                Ok(Ok(url_results)) => {
+                Ok(Ok(Ok(url_results))) => {
                     for (url, result) in url_results {
                         match result {
                             Ok(results) => {
@@ -2120,13 +2162,17 @@ impl ChromiumXssScanner {
                         }
                     }
                 }
-                Ok(Err(_)) => {
+                Ok(Ok(Err(_))) => {
                     warn!("[Chromium-XSS] Batch panicked, cleaning up browser tabs");
                     // Force browser tab cleanup on panic
                     let _ = browser.cleanup_stale_tabs();
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     warn!("[Chromium-XSS] Task join error: {}", e);
+                }
+                Err(_) => {
+                    warn!("[Chromium-XSS] Batch timed out after 5 minutes, skipping chunk and cleaning up");
+                    let _ = browser.cleanup_stale_tabs();
                 }
             }
         }
@@ -2138,24 +2184,43 @@ impl ChromiumXssScanner {
             let forms_to_test: Vec<(String, Vec<serde_json::Value>)> = all_forms.into_values().collect();
             let browser_clone = browser.clone();
 
-            let form_results = tokio::task::spawn_blocking(move || {
-                Self::test_forms_batch_sync(&forms_to_test, &browser_clone)
-            }).await;
+            // Timeout: Allow 30s per form, with reasonable upper bound
+            let timeout_secs = (forms_to_test.len() as u64 * 30).min(600); // Max 10 minutes
 
-            if let Ok(Ok(results)) = form_results {
-                for r in results {
-                    if r.xss_triggered {
-                        if let Ok(vuln) = self.create_vulnerability(&r) {
-                            let vuln_key = format!("{}:{:?}", r.url, r.trigger_type);
-                            let mut confirmed = self.confirmed_vulns.lock().unwrap();
-                            if !confirmed.contains(&vuln_key) {
-                                confirmed.insert(vuln_key);
-                                info!("    [XSS] CONFIRMED stored XSS via form");
-                                all_vulnerabilities.push(vuln);
+            let form_task = tokio::task::spawn_blocking(move || {
+                Self::test_forms_batch_sync(&forms_to_test, &browser_clone)
+            });
+            let form_results = tokio::time::timeout(
+                Duration::from_secs(timeout_secs),
+                form_task
+            ).await;
+
+            match form_results {
+                Ok(Ok(Ok(results))) => {
+                    for r in results {
+                        if r.xss_triggered {
+                            if let Ok(vuln) = self.create_vulnerability(&r) {
+                                let vuln_key = format!("{}:{:?}", r.url, r.trigger_type);
+                                let mut confirmed = self.confirmed_vulns.lock().unwrap();
+                                if !confirmed.contains(&vuln_key) {
+                                    confirmed.insert(vuln_key);
+                                    info!("    [XSS] CONFIRMED stored XSS via form");
+                                    all_vulnerabilities.push(vuln);
+                                }
                             }
                         }
+                        total_tests += 1;
                     }
-                    total_tests += 1;
+                }
+                Ok(Ok(Err(e))) => {
+                    warn!("[Chromium-XSS] Form testing failed: {}", e);
+                }
+                Ok(Err(e)) => {
+                    warn!("[Chromium-XSS] Form testing task join error: {}", e);
+                }
+                Err(_) => {
+                    warn!("[Chromium-XSS] Form testing timed out after {}s, skipping", timeout_secs);
+                    let _ = browser.cleanup_stale_tabs();
                 }
             }
         }
