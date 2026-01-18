@@ -807,14 +807,14 @@ impl ChromiumXssScanner {
         Ok(results)
     }
 
-    /// Batch process multiple URLs in parallel using rayon
-    /// Each URL runs in its own thread for true parallelism
+    /// Batch process multiple URLs sequentially to prevent browser freeze
+    /// Previously used parallel processing which caused browser lock contention
     fn run_batch_xss_tests_sync(
         urls: &[String],
         mode: &ScanMode,
         browser: &SharedBrowser,
     ) -> Vec<(String, Result<Vec<XssDetectionResult>>)> {
-        urls.par_iter()
+        urls.iter()
             .map(|url| {
                 let result = Self::run_all_xss_tests_sync(url, mode, browser);
                 (url.clone(), result)
@@ -823,12 +823,13 @@ impl ChromiumXssScanner {
     }
 
     /// Run XSS tests without form testing (Phases 1 & 2 only)
+    /// Process URLs sequentially to prevent browser freeze from concurrent tab creation
     fn run_batch_xss_tests_no_forms_sync(
         urls: &[String],
         mode: &ScanMode,
         browser: &SharedBrowser,
     ) -> Vec<(String, Result<Vec<XssDetectionResult>>)> {
-        urls.par_iter()
+        urls.iter()
             .map(|url| {
                 let mut results = Vec::new();
 
@@ -851,19 +852,19 @@ impl ChromiumXssScanner {
     }
 
     /// Discover all forms across multiple URLs
-    /// OPTIMIZED: Use parallel execution with rayon instead of sequential loop
+    /// Processes URLs sequentially to prevent browser freeze from concurrent tab creation
     fn discover_all_forms_sync(
         urls: &[String],
         browser: &SharedBrowser,
     ) -> Result<Vec<(String, Vec<serde_json::Value>)>> {
-        use rayon::prelude::*;
-
         // Limit to first 50 URLs to prevent excessive discovery time
         // Forms are usually consistent across pages (e.g., same contact form on every page)
         let urls_to_scan: Vec<String> = urls.iter().take(50).cloned().collect();
 
+        // Process sequentially to avoid overwhelming the browser with concurrent tab creation
+        // Previously used par_iter() which caused browser freezes due to lock contention
         let results: Vec<(String, Vec<serde_json::Value>)> = urls_to_scan
-            .par_iter()
+            .iter()
             .filter_map(|url| {
                 match Self::discover_forms_on_page(url, browser) {
                     Ok(forms) if !forms.is_empty() => Some((url.clone(), forms)),
