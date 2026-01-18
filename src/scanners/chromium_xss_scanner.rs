@@ -857,22 +857,34 @@ impl ChromiumXssScanner {
         urls: &[String],
         browser: &SharedBrowser,
     ) -> Result<Vec<(String, Vec<serde_json::Value>)>> {
-        // Limit to first 50 URLs to prevent excessive discovery time
+        // Limit to first 10 URLs to prevent browser freeze
         // Forms are usually consistent across pages (e.g., same contact form on every page)
-        let urls_to_scan: Vec<String> = urls.iter().take(50).cloned().collect();
+        // Reduced from 50 to 10 to minimize freeze risk
+        let urls_to_scan: Vec<String> = urls.iter().take(10).cloned().collect();
+
+        info!("[Chromium-XSS] Starting sequential form discovery on {} URLs", urls_to_scan.len());
 
         // Process sequentially to avoid overwhelming the browser with concurrent tab creation
         // Previously used par_iter() which caused browser freezes due to lock contention
-        let results: Vec<(String, Vec<serde_json::Value>)> = urls_to_scan
-            .iter()
-            .filter_map(|url| {
-                match Self::discover_forms_on_page(url, browser) {
-                    Ok(forms) if !forms.is_empty() => Some((url.clone(), forms)),
-                    _ => None,
-                }
-            })
-            .collect();
+        let mut results: Vec<(String, Vec<serde_json::Value>)> = Vec::new();
 
+        for (idx, url) in urls_to_scan.iter().enumerate() {
+            debug!("[Chromium-XSS] Discovering forms {}/{}: {}", idx + 1, urls_to_scan.len(), url);
+            match Self::discover_forms_on_page(url, browser) {
+                Ok(forms) if !forms.is_empty() => {
+                    debug!("[Chromium-XSS] Found {} forms on {}", forms.len(), url);
+                    results.push((url.clone(), forms));
+                }
+                Ok(_) => {
+                    debug!("[Chromium-XSS] No forms found on {}", url);
+                }
+                Err(e) => {
+                    debug!("[Chromium-XSS] Error discovering forms on {}: {}", url, e);
+                }
+            }
+        }
+
+        info!("[Chromium-XSS] Form discovery complete, found forms on {} URLs", results.len());
         Ok(results)
     }
 
@@ -882,10 +894,16 @@ impl ChromiumXssScanner {
         browser: &SharedBrowser,
     ) -> Result<Vec<serde_json::Value>> {
         let marker = format!("DISCOVER{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase());
+
+        trace!("[Chromium-XSS] Creating tab for form discovery: {}", url);
         let guard = browser.new_guarded_tab(&marker)?;
         let tab = guard.tab();
         tab.set_default_timeout(Duration::from_secs(3));  // Reduced from 5s to 3s
+
+        trace!("[Chromium-XSS] Navigating to: {}", url);
         tab.navigate_to(url)?;
+
+        trace!("[Chromium-XSS] Evaluating form extraction JS on: {}", url);
 
         let forms_js = r#"
             (function() {
@@ -2023,16 +2041,26 @@ impl ChromiumXssScanner {
         use std::collections::HashMap;
         let mut all_forms: HashMap<String, (String, Vec<serde_json::Value>)> = HashMap::new();
 
-        info!("[Chromium-XSS] Discovering forms across {} URLs (sampling first 50 for deduplication)", urls.len());
+        info!("[Chromium-XSS] Discovering forms across {} URLs (sampling first 10 for deduplication)", urls.len());
 
         let urls_clone = urls.to_vec();
         let browser_clone = browser.clone();
-        let discovery_results = tokio::task::spawn_blocking(move || {
-            Self::discover_all_forms_sync(&urls_clone, &browser_clone)
-        }).await;
 
-        if let Ok(Ok(discovered)) = discovery_results {
-            for (url, forms) in discovered {
+        // Wrap spawn_blocking with timeout to prevent indefinite hangs
+        // 10 URLs × 3-5s per page = ~50s max, using 60s timeout with buffer
+        let discovery_task = tokio::task::spawn_blocking(move || {
+            Self::discover_all_forms_sync(&urls_clone, &browser_clone)
+        });
+
+        let discovery_results = tokio::time::timeout(
+            Duration::from_secs(60),
+            discovery_task
+        ).await;
+
+        match discovery_results {
+            Ok(Ok(Ok(discovered))) => {
+                // Successfully discovered forms
+                for (url, forms) in discovered {
                 for form in forms {
                     // Create form signature: sorted field names + types
                     if let Some(inputs) = form.get("inputs").and_then(|v| v.as_array()) {
@@ -2050,9 +2078,17 @@ impl ChromiumXssScanner {
                         all_forms.entry(signature).or_insert((url.clone(), vec![form.clone()]));
                     }
                 }
+                }
             }
-        } else {
-            warn!("[Chromium-XSS] Form discovery failed or timed out, continuing with URL-based testing");
+            Err(_) => {
+                warn!("[Chromium-XSS] Form discovery timed out after 60s, continuing with URL-based testing");
+            }
+            Ok(Err(e)) => {
+                warn!("[Chromium-XSS] Form discovery task join error: {}, continuing with URL-based testing", e);
+            }
+            Ok(Ok(Err(e))) => {
+                warn!("[Chromium-XSS] Form discovery failed: {}, continuing with URL-based testing", e);
+            }
         }
 
         // Check browser health after form discovery - if timeout occurred, browser may be broken
