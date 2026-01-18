@@ -2999,26 +2999,38 @@ async fn execute_standalone_scan(
         // XSS requires Professional+ license
         if scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER) {
             if !is_graphql_only {
-                // Use parallel XSS scanning for 3-5x speedup
-                // Concurrency of 3 is a good balance between speed and stability
-                let xss_concurrency = 3;
-                info!(
-                    "  - Testing XSS with Chromium (parallel, {} concurrent) on {} URLs",
-                    xss_concurrency,
-                    xss_urls_to_test.len()
-                );
+                // Allow disabling Chromium XSS via env var if it's not working on the system
+                let skip_chromium = std::env::var("LONKERO_SKIP_CHROMIUM_XSS")
+                    .unwrap_or_default()
+                    .eq_ignore_ascii_case("true")
+                    || std::env::var("LONKERO_SKIP_CHROMIUM_XSS")
+                        .unwrap_or_default()
+                        .eq("1");
 
-                let (vulns, tests) = engine
-                    .chromium_xss_scanner
-                    .scan_urls_parallel(
-                        &xss_urls_to_test,
-                        scan_config,
-                        engine.shared_browser.as_ref(),
+                if skip_chromium {
+                    info!("  - Skipping Chromium XSS scanner (LONKERO_SKIP_CHROMIUM_XSS=true)");
+                } else {
+                    // Use parallel XSS scanning for 3-5x speedup
+                    // Concurrency of 3 is a good balance between speed and stability
+                    let xss_concurrency = 3;
+                    info!(
+                        "  - Testing XSS with Chromium (parallel, {} concurrent) on {} URLs",
                         xss_concurrency,
-                    )
-                    .await?;
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
+                        xss_urls_to_test.len()
+                    );
+
+                    let (vulns, tests) = engine
+                        .chromium_xss_scanner
+                        .scan_urls_parallel(
+                            &xss_urls_to_test,
+                            scan_config,
+                            engine.shared_browser.as_ref(),
+                            xss_concurrency,
+                        )
+                        .await?;
+                    all_vulnerabilities.extend(vulns);
+                    total_tests += tests as u64;
+                }
             } else {
                 info!("  - Skipping XSS - GraphQL backend returns JSON, not HTML");
             }
