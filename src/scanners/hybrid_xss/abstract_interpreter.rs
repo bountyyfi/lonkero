@@ -103,8 +103,8 @@ impl AbstractInterpreter {
 
         // Assignment: var = expr
         if let Some((var, expr)) = self.parse_assignment(stmt) {
-            let value = self.eval_expression(expr);
-            self.state.insert(var.to_string(), value);
+            let value = self.eval_expression(&expr);
+            self.state.insert(var, value);
         }
 
         // Dangerous sinks
@@ -121,7 +121,7 @@ impl AbstractInterpreter {
         }
     }
 
-    fn parse_assignment(&self, stmt: &str) -> Option<(&str, &str)> {
+    fn parse_assignment(&self, stmt: &str) -> Option<(String, String)> {
         // Parse: var = expr or let var = expr or const var = expr
         if let Some(eq_pos) = stmt.find('=') {
             let left = stmt[..eq_pos].trim();
@@ -135,7 +135,7 @@ impl AbstractInterpreter {
                 .trim()
                 .to_string();
 
-            Some((Box::leak(var_name.into_boxed_str()), right))
+            Some((var_name, right.to_string()))
         } else {
             None
         }
@@ -236,6 +236,8 @@ impl AbstractInterpreter {
                     _ => Confidence::Low,
                 };
 
+                let cvss = if severity == Severity::High { 7.5 } else { 5.3 };
+
                 self.vulnerabilities.push(Vulnerability {
                     id: uuid::Uuid::new_v4().to_string(),
                     vuln_type: format!("DOM XSS via Abstract Interpretation ({:?} context)", context),
@@ -270,7 +272,7 @@ impl AbstractInterpreter {
                         context
                     ),
                     cwe: "CWE-79".to_string(),
-                    cvss: if severity == Severity::High { 7.5 } else { 5.3 },
+                    cvss,
                     verified: false,
                     false_positive: false,
                     discovered_at: chrono::Utc::now().to_rfc3339(),

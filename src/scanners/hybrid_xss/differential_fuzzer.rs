@@ -45,13 +45,16 @@ impl DifferentialFuzzer {
             // Generate payloads for this parameter
             let payloads = generate_xss_payloads();
 
-            // Send all payloads in parallel
-            let futures: Vec<_> = payloads
+            // Build test URLs first
+            let test_urls: Vec<String> = payloads
                 .iter()
-                .map(|payload| {
-                    let test_url = inject_payload(url, &param_name, payload);
-                    self.http_client.get(&test_url)
-                })
+                .map(|payload| inject_payload(url, &param_name, payload))
+                .collect();
+
+            // Send all payloads in parallel
+            let futures: Vec<_> = test_urls
+                .iter()
+                .map(|test_url| self.http_client.get(test_url))
                 .collect();
 
             let responses = futures::future::join_all(futures).await;
