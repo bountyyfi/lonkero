@@ -41,6 +41,7 @@ pub mod broken_function_auth;
 pub mod business_logic;
 pub mod cache_poisoning;
 pub mod chromium_xss_scanner;
+pub mod hybrid_xss; // Browser-less XSS detection (Chrome replacement)
 pub mod clickjacking;
 pub mod client_route_auth_bypass;
 pub mod cloud_security_scanner;
@@ -175,6 +176,7 @@ pub use broken_function_auth::BrokenFunctionAuthScanner;
 pub use business_logic::BusinessLogicScanner;
 pub use cache_poisoning::CachePoisoningScanner;
 pub use chromium_xss_scanner::{ChromiumXssScanner, SharedBrowser};
+pub use hybrid_xss::HybridXssDetector;
 pub use reflection_xss_scanner::ReflectionXssScanner;
 pub use clickjacking::ClickjackingScanner;
 pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
@@ -293,6 +295,7 @@ pub struct ScanEngine {
     /// Shared browser instance for Chromium-based scanning (XSS, DOM analysis)
     pub shared_browser: Option<SharedBrowser>,
     pub chromium_xss_scanner: ChromiumXssScanner,
+    pub hybrid_xss_detector: HybridXssDetector,
     pub reflection_xss_scanner: ReflectionXssScanner,
     pub sqli_scanner: SqliScanner,
     pub cmdi_scanner: CommandInjectionScanner,
@@ -525,6 +528,7 @@ impl ScanEngine {
             dns_cache,
             shared_browser,
             chromium_xss_scanner: ChromiumXssScanner::new(Arc::clone(&http_client)),
+            hybrid_xss_detector: HybridXssDetector::new(Arc::clone(&http_client)),
             reflection_xss_scanner: ReflectionXssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
