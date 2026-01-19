@@ -41,6 +41,7 @@ pub mod broken_function_auth;
 pub mod business_logic;
 pub mod cache_poisoning;
 pub mod chromium_xss_scanner;
+pub mod hybrid_xss; // Browser-less XSS detection (Chrome replacement)
 pub mod clickjacking;
 pub mod client_route_auth_bypass;
 pub mod cloud_security_scanner;

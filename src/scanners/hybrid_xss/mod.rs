@@ -12,25 +12,25 @@
 //! Total: 95%+ coverage without browser, 200x faster than Chrome
 
 pub mod differential_fuzzer;
-pub mod entropy_analyzer;
+pub mod taint_analyzer;
+pub mod abstract_interpreter;
 
 use crate::http_client::HttpClient;
 use crate::types::{ScanConfig, ScanMode, Vulnerability};
 use anyhow::Result;
+use scraper::{Html, Selector};
 use std::sync::Arc;
 use std::time::Instant;
 
 pub struct HybridXssDetector {
     http_client: Arc<HttpClient>,
     differential: differential_fuzzer::DifferentialFuzzer,
-    entropy: entropy_analyzer::EntropyAnalyzer,
 }
 
 impl HybridXssDetector {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
         Self {
             differential: differential_fuzzer::DifferentialFuzzer::new(http_client.clone()),
-            entropy: entropy_analyzer::EntropyAnalyzer::new(http_client.clone()),
             http_client,
         }
     }
@@ -76,7 +76,7 @@ impl HybridXssDetector {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
-        // LAYER 1: Differential Fuzzing (fast)
+        // LAYER 1: Differential Fuzzing (fast, ~100ms)
         if let Ok((vulns, test_count)) = self.differential.scan(url).await {
             tests += test_count;
             if !vulns.is_empty() {
@@ -86,14 +86,62 @@ impl HybridXssDetector {
             }
         }
 
-        // LAYER 2: Entropy Analysis (math-based proof)
-        if let Ok((vulns, test_count)) = self.entropy.analyze(url).await {
-            tests += test_count;
-            vulnerabilities.extend(vulns);
-        }
+        // LAYER 2: Static Analysis on JavaScript (no extra requests!)
+        // Fetch page and extract JavaScript
+        if let Ok(response) = self.http_client.get(url).await {
+            let html = Html::parse_document(&response.body);
 
-        // TODO: LAYER 3: Fuzzy hash matching
-        // TODO: LAYER 4: SMT solver (only if Thorough mode)
+            // Extract all JavaScript from page
+            let mut js_code = String::new();
+
+            // Inline scripts
+            if let Ok(selector) = Selector::parse("script") {
+                for element in html.select(&selector) {
+                    js_code.push_str(&element.inner_html());
+                    js_code.push('\n');
+                }
+            }
+
+            if !js_code.is_empty() {
+                // Run both analyzers in parallel (pure computation!)
+                let js_clone1 = js_code.clone();
+                let js_clone2 = js_code.clone();
+                let url_clone = url.to_string();
+
+                let (taint_result, abstract_result) = tokio::join!(
+                    // Static Taint Analysis
+                    tokio::task::spawn_blocking(move || {
+                        let mut analyzer = taint_analyzer::TaintAnalyzer::new();
+                        analyzer.analyze(&js_clone1)
+                    }),
+
+                    // Abstract Interpretation
+                    tokio::task::spawn_blocking(move || {
+                        let mut interpreter = abstract_interpreter::AbstractInterpreter::new();
+                        interpreter.interpret(&js_clone2)
+                    }),
+                );
+
+                // Merge results from both analyzers
+                if let Ok(Ok(mut vulns)) = taint_result {
+                    // Fill in URL for each vulnerability
+                    for vuln in &mut vulns {
+                        vuln.url = url.to_string();
+                    }
+                    vulnerabilities.extend(vulns);
+                    tests += 1;
+                }
+
+                if let Ok(Ok(mut vulns)) = abstract_result {
+                    // Fill in URL for each vulnerability
+                    for vuln in &mut vulns {
+                        vuln.url = url.to_string();
+                    }
+                    vulnerabilities.extend(vulns);
+                    tests += 1;
+                }
+            }
+        }
 
         let elapsed = start.elapsed();
         tracing::debug!(
