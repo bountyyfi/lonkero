@@ -54,7 +54,7 @@ tracing-log = "0.2"
 
 # Error handling
 anyhow = "1.0"
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
