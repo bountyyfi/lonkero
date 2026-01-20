@@ -3023,13 +3023,13 @@ async fn execute_standalone_scan(
             info!("  [SKIP] XSS scanner requires Professional or higher license");
         }
 
-        // Also run reflection-based XSS scanner (no Chrome required, catches different vectors)
-        // This scanner detects reflected XSS by analyzing HTTP responses for payload reflection
+        // Run Proof-Based XSS scanner (no Chrome required, mathematically proves exploitability)
+        // Uses context analysis + escape behavior testing with only 2-3 requests per parameter
         if !is_graphql_only && !is_static_site {
-            info!("  - Testing Reflected XSS (response analysis) on {} URLs", xss_urls_to_test.len());
+            info!("  - Testing Proof-Based XSS (context + escape analysis) on {} URLs", xss_urls_to_test.len());
             for xss_url in &xss_urls_to_test {
                 let (vulns, tests) = engine
-                    .reflection_xss_scanner
+                    .proof_xss_scanner
                     .scan(xss_url, scan_config)
                     .await?;
                 all_vulnerabilities.extend(vulns);

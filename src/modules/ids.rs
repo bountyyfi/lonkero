@@ -60,10 +60,12 @@ pub mod cms_security {
 
 /// Professional+ tier modules - requires advanced_scanning feature
 pub mod advanced_scanning {
-    /// SQL injection scanner (all techniques)
+    /// SQL injection scanner (all techniques including OOBZero inference)
     pub const SQLI_SCANNER: &str = "sqli_scanner";
-    /// Cross-site scripting scanner (Chromium-based)
+    /// Cross-site scripting scanner (hybrid taint analysis)
     pub const XSS_SCANNER: &str = "xss_scanner";
+    /// Proof-based XSS scanner (context + escape analysis, no Chrome)
+    pub const PROOF_XSS_SCANNER: &str = "proof_xss_scanner";
     /// Reflection-based XSS scanner (no Chrome required)
     pub const REFLECTION_XSS_SCANNER: &str = "reflection_xss_scanner";
     /// Command injection scanner
@@ -369,6 +371,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         // Advanced Scanning (Professional+)
         advanced_scanning::SQLI_SCANNER,
         advanced_scanning::XSS_SCANNER,
+        advanced_scanning::PROOF_XSS_SCANNER,
         advanced_scanning::REFLECTION_XSS_SCANNER,
         advanced_scanning::COMMAND_INJECTION,
         advanced_scanning::PATH_TRAVERSAL,
