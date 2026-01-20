@@ -33,7 +33,7 @@ reqwest = { version = "0.12.28", features = ["json", "cookies", "stream", "rustl
 deadpool-redis = "0.22"
 
 # PostgreSQL database
-tokio-postgres = { version = "0.7.15", features = ["with-chrono-0_4", "with-serde_json-1"] }
+tokio-postgres = { version = "0.7.16", features = ["with-chrono-0_4", "with-serde_json-1"] }
 deadpool-postgres = "0.14.1"
 
 # Serialization
