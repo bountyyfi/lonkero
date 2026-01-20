@@ -40,8 +40,7 @@ pub mod bola;
 pub mod broken_function_auth;
 pub mod business_logic;
 pub mod cache_poisoning;
-pub mod chromium_xss_scanner;
-pub mod hybrid_xss; // Browser-less XSS detection (Chrome replacement)
+pub mod hybrid_xss; // Browser-less XSS detection
 pub mod clickjacking;
 pub mod client_route_auth_bypass;
 pub mod cloud_security_scanner;
@@ -114,6 +113,7 @@ pub mod parameter_prioritizer;
 pub mod password_reset_poisoning;
 pub mod path_traversal;
 pub mod postmessage_vulns;
+pub mod proof_xss_scanner; // Proof-based XSS detection (no Chrome, 2-3 requests)
 pub mod prototype_pollution;
 pub mod race_condition;
 pub mod rails_scanner;
@@ -175,8 +175,8 @@ pub use bola::BolaScanner;
 pub use broken_function_auth::BrokenFunctionAuthScanner;
 pub use business_logic::BusinessLogicScanner;
 pub use cache_poisoning::CachePoisoningScanner;
-pub use chromium_xss_scanner::{ChromiumXssScanner, SharedBrowser};
 pub use hybrid_xss::HybridXssDetector;
+pub use proof_xss_scanner::ProofXssScanner;
 pub use reflection_xss_scanner::ReflectionXssScanner;
 pub use clickjacking::ClickjackingScanner;
 pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
@@ -292,10 +292,8 @@ pub struct ScanEngine {
     pub request_batcher: Option<Arc<crate::request_batcher::RequestBatcher>>,
     pub adaptive_concurrency: Option<Arc<crate::adaptive_concurrency::AdaptiveConcurrencyTracker>>,
     pub dns_cache: Option<Arc<crate::dns_cache::DnsCache>>,
-    /// Shared browser instance for Chromium-based scanning (XSS, DOM analysis)
-    pub shared_browser: Option<SharedBrowser>,
-    pub chromium_xss_scanner: ChromiumXssScanner,
     pub hybrid_xss_detector: HybridXssDetector,
+    pub proof_xss_scanner: ProofXssScanner,
     pub reflection_xss_scanner: ReflectionXssScanner,
     pub sqli_scanner: SqliScanner,
     pub cmdi_scanner: CommandInjectionScanner,
@@ -506,18 +504,6 @@ impl ScanEngine {
             None
         };
 
-        // Initialize shared browser for Chromium-based XSS detection
-        let shared_browser = match SharedBrowser::new() {
-            Ok(browser) => {
-                info!("[SUCCESS] Shared browser initialized for XSS detection");
-                Some(browser)
-            }
-            Err(e) => {
-                warn!("[WARNING] Failed to initialize shared browser: {}. XSS detection will create browser per-scan.", e);
-                None
-            }
-        };
-
         // Initialize intelligence bus and response analyzer for cross-scanner communication
         let intelligence_bus = Arc::new(IntelligenceBus::new());
         let response_analyzer = Arc::new(ResponseAnalyzer::new());
@@ -526,9 +512,8 @@ impl ScanEngine {
             request_batcher,
             adaptive_concurrency,
             dns_cache,
-            shared_browser,
-            chromium_xss_scanner: ChromiumXssScanner::new(Arc::clone(&http_client)),
             hybrid_xss_detector: HybridXssDetector::new(Arc::clone(&http_client)),
+            proof_xss_scanner: ProofXssScanner::new(Arc::clone(&http_client)),
             reflection_xss_scanner: ReflectionXssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
@@ -1155,8 +1140,8 @@ impl ScanEngine {
             }
         }
 
-        // Chromium-based XSS Detection (runs on target + all crawled URLs)
-        // Uses real browser execution to detect reflected, DOM, and stored XSS
+        // Proof-Based XSS Detection (runs on target + all crawled URLs)
+        // Uses mathematical proof of exploitability - no browser required
         if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER)
             && !self.should_terminate_early(&all_vulnerabilities)
         {
@@ -1169,7 +1154,7 @@ impl ScanEngine {
             }
 
             info!(
-                "[Chromium-XSS] Running real browser XSS detection on {} URLs",
+                "[Proof-XSS] Running proof-based XSS detection on {} URLs (no browser)",
                 xss_urls_to_test.len()
             );
 
@@ -1179,19 +1164,19 @@ impl ScanEngine {
                 }
 
                 info!(
-                    "[Chromium-XSS] Testing URL {}/{}: {}",
+                    "[Proof-XSS] Testing URL {}/{}: {}",
                     idx + 1,
                     xss_urls_to_test.len(),
                     xss_url
                 );
-                let (chromium_xss_vulns, chromium_xss_tests) = self
-                    .chromium_xss_scanner
-                    .scan(xss_url, &config, self.shared_browser.as_ref())
+                let (proof_xss_vulns, proof_xss_tests) = self
+                    .proof_xss_scanner
+                    .scan(xss_url, &config)
                     .await?;
-                all_vulnerabilities.extend(chromium_xss_vulns);
-                total_tests += chromium_xss_tests as u64;
+                all_vulnerabilities.extend(proof_xss_vulns);
+                total_tests += proof_xss_tests as u64;
                 queue
-                    .increment_tests(scan_id.clone(), chromium_xss_tests as u64)
+                    .increment_tests(scan_id.clone(), proof_xss_tests as u64)
                     .await?;
             }
 

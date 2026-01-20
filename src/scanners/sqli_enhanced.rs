@@ -3126,22 +3126,44 @@ impl EnhancedSqliScanner {
         }
 
         // ============================================================
-        // TEST 2: Quote cancellation
-        // If value'' returns same as value, quotes are being parsed
+        // TEST 2: Quote cancellation (requires differential analysis)
+        // True SQLi: value' causes error, value'' works normally
+        // False positive: both value' and value'' return same as baseline
         // ============================================================
-        let quote_cancel_payload = format!("{}''", current_value);
-        let quote_cancel_url = Self::build_test_url(base_url, parameter, &quote_cancel_payload);
-        if let Ok(quote_resp) = self.http_client.get(&quote_cancel_url).await {
-            tests_run += 1;
+        let single_quote_payload = format!("{}'", current_value);
+        let double_quote_payload = format!("{}''", current_value);
+        let single_quote_url = Self::build_test_url(base_url, parameter, &single_quote_payload);
+        let double_quote_url = Self::build_test_url(base_url, parameter, &double_quote_payload);
 
-            if self.calculate_similarity(baseline, &quote_resp) > similarity_threshold {
-                info!("[SQLi] QUOTE CANCELLATION CONFIRMED: {}'' = {} (SQL parsing quotes)", current_value, current_value);
+        let single_quote_resp = self.http_client.get(&single_quote_url).await.ok();
+        tests_run += 1;
+        let double_quote_resp = self.http_client.get(&double_quote_url).await.ok();
+        tests_run += 1;
+
+        if let (Some(single_resp), Some(double_resp)) = (single_quote_resp, double_quote_resp) {
+            let single_similarity = self.calculate_similarity(baseline, &single_resp);
+            let double_similarity = self.calculate_similarity(baseline, &double_resp);
+
+            // SQLi confirmed ONLY if:
+            // 1. Single quote BREAKS the query (low similarity to baseline OR error response)
+            // 2. Double quote WORKS (high similarity to baseline)
+            // This differential proves quotes are being parsed in SQL context
+            let single_quote_breaks = single_similarity < 0.7
+                || single_resp.status_code >= 500
+                || single_resp.body.to_lowercase().contains("sql")
+                || single_resp.body.to_lowercase().contains("syntax")
+                || single_resp.body.to_lowercase().contains("query");
+
+            let double_quote_works = double_similarity > similarity_threshold;
+
+            if single_quote_breaks && double_quote_works {
+                info!("[SQLi] QUOTE CANCELLATION CONFIRMED: {}' breaks, {}'' works (differential proof)", current_value, current_value);
                 vulnerabilities.push(self.create_vulnerability(
                     base_url,
                     parameter,
-                    &quote_cancel_payload,
+                    &double_quote_payload,
                     "Quote Cancellation SQL Injection",
-                    "Double quotes cancel out, indicating SQL string context",
+                    "Single quote breaks query, double quote escapes - proves SQL string context",
                     Severity::High,
                     Confidence::High,
                 ));

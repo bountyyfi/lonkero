@@ -945,6 +945,8 @@ impl WafBypassScanner {
         }
 
         // Test with multiple Transfer-Encoding headers
+        // CRITICAL: Just accepting multiple TE headers doesn't prove smuggling
+        // We need to verify actual desync behavior with differential analysis
         tests_run += 1;
         let smuggle_headers = vec![
             ("Transfer-Encoding".to_string(), "chunked".to_string()),
@@ -953,15 +955,41 @@ impl WafBypassScanner {
 
         match self
             .http_client
-            .post_with_headers(url, "test", smuggle_headers)
+            .post_with_headers(url, "test", smuggle_headers.clone())
             .await
         {
             Ok(response) => {
-                if response.status_code == 200 {
+                // Getting 200 alone is NOT proof of smuggling
+                // Many servers correctly handle multiple TE headers by using the first one
+                // Real smuggling requires:
+                // 1. Different interpretation by frontend vs backend
+                // 2. This causes request boundaries to be misaligned
+                // 3. Attacker's data gets prepended to another user's request
+
+                // Only report if we see actual desync indicators:
+                // - Server returns error that suggests parsing confusion (400, 500)
+                // - Response contains data from a different request
+                // - Content-Length mismatch in response
+                let response_indicates_desync = response.status_code == 400
+                    || response.status_code == 500
+                    || response.body.to_lowercase().contains("bad request")
+                    || response.body.to_lowercase().contains("invalid")
+                    || response.body.to_lowercase().contains("parse error");
+
+                // Also check if there's Content-Length vs actual body mismatch
+                let cl_header = response.headers.get("content-length")
+                    .or_else(|| response.headers.get("Content-Length"));
+                let body_len = response.body.len();
+                let cl_mismatch = cl_header
+                    .and_then(|cl| cl.parse::<usize>().ok())
+                    .map(|cl| (cl as i64 - body_len as i64).abs() > 100)
+                    .unwrap_or(false);
+
+                if response_indicates_desync || cl_mismatch {
                     // Broadcast bypass discovery to other scanners
                     self.broadcast_bypass_found(
                         "Transfer-Encoding smuggling",
-                        "Multiple TE headers accepted",
+                        "Multiple TE headers cause desync",
                     )
                     .await;
 
@@ -974,15 +1002,15 @@ impl WafBypassScanner {
                         url: url.to_string(),
                         parameter: None,
                         payload: "Multiple Transfer-Encoding headers".to_string(),
-                        description: "Server accepts conflicting Transfer-Encoding headers which may cause WAF/server desync".to_string(),
-                        evidence: Some("Multiple TE headers accepted".to_string()),
+                        description: "Server shows desync behavior with conflicting Transfer-Encoding headers".to_string(),
+                        evidence: Some(format!("Status: {}, CL mismatch: {}", response.status_code, cl_mismatch)),
                         cwe: "CWE-444".to_string(),
                         cvss: 8.1,
                         verified: true,
                         false_positive: false,
                         remediation: "Reject requests with multiple Transfer-Encoding headers".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                ml_data: None,
+                        ml_data: None,
                     });
                 }
             }

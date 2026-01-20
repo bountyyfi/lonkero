@@ -889,11 +889,10 @@ impl RateLimitingScanner {
                         break;
                     }
 
-                    // Count as successful if not explicitly rejected
-                    if response.status_code < 400
-                        || response.status_code == 400
-                        || response.status_code == 422
-                    {
+                    // Count as successful ONLY for 2xx responses
+                    // 400/422 are validation errors, NOT successful brute force attempts
+                    // Counting them as successful causes false positives on forms with validation
+                    if response.status_code >= 200 && response.status_code < 300 {
                         successful += 1;
                     }
                 }
