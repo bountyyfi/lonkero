@@ -1354,7 +1354,7 @@ dependencies = [
  "walkdir",
  "which",
  "winreg 0.55.0",
- "zip",
+ "zip 6.0.0",
 ]
 
 [[package]]
@@ -2957,11 +2957,11 @@ dependencies = [
 
 [[package]]
 name = "rust_xlsxwriter"
-version = "0.92.3"
+version = "0.92.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0733a44f344e900c4221f33a16aa92a59e3e7c7ad37d39a1c753afecb1f2bd02"
+checksum = "ac5cfcf481735a0ea276735b979d6a61873e286da8133d9aee6d5e47d8664a0d"
 dependencies = [
- "zip",
+ "zip 7.2.0",
 ]
 
 [[package]]
@@ -3901,6 +3901,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "typed-path"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e43ffa54726cdc9ea78392023ffe9fe9cf9ac779e1c6fcb0d23f9862e3879d20"
+
+[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4825,6 +4831,20 @@ dependencies = [
  "zeroize",
  "zopfli",
  "zstd",
+]
+
+[[package]]
+name = "zip"
+version = "7.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c42e33efc22a0650c311c2ef19115ce232583abbe80850bc8b66509ebef02de0"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "typed-path",
+ "zopfli",
 ]
 
 [[package]]
