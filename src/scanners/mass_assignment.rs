@@ -1273,36 +1273,51 @@ impl MassAssignmentScanner {
     }
 
     /// Detect price manipulation
+    /// STRICT: Only trigger if we see actual price-related JSON or e-commerce context
     fn detect_price_manipulation(&self, body: &str, value: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check if price was set to manipulated value
-        if body_lower.contains(&format!("\"price\":\"{}\"", value))
+        // Must be a likely e-commerce response (not a generic page)
+        let has_ecommerce_context = body_lower.contains("cart")
+            || body_lower.contains("checkout")
+            || body_lower.contains("product")
+            || body_lower.contains("order")
+            || body_lower.contains("\"items\"")
+            || body_lower.contains("\"subtotal\"")
+            || body_lower.contains("\"discount\"");
+
+        if !has_ecommerce_context {
+            return false;
+        }
+
+        // Check if price was set to manipulated value (must see actual JSON with price)
+        body_lower.contains(&format!("\"price\":\"{}\"", value))
             || body_lower.contains(&format!("\"price\":{}", value))
             || body_lower.contains(&format!("\"amount\":\"{}\"", value))
             || body_lower.contains(&format!("\"total\":\"{}\"", value))
-        {
-            return true;
-        }
-
-        // Check for success indicators
-        body_lower.contains("updated") || body_lower.contains("saved")
+            || body_lower.contains(&format!("\"cost\":{}", value))
     }
 
     /// Detect hidden field manipulation
+    /// STRICT: Require actual JSON response containing the param
     fn detect_hidden_field_manipulation(&self, body: &str, param: &str) -> bool {
         let body_lower = body.to_lowercase();
         let param_lower = param.to_lowercase();
 
-        // Check if hidden parameter appears in response
-        if body_lower.contains(&format!("\"{}\":", param_lower))
-            || body_lower.contains(&format!("'{}':", param_lower))
-        {
-            return true;
+        // Must be JSON or API response (not generic HTML page)
+        let is_json_response = body_lower.starts_with("{")
+            || body_lower.starts_with("[")
+            || body_lower.contains("application/json")
+            || body_lower.contains("\"success\":")
+            || body_lower.contains("\"data\":");
+
+        if !is_json_response {
+            return false;
         }
 
-        // Check for update success
-        body_lower.contains("updated") || body_lower.contains("modified")
+        // Check if hidden parameter appears in response with our value
+        body_lower.contains(&format!("\"{}\":", param_lower))
+            || body_lower.contains(&format!("'{}':", param_lower))
     }
 
     /// Create a vulnerability record

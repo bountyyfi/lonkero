@@ -2454,18 +2454,45 @@ impl BusinessLogicScanner {
     }
 
     /// Detect coupon reuse vulnerability
+    /// STRICT: Require actual e-commerce context and specific coupon success indicators
     fn detect_coupon_reuse(&self, first_body: &str, second_body: &str) -> bool {
         let first_lower = first_body.to_lowercase();
         let second_lower = second_body.to_lowercase();
 
-        // Both requests show discount applied
-        let first_success = first_lower.contains("applied") || first_lower.contains("discount");
-        let second_success = second_lower.contains("applied") || second_lower.contains("discount");
+        // Must be an actual e-commerce response (not a generic page or forum)
+        let has_ecommerce_context = first_lower.contains("cart")
+            || first_lower.contains("checkout")
+            || first_lower.contains("order")
+            || first_lower.contains("\"total\"")
+            || first_lower.contains("\"subtotal\"")
+            || first_lower.contains("\"price\"")
+            || first_lower.contains("payment");
+
+        if !has_ecommerce_context {
+            return false;
+        }
+
+        // Both requests show SPECIFIC coupon success messages (not just generic "discount" word)
+        let coupon_success_indicators = [
+            "coupon applied",
+            "discount applied",
+            "code accepted",
+            "promo applied",
+            "voucher applied",
+            "savings applied",
+            "\"success\":true",
+            "\"valid\":true",
+        ];
+
+        let first_success = coupon_success_indicators.iter().any(|i| first_lower.contains(i));
+        let second_success = coupon_success_indicators.iter().any(|i| second_lower.contains(i));
 
         // Second doesn't show "already used" error
         let no_reuse_error = !second_lower.contains("already used")
             && !second_lower.contains("already applied")
-            && !second_lower.contains("one time only");
+            && !second_lower.contains("one time only")
+            && !second_lower.contains("coupon expired")
+            && !second_lower.contains("invalid coupon");
 
         first_success && second_success && no_reuse_error
     }
