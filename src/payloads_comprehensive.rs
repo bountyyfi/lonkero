@@ -1322,6 +1322,8 @@ pub fn get_all_xss_payloads() -> Vec<String> {
     all_payloads.extend(generate_context_aware_xss()); // 300+
     all_payloads.extend(generate_modern_waf_bypass_xss()); // 200+
     all_payloads.extend(generate_modern_xss_2024_2025()); // 10,000+
+    all_payloads.extend(generate_advanced_encoding_bypass_xss()); // 50+ encoding bypass (hex, octal, Unicode, UTF-7)
+    all_payloads.extend(generate_advanced_polyglot_xss()); // 22+ advanced polyglots (multi-context)
 
     all_payloads
 }
