@@ -72,33 +72,33 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| XSS-01 | TBD | Pending |
-| XSS-02 | TBD | Pending |
-| XSS-03 | TBD | Pending |
-| XSS-04 | TBD | Pending |
-| XSS-05 | TBD | Pending |
-| XSS-06 | TBD | Pending |
-| XSS-07 | TBD | Pending |
-| SQLI-01 | TBD | Pending |
-| SQLI-02 | TBD | Pending |
-| SQLI-03 | TBD | Pending |
-| SQLI-04 | TBD | Pending |
-| SQLI-05 | TBD | Pending |
-| SQLI-06 | TBD | Pending |
-| SQLI-07 | TBD | Pending |
-| SQLI-08 | TBD | Pending |
-| SQLI-09 | TBD | Pending |
-| SQLI-10 | TBD | Pending |
-| PAY-01 | TBD | Pending |
-| PAY-02 | TBD | Pending |
-| PAY-03 | TBD | Pending |
-| PAY-04 | TBD | Pending |
+| PAY-01 | Phase 1 | Pending |
+| PAY-02 | Phase 1 | Pending |
+| PAY-03 | Phase 1 | Pending |
+| PAY-04 | Phase 1 | Pending |
+| XSS-01 | Phase 2 | Pending |
+| XSS-02 | Phase 2 | Pending |
+| XSS-03 | Phase 2 | Pending |
+| XSS-04 | Phase 2 | Pending |
+| XSS-05 | Phase 2 | Pending |
+| XSS-06 | Phase 2 | Pending |
+| XSS-07 | Phase 2 | Pending |
+| SQLI-01 | Phase 3 | Pending |
+| SQLI-02 | Phase 3 | Pending |
+| SQLI-03 | Phase 3 | Pending |
+| SQLI-04 | Phase 3 | Pending |
+| SQLI-07 | Phase 4 | Pending |
+| SQLI-08 | Phase 4 | Pending |
+| SQLI-09 | Phase 4 | Pending |
+| SQLI-10 | Phase 4 | Pending |
+| SQLI-05 | Phase 5 | Pending |
+| SQLI-06 | Phase 5 | Pending |
 
 **Coverage:**
 - v3.10 requirements: 21 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 21
+- Mapped to phases: 21 (100%)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-30*
-*Last updated: 2026-01-30 after initial definition*
+*Last updated: 2026-01-30 after roadmap creation*
