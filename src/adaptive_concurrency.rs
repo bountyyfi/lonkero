@@ -175,7 +175,7 @@ impl AdaptiveConcurrencyTracker {
 
     /// Get metrics for a target (lock-free read)
     pub async fn get_metrics(&self, target_domain: &str) -> Option<TargetMetrics> {
-        self.targets.get(target_domain).map(|m| m.clone())
+        self.targets.get(target_domain).map(|m| m.value().clone())
     }
 }
 
