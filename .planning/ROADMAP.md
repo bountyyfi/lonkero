@@ -29,10 +29,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Payload database includes 5+ polyglot payloads that work across HTML, JS, and attribute contexts
   3. Payload database contains database-specific payloads for H2, MariaDB, CockroachDB, and Sybase
   4. Payload database includes GraphQL-specific injection payloads with query syntax
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD during planning
+- [ ] 01-01-PLAN.md - XSS encoding variations and polyglot payloads
+- [ ] 01-02-PLAN.md - Database-specific SQLi and GraphQL injection payloads
 
 ### Phase 2: XSS Context Expansion
 **Goal**: Scanner detects XSS vulnerabilities across JSON, SVG, MathML, meta refresh, and template literal contexts
@@ -99,7 +100,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Payload Foundation | 0/TBD | Not started | - |
+| 1. Payload Foundation | 0/2 | Planned | - |
 | 2. XSS Context Expansion | 0/TBD | Not started | - |
 | 3. SQLi Injection Points | 0/TBD | Not started | - |
 | 4. SQLi Database Detection | 0/TBD | Not started | - |
