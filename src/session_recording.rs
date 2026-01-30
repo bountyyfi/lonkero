@@ -864,6 +864,161 @@ pub struct SessionRecorder {
 }
 
 impl SessionRecorder {
+    // ========================================================================
+    // Lock Recovery Helpers - Handle poisoned locks gracefully
+    // ========================================================================
+
+    /// Access events with lock poisoning recovery
+    fn with_events<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<SessionEvent>) -> R,
+    {
+        match self.events.lock() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Events mutex poisoned, recovering");
+                f(&mut poisoned.into_inner())
+            }
+        }
+    }
+
+    /// Access stats with lock poisoning recovery
+    fn with_stats<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut RecordingStats) -> R,
+    {
+        match self.stats.lock() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Stats mutex poisoned, recovering");
+                f(&mut poisoned.into_inner())
+            }
+        }
+    }
+
+    /// Access pending_requests with lock poisoning recovery
+    fn with_pending_requests<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut HashMap<String, Instant>) -> R,
+    {
+        match self.pending_requests.lock() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Pending requests mutex poisoned, recovering");
+                f(&mut poisoned.into_inner())
+            }
+        }
+    }
+
+    /// Access unique_urls with lock poisoning recovery
+    fn with_unique_urls<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut std::collections::HashSet<String>) -> R,
+    {
+        match self.unique_urls.lock() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Unique URLs mutex poisoned, recovering");
+                f(&mut poisoned.into_inner())
+            }
+        }
+    }
+
+    /// Read state with lock poisoning recovery
+    fn read_state(&self) -> RecorderState {
+        match self.state.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] State RwLock poisoned, recovering");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    /// Write state with lock poisoning recovery
+    fn with_state_write<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut RecorderState) -> R,
+    {
+        match self.state.write() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] State RwLock poisoned, recovering");
+                f(&mut poisoned.into_inner())
+            }
+        }
+    }
+
+    /// Read start_time with lock poisoning recovery
+    fn read_start_time(&self) -> Option<Instant> {
+        match self.start_time.read() {
+            Ok(guard) => *guard,
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Start time RwLock poisoned, recovering");
+                *poisoned.into_inner()
+            }
+        }
+    }
+
+    /// Write start_time with lock poisoning recovery
+    fn write_start_time(&self, value: Option<Instant>) {
+        match self.start_time.write() {
+            Ok(mut guard) => *guard = value,
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Start time RwLock poisoned, recovering");
+                *poisoned.into_inner() = value;
+            }
+        }
+    }
+
+    /// Read start_url with lock poisoning recovery
+    fn read_start_url(&self) -> String {
+        match self.start_url.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Start URL RwLock poisoned, recovering");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    /// Write start_url with lock poisoning recovery
+    fn write_start_url(&self, value: String) {
+        match self.start_url.write() {
+            Ok(mut guard) => *guard = value,
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Start URL RwLock poisoned, recovering");
+                *poisoned.into_inner() = value;
+            }
+        }
+    }
+
+    /// Read current_url with lock poisoning recovery
+    fn read_current_url(&self) -> String {
+        match self.current_url.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Current URL RwLock poisoned, recovering");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    /// Write current_url with lock poisoning recovery
+    fn write_current_url(&self, value: String) {
+        match self.current_url.write() {
+            Ok(mut guard) => *guard = value,
+            Err(poisoned) => {
+                warn!("[SessionRecorder] Current URL RwLock poisoned, recovering");
+                *poisoned.into_inner() = value;
+            }
+        }
+    }
+
+    // ========================================================================
+    // Public API
+    // ========================================================================
+
     /// Create a new session recorder with default settings
     pub fn new() -> Self {
         Self::with_settings(RecordingSettings::default())
@@ -887,36 +1042,35 @@ impl SessionRecorder {
 
     /// Get the current recorder state
     pub fn state(&self) -> RecorderState {
-        self.state.read().unwrap().clone()
+        self.read_state()
     }
 
     /// Check if currently recording
     pub fn is_recording(&self) -> bool {
-        matches!(*self.state.read().unwrap(), RecorderState::Recording)
+        matches!(self.read_state(), RecorderState::Recording)
     }
 
     /// Start recording
     pub fn start(&self, start_url: &str) {
-        let mut state = self.state.write().unwrap();
-        if *state != RecorderState::Idle && *state != RecorderState::Stopped {
+        let current_state = self.read_state();
+        if current_state != RecorderState::Idle && current_state != RecorderState::Stopped {
             warn!(
                 "[SessionRecorder] Cannot start recording, current state: {:?}",
-                *state
+                current_state
             );
             return;
         }
 
-        *state = RecorderState::Recording;
-        *self.start_time.write().unwrap() = Some(Instant::now());
-        *self.start_url.write().unwrap() = start_url.to_string();
-        *self.current_url.write().unwrap() = start_url.to_string();
-        self.events.lock().unwrap().clear();
-        *self.stats.lock().unwrap() = RecordingStats::default();
-        self.unique_urls.lock().unwrap().clear();
-        self.unique_urls
-            .lock()
-            .unwrap()
-            .insert(start_url.to_string());
+        self.with_state_write(|state| *state = RecorderState::Recording);
+        self.write_start_time(Some(Instant::now()));
+        self.write_start_url(start_url.to_string());
+        self.write_current_url(start_url.to_string());
+        self.with_events(|events| events.clear());
+        self.with_stats(|stats| *stats = RecordingStats::default());
+        self.with_unique_urls(|urls| {
+            urls.clear();
+            urls.insert(start_url.to_string());
+        });
         self.event_counter
             .store(0, std::sync::atomic::Ordering::SeqCst);
 
@@ -925,35 +1079,36 @@ impl SessionRecorder {
 
     /// Pause recording
     pub fn pause(&self) {
-        let mut state = self.state.write().unwrap();
-        if *state == RecorderState::Recording {
-            *state = RecorderState::Paused;
-            debug!("[SessionRecorder] Recording paused");
-        }
+        self.with_state_write(|state| {
+            if *state == RecorderState::Recording {
+                *state = RecorderState::Paused;
+                debug!("[SessionRecorder] Recording paused");
+            }
+        });
     }
 
     /// Resume recording
     pub fn resume(&self) {
-        let mut state = self.state.write().unwrap();
-        if *state == RecorderState::Paused {
-            *state = RecorderState::Recording;
-            debug!("[SessionRecorder] Recording resumed");
-        }
+        self.with_state_write(|state| {
+            if *state == RecorderState::Paused {
+                *state = RecorderState::Recording;
+                debug!("[SessionRecorder] Recording resumed");
+            }
+        });
     }
 
     /// Stop recording and return the session recording
     pub fn stop(&self) -> SessionRecording {
-        let mut state = self.state.write().unwrap();
-        *state = RecorderState::Stopped;
+        self.with_state_write(|state| *state = RecorderState::Stopped);
 
-        let start_time = self.start_time.read().unwrap();
+        let start_time = self.read_start_time();
         let duration_ms = start_time
             .map(|t| t.elapsed().as_millis() as u64)
             .unwrap_or(0);
 
-        let events = self.events.lock().unwrap().clone();
-        let stats = self.stats.lock().unwrap().clone();
-        let unique_urls_count = self.unique_urls.lock().unwrap().len();
+        let events = self.with_events(|events| events.clone());
+        let stats = self.with_stats(|stats| stats.clone());
+        let unique_urls_count = self.with_unique_urls(|urls| urls.len());
 
         let mut final_stats = stats;
         final_stats.unique_urls = unique_urls_count;
@@ -964,7 +1119,7 @@ impl SessionRecorder {
                 "Recording {}",
                 chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
             ),
-            start_url: self.start_url.read().unwrap().clone(),
+            start_url: self.read_start_url(),
             started_at: chrono::Utc::now() - chrono::Duration::milliseconds(duration_ms as i64),
             ended_at: Some(chrono::Utc::now()),
             duration_ms,
@@ -991,9 +1146,7 @@ impl SessionRecorder {
 
     /// Get the offset in milliseconds since recording started
     fn offset_ms(&self) -> u64 {
-        self.start_time
-            .read()
-            .unwrap()
+        self.read_start_time()
             .map(|t| t.elapsed().as_millis() as u64)
             .unwrap_or(0)
     }
@@ -1008,13 +1161,15 @@ impl SessionRecorder {
 
     /// Get current URL
     fn get_current_url(&self) -> String {
-        self.current_url.read().unwrap().clone()
+        self.read_current_url()
     }
 
     /// Update current URL
     fn set_current_url(&self, url: &str) {
-        *self.current_url.write().unwrap() = url.to_string();
-        self.unique_urls.lock().unwrap().insert(url.to_string());
+        self.write_current_url(url.to_string());
+        self.with_unique_urls(|urls| {
+            urls.insert(url.to_string());
+        });
     }
 
     /// Record a navigation event
@@ -1028,8 +1183,8 @@ impl SessionRecorder {
         let event =
             SessionEvent::navigation(self.next_event_id(), self.offset_ms(), nav.url.clone(), nav);
 
-        self.events.lock().unwrap().push(event);
-        self.stats.lock().unwrap().navigations += 1;
+        self.with_events(|events| events.push(event));
+        self.with_stats(|stats| stats.navigations += 1);
         debug!("[SessionRecorder] Recorded navigation");
     }
 
@@ -1040,10 +1195,9 @@ impl SessionRecorder {
         }
 
         // Track pending request for response correlation
-        self.pending_requests
-            .lock()
-            .unwrap()
-            .insert(request.request_id.clone(), Instant::now());
+        self.with_pending_requests(|pending| {
+            pending.insert(request.request_id.clone(), Instant::now());
+        });
 
         let current_url = self.get_current_url();
         let event = SessionEvent::network_request(
@@ -1053,8 +1207,8 @@ impl SessionRecorder {
             request,
         );
 
-        self.events.lock().unwrap().push(event);
-        self.stats.lock().unwrap().network_requests += 1;
+        self.with_events(|events| events.push(event));
+        self.with_stats(|stats| stats.network_requests += 1);
     }
 
     /// Record a network response
@@ -1064,17 +1218,12 @@ impl SessionRecorder {
         }
 
         // Calculate duration from pending request
-        if let Some(start) = self
-            .pending_requests
-            .lock()
-            .unwrap()
-            .remove(&response.request_id)
-        {
+        if let Some(start) = self.with_pending_requests(|pending| pending.remove(&response.request_id)) {
             response.duration_ms = start.elapsed().as_millis() as u64;
         }
 
         // Update bytes transferred
-        self.stats.lock().unwrap().bytes_transferred += response.size;
+        self.with_stats(|stats| stats.bytes_transferred += response.size);
 
         let current_url = self.get_current_url();
         let event = SessionEvent::network_response(
@@ -1084,7 +1233,7 @@ impl SessionRecorder {
             response,
         );
 
-        self.events.lock().unwrap().push(event);
+        self.with_events(|events| events.push(event));
     }
 
     /// Record a network error
@@ -1093,10 +1242,7 @@ impl SessionRecorder {
             return;
         }
 
-        self.pending_requests
-            .lock()
-            .unwrap()
-            .remove(&error.request_id);
+        self.with_pending_requests(|pending| pending.remove(&error.request_id));
 
         let current_url = self.get_current_url();
         let event = SessionEvent {
@@ -1118,8 +1264,8 @@ impl SessionRecorder {
             marker_label: None,
         };
 
-        self.events.lock().unwrap().push(event);
-        self.stats.lock().unwrap().network_errors += 1;
+        self.with_events(|events| events.push(event));
+        self.with_stats(|stats| stats.network_errors += 1);
     }
 
     /// Record a DOM interaction
@@ -1136,8 +1282,8 @@ impl SessionRecorder {
             interaction,
         );
 
-        self.events.lock().unwrap().push(event);
-        self.stats.lock().unwrap().dom_interactions += 1;
+        self.with_events(|events| events.push(event));
+        self.with_stats(|stats| stats.dom_interactions += 1);
     }
 
     /// Record a console message
@@ -1149,7 +1295,7 @@ impl SessionRecorder {
         if message.severity == ConsoleSeverity::Error
             || message.severity == ConsoleSeverity::Warning
         {
-            self.stats.lock().unwrap().errors += 1;
+            self.with_stats(|stats| stats.errors += 1);
         }
 
         let current_url = self.get_current_url();
@@ -1160,8 +1306,8 @@ impl SessionRecorder {
             message,
         );
 
-        self.events.lock().unwrap().push(event);
-        self.stats.lock().unwrap().console_messages += 1;
+        self.with_events(|events| events.push(event));
+        self.with_stats(|stats| stats.console_messages += 1);
     }
 
     /// Record a screenshot
@@ -1189,8 +1335,8 @@ impl SessionRecorder {
             screenshot,
         );
 
-        self.events.lock().unwrap().push(event);
-        self.stats.lock().unwrap().screenshots += 1;
+        self.with_events(|events| events.push(event));
+        self.with_stats(|stats| stats.screenshots += 1);
     }
 
     /// Record a cookie change
@@ -1219,7 +1365,7 @@ impl SessionRecorder {
             marker_label: None,
         };
 
-        self.events.lock().unwrap().push(event);
+        self.with_events(|events| events.push(event));
     }
 
     /// Record a storage change
@@ -1248,7 +1394,7 @@ impl SessionRecorder {
             marker_label: None,
         };
 
-        self.events.lock().unwrap().push(event);
+        self.with_events(|events| events.push(event));
     }
 
     /// Record a WebSocket message
@@ -1277,7 +1423,7 @@ impl SessionRecorder {
             marker_label: None,
         };
 
-        self.events.lock().unwrap().push(event);
+        self.with_events(|events| events.push(event));
     }
 
     /// Add a marker event for debugging
@@ -1294,18 +1440,18 @@ impl SessionRecorder {
             label.to_string(),
         );
 
-        self.events.lock().unwrap().push(event);
+        self.with_events(|events| events.push(event));
         debug!("[SessionRecorder] Marker added: {}", label);
     }
 
     /// Get current event count
     pub fn event_count(&self) -> usize {
-        self.events.lock().unwrap().len()
+        self.with_events(|events| events.len())
     }
 
     /// Get current statistics
     pub fn stats(&self) -> RecordingStats {
-        self.stats.lock().unwrap().clone()
+        self.with_stats(|stats| stats.clone())
     }
 }
 
@@ -1358,6 +1504,26 @@ impl<'a> SessionExporter<'a> {
     /// Create a new exporter for a recording
     pub fn new(recording: &'a SessionRecording) -> Self {
         Self { recording }
+    }
+
+    /// Render placeholder HTML for events with missing data
+    fn render_missing_event_data(&self, event_type_class: &str, event_type_label: &str) -> String {
+        warn!(
+            "[SessionExporter] Event missing expected data for type: {}",
+            event_type_label
+        );
+        format!(
+            r#"
+            <div class="event" data-type="{}">
+                <div class="event-header">
+                    <span class="event-type {}">{}</span>
+                    <span class="event-time">?ms</span>
+                </div>
+                <div class="event-details"><em>Event data missing</em></div>
+            </div>
+"#,
+            event_type_class, event_type_class, event_type_label
+        )
     }
 
     /// Export to the specified format
@@ -1761,7 +1927,9 @@ impl<'a> SessionExporter<'a> {
     fn render_event_html(&self, event: &SessionEvent) -> String {
         let (event_type_class, event_type_label, details) = match event.event_type {
             SessionEventType::Navigation => {
-                let nav = event.navigation.as_ref().unwrap();
+                let Some(nav) = event.navigation.as_ref() else {
+                    return self.render_missing_event_data("navigation", "Navigation");
+                };
                 (
                     "navigation",
                     "Navigation",
@@ -1772,7 +1940,9 @@ impl<'a> SessionExporter<'a> {
                 )
             }
             SessionEventType::NetworkRequest => {
-                let req = event.network_request.as_ref().unwrap();
+                let Some(req) = event.network_request.as_ref() else {
+                    return self.render_missing_event_data("network", "Request");
+                };
                 (
                     "network",
                     "Request",
@@ -1784,7 +1954,9 @@ impl<'a> SessionExporter<'a> {
                 )
             }
             SessionEventType::NetworkResponse => {
-                let resp = event.network_response.as_ref().unwrap();
+                let Some(resp) = event.network_response.as_ref() else {
+                    return self.render_missing_event_data("network", "Response");
+                };
                 let status_class = if resp.status_code < 300 {
                     "success"
                 } else if resp.status_code < 400 {
@@ -1802,7 +1974,9 @@ impl<'a> SessionExporter<'a> {
                 )
             }
             SessionEventType::NetworkError => {
-                let err = event.network_error.as_ref().unwrap();
+                let Some(err) = event.network_error.as_ref() else {
+                    return self.render_missing_event_data("error", "Network Error");
+                };
                 (
                     "error",
                     "Network Error",
@@ -1813,7 +1987,9 @@ impl<'a> SessionExporter<'a> {
             | SessionEventType::Input
             | SessionEventType::FormSubmit
             | SessionEventType::Scroll => {
-                let dom = event.dom_interaction.as_ref().unwrap();
+                let Some(dom) = event.dom_interaction.as_ref() else {
+                    return self.render_missing_event_data("interaction", "Interaction");
+                };
                 (
                     "interaction",
                     match event.event_type {
@@ -1831,7 +2007,9 @@ impl<'a> SessionExporter<'a> {
                 )
             }
             SessionEventType::ConsoleMessage => {
-                let msg = event.console_message.as_ref().unwrap();
+                let Some(msg) = event.console_message.as_ref() else {
+                    return self.render_missing_event_data("console", "Console");
+                };
                 (
                     "console",
                     match msg.severity {
@@ -1843,7 +2021,9 @@ impl<'a> SessionExporter<'a> {
                 )
             }
             SessionEventType::JsError => {
-                let msg = event.console_message.as_ref().unwrap();
+                let Some(msg) = event.console_message.as_ref() else {
+                    return self.render_missing_event_data("error", "JS Error");
+                };
                 (
                     "error",
                     "JS Error",
@@ -1851,7 +2031,9 @@ impl<'a> SessionExporter<'a> {
                 )
             }
             SessionEventType::Screenshot => {
-                let ss = event.screenshot.as_ref().unwrap();
+                let Some(ss) = event.screenshot.as_ref() else {
+                    return self.render_missing_event_data("screenshot", "Screenshot");
+                };
                 (
                     "screenshot",
                     "Screenshot",
@@ -1865,7 +2047,9 @@ impl<'a> SessionExporter<'a> {
             SessionEventType::StorageChange => ("network", "Storage", String::new()),
             SessionEventType::WebSocketMessage => ("network", "WebSocket", String::new()),
             SessionEventType::Marker => {
-                let label = event.marker_label.as_ref().unwrap();
+                let Some(label) = event.marker_label.as_ref() else {
+                    return self.render_missing_event_data("navigation", "Marker");
+                };
                 (
                     "navigation",
                     "Marker",

@@ -1986,6 +1986,7 @@ dependencies = [
  "clap",
  "config",
  "csv",
+ "dashmap",
  "deadpool-postgres",
  "deadpool-redis",
  "dirs",
