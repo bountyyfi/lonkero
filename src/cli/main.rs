@@ -201,6 +201,11 @@ enum Commands {
         /// Session recording format: har, json, html
         #[arg(long, default_value = "har")]
         session_format: SessionRecordingFormat,
+
+        /// Payload intensity override: auto (default), minimal (50), standard (500), extended (5000), maximum (all)
+        /// In intelligent mode, this overrides per-parameter intensity. In legacy modes, ignored.
+        #[arg(long, default_value = "auto")]
+        payload_intensity: PayloadIntensityArg,
     },
 
     /// List available scanner modules
@@ -333,6 +338,35 @@ enum SessionRecordingFormat {
     Html,
 }
 
+/// Payload intensity for scanner operations
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
+enum PayloadIntensityArg {
+    /// Auto: Use intelligent mode's per-parameter risk scoring (default)
+    #[default]
+    Auto,
+    /// Minimal: 50 payloads per parameter (fastest, may miss some vulns)
+    Minimal,
+    /// Standard: 500 payloads per parameter (balanced)
+    Standard,
+    /// Extended: 5000 payloads per parameter (thorough)
+    Extended,
+    /// Maximum: All available payloads (slowest, best coverage)
+    Maximum,
+}
+
+impl PayloadIntensityArg {
+    /// Convert to PayloadIntensity, returning None for Auto (let intelligent mode decide)
+    fn to_intensity(self) -> Option<PayloadIntensity> {
+        match self {
+            PayloadIntensityArg::Auto => None,
+            PayloadIntensityArg::Minimal => Some(PayloadIntensity::Minimal),
+            PayloadIntensityArg::Standard => Some(PayloadIntensity::Standard),
+            PayloadIntensityArg::Extended => Some(PayloadIntensity::Extended),
+            PayloadIntensityArg::Maximum => Some(PayloadIntensity::Maximum),
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -416,6 +450,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             record_session,
             session_output,
             session_format,
+            payload_intensity,
         } => {
             // Determine which modules to request authorization for
             // CRITICAL: The modules array is now REQUIRED for paid modules.
@@ -485,6 +520,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 record_session,
                 session_output,
                 session_format,
+                payload_intensity.to_intensity(),
             )
             .await
         }
@@ -962,6 +998,7 @@ async fn run_scan(
     record_session: bool,
     session_output: Option<PathBuf>,
     session_format: SessionRecordingFormat,
+    payload_intensity_override: Option<PayloadIntensity>,
 ) -> Result<()> {
     // Check if killswitch is active
     if license_status.killswitch_active {
@@ -1240,7 +1277,7 @@ async fn run_scan(
         });
 
         // Execute scan (standalone mode - no Redis queue)
-        match execute_standalone_scan(Arc::clone(&engine), job, &scanner_config).await {
+        match execute_standalone_scan(Arc::clone(&engine), job, &scanner_config, payload_intensity_override).await {
             Ok(results) => {
                 let vuln_count = results.vulnerabilities.len();
                 total_vulns += vuln_count;
@@ -1692,6 +1729,7 @@ async fn execute_standalone_scan(
     engine: Arc<ScanEngine>,
     job: Arc<ScanJob>,
     config: &ScannerConfig,
+    payload_intensity_override: Option<PayloadIntensity>,
 ) -> Result<ScanResults> {
     use lonkero_scanner::crawler::WebCrawler;
     use lonkero_scanner::framework_detector::FrameworkDetector;
@@ -2110,7 +2148,13 @@ async fn execute_standalone_scan(
     };
 
     // Helper function to get payload intensity for a parameter in intelligent mode
+    // If payload_intensity_override is set, use it for all parameters
     let get_param_intensity = |param_name: &str| -> PayloadIntensity {
+        // CLI override takes precedence
+        if let Some(override_intensity) = payload_intensity_override {
+            return override_intensity;
+        }
+
         if let Some(ref plan) = intelligent_scan_plan {
             plan.prioritized_params
                 .iter()
@@ -2128,6 +2172,14 @@ async fn execute_standalone_scan(
             }
         }
     };
+
+    // Log intensity setting
+    if let Some(override_intensity) = payload_intensity_override {
+        info!(
+            "[Config] Payload intensity override: {:?} (applies to all parameters)",
+            override_intensity
+        );
+    }
 
     // HEADLESS BROWSER CRAWLING for SPA/JS frameworks
     // Use headless if:
@@ -2995,46 +3047,143 @@ async fn execute_standalone_scan(
 
         // THEN: Test URL with Chromium-based XSS detection (runs on target + ALL crawled URLs)
         // Uses real browser execution to detect reflected, DOM, and stored XSS
-        // SKIP XSS for Vue/React SPAs with GraphQL - they auto-escape templates
-        // XSS requires Professional+ license
-        if scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER) {
-            if !is_graphql_only {
-                // NEW: Hybrid XSS Detector (no browser needed!)
-                // Uses Static Taint Analysis + Abstract Interpretation
-                // Coverage: 85-95%, Speed: 200ms per URL (vs 60s Chrome timeout)
-                info!(
-                    "  - Testing XSS with Hybrid Detector (taint analysis + abstract interpretation) on {} URLs",
-                    xss_urls_to_test.len()
-                );
-
-                let (vulns, tests) = engine
-                    .hybrid_xss_detector
-                    .scan_parallel(&xss_urls_to_test, scan_config)
-                    .await?;
-                let vulns_count = vulns.len();
-                all_vulnerabilities.extend(vulns);
-                total_tests += tests as u64;
-
-                info!("    [Hybrid XSS] Completed: {} vulnerabilities found, {} tests", vulns_count, tests);
-            } else {
-                info!("  - Skipping XSS - GraphQL backend returns JSON, not HTML");
-            }
-        } else {
-            info!("  [SKIP] XSS scanner requires Professional or higher license");
-        }
-
-        // Run Proof-Based XSS scanner (no Chrome required, mathematically proves exploitability)
-        // Uses context analysis + escape behavior testing with only 2-3 requests per parameter
+        // ==========================================================================
+        // XSS SCANNING - Run all 3 scanners in PARALLEL for maximum coverage
+        // ==========================================================================
+        // 1. Hybrid XSS Detector - Static taint analysis + abstract interpretation
+        // 2. Proof-Based XSS Scanner - Mathematical proof via context + escape analysis
+        // 3. Reflection XSS Scanner - Comprehensive payload testing (12,450+ payloads)
+        // ==========================================================================
         if !is_graphql_only && !is_static_site {
-            info!("  - Testing Proof-Based XSS (context + escape analysis) on {} URLs", xss_urls_to_test.len());
-            for xss_url in &xss_urls_to_test {
-                let (vulns, tests) = engine
-                    .proof_xss_scanner
-                    .scan(xss_url, scan_config)
-                    .await?;
+            let xss_authorized = scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER);
+            let intensity = payload_intensity_override.unwrap_or(PayloadIntensity::Standard);
+
+            info!(
+                "  - Running 3 XSS scanners in PARALLEL on {} URLs (intensity: {:?})",
+                xss_urls_to_test.len(),
+                intensity
+            );
+
+            // Clone what we need for parallel execution
+            let engine_clone1 = Arc::clone(&engine);
+            let engine_clone2 = Arc::clone(&engine);
+            let engine_clone3 = Arc::clone(&engine);
+            let urls_clone1 = xss_urls_to_test.clone();
+            let urls_clone2 = xss_urls_to_test.clone();
+            let urls_clone3 = xss_urls_to_test.clone();
+            let config_clone1 = scan_config.clone();
+            let config_clone2 = scan_config.clone();
+            let config_clone3 = scan_config.clone();
+
+            // Run all 3 XSS scanners in parallel
+            let (hybrid_result, proof_result, reflection_result) = tokio::join!(
+                // 1. Hybrid XSS Detector (taint analysis + abstract interpretation)
+                async {
+                    if xss_authorized {
+                        engine_clone1
+                            .hybrid_xss_detector
+                            .scan_parallel(&urls_clone1, &config_clone1)
+                            .await
+                    } else {
+                        Ok((Vec::new(), 0))
+                    }
+                },
+                // 2. Proof-Based XSS Scanner (context + escape analysis, 2-3 requests)
+                async {
+                    let mut vulns = Vec::new();
+                    let mut tests = 0usize;
+                    for url in &urls_clone2 {
+                        match engine_clone2.proof_xss_scanner.scan(url, &config_clone2).await {
+                            Ok((v, t)) => {
+                                vulns.extend(v);
+                                tests += t;
+                            }
+                            Err(e) => {
+                                debug!("[Proof-XSS] Error scanning {}: {}", url, e);
+                            }
+                        }
+                    }
+                    Ok::<_, anyhow::Error>((vulns, tests))
+                },
+                // 3. Reflection XSS Scanner (comprehensive payloads)
+                async {
+                    let mut vulns = Vec::new();
+                    let mut tests = 0usize;
+                    for url in &urls_clone3 {
+                        match engine_clone3
+                            .reflection_xss_scanner
+                            .scan_with_intensity(url, &config_clone3, intensity)
+                            .await
+                        {
+                            Ok((v, t)) => {
+                                vulns.extend(v);
+                                tests += t;
+                            }
+                            Err(e) => {
+                                debug!("[Reflection-XSS] Error scanning {}: {}", url, e);
+                            }
+                        }
+                    }
+                    Ok::<_, anyhow::Error>((vulns, tests))
+                }
+            );
+
+            // Collect results from all scanners
+            let mut xss_vulns_found = 0;
+
+            // Hybrid XSS results
+            if let Ok((vulns, tests)) = hybrid_result {
+                xss_vulns_found += vulns.len();
                 all_vulnerabilities.extend(vulns);
                 total_tests += tests as u64;
+                info!("    [Hybrid XSS] {} vulns, {} tests", xss_vulns_found, tests);
             }
+
+            // Proof-Based XSS results
+            if let Ok((vulns, tests)) = proof_result {
+                // Deduplicate - only add if not already found
+                for vuln in vulns {
+                    let already_found = all_vulnerabilities.iter().any(|v| {
+                        v.url == vuln.url && v.parameter == vuln.parameter && v.category == "XSS"
+                    });
+                    if !already_found {
+                        xss_vulns_found += 1;
+                        all_vulnerabilities.push(vuln);
+                    }
+                }
+                total_tests += tests as u64;
+                info!("    [Proof XSS] {} total vulns after dedup, {} tests", xss_vulns_found, tests);
+            }
+
+            // Reflection XSS results
+            if let Ok((vulns, tests)) = reflection_result {
+                // Deduplicate - only add if not already found
+                for vuln in vulns {
+                    let already_found = all_vulnerabilities.iter().any(|v| {
+                        v.url == vuln.url && v.parameter == vuln.parameter && v.category == "XSS"
+                    });
+                    if !already_found {
+                        xss_vulns_found += 1;
+                        all_vulnerabilities.push(vuln);
+                    }
+                }
+                total_tests += tests as u64;
+                info!(
+                    "    [Reflection XSS] {} total vulns after dedup, {} tests ({} payloads)",
+                    xss_vulns_found,
+                    tests,
+                    intensity.payload_limit()
+                );
+            }
+
+            info!(
+                "  - XSS scanning complete: {} unique vulnerabilities found",
+                xss_vulns_found
+            );
+        } else if is_graphql_only {
+            info!("  - Skipping XSS - GraphQL backend returns JSON, not HTML");
+        } else if is_static_site {
+            info!("  - Skipping XSS - Static site detected");
         }
 
         // Run SQLi scanner (skip for static sites and GraphQL-only backends)

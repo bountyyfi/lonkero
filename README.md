@@ -85,6 +85,35 @@ ANALYSIS (Pure Computation):
 - **XSS filter expanded** - Now tests parameters ending in `id`, `count`, `weight`, etc. (these can be reflected in HTML)
 - **Better false positive prevention** - Still skips CSRF tokens, pagination, and boolean flags where XSS is impossible
 
+### Payload Intensity Control
+
+New `--payload-intensity` flag allows control over how many payloads are tested per parameter:
+
+```bash
+# Auto mode (default) - uses intelligent per-parameter risk scoring
+lonkero scan https://example.com
+
+# Maximum intensity - test with all 12,450+ XSS payloads
+lonkero scan https://example.com --payload-intensity maximum
+
+# Quick scan with minimal payloads (50 per parameter)
+lonkero scan https://example.com --payload-intensity minimal
+```
+
+**Intensity Levels:**
+| Level | Payloads | Use Case |
+|-------|----------|----------|
+| `auto` | Risk-based | Default - intelligent mode decides per-parameter |
+| `minimal` | 50 | Quick validation, CI/CD pipelines |
+| `standard` | 500 | Balanced coverage vs speed |
+| `extended` | 5,000 | Thorough testing |
+| `maximum` | 12,450+ | Full payload library, maximum coverage |
+
+In `auto` mode (default), the intelligent orchestrator assigns intensity based on parameter risk:
+- High-risk params (`password`, `cmd`, `query`) → Extended/Maximum
+- Medium-risk params (`search`, `name`, `email`) → Standard
+- Low-risk params (`page`, `limit`, `sort`) → Minimal
+
 ---
 
 ## v3.2 New Features
@@ -670,6 +699,10 @@ lonkero scan https://example.com --crawl --max-depth 5
 
 # Disable rate limiting (use with caution)
 lonkero scan https://example.com --no-rate-limit
+
+# Payload intensity control (v3.9)
+lonkero scan https://example.com --payload-intensity maximum  # All 12,450+ XSS payloads
+lonkero scan https://example.com --payload-intensity minimal  # Quick scan (50 payloads)
 
 # Multi-role authorization testing (BOLA/BFLA detection)
 lonkero scan https://example.com \

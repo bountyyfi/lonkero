@@ -902,11 +902,12 @@ impl Default for ScannerTechMapping {
 }
 
 /// Payload intensity level - determines how many payloads to use
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum PayloadIntensity {
     /// Minimal payloads - quick validation (50 payloads)
     Minimal,
     /// Standard payloads - balanced coverage (500 payloads)
+    #[default]
     Standard,
     /// Extended payloads - thorough testing (5000 payloads)
     Extended,
