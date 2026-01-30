@@ -80,13 +80,46 @@ impl VulnerabilityDeduplicator {
 
     fn compute_signature(&self, vuln: &Vulnerability) -> String {
         let param = vuln.parameter.as_ref().map(|s| s.as_str()).unwrap_or("");
+        // Use category (XSS, SQLi) instead of full vuln_type for better deduplication
+        // This groups "XSS in 'u' parameter (Differential Fuzzing)" with "DOM XSS via Static Taint Analysis"
         format!(
             "{}:{}:{}:{}",
-            vuln.vuln_type,
-            self.normalize_url(&vuln.url),
+            vuln.category,
+            self.normalize_url_for_dedup(&vuln.url),
             param,
             vuln.cwe
         )
+    }
+
+    /// Aggressive URL normalization for deduplication
+    /// - Strips query parameter VALUES (keeps only keys)
+    /// - /user?u=alice and /user?u=bob -> /user?u
+    fn normalize_url_for_dedup(&self, url_str: &str) -> String {
+        if let Ok(url) = Url::parse(url_str) {
+            // 1. Normalize path
+            let path = self.normalize_path(url.path());
+
+            // 2. Extract only query param KEYS (not values)
+            let query_keys: Option<String> = url.query().map(|q| {
+                let mut keys: Vec<&str> = q
+                    .split('&')
+                    .filter_map(|pair| pair.split('=').next())
+                    .collect();
+                keys.sort();
+                keys.dedup();
+                keys.join(",")
+            }).filter(|s| !s.is_empty());
+
+            // Build normalized URL
+            let base = format!("{}://{}{}", url.scheme(), url.host_str().unwrap_or(""), path);
+            if let Some(keys) = query_keys {
+                format!("{}?{}", base, keys)
+            } else {
+                base
+            }
+        } else {
+            url_str.split('?').next().unwrap_or(url_str).to_lowercase()
+        }
     }
 
     /// Semantic URL normalization for deduplication
@@ -254,6 +287,105 @@ impl VulnerabilityDeduplicator {
         }
 
         groups
+    }
+
+    /// Aggressive deduplication that combines findings from multiple scanners
+    /// Groups by: category + base_path + parameter
+    /// Keeps the highest confidence finding from each group
+    pub fn deduplicate_aggressive(&self, vulnerabilities: Vec<Vulnerability>) -> Vec<Vulnerability> {
+        if vulnerabilities.is_empty() {
+            return vulnerabilities;
+        }
+
+        let mut groups: HashMap<String, Vec<Vulnerability>> = HashMap::new();
+
+        for vuln in vulnerabilities {
+            let key = self.compute_aggressive_key(&vuln);
+            groups.entry(key).or_insert_with(Vec::new).push(vuln);
+        }
+
+        let mut deduplicated = Vec::new();
+
+        for (_, mut group) in groups {
+            if group.len() == 1 {
+                deduplicated.push(group.pop().unwrap());
+            } else {
+                // Sort by: verified first, then high confidence, then high CVSS
+                group.sort_by(|a, b| {
+                    // Verified findings first
+                    b.verified
+                        .cmp(&a.verified)
+                        // Then high confidence
+                        .then(self.confidence_to_int(&b.confidence).cmp(&self.confidence_to_int(&a.confidence)))
+                        // Then high CVSS
+                        .then(
+                            b.cvss
+                                .partial_cmp(&a.cvss)
+                                .unwrap_or(std::cmp::Ordering::Equal),
+                        )
+                });
+
+                // Take best finding but enrich description with detection methods
+                let mut best = group.remove(0);
+                if group.len() > 0 {
+                    let methods: Vec<String> = group
+                        .iter()
+                        .map(|v| self.extract_detection_method(&v.vuln_type))
+                        .filter(|m| !m.is_empty())
+                        .collect();
+                    if !methods.is_empty() {
+                        best.description = format!(
+                            "{} (Also detected by: {})",
+                            best.description,
+                            methods.join(", ")
+                        );
+                    }
+                }
+                deduplicated.push(best);
+            }
+        }
+
+        deduplicated
+    }
+
+    /// Compute aggressive deduplication key
+    /// Uses: category + base_url_path + parameter
+    fn compute_aggressive_key(&self, vuln: &Vulnerability) -> String {
+        let param = vuln.parameter.as_ref().map(|s| s.as_str()).unwrap_or("_none_");
+
+        // Extract just the path without query params
+        let base_path = if let Ok(url) = Url::parse(&vuln.url) {
+            self.normalize_path(url.path())
+        } else {
+            vuln.url.split('?').next().unwrap_or(&vuln.url).to_lowercase()
+        };
+
+        format!("{}:{}:{}", vuln.category, base_path, param)
+    }
+
+    fn confidence_to_int(&self, confidence: &crate::types::Confidence) -> i32 {
+        match confidence {
+            crate::types::Confidence::High => 3,
+            crate::types::Confidence::Medium => 2,
+            crate::types::Confidence::Low => 1,
+        }
+    }
+
+    /// Extract detection method from vuln_type
+    fn extract_detection_method(&self, vuln_type: &str) -> String {
+        if vuln_type.contains("Differential Fuzzing") {
+            "Differential Fuzzing".to_string()
+        } else if vuln_type.contains("Static Taint") {
+            "Static Taint Analysis".to_string()
+        } else if vuln_type.contains("Abstract Interpretation") {
+            "Abstract Interpretation".to_string()
+        } else if vuln_type.contains("Proof") {
+            "Proof-Based".to_string()
+        } else if vuln_type.contains("Reflection") {
+            "Reflection Analysis".to_string()
+        } else {
+            String::new()
+        }
     }
 }
 

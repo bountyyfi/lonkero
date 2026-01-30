@@ -36,6 +36,7 @@ use lonkero_scanner::scanners::{
 };
 use lonkero_scanner::signing::{self, ScanToken, SigningError};
 use lonkero_scanner::types::{ScanConfig, ScanJob, ScanMode, ScanResults};
+use lonkero_scanner::reporting::deduplication::VulnerabilityDeduplicator;
 
 // Intelligence system imports
 use lonkero_scanner::analysis::{AttackPlanner, IntelligenceBus, ResponseAnalyzer, StateUpdate};
@@ -4477,6 +4478,26 @@ async fn execute_standalone_scan(
                 );
             }
         }
+    }
+
+    // ==========================================================================
+    // AGGRESSIVE DEDUPLICATION
+    // ==========================================================================
+    // Combine duplicate findings from multiple scanners into single entries.
+    // Groups by: category + base_path + parameter
+    // This reduces "XSS in 'u' param" from N entries to 1 per endpoint.
+    let original_count = all_vulnerabilities.len();
+    let deduplicator = VulnerabilityDeduplicator::new();
+    let all_vulnerabilities = deduplicator.deduplicate_aggressive(all_vulnerabilities);
+    let deduped_count = all_vulnerabilities.len();
+
+    if original_count != deduped_count {
+        info!(
+            "Deduplication: {} -> {} vulnerabilities ({} duplicates removed)",
+            original_count,
+            deduped_count,
+            original_count - deduped_count
+        );
     }
 
     // Create preliminary results for hashing

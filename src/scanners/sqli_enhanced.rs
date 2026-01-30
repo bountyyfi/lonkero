@@ -1474,6 +1474,66 @@ impl EnhancedSqliScanner {
         Ok((vulnerabilities, tests_run))
     }
 
+    /// Detect actual SQL error patterns in response body
+    /// Returns true ONLY for genuine SQL error messages, not forum posts discussing SQL
+    fn detect_sql_error_patterns(body: &str) -> bool {
+        // These patterns are specific SQL error messages, not general content
+        let sql_error_patterns = [
+            // MySQL errors
+            "you have an error in your sql syntax",
+            "mysql_fetch",
+            "mysql_query",
+            "mysql_num_rows",
+            "warning: mysql",
+            "unclosed quotation mark after the character string",
+            "mysqlexception",
+            // PostgreSQL errors
+            "pg_query",
+            "pg_exec",
+            "pg_fetch",
+            "psycopg2.error",
+            "unterminated quoted string",
+            // SQL Server errors
+            "microsoft ole db provider",
+            "odbc sql server driver",
+            "sqlsrv_query",
+            "[sql server]",
+            "incorrect syntax near",
+            // SQLite errors
+            "sqlite3::exception",
+            "sqlite_error",
+            "sqlite_query",
+            // Oracle errors
+            "ora-01756",
+            "ora-00933",
+            "ora-00936",
+            "quoted string not properly terminated",
+            // Generic database errors (must include specific context)
+            "sql syntax",
+            "syntax error at",
+            "invalid column",
+            "invalid object",
+            "unknown column",
+            "unrecognized token",
+            "division by zero",
+            "supplied argument is not a valid",
+            "sqlexception",
+            "db error:",
+            // Framework-specific
+            "pdo::query",
+            "pdoexception",
+            "jdbc driver",
+            "adodb.connection",
+        ];
+
+        for pattern in sql_error_patterns {
+            if body.contains(pattern) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Calculate similarity between two responses
     fn calculate_similarity(&self, response_a: &HttpResponse, response_b: &HttpResponse) -> f64 {
         let status_similarity = if response_a.status_code == response_b.status_code {
@@ -3145,14 +3205,17 @@ impl EnhancedSqliScanner {
             let double_similarity = self.calculate_similarity(baseline, &double_resp);
 
             // SQLi confirmed ONLY if:
-            // 1. Single quote BREAKS the query (low similarity to baseline OR error response)
+            // 1. Single quote BREAKS the query (low similarity to baseline AND shows SQL error patterns)
             // 2. Double quote WORKS (high similarity to baseline)
             // This differential proves quotes are being parsed in SQL context
-            let single_quote_breaks = single_similarity < 0.7
-                || single_resp.status_code >= 500
-                || single_resp.body.to_lowercase().contains("sql")
-                || single_resp.body.to_lowercase().contains("syntax")
-                || single_resp.body.to_lowercase().contains("query");
+            //
+            // IMPORTANT: Simple string matches like "sql" or "query" cause false positives
+            // on forum/blog pages that discuss databases. Only match ACTUAL SQL error patterns.
+            let body_lower = single_resp.body.to_lowercase();
+            let has_sql_error = Self::detect_sql_error_patterns(&body_lower);
+
+            let single_quote_breaks = (single_similarity < 0.7 && has_sql_error)
+                || single_resp.status_code >= 500;
 
             let double_quote_works = double_similarity > similarity_threshold;
 
