@@ -883,7 +883,7 @@ lonkero scan --config lonkero.yml
 - **Varnish** - Cache misconfiguration
 - **Angular** - Client-side template injection, router bypass
 
-### Configuration & Security (17 scanners)
+### Configuration & Security (18 scanners)
 
 - **Security Headers** - HSTS, CSP, X-Frame-Options, referrer policy
 - **CSP Bypass** - Script gadgets, nonce reuse, base-uri attacks, JSONP endpoints, unsafe-inline detection
@@ -899,6 +899,7 @@ lonkero scan --config lonkero.yml
 - **PostMessage Vulns** - Origin validation bypass, XSS via postMessage, data exfiltration, cross-origin communication abuse
 - **Web Cache Deception** - Path confusion attacks, cache infrastructure detection, sensitive data exposure via caching
 - **Subdomain Takeover** - 25+ cloud service fingerprints (AWS, Azure, GitHub, Heroku, etc.), DNS/CNAME analysis
+- **ArcGIS REST Services** - Unauthenticated data exposure in GIS services, PII detection (Nordic national IDs, emails, addresses), FeatureServer write capability detection, layer enumeration
 
 ### Business Logic (8 scanners)
 

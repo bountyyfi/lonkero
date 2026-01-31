@@ -29,6 +29,7 @@ pub mod api_fuzzer;
 pub mod api_gateway_scanner;
 pub mod api_security;
 pub mod api_versioning;
+pub mod arcgis_rest;
 pub mod aspnet_scanner;
 pub mod attack_surface;
 pub mod auth_bypass;
@@ -161,6 +162,7 @@ pub use api_fuzzer::ApiFuzzerScanner;
 pub use api_gateway_scanner::ApiGatewayScanner;
 pub use api_security::APISecurityScanner;
 pub use api_versioning::ApiVersioningScanner;
+pub use arcgis_rest::ArcGISRestScanner;
 pub use aspnet_scanner::AspNetScanner;
 pub use attack_surface::{
     AttackSurface, ContentType, DeduplicatedTargets, EndpointSignature, FormData, FormSignature,
@@ -354,6 +356,7 @@ pub struct ScanEngine {
     pub sensitive_data_scanner: SensitiveDataScanner,
     pub api_fuzzer_scanner: ApiFuzzerScanner,
     pub api_gateway_scanner: ApiGatewayScanner,
+    pub arcgis_rest_scanner: ArcGISRestScanner,
     pub cloud_security_scanner: CloudSecurityScanner,
     pub container_scanner: ContainerScanner,
     pub webauthn_scanner: WebAuthnScanner,
@@ -586,6 +589,7 @@ impl ScanEngine {
             sensitive_data_scanner: SensitiveDataScanner::new(Arc::clone(&http_client)),
             api_fuzzer_scanner: ApiFuzzerScanner::new(Arc::clone(&http_client)),
             api_gateway_scanner: ApiGatewayScanner::new(Arc::clone(&http_client)),
+            arcgis_rest_scanner: ArcGISRestScanner::new(Arc::clone(&http_client)),
             cloud_security_scanner: CloudSecurityScanner::new(Arc::clone(&http_client)),
             container_scanner: ContainerScanner::new(Arc::clone(&http_client)),
             webauthn_scanner: WebAuthnScanner::new(Arc::clone(&http_client)),
