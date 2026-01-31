@@ -128,7 +128,7 @@ jobs:
             || true
 
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@a2d9de63c2916881d0621fdb7e65abe32141606d # v3.28.1
+        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
         if: always()
         with:
           sarif_file: semgrep-results.sarif
@@ -166,7 +166,7 @@ jobs:
           scanners: 'vuln,misconfig'
 
       - name: Upload Trivy SARIF (filesystem)
-        uses: github/codeql-action/upload-sarif@a2d9de63c2916881d0621fdb7e65abe32141606d # v3.28.1
+        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
         if: always()
         with:
           sarif_file: trivy-fs-results.sarif
@@ -204,7 +204,7 @@ jobs:
           cargo sbom --output-format spdx_json_2_3 > sbom-spdx.json
 
       - name: Scan SBOM with Grype
-        uses: anchore/scan-action@62b74fb7bb810d2c45b1865f47a77655621862a5 # v4.1.2
+        uses: anchore/scan-action@0d444ed77d83ee2ba7f5ced0d90d640a1281d762 # v4.1.2
         with:
           sbom: sbom-cyclonedx.json
           fail-build: false
@@ -212,7 +212,7 @@ jobs:
           output-file: grype-results.sarif
 
       - name: Upload Grype SARIF
-        uses: github/codeql-action/upload-sarif@a2d9de63c2916881d0621fdb7e65abe32141606d # v3.28.1
+        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
         if: always()
         with:
           sarif_file: grype-results.sarif
@@ -393,7 +393,7 @@ jobs:
           publish_results: true
 
       - name: Upload Scorecard SARIF
-        uses: github/codeql-action/upload-sarif@a2d9de63c2916881d0621fdb7e65abe32141606d # v3.28.1
+        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
         with:
           sarif_file: scorecard-results.sarif
           category: scorecard
