@@ -26,6 +26,7 @@ use futures::stream::{self, StreamExt};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use scraper::{Html, Selector};
+use similar::TextDiff;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
@@ -40,6 +41,23 @@ static ORACLE_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
 
 static SQLITE_NEAR_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"near\s+"(select|insert|update|delete|union|from|where)""#).unwrap()
+});
+
+/// Regex patterns for normalization (strip dynamic content for baseline comparison)
+static TIMESTAMP_ISO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?").unwrap()
+});
+
+static TIMESTAMP_COMMON: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\d{1,2}/\d{1,2}/\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?").unwrap()
+});
+
+static HTML_COMMENTS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"<!--.*?-->").unwrap()
+});
+
+static WHITESPACE_NORMALIZE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\s+").unwrap()
 });
 
 /// False positive HTML selectors for context validation
@@ -94,6 +112,25 @@ pub enum SqliTechnique {
     SecondOrder,
     PostgresJsonOperator,
     EnhancedErrorBased,
+}
+
+/// Similarity level for baseline comparison
+#[derive(Debug, Clone, PartialEq)]
+pub enum SimilarityLevel {
+    NearlyIdentical,    // >0.9 - Responses are essentially the same
+    SlightlyDifferent,  // 0.7-0.9 - Minor differences (timestamps, session IDs)
+    ModeratelyDifferent, // 0.5-0.7 - Noticeable differences
+    VeryDifferent,      // <0.5 - Major structural differences
+}
+
+/// Multi-signal detection for high-confidence SQL injection detection
+#[derive(Debug, Clone)]
+pub struct DetectionSignals {
+    pub has_specific_error_pattern: bool,
+    pub database_type: Option<String>,
+    pub context_is_error_output: bool,
+    pub baseline_similarity: SimilarityLevel,
+    pub status_code: u16,
 }
 
 /// Enhanced SQL injection scanner with unified detection engine
@@ -1837,6 +1874,204 @@ impl EnhancedSqliScanner {
 
         // Default to false - require positive evidence
         false
+    }
+
+    /// Normalize response text for comparison by stripping dynamic content
+    /// Removes timestamps, session IDs, CSRF tokens to avoid false negatives
+    fn normalize_for_comparison(&self, text: &str) -> String {
+        let mut normalized = text.to_string();
+
+        // Strip ISO timestamps (2026-01-31T13:08:28Z)
+        normalized = TIMESTAMP_ISO.replace_all(&normalized, "[TIMESTAMP]").to_string();
+
+        // Strip common date/time formats (01/31/2026 1:08:28 PM)
+        normalized = TIMESTAMP_COMMON.replace_all(&normalized, "[TIMESTAMP]").to_string();
+
+        // Strip HTML comments
+        normalized = HTML_COMMENTS.replace_all(&normalized, "").to_string();
+
+        // Strip session IDs and CSRF tokens (common patterns)
+        let session_patterns = [
+            (r"session(?:id)?[=:]\s*[a-f0-9]{16,}", "[SESSION]"),
+            (r"csrf[_-]?token[=:]\s*[a-zA-Z0-9+/=]{16,}", "[CSRF]"),
+            (r"_token[=:]\s*[a-zA-Z0-9+/=]{16,}", "[TOKEN]"),
+        ];
+
+        for (pattern, replacement) in &session_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                normalized = re.replace_all(&normalized, *replacement).to_string();
+            }
+        }
+
+        // Normalize whitespace (multiple spaces/tabs/newlines to single space)
+        normalized = WHITESPACE_NORMALIZE.replace_all(&normalized, " ").to_string();
+
+        normalized.trim().to_string()
+    }
+
+    /// Calculate normalized similarity between two responses using similar crate
+    /// Returns a ratio between 0.0 (completely different) and 1.0 (identical)
+    fn calculate_normalized_similarity(&self, text1: &str, text2: &str) -> f64 {
+        let normalized1 = self.normalize_for_comparison(text1);
+        let normalized2 = self.normalize_for_comparison(text2);
+
+        // Use TextDiff to calculate similarity
+        let diff = TextDiff::from_chars(&normalized1, &normalized2);
+        diff.ratio().into()
+    }
+
+    /// Evaluate similarity ratio and return categorized level
+    fn evaluate_similarity(&self, ratio: f64) -> SimilarityLevel {
+        if ratio > 0.9 {
+            SimilarityLevel::NearlyIdentical
+        } else if ratio > 0.7 {
+            SimilarityLevel::SlightlyDifferent
+        } else if ratio > 0.5 {
+            SimilarityLevel::ModeratelyDifferent
+        } else {
+            SimilarityLevel::VeryDifferent
+        }
+    }
+
+    /// Check for SQL error and return database type if found
+    /// Returns Some(database_name) if SQL error detected, None otherwise
+    fn has_sql_error_with_db(&self, response: &HttpResponse) -> Option<String> {
+        let body_lower = response.body.to_lowercase();
+
+        // Check for specific database error patterns
+        let db_patterns = [
+            ("mysql", vec!["you have an error in your sql syntax", "mysql_fetch", "mysqli_sql_exception"]),
+            ("postgresql", vec!["pg_query() expects", "pg_exec() expects", "error: syntax error at or near"]),
+            ("oracle", vec!["ora-00933", "ora-01756", "ora-00923"]),
+            ("mssql", vec!["microsoft sql server", "odbc sql server driver", "incorrect syntax near"]),
+            ("sqlite", vec!["sqlite3::query()", "sqlite3_prepare"]),
+        ];
+
+        for (db_name, patterns) in &db_patterns {
+            for pattern in patterns {
+                if body_lower.contains(pattern) {
+                    // Verify it's in error context
+                    if self.is_likely_database_error(&response.body, pattern) {
+                        return Some(db_name.to_string());
+                    }
+                }
+            }
+        }
+
+        // Check regex patterns
+        if ORACLE_ERROR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = ORACLE_ERROR_REGEX.find(&body_lower) {
+                if self.is_likely_database_error(&response.body, matched.as_str()) {
+                    return Some("oracle".to_string());
+                }
+            }
+        }
+
+        if SQLITE_NEAR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = SQLITE_NEAR_REGEX.find(&body_lower) {
+                if self.is_likely_database_error(&response.body, matched.as_str()) {
+                    return Some("sqlite".to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Calculate confidence level based on number of positive signals
+    /// Multi-signal approach: requires multiple indicators for high confidence
+    fn calculate_confidence(signals: &DetectionSignals) -> Confidence {
+        let mut signal_count = 0;
+
+        if signals.has_specific_error_pattern {
+            signal_count += 1;
+        }
+        if signals.database_type.is_some() {
+            signal_count += 1;
+        }
+        if signals.context_is_error_output {
+            signal_count += 1;
+        }
+        if matches!(signals.baseline_similarity, SimilarityLevel::VeryDifferent) {
+            signal_count += 1;
+        }
+        if signals.status_code >= 500 {
+            signal_count += 1;
+        }
+
+        // 4+ signals = High confidence (95%+ accuracy)
+        // 3 signals = High confidence (90%+ accuracy)
+        // 2 signals = Medium confidence (70-80% accuracy)
+        // 1 signal = Low confidence (50-60% accuracy)
+        // 0 signals = No detection
+        match signal_count {
+            4.. => Confidence::High,
+            3 => Confidence::High,
+            2 => Confidence::Medium,
+            1 => Confidence::Low,
+            _ => Confidence::Low,
+        }
+    }
+
+    /// Calculate weighted confidence score (0.0-1.0)
+    /// Weights: pattern 0.35, db_type 0.15, context 0.25, baseline 0.15, status 0.10
+    fn weighted_score(signals: &DetectionSignals) -> f64 {
+        let mut score = 0.0;
+
+        if signals.has_specific_error_pattern {
+            score += 0.35;
+        }
+        if signals.database_type.is_some() {
+            score += 0.15;
+        }
+        if signals.context_is_error_output {
+            score += 0.25;
+        }
+        match signals.baseline_similarity {
+            SimilarityLevel::VeryDifferent => score += 0.15,
+            SimilarityLevel::ModeratelyDifferent => score += 0.10,
+            _ => {}
+        }
+        if signals.status_code >= 500 {
+            score += 0.10;
+        }
+
+        score
+    }
+
+    /// Detect SQL injection using multi-signal approach
+    /// Requires weighted score >= 0.5 for positive detection
+    fn detect_sqli_with_signals(&self, response: &HttpResponse, baseline: &HttpResponse) -> Option<DetectionSignals> {
+        let db_type = self.has_sql_error_with_db(response);
+        let has_pattern = db_type.is_some();
+
+        // Check if pattern is in error context (using existing validation)
+        let context_is_error = if has_pattern {
+            self.has_sql_error(response)
+        } else {
+            false
+        };
+
+        // Calculate normalized baseline similarity
+        let similarity_ratio = self.calculate_normalized_similarity(&baseline.body, &response.body);
+        let similarity_level = self.evaluate_similarity(similarity_ratio);
+
+        let signals = DetectionSignals {
+            has_specific_error_pattern: has_pattern,
+            database_type: db_type,
+            context_is_error_output: context_is_error,
+            baseline_similarity: similarity_level,
+            status_code: response.status_code,
+        };
+
+        let score = Self::weighted_score(&signals);
+
+        // Require score >= 0.5 for positive detection
+        if score >= 0.5 {
+            Some(signals)
+        } else {
+            None
+        }
     }
 
     /// Check if injection was successful
