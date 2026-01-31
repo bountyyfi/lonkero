@@ -1780,40 +1780,42 @@ impl EnhancedSqliScanner {
     }
 
     /// Validate that the error pattern is in an actual error context, not article content
+    /// Uses HTML parsing to detect semantic containers (article, pre, code, tutorial)
     fn is_likely_database_error(&self, body: &str, pattern: &str) -> bool {
         let body_lower = body.to_lowercase();
         let pattern_lower = pattern.to_lowercase();
 
-        // Find the position of the pattern
+        // Check if body looks like HTML
+        let trimmed = body.trim_start();
+        let is_html = trimmed.starts_with("<!")
+            || trimmed.starts_with("<html")
+            || trimmed.starts_with("<");
+
+        if is_html {
+            // Parse as HTML document
+            let document = Html::parse_document(body);
+
+            // Check if pattern is inside false positive containers
+            for selector in FP_SELECTORS.iter() {
+                for element in document.select(selector) {
+                    let text = element.text().collect::<String>().to_lowercase();
+                    if text.contains(&pattern_lower) {
+                        // Pattern found inside FP container (article, pre, code, tutorial, etc.)
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // For non-HTML responses or patterns not in FP containers,
+        // check for true positive indicators in text context
         if let Some(pos) = body_lower.find(&pattern_lower) {
             // Get surrounding context (100 chars before and after)
             let start = pos.saturating_sub(100);
             let end = (pos + pattern_lower.len() + 100).min(body.len());
             let context = &body_lower[start..end];
 
-            // FALSE POSITIVE indicators - pattern is in these contexts
-            let false_positive_indicators = [
-                "<article",      // In article content
-                "<p>",           // In paragraph (likely article)
-                "class=\"post",  // Blog post content
-                "class=\"article",
-                "<script",       // In JavaScript code
-                "console.log",   // JavaScript logging
-                "// ",           // Code comments
-                "/* ",           // Code comments
-                "tutorial",      // Tutorial content
-                "example",       // Example code
-                "<!-- ",         // HTML comments
-            ];
-
-            // If pattern appears near false positive indicators, reject it
-            for indicator in &false_positive_indicators {
-                if context.contains(indicator) {
-                    return false;
-                }
-            }
-
-            // TRUE POSITIVE indicators - pattern is in these contexts
+            // TRUE POSITIVE indicators - pattern is in error output context
             let true_positive_indicators = [
                 "error",
                 "warning",
