@@ -1718,7 +1718,7 @@ impl EnhancedSqliScanner {
         let sqlite_errors = [
             "sqlite3::query()",  // Function with parentheses
             "sqlite3_prepare",  // Specific function name
-            "sqlite error",  // Only with additional context validation
+            "near \"",  // SQLite-specific syntax error format with quote
         ];
 
         // SQLSTATE error codes (database-agnostic but very specific with brackets)

@@ -196,6 +196,7 @@ pub use cve_2025_55183::Cve202555183Scanner;
 pub use cve_2025_55184::Cve202555184Scanner;
 pub use deserialization::DeserializationScanner;
 pub use django_security::DjangoSecurityScanner;
+pub use dom_clobbering::DomClobberingScanner;
 pub use dora_scanner::DoraScanner;
 pub use drupal_security::DrupalSecurityScanner;
 pub use email_header_injection::EmailHeaderInjectionScanner;
@@ -249,6 +250,7 @@ pub use parameter_prioritizer::{
 };
 pub use password_reset_poisoning::PasswordResetPoisoningScanner;
 pub use path_traversal::PathTraversalScanner;
+pub use postmessage_vulns::PostMessageVulnsScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use race_condition::RaceConditionScanner;
 pub use rails_scanner::RailsScanner;
@@ -396,6 +398,8 @@ pub struct ScanEngine {
     pub compliance_scanner: ComplianceScanner,
     pub dora_scanner: DoraScanner,
     pub nis2_scanner: Nis2Scanner,
+    pub postmessage_vulns_scanner: PostMessageVulnsScanner,
+    pub dom_clobbering_scanner: DomClobberingScanner,
     /// ML integration for automatic learning from scan results
     pub ml_integration: Option<crate::ml::MlIntegration>,
     /// Shared intelligence bus for cross-scanner communication
@@ -630,6 +634,8 @@ impl ScanEngine {
             compliance_scanner: ComplianceScanner::new(Arc::clone(&http_client)),
             dora_scanner: DoraScanner::new(Arc::clone(&http_client)),
             nis2_scanner: Nis2Scanner::new(Arc::clone(&http_client)),
+            postmessage_vulns_scanner: PostMessageVulnsScanner::new(Arc::clone(&http_client)),
+            dom_clobbering_scanner: DomClobberingScanner::new(Arc::clone(&http_client)),
             // Initialize ML integration (fails gracefully if ~/.lonkero not writable)
             ml_integration: crate::ml::MlIntegration::new().ok(),
             intelligence_bus,

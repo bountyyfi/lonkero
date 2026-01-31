@@ -3069,15 +3069,21 @@ async fn execute_standalone_scan(
             let engine_clone1 = Arc::clone(&engine);
             let engine_clone2 = Arc::clone(&engine);
             let engine_clone3 = Arc::clone(&engine);
+            let engine_clone4 = Arc::clone(&engine);
+            let engine_clone5 = Arc::clone(&engine);
             let urls_clone1 = xss_urls_to_test.clone();
             let urls_clone2 = xss_urls_to_test.clone();
             let urls_clone3 = xss_urls_to_test.clone();
+            let urls_clone4 = xss_urls_to_test.clone();
+            let urls_clone5 = xss_urls_to_test.clone();
             let config_clone1 = scan_config.clone();
             let config_clone2 = scan_config.clone();
             let config_clone3 = scan_config.clone();
+            let config_clone4 = scan_config.clone();
+            let config_clone5 = scan_config.clone();
 
-            // Run all 3 XSS scanners in parallel
-            let (hybrid_result, proof_result, reflection_result) = tokio::join!(
+            // Run all 5 XSS scanners in parallel
+            let (hybrid_result, proof_result, reflection_result, postmessage_result, dom_clobbering_result) = tokio::join!(
                 // 1. Hybrid XSS Detector (taint analysis + abstract interpretation)
                 async {
                     if xss_authorized {
@@ -3122,6 +3128,40 @@ async fn execute_standalone_scan(
                             }
                             Err(e) => {
                                 debug!("[Reflection-XSS] Error scanning {}: {}", url, e);
+                            }
+                        }
+                    }
+                    Ok::<_, anyhow::Error>((vulns, tests))
+                },
+                // 4. PostMessage Vulnerabilities Scanner (static JS analysis)
+                async {
+                    let mut vulns = Vec::new();
+                    let mut tests = 0usize;
+                    for url in &urls_clone4 {
+                        match engine_clone4.postmessage_vulns_scanner.scan(url, &config_clone4).await {
+                            Ok((v, t)) => {
+                                vulns.extend(v);
+                                tests += t;
+                            }
+                            Err(e) => {
+                                debug!("[PostMessage] Error scanning {}: {}", url, e);
+                            }
+                        }
+                    }
+                    Ok::<_, anyhow::Error>((vulns, tests))
+                },
+                // 5. DOM Clobbering Scanner (static JS analysis)
+                async {
+                    let mut vulns = Vec::new();
+                    let mut tests = 0usize;
+                    for url in &urls_clone5 {
+                        match engine_clone5.dom_clobbering_scanner.scan(url, &config_clone5).await {
+                            Ok((v, t)) => {
+                                vulns.extend(v);
+                                tests += t;
+                            }
+                            Err(e) => {
+                                debug!("[DOM-Clobbering] Error scanning {}: {}", url, e);
                             }
                         }
                     }
@@ -3175,6 +3215,38 @@ async fn execute_standalone_scan(
                     tests,
                     intensity.payload_limit()
                 );
+            }
+
+            // PostMessage results
+            if let Ok((vulns, tests)) = postmessage_result {
+                // Deduplicate - only add if not already found
+                for vuln in vulns {
+                    let already_found = all_vulnerabilities.iter().any(|v| {
+                        v.url == vuln.url && v.vuln_type == vuln.vuln_type
+                    });
+                    if !already_found {
+                        xss_vulns_found += 1;
+                        all_vulnerabilities.push(vuln);
+                    }
+                }
+                total_tests += tests as u64;
+                info!("    [PostMessage] {} total vulns after dedup, {} tests", xss_vulns_found, tests);
+            }
+
+            // DOM Clobbering results
+            if let Ok((vulns, tests)) = dom_clobbering_result {
+                // Deduplicate - only add if not already found
+                for vuln in vulns {
+                    let already_found = all_vulnerabilities.iter().any(|v| {
+                        v.url == vuln.url && v.vuln_type == vuln.vuln_type
+                    });
+                    if !already_found {
+                        xss_vulns_found += 1;
+                        all_vulnerabilities.push(vuln);
+                    }
+                }
+                total_tests += tests as u64;
+                info!("    [DOM Clobbering] {} total vulns after dedup, {} tests", xss_vulns_found, tests);
             }
 
             info!(
