@@ -15,3 +15,5 @@ Thumbs.db
 .env
 .env.local
 infrastructure/
+.claude/settings.local.json
+.planning/

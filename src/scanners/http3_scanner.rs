@@ -251,6 +251,7 @@ impl Http3Scanner {
     }
 
     /// Test for request splitting in URL paths
+    /// REQUIRES baseline comparison - not just checking for "admin" in response
     async fn test_request_splitting_h3(
         &self,
         url: &str,
@@ -260,6 +261,23 @@ impl Http3Scanner {
 
         debug!("Testing request splitting via standard HTTP");
 
+        // First get baseline response
+        let baseline = match self.http_client.get(url).await {
+            Ok(resp) => resp,
+            Err(_) => return Ok((vulnerabilities, tests_run)),
+        };
+
+        let baseline_lower = baseline.body.to_lowercase();
+        let baseline_has_admin = baseline_lower.contains("admin panel")
+            || baseline_lower.contains("admin dashboard")
+            || baseline_lower.contains("/admin/");
+
+        // If baseline already has admin content, this test can't work reliably
+        if baseline_has_admin {
+            debug!("Baseline already contains admin content, skipping request splitting test");
+            return Ok((vulnerabilities, tests_run));
+        }
+
         let splitting_payloads = vec![
             "/%20HTTP/1.1%0d%0aHost:%20evil.com%0d%0a%0d%0aGET%20/",
             "/%0d%0aGET%20/admin%20HTTP/1.1%0d%0aHost:",
@@ -268,21 +286,33 @@ impl Http3Scanner {
         ];
 
         for payload in splitting_payloads {
-            let test_url = format!("{}{}", url, payload);
+            let test_url = format!("{}{}", url.trim_end_matches('/'), payload);
 
             match self.http_client.get(&test_url).await {
                 Ok(response) => {
+                    // Request splitting confirmed if:
+                    // 1. We get a successful response
+                    // 2. The response contains admin content that was NOT in baseline
+                    // 3. The response looks like actual admin panel (not just word "admin")
                     if response.status_code == 200 {
-                        if response.body.to_lowercase().contains("admin")
-                            || response.body.to_lowercase().contains("evil")
-                        {
-                            info!("Request splitting detected");
+                        let resp_lower = response.body.to_lowercase();
+                        let has_new_admin_content = (resp_lower.contains("admin panel")
+                            || resp_lower.contains("admin dashboard")
+                            || resp_lower.contains("manage users")
+                            || resp_lower.contains("admin settings"))
+                            && !baseline_lower.contains(&resp_lower[..100.min(resp_lower.len())]);
+
+                        // Also check for our injected host
+                        let has_injected_host = resp_lower.contains("evil.com");
+
+                        if has_new_admin_content || has_injected_host {
+                            info!("Request splitting detected with differential proof");
                             vulnerabilities.push(self.create_vulnerability(
                                 url,
                                 "Request Splitting Vulnerability",
                                 payload,
-                                "Request splitting vulnerability detected in URL parsing",
-                                "Request splitting may enable cache poisoning or request smuggling",
+                                "Request splitting vulnerability detected - injected request returned different content",
+                                "Request splitting enables cache poisoning or request smuggling",
                                 Severity::Critical,
                                 "CWE-113",
                                 9.1,

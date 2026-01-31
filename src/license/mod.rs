@@ -561,12 +561,48 @@ pub struct LicenseManager {
 
 impl LicenseManager {
     pub fn new() -> Result<Self> {
+        // Use a realistic browser User-Agent to avoid Cloudflare blocks
+        // Cloudflare often blocks requests with non-browser User-Agents
+        let user_agent = format!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Lonkero/{}",
+            env!("CARGO_PKG_VERSION")
+        );
+
         Ok(Self {
             license_key: None,
             http_client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30)) // Increased from 5s to 30s
+                .timeout(std::time::Duration::from_secs(30))
                 .connect_timeout(std::time::Duration::from_secs(10))
-                .user_agent("Lonkero/1.0.0")
+                .user_agent(&user_agent)
+                .default_headers({
+                    let mut headers = reqwest::header::HeaderMap::new();
+                    // Add standard browser headers to pass Cloudflare checks
+                    headers.insert(
+                        reqwest::header::ACCEPT,
+                        "application/json, text/plain, */*".parse().unwrap(),
+                    );
+                    headers.insert(
+                        reqwest::header::ACCEPT_LANGUAGE,
+                        "en-US,en;q=0.9".parse().unwrap(),
+                    );
+                    headers.insert(
+                        reqwest::header::ACCEPT_ENCODING,
+                        "gzip, deflate, br".parse().unwrap(),
+                    );
+                    headers.insert(
+                        "Sec-Fetch-Dest",
+                        "empty".parse().unwrap(),
+                    );
+                    headers.insert(
+                        "Sec-Fetch-Mode",
+                        "cors".parse().unwrap(),
+                    );
+                    headers.insert(
+                        "Sec-Fetch-Site",
+                        "cross-site".parse().unwrap(),
+                    );
+                    headers
+                })
                 .build()?,
             hardware_id: Self::get_hardware_id(),
         })
@@ -990,17 +1026,34 @@ impl LicenseManager {
                 }
             }
         } else if status_code.as_u16() == 403 {
-            // Explicitly blocked
+            // Check if this is a Cloudflare block vs actual license server rejection
             let text = response.text().await.unwrap_or_default();
-            warn!("License blocked (403): {}", text);
-            let status: LicenseStatus =
-                serde_json::from_str(&text).unwrap_or_else(|_| LicenseStatus {
-                    valid: false,
-                    killswitch_active: true,
-                    killswitch_reason: Some("Access denied".to_string()),
-                    ..Default::default()
-                });
-            Ok(status)
+
+            // Detect Cloudflare blocks (error code 1020, etc.)
+            let is_cloudflare_block = text.contains("error code: 1020")
+                || text.contains("cloudflare")
+                || text.contains("Cloudflare")
+                || text.contains("cf-ray")
+                || text.contains("Ray ID:");
+
+            if is_cloudflare_block {
+                // Cloudflare is blocking us - treat as network error, not killswitch
+                warn!("Cloudflare blocking license server request. Running in limited mode.");
+                warn!("Response: {}", &text[..text.len().min(200)]);
+                // Return error to trigger offline mode fallback
+                Err(anyhow!("Cloudflare blocked license request - network issue"))
+            } else {
+                // Actual license server 403 - parse response
+                warn!("License blocked (403): {}", text);
+                let status: LicenseStatus =
+                    serde_json::from_str(&text).unwrap_or_else(|_| LicenseStatus {
+                        valid: false,
+                        killswitch_active: true,
+                        killswitch_reason: Some("Access denied".to_string()),
+                        ..Default::default()
+                    });
+                Ok(status)
+            }
         } else {
             let text = response.text().await.unwrap_or_default();
             warn!("License server error {}: {}", status_code, text);

@@ -5,23 +5,25 @@
  * Bountyy Oy - Adaptive Concurrency Module
  * Dynamically adjusts concurrency based on target response times
  *
+ * Uses DashMap for lock-free concurrent access, eliminating bottlenecks
+ * in high-throughput scanning scenarios.
+ *
  * @copyright 2026 Bountyy Oy
  * @license Proprietary
  */
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 /// Tracks target-specific performance metrics
 #[derive(Debug, Clone)]
-struct TargetMetrics {
-    current_concurrency: usize,
-    avg_response_time_ms: f64,
-    error_count: u64,
-    success_count: u64,
-    total_requests: u64,
+pub struct TargetMetrics {
+    pub current_concurrency: usize,
+    pub avg_response_time_ms: f64,
+    pub error_count: u64,
+    pub success_count: u64,
+    pub total_requests: u64,
 }
 
 impl TargetMetrics {
@@ -44,8 +46,10 @@ impl TargetMetrics {
 }
 
 /// Adaptive concurrency tracker for target-specific optimization
+///
+/// Uses DashMap for concurrent access without lock contention.
 pub struct AdaptiveConcurrencyTracker {
-    targets: Arc<RwLock<HashMap<String, TargetMetrics>>>,
+    targets: Arc<DashMap<String, TargetMetrics>>,
     initial_concurrency: usize,
     max_concurrency: usize,
 }
@@ -54,30 +58,28 @@ impl AdaptiveConcurrencyTracker {
     /// Create a new adaptive concurrency tracker
     pub fn new(initial_concurrency: usize, max_concurrency: usize) -> Self {
         Self {
-            targets: Arc::new(RwLock::new(HashMap::new())),
+            targets: Arc::new(DashMap::new()),
             initial_concurrency,
             max_concurrency,
         }
     }
 
-    /// Get current concurrency level for a target
+    /// Get current concurrency level for a target (lock-free read)
     pub async fn get_concurrency(&self, target_domain: &str) -> usize {
-        let targets = self.targets.read().await;
-
-        if let Some(metrics) = targets.get(target_domain) {
-            metrics.current_concurrency
-        } else {
-            self.initial_concurrency
-        }
+        self.targets
+            .get(target_domain)
+            .map(|m| m.current_concurrency)
+            .unwrap_or(self.initial_concurrency)
     }
 
     /// Record a successful request
     pub async fn record_success(&self, target_domain: &str, response_time: Duration) {
-        let mut targets = self.targets.write().await;
-
-        let metrics = targets
+        let mut entry = self
+            .targets
             .entry(target_domain.to_string())
             .or_insert_with(|| TargetMetrics::new(self.initial_concurrency));
+
+        let metrics = entry.value_mut();
 
         metrics.success_count += 1;
         metrics.total_requests += 1;
@@ -104,11 +106,12 @@ impl AdaptiveConcurrencyTracker {
 
     /// Record a failed request
     pub async fn record_error(&self, target_domain: &str) {
-        let mut targets = self.targets.write().await;
-
-        let metrics = targets
+        let mut entry = self
+            .targets
             .entry(target_domain.to_string())
             .or_insert_with(|| TargetMetrics::new(self.initial_concurrency));
+
+        let metrics = entry.value_mut();
 
         metrics.error_count += 1;
         metrics.total_requests += 1;
@@ -170,10 +173,9 @@ impl AdaptiveConcurrencyTracker {
         }
     }
 
-    /// Get metrics for a target
+    /// Get metrics for a target (lock-free read)
     pub async fn get_metrics(&self, target_domain: &str) -> Option<TargetMetrics> {
-        let targets = self.targets.read().await;
-        targets.get(target_domain).cloned()
+        self.targets.get(target_domain).map(|m| m.value().clone())
     }
 }
 

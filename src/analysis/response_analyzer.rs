@@ -274,6 +274,56 @@ static SECURITY_DEBUG_MODE: Lazy<Regex> = Lazy::new(|| {
 });
 
 // =============================================================================
+// Utility Regex Patterns (moved from runtime compilation)
+// =============================================================================
+
+static UTIL_ADMIN_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:admin|administrator|superuser|root)").unwrap());
+
+static UTIL_MODERATOR_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:moderator|mod|editor)").unwrap());
+
+static UTIL_JSON_ERROR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"["\'](?:error|message|msg)["\']:\s*["\']([^"\']+)["\']"#).unwrap());
+
+static UTIL_HTML_ERROR: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)<(?:div|p|span)[^>]*class=[^>]*error[^>]*>([^<]+)").unwrap()
+});
+
+static UTIL_GENERIC_ERROR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:error|exception|warning):\s*(.{10,100})").unwrap());
+
+static UTIL_LINE_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:line|ln|l)\s*(?:number|no|#)?:?\s*(\d+)").unwrap());
+
+static UTIL_COLON_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\.\w{2,4}:(\d+)").unwrap());
+
+static UTIL_TRACEBACK_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)(Traceback.*?(?:\n\n|\z))").unwrap());
+
+static UTIL_AT_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)((?:at\s+[\w.$]+.*?\n)+)").unwrap());
+
+static UTIL_PHP_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)(#\d+\s+.*?(?:\n\n|\z))").unwrap());
+
+static UTIL_ENTITY_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:user|account|order|product|item|file|document|customer|admin|role|group|team|organization|project)s?").unwrap()
+});
+
+static UTIL_ACTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:create|read|update|delete|edit|view|list|search|upload|download|submit|cancel|approve|reject|enable|disable)(?:d|ing|s)?").unwrap()
+});
+
+static UTIL_PERM_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:permission|access|authorize|role|admin|user|guest|public|private|restricted|allowed|denied|forbidden|grant|revoke)s?").unwrap()
+});
+
+static UTIL_ENCODING_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"&(?:lt|gt|amp|quot|#\d+);").unwrap());
+
+// =============================================================================
 // Types and Structures
 // =============================================================================
 
@@ -906,12 +956,9 @@ impl ResponseAnalyzer {
 
     /// Extract user type from response body
     fn extract_user_type(&self, body: &str) -> String {
-        let admin_pattern = Regex::new(r"(?i)(?:admin|administrator|superuser|root)").unwrap();
-        let moderator_pattern = Regex::new(r"(?i)(?:moderator|mod|editor)").unwrap();
-
-        if admin_pattern.is_match(body) {
+        if UTIL_ADMIN_PATTERN.is_match(body) {
             "admin".to_string()
-        } else if moderator_pattern.is_match(body) {
+        } else if UTIL_MODERATOR_PATTERN.is_match(body) {
             "moderator".to_string()
         } else {
             "user".to_string()
@@ -1017,24 +1064,19 @@ impl ResponseAnalyzer {
     /// Extract error message from body
     fn extract_error_message(&self, body: &str) -> Option<String> {
         // Try JSON error format first
-        let json_error =
-            Regex::new(r#"["\'](?:error|message|msg)["\']:\s*["\']([^"\']+)["\']"#).unwrap();
-        if let Some(cap) = json_error.captures(body) {
+        if let Some(cap) = UTIL_JSON_ERROR.captures(body) {
             return cap.get(1).map(|m| self.truncate_sample(m.as_str(), 100));
         }
 
         // Try HTML error format
-        let html_error =
-            Regex::new(r"(?i)<(?:div|p|span)[^>]*class=[^>]*error[^>]*>([^<]+)").unwrap();
-        if let Some(cap) = html_error.captures(body) {
+        if let Some(cap) = UTIL_HTML_ERROR.captures(body) {
             return cap
                 .get(1)
                 .map(|m| self.truncate_sample(m.as_str().trim(), 100));
         }
 
         // Try generic error patterns
-        let generic_error = Regex::new(r"(?i)(?:error|exception|warning):\s*(.{10,100})").unwrap();
-        if let Some(cap) = generic_error.captures(body) {
+        if let Some(cap) = UTIL_GENERIC_ERROR.captures(body) {
             return cap
                 .get(1)
                 .map(|m| self.truncate_sample(m.as_str().trim(), 100));
@@ -1059,14 +1101,12 @@ impl ResponseAnalyzer {
 
     /// Extract line number from body
     fn extract_line_number(&self, body: &str) -> Option<u32> {
-        let line_pattern = Regex::new(r"(?i)(?:line|ln|l)\s*(?:number|no|#)?:?\s*(\d+)").unwrap();
-        if let Some(cap) = line_pattern.captures(body) {
+        if let Some(cap) = UTIL_LINE_PATTERN.captures(body) {
             return cap.get(1).and_then(|m| m.as_str().parse().ok());
         }
 
         // Try format: filename.ext:123
-        let colon_pattern = Regex::new(r"\.\w{2,4}:(\d+)").unwrap();
-        if let Some(cap) = colon_pattern.captures(body) {
+        if let Some(cap) = UTIL_COLON_PATTERN.captures(body) {
             return cap.get(1).and_then(|m| m.as_str().parse().ok());
         }
 
@@ -1076,20 +1116,17 @@ impl ResponseAnalyzer {
     /// Extract stack trace from body
     fn extract_stack_trace(&self, body: &str) -> Option<String> {
         // Look for common stack trace patterns and extract a portion
-        let traceback_pattern = Regex::new(r"(?s)(Traceback.*?(?:\n\n|\z))").unwrap();
-        if let Some(cap) = traceback_pattern.captures(body) {
+        if let Some(cap) = UTIL_TRACEBACK_PATTERN.captures(body) {
             return cap.get(1).map(|m| self.truncate_sample(m.as_str(), 500));
         }
 
         // Java/Node.js style
-        let at_pattern = Regex::new(r"(?s)((?:at\s+[\w.$]+.*?\n)+)").unwrap();
-        if let Some(cap) = at_pattern.captures(body) {
+        if let Some(cap) = UTIL_AT_PATTERN.captures(body) {
             return cap.get(1).map(|m| self.truncate_sample(m.as_str(), 500));
         }
 
         // PHP style
-        let php_pattern = Regex::new(r"(?s)(#\d+\s+.*?(?:\n\n|\z))").unwrap();
-        if let Some(cap) = php_pattern.captures(body) {
+        if let Some(cap) = UTIL_PHP_PATTERN.captures(body) {
             return cap.get(1).map(|m| self.truncate_sample(m.as_str(), 500));
         }
 
@@ -1155,9 +1192,8 @@ impl ResponseAnalyzer {
     /// Extract entity mentions from body
     fn extract_entities(&self, body: &str) -> Vec<String> {
         let mut entities = Vec::new();
-        let entity_pattern = Regex::new(r"(?i)(?:user|account|order|product|item|file|document|customer|admin|role|group|team|organization|project)s?").unwrap();
 
-        for cap in entity_pattern.find_iter(body).take(10) {
+        for cap in UTIL_ENTITY_PATTERN.find_iter(body).take(10) {
             let entity = cap.as_str().to_lowercase();
             if !entities.contains(&entity) {
                 entities.push(entity);
@@ -1170,9 +1206,8 @@ impl ResponseAnalyzer {
     /// Extract action mentions from body
     fn extract_actions(&self, body: &str) -> Vec<String> {
         let mut actions = Vec::new();
-        let action_pattern = Regex::new(r"(?i)(?:create|read|update|delete|edit|view|list|search|upload|download|submit|cancel|approve|reject|enable|disable)(?:d|ing|s)?").unwrap();
 
-        for cap in action_pattern.find_iter(body).take(10) {
+        for cap in UTIL_ACTION_PATTERN.find_iter(body).take(10) {
             let action = cap.as_str().to_lowercase();
             if !actions.contains(&action) {
                 actions.push(action);
@@ -1185,9 +1220,8 @@ impl ResponseAnalyzer {
     /// Extract permission mentions from body
     fn extract_permissions(&self, body: &str) -> Vec<String> {
         let mut permissions = Vec::new();
-        let perm_pattern = Regex::new(r"(?i)(?:permission|access|authorize|role|admin|user|guest|public|private|restricted|allowed|denied|forbidden|grant|revoke)s?").unwrap();
 
-        for cap in perm_pattern.find_iter(body).take(10) {
+        for cap in UTIL_PERM_PATTERN.find_iter(body).take(10) {
             let perm = cap.as_str().to_lowercase();
             if !permissions.contains(&perm) {
                 permissions.push(perm);
@@ -1259,11 +1293,13 @@ impl ResponseAnalyzer {
 
         // Check for AWS keys
         if let Some(cap) = DATA_AWS_KEY.captures(body) {
-            exposures.push(DataExposure {
-                exposure_type: ExposureType::AwsCredentials,
-                sample: self.mask_sample(cap.get(0).unwrap().as_str()),
-                location: "body".to_string(),
-            });
+            if let Some(m) = cap.get(0) {
+                exposures.push(DataExposure {
+                    exposure_type: ExposureType::AwsCredentials,
+                    sample: self.mask_sample(m.as_str()),
+                    location: "body".to_string(),
+                });
+            }
         }
 
         // Check for private keys
@@ -1355,8 +1391,7 @@ impl ResponseAnalyzer {
         }
 
         // Check for output encoding (looking for HTML entities in output)
-        let encoding_pattern = Regex::new(r"&(?:lt|gt|amp|quot|#\d+);").unwrap();
-        if encoding_pattern.is_match(body) {
+        if UTIL_ENCODING_PATTERN.is_match(body) {
             indicators.push(SecurityIndicator::OutputEncoding);
         }
 

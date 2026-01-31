@@ -23,12 +23,58 @@ use crate::types::{
 use crate::vulnerability::VulnerabilityDetector;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
+use once_cell::sync::Lazy;
+use regex::Regex;
+use scraper::{Html, Selector};
+use similar::TextDiff;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
 /// Maximum number of columns to test for UNION-based SQLi
 const MAX_COLUMNS: usize = 20;
+
+/// Compiled regex patterns for SQL error detection
+static ORACLE_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"ora-[0-9]{5}").unwrap()
+});
+
+static SQLITE_NEAR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"near\s+"(select|insert|update|delete|union|from|where)""#).unwrap()
+});
+
+/// Regex patterns for normalization (strip dynamic content for baseline comparison)
+static TIMESTAMP_ISO: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?").unwrap()
+});
+
+static TIMESTAMP_COMMON: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\d{1,2}/\d{1,2}/\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?").unwrap()
+});
+
+static HTML_COMMENTS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"<!--.*?-->").unwrap()
+});
+
+static WHITESPACE_NORMALIZE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\s+").unwrap()
+});
+
+/// False positive HTML selectors for context validation
+static FP_SELECTORS: Lazy<Vec<Selector>> = Lazy::new(|| {
+    vec![
+        Selector::parse("article").unwrap(),
+        Selector::parse("pre").unwrap(),
+        Selector::parse("code").unwrap(),
+        Selector::parse(".tutorial").unwrap(),
+        Selector::parse(".example").unwrap(),
+        Selector::parse(".post-content").unwrap(),
+        Selector::parse(".comment").unwrap(),
+        Selector::parse(".documentation").unwrap(),
+        Selector::parse("[class*='highlight']").unwrap(),
+        Selector::parse("[class*='language-']").unwrap(),
+    ]
+});
 
 /// Database types detected from response analysis
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -66,6 +112,25 @@ pub enum SqliTechnique {
     SecondOrder,
     PostgresJsonOperator,
     EnhancedErrorBased,
+}
+
+/// Similarity level for baseline comparison
+#[derive(Debug, Clone, PartialEq)]
+pub enum SimilarityLevel {
+    NearlyIdentical,    // >0.9 - Responses are essentially the same
+    SlightlyDifferent,  // 0.7-0.9 - Minor differences (timestamps, session IDs)
+    ModeratelyDifferent, // 0.5-0.7 - Noticeable differences
+    VeryDifferent,      // <0.5 - Major structural differences
+}
+
+/// Multi-signal detection for high-confidence SQL injection detection
+#[derive(Debug, Clone)]
+pub struct DetectionSignals {
+    pub has_specific_error_pattern: bool,
+    pub database_type: Option<String>,
+    pub context_is_error_output: bool,
+    pub baseline_similarity: SimilarityLevel,
+    pub status_code: u16,
 }
 
 /// Enhanced SQL injection scanner with unified detection engine
@@ -1474,6 +1539,66 @@ impl EnhancedSqliScanner {
         Ok((vulnerabilities, tests_run))
     }
 
+    /// Detect actual SQL error patterns in response body
+    /// Returns true ONLY for genuine SQL error messages, not forum posts discussing SQL
+    fn detect_sql_error_patterns(body: &str) -> bool {
+        // These patterns are specific SQL error messages, not general content
+        let sql_error_patterns = [
+            // MySQL errors
+            "you have an error in your sql syntax",
+            "mysql_fetch",
+            "mysql_query",
+            "mysql_num_rows",
+            "warning: mysql",
+            "unclosed quotation mark after the character string",
+            "mysqlexception",
+            // PostgreSQL errors
+            "pg_query",
+            "pg_exec",
+            "pg_fetch",
+            "psycopg2.error",
+            "unterminated quoted string",
+            // SQL Server errors
+            "microsoft ole db provider",
+            "odbc sql server driver",
+            "sqlsrv_query",
+            "[sql server]",
+            "incorrect syntax near",
+            // SQLite errors
+            "sqlite3::exception",
+            "sqlite_error",
+            "sqlite_query",
+            // Oracle errors
+            "ora-01756",
+            "ora-00933",
+            "ora-00936",
+            "quoted string not properly terminated",
+            // Generic database errors (must include specific context)
+            "sql syntax",
+            "syntax error at",
+            "invalid column",
+            "invalid object",
+            "unknown column",
+            "unrecognized token",
+            "division by zero",
+            "supplied argument is not a valid",
+            "sqlexception",
+            "db error:",
+            // Framework-specific
+            "pdo::query",
+            "pdoexception",
+            "jdbc driver",
+            "adodb.connection",
+        ];
+
+        for pattern in sql_error_patterns {
+            if body.contains(pattern) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Calculate similarity between two responses
     fn calculate_similarity(&self, response_a: &HttpResponse, response_b: &HttpResponse) -> f64 {
         let status_similarity = if response_a.status_code == response_b.status_code {
@@ -1581,73 +1706,79 @@ impl EnhancedSqliScanner {
     fn has_sql_error(&self, response: &HttpResponse) -> bool {
         let body_lower = response.body.to_lowercase();
 
-        // CRITICAL: Only match actual database error message formats, not generic keywords
-        // Each pattern must be specific enough to not match article content, tutorials, or form validation
+        // CRITICAL: Each pattern requires structural elements (quotes, error codes, function names, complete phrases)
+        // to avoid matching documentation/tutorial content
 
-        // MySQL specific error formats (very specific)
+        // MySQL patterns - Must include complete phrases or function names with structural elements
         let mysql_errors = [
-            "you have an error in your sql syntax",  // Complete MySQL error message
-            "check the manual that corresponds to your mysql",
-            "mysql_fetch_array() expects parameter",
+            "you have an error in your sql syntax",  // Complete MySQL error phrase (>15 chars)
+            "check the manual that corresponds to your mysql",  // Complete phrase
+            "mysql_fetch_array() expects parameter",  // Function name with parentheses + context
             "mysql_fetch_assoc() expects parameter",
+            "mysql_fetch_row() expects parameter",
             "mysql_num_rows() expects parameter",
-            "warning: mysql_",  // PHP MySQL warnings
-            "mysqli_",  // MySQLi function errors
-            "mysql server version for the right syntax",
+            "warning: mysql_connect(",  // Function call with opening paren
+            "warning: mysql_query(",
+            "warning: mysql_fetch",  // Function prefix that requires continuation
+            "mysqli_sql_exception",  // Complete exception class name
+            "mysql server version for the right syntax",  // Complete phrase
         ];
 
-        // PostgreSQL specific
+        // PostgreSQL patterns - Must include function names or complete error format
         let postgres_errors = [
-            "postgresql query failed",
-            "pg_query() expects",
+            "pg_query() expects",  // Function with parentheses + context
             "pg_exec() expects",
-            "supplied argument is not a valid postgresql",
+            "pg_fetch_array() expects",
+            "supplied argument is not a valid postgresql",  // Complete error phrase
+            "error: syntax error at or near",  // PostgreSQL-specific error format
         ];
 
-        // MSSQL specific
-        let mssql_errors = [
-            "microsoft sql server",
-            "odbc sql server driver",
-            "unclosed quotation mark after the character string",
-            "incorrect syntax near",
-        ];
-
-        // Oracle specific
+        // Oracle patterns - Error codes (already specific with ora-XXXXX format)
         let oracle_errors = [
-            "ora-00933",  // Oracle error codes
+            "ora-00933",  // Specific Oracle error codes
             "ora-01756",
             "ora-00923",
+            "ora-01722",  // Invalid number
+            "ora-00936",  // Missing expression
         ];
 
-        // SQLite specific
+        // MSSQL patterns - Require complete phrases or quoted context
+        let mssql_errors = [
+            "microsoft sql server",  // Complete product name
+            "odbc sql server driver",  // Complete driver name
+            "unclosed quotation mark after the character string",  // Complete error phrase
+            "incorrect syntax near '",  // Requires quoted identifier
+            "conversion failed when converting",  // Complete MSSQL error phrase
+        ];
+
+        // SQLite patterns - Require specific format with function names
         let sqlite_errors = [
-            "sqlite3::query()",
-            "sqlite3_prepare",
-            "near \"select\"",  // SQLite syntax error format
+            "sqlite3::query()",  // Function with parentheses
+            "sqlite3_prepare",  // Specific function name
+            "near \"",  // SQLite-specific syntax error format with quote
         ];
 
-        // SQLSTATE error codes (database-agnostic but very specific)
+        // SQLSTATE error codes (database-agnostic but very specific with brackets)
         let sqlstate_errors = [
-            "sqlstate[",  // PDO error format
-            "sqlstate[hy000]",
+            "sqlstate[",  // PDO error format with bracket
+            "sqlstate[hy000]",  // Specific states
             "sqlstate[42000]",
+            "sqlstate[42s",  // Syntax or access violations
         ];
 
-        // Database-specific column/table errors (with context to avoid false positives)
+        // Database-specific column/table errors (with quotes for structural context)
         let structural_errors = [
-            "unknown column '",  // Must have quote to be specific
-            "column '",  // Combined with other context
-            "table '",
-            "table doesn't exist",
+            "unknown column '",  // Must have opening quote
+            "table doesn't exist",  // Complete phrase
             "no such table:",  // SQLite format with colon
         ];
 
-        // Check for highly specific patterns only
+        // Check string patterns first
         let all_patterns = [
             mysql_errors.as_slice(),
             postgres_errors.as_slice(),
-            mssql_errors.as_slice(),
             oracle_errors.as_slice(),
+            mssql_errors.as_slice(),
             sqlite_errors.as_slice(),
             sqlstate_errors.as_slice(),
             structural_errors.as_slice(),
@@ -1655,8 +1786,27 @@ impl EnhancedSqliScanner {
 
         for pattern in &all_patterns {
             if body_lower.contains(pattern) {
-                // Additional validation: Make sure it's not in a <script> tag or article content
-                // by checking for HTML context clues
+                // Additional validation: Make sure it's not in tutorial/article context
+                if self.is_likely_database_error(&response.body, pattern) {
+                    return true;
+                }
+            }
+        }
+
+        // Check Oracle error code regex (ora-XXXXX format)
+        if ORACLE_ERROR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = ORACLE_ERROR_REGEX.find(&body_lower) {
+                let pattern = matched.as_str();
+                if self.is_likely_database_error(&response.body, pattern) {
+                    return true;
+                }
+            }
+        }
+
+        // Check SQLite near pattern regex (near "keyword")
+        if SQLITE_NEAR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = SQLITE_NEAR_REGEX.find(&body_lower) {
+                let pattern = matched.as_str();
                 if self.is_likely_database_error(&response.body, pattern) {
                     return true;
                 }
@@ -1667,40 +1817,42 @@ impl EnhancedSqliScanner {
     }
 
     /// Validate that the error pattern is in an actual error context, not article content
+    /// Uses HTML parsing to detect semantic containers (article, pre, code, tutorial)
     fn is_likely_database_error(&self, body: &str, pattern: &str) -> bool {
         let body_lower = body.to_lowercase();
         let pattern_lower = pattern.to_lowercase();
 
-        // Find the position of the pattern
+        // Check if body looks like HTML
+        let trimmed = body.trim_start();
+        let is_html = trimmed.starts_with("<!")
+            || trimmed.starts_with("<html")
+            || trimmed.starts_with("<");
+
+        if is_html {
+            // Parse as HTML document
+            let document = Html::parse_document(body);
+
+            // Check if pattern is inside false positive containers
+            for selector in FP_SELECTORS.iter() {
+                for element in document.select(selector) {
+                    let text = element.text().collect::<String>().to_lowercase();
+                    if text.contains(&pattern_lower) {
+                        // Pattern found inside FP container (article, pre, code, tutorial, etc.)
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // For non-HTML responses or patterns not in FP containers,
+        // check for true positive indicators in text context
         if let Some(pos) = body_lower.find(&pattern_lower) {
             // Get surrounding context (100 chars before and after)
             let start = pos.saturating_sub(100);
             let end = (pos + pattern_lower.len() + 100).min(body.len());
             let context = &body_lower[start..end];
 
-            // FALSE POSITIVE indicators - pattern is in these contexts
-            let false_positive_indicators = [
-                "<article",      // In article content
-                "<p>",           // In paragraph (likely article)
-                "class=\"post",  // Blog post content
-                "class=\"article",
-                "<script",       // In JavaScript code
-                "console.log",   // JavaScript logging
-                "// ",           // Code comments
-                "/* ",           // Code comments
-                "tutorial",      // Tutorial content
-                "example",       // Example code
-                "<!-- ",         // HTML comments
-            ];
-
-            // If pattern appears near false positive indicators, reject it
-            for indicator in &false_positive_indicators {
-                if context.contains(indicator) {
-                    return false;
-                }
-            }
-
-            // TRUE POSITIVE indicators - pattern is in these contexts
+            // TRUE POSITIVE indicators - pattern is in error output context
             let true_positive_indicators = [
                 "error",
                 "warning",
@@ -1722,6 +1874,204 @@ impl EnhancedSqliScanner {
 
         // Default to false - require positive evidence
         false
+    }
+
+    /// Normalize response text for comparison by stripping dynamic content
+    /// Removes timestamps, session IDs, CSRF tokens to avoid false negatives
+    fn normalize_for_comparison(&self, text: &str) -> String {
+        let mut normalized = text.to_string();
+
+        // Strip ISO timestamps (2026-01-31T13:08:28Z)
+        normalized = TIMESTAMP_ISO.replace_all(&normalized, "[TIMESTAMP]").to_string();
+
+        // Strip common date/time formats (01/31/2026 1:08:28 PM)
+        normalized = TIMESTAMP_COMMON.replace_all(&normalized, "[TIMESTAMP]").to_string();
+
+        // Strip HTML comments
+        normalized = HTML_COMMENTS.replace_all(&normalized, "").to_string();
+
+        // Strip session IDs and CSRF tokens (common patterns)
+        let session_patterns = [
+            (r"session(?:id)?[=:]\s*[a-f0-9]{16,}", "[SESSION]"),
+            (r"csrf[_-]?token[=:]\s*[a-zA-Z0-9+/=]{16,}", "[CSRF]"),
+            (r"_token[=:]\s*[a-zA-Z0-9+/=]{16,}", "[TOKEN]"),
+        ];
+
+        for (pattern, replacement) in &session_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                normalized = re.replace_all(&normalized, *replacement).to_string();
+            }
+        }
+
+        // Normalize whitespace (multiple spaces/tabs/newlines to single space)
+        normalized = WHITESPACE_NORMALIZE.replace_all(&normalized, " ").to_string();
+
+        normalized.trim().to_string()
+    }
+
+    /// Calculate normalized similarity between two responses using similar crate
+    /// Returns a ratio between 0.0 (completely different) and 1.0 (identical)
+    fn calculate_normalized_similarity(&self, text1: &str, text2: &str) -> f64 {
+        let normalized1 = self.normalize_for_comparison(text1);
+        let normalized2 = self.normalize_for_comparison(text2);
+
+        // Use TextDiff to calculate similarity
+        let diff = TextDiff::from_chars(&normalized1, &normalized2);
+        diff.ratio().into()
+    }
+
+    /// Evaluate similarity ratio and return categorized level
+    fn evaluate_similarity(&self, ratio: f64) -> SimilarityLevel {
+        if ratio > 0.9 {
+            SimilarityLevel::NearlyIdentical
+        } else if ratio > 0.7 {
+            SimilarityLevel::SlightlyDifferent
+        } else if ratio > 0.5 {
+            SimilarityLevel::ModeratelyDifferent
+        } else {
+            SimilarityLevel::VeryDifferent
+        }
+    }
+
+    /// Check for SQL error and return database type if found
+    /// Returns Some(database_name) if SQL error detected, None otherwise
+    fn has_sql_error_with_db(&self, response: &HttpResponse) -> Option<String> {
+        let body_lower = response.body.to_lowercase();
+
+        // Check for specific database error patterns
+        let db_patterns = [
+            ("mysql", vec!["you have an error in your sql syntax", "mysql_fetch", "mysqli_sql_exception"]),
+            ("postgresql", vec!["pg_query() expects", "pg_exec() expects", "error: syntax error at or near"]),
+            ("oracle", vec!["ora-00933", "ora-01756", "ora-00923"]),
+            ("mssql", vec!["microsoft sql server", "odbc sql server driver", "incorrect syntax near"]),
+            ("sqlite", vec!["sqlite3::query()", "sqlite3_prepare"]),
+        ];
+
+        for (db_name, patterns) in &db_patterns {
+            for pattern in patterns {
+                if body_lower.contains(pattern) {
+                    // Verify it's in error context
+                    if self.is_likely_database_error(&response.body, pattern) {
+                        return Some(db_name.to_string());
+                    }
+                }
+            }
+        }
+
+        // Check regex patterns
+        if ORACLE_ERROR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = ORACLE_ERROR_REGEX.find(&body_lower) {
+                if self.is_likely_database_error(&response.body, matched.as_str()) {
+                    return Some("oracle".to_string());
+                }
+            }
+        }
+
+        if SQLITE_NEAR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = SQLITE_NEAR_REGEX.find(&body_lower) {
+                if self.is_likely_database_error(&response.body, matched.as_str()) {
+                    return Some("sqlite".to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Calculate confidence level based on number of positive signals
+    /// Multi-signal approach: requires multiple indicators for high confidence
+    fn calculate_confidence(signals: &DetectionSignals) -> Confidence {
+        let mut signal_count = 0;
+
+        if signals.has_specific_error_pattern {
+            signal_count += 1;
+        }
+        if signals.database_type.is_some() {
+            signal_count += 1;
+        }
+        if signals.context_is_error_output {
+            signal_count += 1;
+        }
+        if matches!(signals.baseline_similarity, SimilarityLevel::VeryDifferent) {
+            signal_count += 1;
+        }
+        if signals.status_code >= 500 {
+            signal_count += 1;
+        }
+
+        // 4+ signals = High confidence (95%+ accuracy)
+        // 3 signals = High confidence (90%+ accuracy)
+        // 2 signals = Medium confidence (70-80% accuracy)
+        // 1 signal = Low confidence (50-60% accuracy)
+        // 0 signals = No detection
+        match signal_count {
+            4.. => Confidence::High,
+            3 => Confidence::High,
+            2 => Confidence::Medium,
+            1 => Confidence::Low,
+            _ => Confidence::Low,
+        }
+    }
+
+    /// Calculate weighted confidence score (0.0-1.0)
+    /// Weights: pattern 0.35, db_type 0.15, context 0.25, baseline 0.15, status 0.10
+    fn weighted_score(signals: &DetectionSignals) -> f64 {
+        let mut score = 0.0;
+
+        if signals.has_specific_error_pattern {
+            score += 0.35;
+        }
+        if signals.database_type.is_some() {
+            score += 0.15;
+        }
+        if signals.context_is_error_output {
+            score += 0.25;
+        }
+        match signals.baseline_similarity {
+            SimilarityLevel::VeryDifferent => score += 0.15,
+            SimilarityLevel::ModeratelyDifferent => score += 0.10,
+            _ => {}
+        }
+        if signals.status_code >= 500 {
+            score += 0.10;
+        }
+
+        score
+    }
+
+    /// Detect SQL injection using multi-signal approach
+    /// Requires weighted score >= 0.5 for positive detection
+    fn detect_sqli_with_signals(&self, response: &HttpResponse, baseline: &HttpResponse) -> Option<DetectionSignals> {
+        let db_type = self.has_sql_error_with_db(response);
+        let has_pattern = db_type.is_some();
+
+        // Check if pattern is in error context (using existing validation)
+        let context_is_error = if has_pattern {
+            self.has_sql_error(response)
+        } else {
+            false
+        };
+
+        // Calculate normalized baseline similarity
+        let similarity_ratio = self.calculate_normalized_similarity(&baseline.body, &response.body);
+        let similarity_level = self.evaluate_similarity(similarity_ratio);
+
+        let signals = DetectionSignals {
+            has_specific_error_pattern: has_pattern,
+            database_type: db_type,
+            context_is_error_output: context_is_error,
+            baseline_similarity: similarity_level,
+            status_code: response.status_code,
+        };
+
+        let score = Self::weighted_score(&signals);
+
+        // Require score >= 0.5 for positive detection
+        if score >= 0.5 {
+            Some(signals)
+        } else {
+            None
+        }
     }
 
     /// Check if injection was successful
@@ -3126,22 +3476,47 @@ impl EnhancedSqliScanner {
         }
 
         // ============================================================
-        // TEST 2: Quote cancellation
-        // If value'' returns same as value, quotes are being parsed
+        // TEST 2: Quote cancellation (requires differential analysis)
+        // True SQLi: value' causes error, value'' works normally
+        // False positive: both value' and value'' return same as baseline
         // ============================================================
-        let quote_cancel_payload = format!("{}''", current_value);
-        let quote_cancel_url = Self::build_test_url(base_url, parameter, &quote_cancel_payload);
-        if let Ok(quote_resp) = self.http_client.get(&quote_cancel_url).await {
-            tests_run += 1;
+        let single_quote_payload = format!("{}'", current_value);
+        let double_quote_payload = format!("{}''", current_value);
+        let single_quote_url = Self::build_test_url(base_url, parameter, &single_quote_payload);
+        let double_quote_url = Self::build_test_url(base_url, parameter, &double_quote_payload);
 
-            if self.calculate_similarity(baseline, &quote_resp) > similarity_threshold {
-                info!("[SQLi] QUOTE CANCELLATION CONFIRMED: {}'' = {} (SQL parsing quotes)", current_value, current_value);
+        let single_quote_resp = self.http_client.get(&single_quote_url).await.ok();
+        tests_run += 1;
+        let double_quote_resp = self.http_client.get(&double_quote_url).await.ok();
+        tests_run += 1;
+
+        if let (Some(single_resp), Some(double_resp)) = (single_quote_resp, double_quote_resp) {
+            let single_similarity = self.calculate_similarity(baseline, &single_resp);
+            let double_similarity = self.calculate_similarity(baseline, &double_resp);
+
+            // SQLi confirmed ONLY if:
+            // 1. Single quote BREAKS the query (low similarity to baseline AND shows SQL error patterns)
+            // 2. Double quote WORKS (high similarity to baseline)
+            // This differential proves quotes are being parsed in SQL context
+            //
+            // IMPORTANT: Simple string matches like "sql" or "query" cause false positives
+            // on forum/blog pages that discuss databases. Only match ACTUAL SQL error patterns.
+            let body_lower = single_resp.body.to_lowercase();
+            let has_sql_error = Self::detect_sql_error_patterns(&body_lower);
+
+            let single_quote_breaks = (single_similarity < 0.7 && has_sql_error)
+                || single_resp.status_code >= 500;
+
+            let double_quote_works = double_similarity > similarity_threshold;
+
+            if single_quote_breaks && double_quote_works {
+                info!("[SQLi] QUOTE CANCELLATION CONFIRMED: {}' breaks, {}'' works (differential proof)", current_value, current_value);
                 vulnerabilities.push(self.create_vulnerability(
                     base_url,
                     parameter,
-                    &quote_cancel_payload,
+                    &double_quote_payload,
                     "Quote Cancellation SQL Injection",
-                    "Double quotes cancel out, indicating SQL string context",
+                    "Single quote breaks query, double quote escapes - proves SQL string context",
                     Severity::High,
                     Confidence::High,
                 ));

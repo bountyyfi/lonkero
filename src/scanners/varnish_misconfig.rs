@@ -262,54 +262,86 @@ impl VarnishMisconfigScanner {
         }
 
         // Test 4: Cache Bypass via Headers
+        // CRITICAL: First detect if this is actually a caching proxy (Varnish, Nginx, etc.)
+        // Don't report cache poisoning on non-caching servers like Cloudflare Workers
         tests_run += 1;
-        let bypass_headers = vec![
-            ("Cache-Control", "no-cache"),
-            ("Pragma", "no-cache"),
-            ("X-Forwarded-Host", "evil.com"),
-            ("X-Original-URL", "/admin"),
-            ("X-Rewrite-URL", "/admin"),
-        ];
 
-        for (header_name, header_value) in &bypass_headers {
-            tests_run += 1;
-            let headers = vec![(header_name.to_string(), header_value.to_string())];
+        // Check for caching infrastructure indicators
+        let baseline_resp = self.http_client.get(url).await.ok();
+        let has_caching_proxy = baseline_resp.as_ref().map(|r| {
+            let headers = &r.headers;
+            // Check for Varnish-specific headers
+            let has_varnish = headers.contains_key("x-varnish")
+                || headers.contains_key("X-Varnish")
+                || headers.get("via").map(|v| v.to_lowercase().contains("varnish")).unwrap_or(false)
+                || headers.get("Via").map(|v| v.to_lowercase().contains("varnish")).unwrap_or(false);
 
-            match self.http_client.get_with_headers(url, headers).await {
-                Ok(response) => {
-                    // Check if bypass headers are processed
-                    if *header_name == "X-Forwarded-Host" || *header_name == "X-Original-URL" {
-                        // These could indicate cache poisoning vectors
-                        let body_lower = response.body.to_lowercase();
-                        if body_lower.contains("evil.com") || body_lower.contains("/admin") {
-                            vulnerabilities.push(self.create_vulnerability(
-                                url,
-                                "VARNISH_CACHE_POISONING_VECTOR",
-                                &format!("Cache Poisoning Vector via {} Header", header_name),
-                                &format!(
-                                    "The {} header value is reflected in response, indicating potential cache poisoning.\nHeader: {}: {}",
-                                    header_name, header_name, header_value
-                                ),
-                                Severity::High,
-                                Confidence::Medium,
-                                7.0,
-                                "1. Normalize or ignore untrusted headers in VCL:\n\
-                                    sub vcl_recv {\n\
-                                        unset req.http.X-Forwarded-Host;\n\
-                                        unset req.http.X-Original-URL;\n\
-                                        unset req.http.X-Rewrite-URL;\n\
-                                    }\n\
-                                 2. Include relevant headers in cache key (hash)\n\
-                                 3. Implement strict header validation\n\
-                                 4. Review and test cache key configuration",
-                            ));
+            // Check for generic caching proxy indicators
+            let has_cache_headers = headers.contains_key("x-cache")
+                || headers.contains_key("X-Cache")
+                || headers.contains_key("x-cache-hits")
+                || headers.contains_key("X-Cache-Hits")
+                || headers.contains_key("cf-cache-status")  // Cloudflare
+                || headers.contains_key("x-fastly-request-id");  // Fastly
+
+            // Check for Age header (indicates cached response)
+            let has_age = headers.contains_key("age") || headers.contains_key("Age");
+
+            has_varnish || (has_cache_headers && has_age)
+        }).unwrap_or(false);
+
+        // Only test cache poisoning if we detect caching infrastructure
+        if has_caching_proxy {
+            let bypass_headers = vec![
+                ("Cache-Control", "no-cache"),
+                ("Pragma", "no-cache"),
+                ("X-Forwarded-Host", "evil.com"),
+                ("X-Original-URL", "/admin"),
+                ("X-Rewrite-URL", "/admin"),
+            ];
+
+            for (header_name, header_value) in &bypass_headers {
+                tests_run += 1;
+                let headers = vec![(header_name.to_string(), header_value.to_string())];
+
+                match self.http_client.get_with_headers(url, headers).await {
+                    Ok(response) => {
+                        // Check if bypass headers are processed
+                        if *header_name == "X-Forwarded-Host" || *header_name == "X-Original-URL" {
+                            // These could indicate cache poisoning vectors
+                            let body_lower = response.body.to_lowercase();
+                            if body_lower.contains("evil.com") || body_lower.contains("/admin") {
+                                vulnerabilities.push(self.create_vulnerability(
+                                    url,
+                                    "VARNISH_CACHE_POISONING_VECTOR",
+                                    &format!("Cache Poisoning Vector via {} Header", header_name),
+                                    &format!(
+                                        "The {} header value is reflected in response, indicating potential cache poisoning.\nHeader: {}: {}",
+                                        header_name, header_name, header_value
+                                    ),
+                                    Severity::High,
+                                    Confidence::Medium,
+                                    7.0,
+                                    "1. Normalize or ignore untrusted headers in VCL:\n\
+                                        sub vcl_recv {\n\
+                                            unset req.http.X-Forwarded-Host;\n\
+                                            unset req.http.X-Original-URL;\n\
+                                            unset req.http.X-Rewrite-URL;\n\
+                                        }\n\
+                                     2. Include relevant headers in cache key (hash)\n\
+                                     3. Implement strict header validation\n\
+                                     4. Review and test cache key configuration",
+                                ));
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    debug!("Cache bypass test failed for {}: {}", header_name, e);
+                    Err(e) => {
+                        debug!("Cache bypass test failed for {}: {}", header_name, e);
+                    }
                 }
             }
+        } else {
+            debug!("No caching proxy detected, skipping cache poisoning tests");
         }
 
         // Test 5: OPTIONS method to discover allowed methods

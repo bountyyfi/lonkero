@@ -9,15 +9,32 @@
  * @license Proprietary - Enterprise Edition
  */
 use crate::payloads_comprehensive;
+use crate::scanners::registry::PayloadIntensity;
 
 /// XSS Payloads - 100,000+ comprehensive collection
 pub fn get_xss_payloads(mode: &str) -> Vec<String> {
     payloads_comprehensive::get_xss_payloads(mode)
 }
 
+/// XSS Payloads with intensity-based limiting
+/// Returns payloads limited by PayloadIntensity (50/500/5000/all)
+pub fn get_xss_payloads_by_intensity(intensity: PayloadIntensity) -> Vec<String> {
+    let all_payloads = payloads_comprehensive::get_xss_payloads("comprehensive");
+    let limit = intensity.payload_limit();
+    all_payloads.into_iter().take(limit).collect()
+}
+
 /// SQLi Payloads - 65,000+ comprehensive collection
 pub fn get_sqli_payloads(mode: &str) -> Vec<String> {
     payloads_comprehensive::get_sqli_payloads(mode)
+}
+
+/// SQLi Payloads with intensity-based limiting
+/// Returns payloads limited by PayloadIntensity (50/500/5000/all)
+pub fn get_sqli_payloads_by_intensity(intensity: PayloadIntensity) -> Vec<String> {
+    let all_payloads = payloads_comprehensive::get_sqli_payloads("comprehensive");
+    let limit = intensity.payload_limit();
+    all_payloads.into_iter().take(limit).collect()
 }
 
 /// Comprehensive Path Traversal payloads (500+)

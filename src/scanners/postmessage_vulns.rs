@@ -351,49 +351,28 @@ impl PostMessageVulnsScanner {
     fn find_message_handlers(&self, js: &str, source: &str) -> Vec<MessageHandler> {
         let mut handlers = Vec::new();
 
-        // Pattern 1: addEventListener('message', ...) or addEventListener("message", ...)
-        let add_listener_regex = Regex::new(
-            r#"(?is)\.addEventListener\s*\(\s*['"]message['"]\s*,\s*(function\s*\([^)]*\)\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}|[a-zA-Z_$][a-zA-Z0-9_$]*|\([^)]*\)\s*=>\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\})"#
-        ).unwrap();
+        // Simple pattern to find addEventListener('message' - captures position for context extraction
+        // Works with both minified and formatted code
+        let simple_add_listener = Regex::new(r#"(?i)addEventListener\s*\(\s*['"]message['"]\s*,"#).unwrap();
 
-        // Pattern 2: window.onmessage = function...
-        let onmessage_regex = Regex::new(
-            r#"(?is)window\s*\.\s*onmessage\s*=\s*(function\s*\([^)]*\)\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}|\([^)]*\)\s*=>\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\})"#
-        ).unwrap();
+        // Pattern for window.onmessage
+        let simple_onmessage = Regex::new(r#"(?i)window\s*\.\s*onmessage\s*="#).unwrap();
 
-        // Extended pattern for more complex handlers
-        let extended_handler_regex =
-            Regex::new(r#"(?is)addEventListener\s*\(\s*['"]message['"][^)]*\)"#).unwrap();
-
-        // Find addEventListener handlers
-        for cap in add_listener_regex.captures_iter(js) {
-            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or("");
-            let handler_body = cap.get(1).map(|m| m.as_str()).unwrap_or(full_match);
-
-            // Get surrounding context for better analysis
-            let context = self.get_handler_context(js, full_match);
+        // Find addEventListener('message') handlers
+        for mat in simple_add_listener.find_iter(js) {
+            let position = mat.start();
+            // Get large context window to capture the full handler (500 chars forward should cover most handlers)
+            let context = self.get_context_at_position(js, position, 500);
 
             let handler =
                 self.create_handler_analysis(&context, HandlerType::AddEventListener, source);
             handlers.push(handler);
         }
 
-        // Find extended patterns if basic ones didn't match
-        if handlers.is_empty() {
-            for cap in extended_handler_regex.captures_iter(js) {
-                let position = cap.get(0).map(|m| m.start()).unwrap_or(0);
-                let context = self.get_context_at_position(js, position, 2000);
-
-                let handler =
-                    self.create_handler_analysis(&context, HandlerType::AddEventListener, source);
-                handlers.push(handler);
-            }
-        }
-
         // Find window.onmessage handlers
-        for cap in onmessage_regex.captures_iter(js) {
-            let full_match = cap.get(0).map(|m| m.as_str()).unwrap_or("");
-            let context = self.get_handler_context(js, full_match);
+        for mat in simple_onmessage.find_iter(js) {
+            let position = mat.start();
+            let context = self.get_context_at_position(js, position, 500);
 
             let handler =
                 self.create_handler_analysis(&context, HandlerType::WindowOnMessage, source);
@@ -526,11 +505,27 @@ impl PostMessageVulnsScanner {
             return (true, Some(OriginValidationType::AcceptsNull));
         }
 
-        // Origin is mentioned but no clear validation pattern
-        if code_lower.contains(".origin") {
+        // Check if origin is used in a conditional (if statement, ternary, switch)
+        // Just displaying/logging origin is NOT validation
+        let has_conditional_origin = Regex::new(r"(?i)if\s*\([^)]*\.origin")
+            .unwrap()
+            .is_match(code)
+            || Regex::new(r"(?i)\.origin\s*[!=<>]")
+                .unwrap()
+                .is_match(code)
+            || Regex::new(r"(?i)switch\s*\([^)]*\.origin")
+                .unwrap()
+                .is_match(code)
+            || Regex::new(r"(?i)\.origin\s*\?")  // ternary
+                .unwrap()
+                .is_match(code);
+
+        if has_conditional_origin {
+            // Origin is used in conditional but pattern not recognized - assume some validation
             return (true, None);
         }
 
+        // Origin mentioned but NOT in conditional = no validation (just logging/display)
         (false, Some(OriginValidationType::None))
     }
 
@@ -551,16 +546,16 @@ impl PostMessageVulnsScanner {
             sinks.push(DangerousSink::Eval);
         }
 
-        // innerHTML with message data
-        if Regex::new(r"(?i)\.innerHTML\s*=").unwrap().is_match(code)
-            && (code_lower.contains(".data") || code_lower.contains("message"))
+        // innerHTML with message data (matches = and +=)
+        if Regex::new(r"(?i)\.innerHTML\s*\+?=").unwrap().is_match(code)
+            && (code_lower.contains(".data") || code_lower.contains("e.data") || code_lower.contains("event.data") || code_lower.contains("message"))
         {
             sinks.push(DangerousSink::InnerHtml);
         }
 
-        // outerHTML with message data
-        if Regex::new(r"(?i)\.outerHTML\s*=").unwrap().is_match(code)
-            && (code_lower.contains(".data") || code_lower.contains("message"))
+        // outerHTML with message data (matches = and +=)
+        if Regex::new(r"(?i)\.outerHTML\s*\+?=").unwrap().is_match(code)
+            && (code_lower.contains(".data") || code_lower.contains("e.data") || code_lower.contains("event.data") || code_lower.contains("message"))
         {
             sinks.push(DangerousSink::OuterHtml);
         }

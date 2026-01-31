@@ -370,6 +370,21 @@ impl ApiGatewayScanner {
 
         debug!("Testing gateway authentication bypass");
 
+        // CRITICAL: First get baseline response WITHOUT bypass techniques
+        // If the page is already accessible, bypass headers don't prove anything
+        let baseline_response = self.http_client.get(url).await.ok();
+        let baseline_accessible = baseline_response
+            .as_ref()
+            .map(|r| r.status_code == 200 && self.looks_like_admin_panel(&r.body))
+            .unwrap_or(false);
+
+        // If baseline already shows admin panel, this URL is publicly accessible
+        // No auth bypass vulnerability exists - it's just a public admin page
+        if baseline_accessible {
+            debug!("URL already accessible without bypass - skipping auth bypass tests");
+            return Ok((vulnerabilities, tests_run));
+        }
+
         let bypass_techniques = vec![
             ("../api/admin", "Path Traversal"),
             ("/api/admin/..;/", "Path Parameter Bypass"),
@@ -427,23 +442,28 @@ impl ApiGatewayScanner {
                 .await
             {
                 Ok(response) => {
+                    // Only report if: 1) bypass gives 200, 2) looks like admin, 3) baseline was NOT accessible
                     if response.status_code == 200 && self.looks_like_admin_panel(&response.body) {
-                        let header_name = &headers[0].0;
-                        info!("Gateway auth bypass via header: {}", header_name);
-                        vulnerabilities.push(self.create_vulnerability(
-                            url,
-                            "API Gateway Authentication Bypass via Headers",
-                            &format!("{}: {}", headers[0].0, headers[0].1),
-                            &format!(
-                                "Gateway authentication bypassed using {} header",
-                                header_name
-                            ),
-                            &format!("Successfully bypassed auth using {} header", header_name),
-                            Severity::Critical,
-                            "CWE-287",
-                            9.8,
-                        ));
-                        break;
+                        // Double-check: compare with baseline to ensure this is actually a bypass
+                        let baseline_status = baseline_response.as_ref().map(|r| r.status_code).unwrap_or(0);
+                        if baseline_status != 200 {
+                            let header_name = &headers[0].0;
+                            info!("Gateway auth bypass via header: {}", header_name);
+                            vulnerabilities.push(self.create_vulnerability(
+                                url,
+                                "API Gateway Authentication Bypass via Headers",
+                                &format!("{}: {}", headers[0].0, headers[0].1),
+                                &format!(
+                                    "Gateway authentication bypassed using {} header",
+                                    header_name
+                                ),
+                                &format!("Successfully bypassed auth using {} header", header_name),
+                                Severity::Critical,
+                                "CWE-287",
+                                9.8,
+                            ));
+                            break;
+                        }
                     }
                 }
                 Err(e) => {

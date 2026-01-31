@@ -1037,6 +1037,18 @@ impl EndpointDiscovery {
             "/humans.txt",
             "/security.txt",
             "/.well-known/security.txt",
+            // RSS/Atom Feeds (potential XML XSS vectors)
+            "/feed",
+            "/feed.xml",
+            "/rss",
+            "/rss.xml",
+            "/atom",
+            "/atom.xml",
+            "/blog/feed",
+            "/blog/rss",
+            "/news/feed",
+            "/news/rss",
+            "/feeds/posts/default",
             // Git/Source
             "/.git",
             "/.git/config",

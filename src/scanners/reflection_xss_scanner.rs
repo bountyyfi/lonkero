@@ -3,16 +3,19 @@
 
 //! Reflection-based XSS Scanner (No Chrome Required)
 //!
-//! Fallback XSS scanner that works without headless Chrome by detecting
+//! XSS scanner that works without headless Chrome by detecting
 //! reflected payloads in HTTP responses. Detects:
 //! - Reflected XSS in HTML context
 //! - Reflected XSS in JavaScript context
 //! - Reflected XSS in attribute context
 //!
-//! Less accurate than ChromiumXssScanner but works everywhere.
+//! Uses comprehensive payload library (12,450+ payloads) with intensity-based
+//! filtering for efficient scanning.
 
 use crate::http_client::HttpClient;
+use crate::payloads;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::scanners::registry::PayloadIntensity;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
@@ -21,11 +24,29 @@ use tracing::{debug, info};
 
 pub struct ReflectionXssScanner {
     http_client: Arc<HttpClient>,
+    /// Payload intensity - controls how many payloads to test
+    intensity: PayloadIntensity,
 }
 
 impl ReflectionXssScanner {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
-        Self { http_client }
+        Self {
+            http_client,
+            intensity: PayloadIntensity::Standard,
+        }
+    }
+
+    /// Create scanner with specific payload intensity
+    pub fn with_intensity(http_client: Arc<HttpClient>, intensity: PayloadIntensity) -> Self {
+        Self {
+            http_client,
+            intensity,
+        }
+    }
+
+    /// Set payload intensity
+    pub fn set_intensity(&mut self, intensity: PayloadIntensity) {
+        self.intensity = intensity;
     }
 
     /// Scan URL for reflected XSS vulnerabilities
@@ -34,10 +55,23 @@ impl ReflectionXssScanner {
         url: &str,
         _config: &ScanConfig,
     ) -> Result<(Vec<Vulnerability>, usize)> {
+        self.scan_with_intensity(url, _config, self.intensity).await
+    }
+
+    /// Scan URL for reflected XSS with specific payload intensity
+    pub async fn scan_with_intensity(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+        intensity: PayloadIntensity,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
-        info!("[Reflection-XSS] Starting reflection-based XSS scan for: {}", url);
+        info!(
+            "[Reflection-XSS] Starting scan for: {} (intensity: {:?})",
+            url, intensity
+        );
 
         // Extract parameters from URL
         let params = self.extract_parameters(url);
@@ -46,15 +80,23 @@ impl ReflectionXssScanner {
             return Ok((vulnerabilities, tests_run));
         }
 
+        // Get payloads based on intensity
+        let comprehensive_payloads = payloads::get_xss_payloads_by_intensity(intensity);
+        info!(
+            "[Reflection-XSS] Testing with {} payloads",
+            comprehensive_payloads.len()
+        );
+
         // Test each parameter
-        for (param_name, original_value) in &params {
+        for (param_name, _original_value) in &params {
             // Skip non-injectable parameters
             if ParameterFilter::should_skip_parameter(param_name, ScannerType::XSS) {
                 continue;
             }
 
-            // Test with various XSS payloads
-            for (payload, context, description) in self.get_xss_payloads() {
+            // First, test priority payloads (fast path)
+            let mut found_vuln = false;
+            for (payload, context, description) in self.get_priority_payloads() {
                 tests_run += 1;
 
                 let test_url = self.build_test_url(url, param_name, &payload);
@@ -71,11 +113,45 @@ impl ReflectionXssScanner {
                         ) {
                             info!("[Reflection-XSS] Found XSS in parameter: {}", param_name);
                             vulnerabilities.push(vuln);
+                            found_vuln = true;
                             break; // One vuln per parameter is enough
                         }
                     }
                     Err(e) => {
                         debug!("[Reflection-XSS] Request failed: {}", e);
+                    }
+                }
+            }
+
+            // If no vuln found with priority payloads, try comprehensive payloads
+            if !found_vuln && intensity != PayloadIntensity::Minimal {
+                for payload in &comprehensive_payloads {
+                    tests_run += 1;
+
+                    let test_url = self.build_test_url(url, param_name, payload);
+                    let (context, description) = self.detect_payload_context(payload);
+
+                    match self.http_client.get(&test_url).await {
+                        Ok(response) => {
+                            if let Some(vuln) = self.analyze_reflection(
+                                &response.body,
+                                payload,
+                                param_name,
+                                url,
+                                context,
+                                description,
+                            ) {
+                                info!(
+                                    "[Reflection-XSS] Found XSS with comprehensive payload in: {}",
+                                    param_name
+                                );
+                                vulnerabilities.push(vuln);
+                                break; // One vuln per parameter is enough
+                            }
+                        }
+                        Err(e) => {
+                            debug!("[Reflection-XSS] Request failed: {}", e);
+                        }
                     }
                 }
             }
@@ -129,7 +205,61 @@ impl ReflectionXssScanner {
     }
 
     /// Get XSS payloads with context information
+    /// Uses comprehensive payload library (12,450+ payloads) limited by intensity
     fn get_xss_payloads(&self) -> Vec<(String, &'static str, &'static str)> {
+        // Get comprehensive payloads based on intensity
+        let comprehensive_payloads = payloads::get_xss_payloads_by_intensity(self.intensity);
+
+        info!(
+            "[Reflection-XSS] Using {} payloads (intensity: {:?})",
+            comprehensive_payloads.len(),
+            self.intensity
+        );
+
+        // Convert to tuple format with context detection
+        comprehensive_payloads
+            .into_iter()
+            .map(|payload| {
+                let (context, description) = self.detect_payload_context(&payload);
+                (payload, context, description)
+            })
+            .collect()
+    }
+
+    /// Detect the context and description for a payload
+    fn detect_payload_context(&self, payload: &str) -> (&'static str, &'static str) {
+        let p = payload.to_lowercase();
+
+        if p.contains("<script") {
+            ("html", "Script tag injection")
+        } else if p.contains("onerror=") || p.contains("onload=") || p.contains("onfocus=") {
+            if p.contains("<img") || p.contains("<svg") || p.contains("<body") || p.contains("<input") {
+                ("html", "Event handler injection")
+            } else {
+                ("attribute", "Attribute event handler")
+            }
+        } else if p.contains("onmouseover=") || p.contains("onclick=") || p.contains("onmouseenter=") {
+            ("attribute", "Attribute event handler")
+        } else if p.contains("javascript:") {
+            ("html", "JavaScript URL")
+        } else if p.starts_with("\"") || p.starts_with("'") {
+            if p.contains("alert") || p.contains("confirm") || p.contains("prompt") {
+                ("javascript", "JavaScript string breakout")
+            } else {
+                ("attribute", "Attribute breakout")
+            }
+        } else if p.contains("{{") || p.contains("${") || p.contains("<%") {
+            ("template", "Template injection")
+        } else if p.contains("<") && p.contains(">") {
+            ("html", "HTML tag injection")
+        } else {
+            ("unknown", "XSS payload")
+        }
+    }
+
+    /// Get hardcoded high-priority payloads for quick initial testing
+    /// These are tested first before comprehensive payloads
+    fn get_priority_payloads(&self) -> Vec<(String, &'static str, &'static str)> {
         vec![
             // HTML context - basic script injection
             (

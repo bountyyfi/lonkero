@@ -29,6 +29,7 @@ pub mod api_fuzzer;
 pub mod api_gateway_scanner;
 pub mod api_security;
 pub mod api_versioning;
+pub mod arcgis_rest;
 pub mod aspnet_scanner;
 pub mod attack_surface;
 pub mod auth_bypass;
@@ -40,7 +41,7 @@ pub mod bola;
 pub mod broken_function_auth;
 pub mod business_logic;
 pub mod cache_poisoning;
-pub mod chromium_xss_scanner;
+pub mod hybrid_xss; // Browser-less XSS detection
 pub mod clickjacking;
 pub mod client_route_auth_bypass;
 pub mod cloud_security_scanner;
@@ -113,6 +114,7 @@ pub mod parameter_prioritizer;
 pub mod password_reset_poisoning;
 pub mod path_traversal;
 pub mod postmessage_vulns;
+pub mod proof_xss_scanner; // Proof-based XSS detection (no Chrome, 2-3 requests)
 pub mod prototype_pollution;
 pub mod race_condition;
 pub mod rails_scanner;
@@ -160,6 +162,7 @@ pub use api_fuzzer::ApiFuzzerScanner;
 pub use api_gateway_scanner::ApiGatewayScanner;
 pub use api_security::APISecurityScanner;
 pub use api_versioning::ApiVersioningScanner;
+pub use arcgis_rest::ArcGISRestScanner;
 pub use aspnet_scanner::AspNetScanner;
 pub use attack_surface::{
     AttackSurface, ContentType, DeduplicatedTargets, EndpointSignature, FormData, FormSignature,
@@ -174,7 +177,8 @@ pub use bola::BolaScanner;
 pub use broken_function_auth::BrokenFunctionAuthScanner;
 pub use business_logic::BusinessLogicScanner;
 pub use cache_poisoning::CachePoisoningScanner;
-pub use chromium_xss_scanner::{ChromiumXssScanner, SharedBrowser};
+pub use hybrid_xss::HybridXssDetector;
+pub use proof_xss_scanner::ProofXssScanner;
 pub use reflection_xss_scanner::ReflectionXssScanner;
 pub use clickjacking::ClickjackingScanner;
 pub use client_route_auth_bypass::ClientRouteAuthBypassScanner;
@@ -194,6 +198,7 @@ pub use cve_2025_55183::Cve202555183Scanner;
 pub use cve_2025_55184::Cve202555184Scanner;
 pub use deserialization::DeserializationScanner;
 pub use django_security::DjangoSecurityScanner;
+pub use dom_clobbering::DomClobberingScanner;
 pub use dora_scanner::DoraScanner;
 pub use drupal_security::DrupalSecurityScanner;
 pub use email_header_injection::EmailHeaderInjectionScanner;
@@ -247,6 +252,7 @@ pub use parameter_prioritizer::{
 };
 pub use password_reset_poisoning::PasswordResetPoisoningScanner;
 pub use path_traversal::PathTraversalScanner;
+pub use postmessage_vulns::PostMessageVulnsScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use race_condition::RaceConditionScanner;
 pub use rails_scanner::RailsScanner;
@@ -283,6 +289,7 @@ pub use wordpress_security::WordPressSecurityScanner;
 pub use xml_injection::XMLInjectionScanner;
 pub use xpath_injection::XPathInjectionScanner;
 pub use xxe::XxeScanner;
+pub use second_order_injection::SecondOrderInjectionScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -290,9 +297,8 @@ pub struct ScanEngine {
     pub request_batcher: Option<Arc<crate::request_batcher::RequestBatcher>>,
     pub adaptive_concurrency: Option<Arc<crate::adaptive_concurrency::AdaptiveConcurrencyTracker>>,
     pub dns_cache: Option<Arc<crate::dns_cache::DnsCache>>,
-    /// Shared browser instance for Chromium-based scanning (XSS, DOM analysis)
-    pub shared_browser: Option<SharedBrowser>,
-    pub chromium_xss_scanner: ChromiumXssScanner,
+    pub hybrid_xss_detector: HybridXssDetector,
+    pub proof_xss_scanner: ProofXssScanner,
     pub reflection_xss_scanner: ReflectionXssScanner,
     pub sqli_scanner: SqliScanner,
     pub cmdi_scanner: CommandInjectionScanner,
@@ -351,6 +357,7 @@ pub struct ScanEngine {
     pub sensitive_data_scanner: SensitiveDataScanner,
     pub api_fuzzer_scanner: ApiFuzzerScanner,
     pub api_gateway_scanner: ApiGatewayScanner,
+    pub arcgis_rest_scanner: ArcGISRestScanner,
     pub cloud_security_scanner: CloudSecurityScanner,
     pub container_scanner: ContainerScanner,
     pub webauthn_scanner: WebAuthnScanner,
@@ -395,6 +402,9 @@ pub struct ScanEngine {
     pub compliance_scanner: ComplianceScanner,
     pub dora_scanner: DoraScanner,
     pub nis2_scanner: Nis2Scanner,
+    pub postmessage_vulns_scanner: PostMessageVulnsScanner,
+    pub dom_clobbering_scanner: DomClobberingScanner,
+    pub second_order_injection_scanner: SecondOrderInjectionScanner,
     /// ML integration for automatic learning from scan results
     pub ml_integration: Option<crate::ml::MlIntegration>,
     /// Shared intelligence bus for cross-scanner communication
@@ -503,18 +513,6 @@ impl ScanEngine {
             None
         };
 
-        // Initialize shared browser for Chromium-based XSS detection
-        let shared_browser = match SharedBrowser::new() {
-            Ok(browser) => {
-                info!("[SUCCESS] Shared browser initialized for XSS detection");
-                Some(browser)
-            }
-            Err(e) => {
-                warn!("[WARNING] Failed to initialize shared browser: {}. XSS detection will create browser per-scan.", e);
-                None
-            }
-        };
-
         // Initialize intelligence bus and response analyzer for cross-scanner communication
         let intelligence_bus = Arc::new(IntelligenceBus::new());
         let response_analyzer = Arc::new(ResponseAnalyzer::new());
@@ -523,8 +521,8 @@ impl ScanEngine {
             request_batcher,
             adaptive_concurrency,
             dns_cache,
-            shared_browser,
-            chromium_xss_scanner: ChromiumXssScanner::new(Arc::clone(&http_client)),
+            hybrid_xss_detector: HybridXssDetector::new(Arc::clone(&http_client)),
+            proof_xss_scanner: ProofXssScanner::new(Arc::clone(&http_client)),
             reflection_xss_scanner: ReflectionXssScanner::new(Arc::clone(&http_client)),
             sqli_scanner: SqliScanner::new(Arc::clone(&http_client)),
             cmdi_scanner: CommandInjectionScanner::new(Arc::clone(&http_client)),
@@ -593,6 +591,7 @@ impl ScanEngine {
             sensitive_data_scanner: SensitiveDataScanner::new(Arc::clone(&http_client)),
             api_fuzzer_scanner: ApiFuzzerScanner::new(Arc::clone(&http_client)),
             api_gateway_scanner: ApiGatewayScanner::new(Arc::clone(&http_client)),
+            arcgis_rest_scanner: ArcGISRestScanner::new(Arc::clone(&http_client)),
             cloud_security_scanner: CloudSecurityScanner::new(Arc::clone(&http_client)),
             container_scanner: ContainerScanner::new(Arc::clone(&http_client)),
             webauthn_scanner: WebAuthnScanner::new(Arc::clone(&http_client)),
@@ -641,6 +640,9 @@ impl ScanEngine {
             compliance_scanner: ComplianceScanner::new(Arc::clone(&http_client)),
             dora_scanner: DoraScanner::new(Arc::clone(&http_client)),
             nis2_scanner: Nis2Scanner::new(Arc::clone(&http_client)),
+            postmessage_vulns_scanner: PostMessageVulnsScanner::new(Arc::clone(&http_client)),
+            dom_clobbering_scanner: DomClobberingScanner::new(Arc::clone(&http_client)),
+            second_order_injection_scanner: SecondOrderInjectionScanner::new(Arc::clone(&http_client)),
             // Initialize ML integration (fails gracefully if ~/.lonkero not writable)
             ml_integration: crate::ml::MlIntegration::new().ok(),
             intelligence_bus,
@@ -1151,8 +1153,8 @@ impl ScanEngine {
             }
         }
 
-        // Chromium-based XSS Detection (runs on target + all crawled URLs)
-        // Uses real browser execution to detect reflected, DOM, and stored XSS
+        // Proof-Based XSS Detection (runs on target + all crawled URLs)
+        // Uses mathematical proof of exploitability - no browser required
         if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::XSS_SCANNER)
             && !self.should_terminate_early(&all_vulnerabilities)
         {
@@ -1165,7 +1167,7 @@ impl ScanEngine {
             }
 
             info!(
-                "[Chromium-XSS] Running real browser XSS detection on {} URLs",
+                "[Proof-XSS] Running proof-based XSS detection on {} URLs (no browser)",
                 xss_urls_to_test.len()
             );
 
@@ -1175,19 +1177,19 @@ impl ScanEngine {
                 }
 
                 info!(
-                    "[Chromium-XSS] Testing URL {}/{}: {}",
+                    "[Proof-XSS] Testing URL {}/{}: {}",
                     idx + 1,
                     xss_urls_to_test.len(),
                     xss_url
                 );
-                let (chromium_xss_vulns, chromium_xss_tests) = self
-                    .chromium_xss_scanner
-                    .scan(xss_url, &config, self.shared_browser.as_ref())
+                let (proof_xss_vulns, proof_xss_tests) = self
+                    .proof_xss_scanner
+                    .scan(xss_url, &config)
                     .await?;
-                all_vulnerabilities.extend(chromium_xss_vulns);
-                total_tests += chromium_xss_tests as u64;
+                all_vulnerabilities.extend(proof_xss_vulns);
+                total_tests += proof_xss_tests as u64;
                 queue
-                    .increment_tests(scan_id.clone(), chromium_xss_tests as u64)
+                    .increment_tests(scan_id.clone(), proof_xss_tests as u64)
                     .await?;
             }
 
