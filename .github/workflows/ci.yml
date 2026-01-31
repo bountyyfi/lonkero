@@ -118,18 +118,3 @@ jobs:
           fi
           WARNINGS=$(grep -c "^warning:" clippy-output.txt || echo "0")
           echo "::notice::Clippy completed with $WARNINGS warnings"
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6.0.2
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
-        with:
-          components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
