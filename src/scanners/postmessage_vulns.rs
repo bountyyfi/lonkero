@@ -526,11 +526,27 @@ impl PostMessageVulnsScanner {
             return (true, Some(OriginValidationType::AcceptsNull));
         }
 
-        // Origin is mentioned but no clear validation pattern
-        if code_lower.contains(".origin") {
+        // Check if origin is used in a conditional (if statement, ternary, switch)
+        // Just displaying/logging origin is NOT validation
+        let has_conditional_origin = Regex::new(r"(?i)if\s*\([^)]*\.origin")
+            .unwrap()
+            .is_match(code)
+            || Regex::new(r"(?i)\.origin\s*[!=<>]")
+                .unwrap()
+                .is_match(code)
+            || Regex::new(r"(?i)switch\s*\([^)]*\.origin")
+                .unwrap()
+                .is_match(code)
+            || Regex::new(r"(?i)\.origin\s*\?")  // ternary
+                .unwrap()
+                .is_match(code);
+
+        if has_conditional_origin {
+            // Origin is used in conditional but pattern not recognized - assume some validation
             return (true, None);
         }
 
+        // Origin mentioned but NOT in conditional = no validation (just logging/display)
         (false, Some(OriginValidationType::None))
     }
 
@@ -551,16 +567,16 @@ impl PostMessageVulnsScanner {
             sinks.push(DangerousSink::Eval);
         }
 
-        // innerHTML with message data
-        if Regex::new(r"(?i)\.innerHTML\s*=").unwrap().is_match(code)
-            && (code_lower.contains(".data") || code_lower.contains("message"))
+        // innerHTML with message data (matches = and +=)
+        if Regex::new(r"(?i)\.innerHTML\s*\+?=").unwrap().is_match(code)
+            && (code_lower.contains(".data") || code_lower.contains("e.data") || code_lower.contains("event.data") || code_lower.contains("message"))
         {
             sinks.push(DangerousSink::InnerHtml);
         }
 
-        // outerHTML with message data
-        if Regex::new(r"(?i)\.outerHTML\s*=").unwrap().is_match(code)
-            && (code_lower.contains(".data") || code_lower.contains("message"))
+        // outerHTML with message data (matches = and +=)
+        if Regex::new(r"(?i)\.outerHTML\s*\+?=").unwrap().is_match(code)
+            && (code_lower.contains(".data") || code_lower.contains("e.data") || code_lower.contains("event.data") || code_lower.contains("message"))
         {
             sinks.push(DangerousSink::OuterHtml);
         }

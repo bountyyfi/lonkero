@@ -1146,7 +1146,78 @@ impl ProofXssScanner {
             }
         }
 
+        // Multi-step taint tracking: detect var = source, then sink = var
+        let tainted_vars = self.find_tainted_variables(js);
+        for (var_name, source) in &tainted_vars {
+            // Check if tainted variable flows to dangerous sink
+            let var_sink_patterns = [
+                (format!(r"\.innerHTML\s*\+?=\s*[^;]*\b{}\b", regex::escape(var_name)), DomSinkType::InnerHtml),
+                (format!(r"\.outerHTML\s*\+?=\s*[^;]*\b{}\b", regex::escape(var_name)), DomSinkType::InnerHtml),
+                (format!(r"document\.write(?:ln)?\s*\([^)]*\b{}\b", regex::escape(var_name)), DomSinkType::DocumentWrite),
+                (format!(r"eval\s*\([^)]*\b{}\b", regex::escape(var_name)), DomSinkType::Eval),
+                (format!(r"setTimeout\s*\([^)]*\b{}\b", regex::escape(var_name)), DomSinkType::SetTimeout),
+                (format!(r"\$\([^)]*\)\.html\s*\([^)]*\b{}\b", regex::escape(var_name)), DomSinkType::JQueryHtml),
+            ];
+
+            for (pattern, sink_type) in var_sink_patterns {
+                if let Ok(re) = Regex::new(&pattern) {
+                    for mat in re.find_iter(js) {
+                        let start = mat.start().saturating_sub(20);
+                        let end = (mat.end() + 20).min(js.len());
+                        let context = &js[start..end];
+
+                        // Avoid duplicates
+                        if !sinks.iter().any(|s| s.js_snippet.contains(&mat.as_str()[..mat.as_str().len().min(30)])) {
+                            sinks.push(DomSink {
+                                sink_type: sink_type.clone(),
+                                source: source.clone(),
+                                js_snippet: format!("Tainted var '{}' → {}", var_name, self.truncate_snippet(context, 80)),
+                                has_sanitization: self.has_sanitization(context),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         sinks
+    }
+
+    /// Find variables that are assigned from DOM sources (multi-step taint tracking)
+    fn find_tainted_variables(&self, js: &str) -> Vec<(String, DomSource)> {
+        let mut tainted = Vec::new();
+
+        // Patterns: var/let/const name = ...source...
+        // Also matches: name = ...source... (reassignment)
+        let var_patterns = [
+            // const/let/var hash = location.hash
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*[^;]*location\.hash", DomSource::LocationHash),
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*[^;]*location\.search", DomSource::LocationSearch),
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*[^;]*location\.href", DomSource::LocationHref),
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*[^;]*document\.URL", DomSource::DocumentUrl),
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*[^;]*document\.referrer", DomSource::DocumentReferrer),
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*[^;]*window\.name", DomSource::WindowName),
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*[^;]*URLSearchParams", DomSource::UrlSearchParams),
+            // Also catch decodeURIComponent(location.hash) etc
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*decodeURIComponent\s*\([^)]*location\.hash", DomSource::LocationHash),
+            (r"(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*decodeURIComponent\s*\([^)]*location\.search", DomSource::LocationSearch),
+        ];
+
+        for (pattern, source) in var_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                for cap in re.captures_iter(js) {
+                    if let Some(var_match) = cap.get(1) {
+                        let var_name = var_match.as_str().to_string();
+                        // Skip common false positives
+                        if !["undefined", "null", "true", "false", "this"].contains(&var_name.as_str()) {
+                            tainted.push((var_name, source.clone()));
+                        }
+                    }
+                }
+            }
+        }
+
+        tainted
     }
 
     /// Detect the source in a code snippet
