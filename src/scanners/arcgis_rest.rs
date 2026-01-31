@@ -121,15 +121,6 @@ struct ArcGISService {
     url: String,
 }
 
-/// Discovered layer within a service
-#[derive(Debug, Clone)]
-struct LayerInfo {
-    id: u32,
-    name: String,
-    capabilities: Vec<String>,
-    field_names: Vec<String>,
-}
-
 /// Detailed finding for a vulnerable layer
 #[derive(Debug)]
 struct LayerFinding {
