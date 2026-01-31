@@ -899,7 +899,7 @@ lonkero scan --config lonkero.yml
 - **PostMessage Vulns** - Origin validation bypass, XSS via postMessage, data exfiltration, cross-origin communication abuse
 - **Web Cache Deception** - Path confusion attacks, cache infrastructure detection, sensitive data exposure via caching
 - **Subdomain Takeover** - 25+ cloud service fingerprints (AWS, Azure, GitHub, Heroku, etc.), DNS/CNAME analysis
-- **ArcGIS REST Services** - Unauthenticated data exposure in GIS services, PII detection (Nordic national IDs, emails, addresses), FeatureServer write capability detection, layer enumeration
+- **ArcGIS REST Services** - Unauthenticated data exposure in GIS services, international PII detection (US SSN, UK NIN, Australian TFN, Nordic IDs, EU national IDs, Canadian SIN, Singapore NRIC, and 15+ more), FeatureServer write capability detection, layer enumeration
 
 ### Business Logic (8 scanners)
 

@@ -769,10 +769,12 @@ impl ArcGISRestScanner {
     /// Detect PII in response data
     fn detect_pii_in_response(&self, body: &str) -> Vec<PiiType> {
         let mut detected = Vec::new();
+        let body_lower = body.to_lowercase();
 
-        // Check for Swedish personnummer
+        // === NORDIC NATIONAL IDs ===
+
+        // Swedish personnummer (with Luhn validation)
         if self.swedish_pnr.is_match(body) {
-            // Validate checksum (Luhn algorithm) for higher confidence
             for cap in self.swedish_pnr.captures_iter(body) {
                 if let Some(m) = cap.get(0) {
                     let digits: String = m.as_str().chars().filter(|c| c.is_ascii_digit()).collect();
@@ -786,94 +788,237 @@ impl ArcGISRestScanner {
             }
         }
 
-        // Check for Finnish henkilötunnus
+        // Finnish henkilötunnus
         if self.finnish_hetu.is_match(body) && !detected.contains(&PiiType::FinnishHetu) {
             detected.push(PiiType::FinnishHetu);
         }
 
-        // Check for Norwegian fødselsnummer (careful - 11 digits is common)
-        // Only flag if context suggests it's actually a fnr
+        // Norwegian fødselsnummer (context-aware - 11 digits is common)
         if self.norwegian_fnr.is_match(body) {
-            let body_lower = body.to_lowercase();
-            if body_lower.contains("fodselsnummer")
-                || body_lower.contains("fnr")
-                || body_lower.contains("personnr")
-            {
+            if body_lower.contains("fodselsnummer") || body_lower.contains("fnr")
+                || body_lower.contains("personnr") || body_lower.contains("norwegian") {
                 if !detected.contains(&PiiType::NorwegianFnr) {
                     detected.push(PiiType::NorwegianFnr);
                 }
             }
         }
 
-        // Check for Danish CPR
+        // Danish CPR
         if self.danish_cpr.is_match(body) {
-            let body_lower = body.to_lowercase();
-            if body_lower.contains("cpr") || body_lower.contains("personnummer") {
+            if body_lower.contains("cpr") || body_lower.contains("personnummer")
+                || body_lower.contains("danish") || body_lower.contains("denmark") {
                 if !detected.contains(&PiiType::DanishCpr) {
                     detected.push(PiiType::DanishCpr);
                 }
             }
         }
 
-        // Check for email
+        // === NORTH AMERICAN IDs ===
+
+        // US Social Security Number (context-aware)
+        if self.us_ssn.is_match(body) {
+            // SSN pattern matches many things, so require context
+            if body_lower.contains("ssn") || body_lower.contains("social_security")
+                || body_lower.contains("socialsecurity") || body_lower.contains("social security") {
+                if !detected.contains(&PiiType::UsSsn) {
+                    detected.push(PiiType::UsSsn);
+                }
+            }
+        }
+
+        // Canadian SIN (context-aware)
+        if self.canadian_sin.is_match(body) {
+            if body_lower.contains("sin") || body_lower.contains("social_insurance")
+                || body_lower.contains("canadian") || body_lower.contains("canada") {
+                if !detected.contains(&PiiType::CanadianSin) {
+                    detected.push(PiiType::CanadianSin);
+                }
+            }
+        }
+
+        // === UK/IRELAND IDs ===
+
+        // UK National Insurance Number
+        if self.uk_nin.is_match(body) && !detected.contains(&PiiType::UkNin) {
+            detected.push(PiiType::UkNin);
+        }
+
+        // Irish PPS Number
+        if self.irish_pps.is_match(body) {
+            if body_lower.contains("pps") || body_lower.contains("irish") || body_lower.contains("ireland") {
+                if !detected.contains(&PiiType::IrishPps) {
+                    detected.push(PiiType::IrishPps);
+                }
+            }
+        }
+
+        // === EUROPEAN IDs ===
+
+        // German Steuer-ID (context-aware - 11 digits is common)
+        if self.german_steuerid.is_match(body) {
+            if body_lower.contains("steuer") || body_lower.contains("german")
+                || body_lower.contains("deutschland") {
+                if !detected.contains(&PiiType::GermanSteuerid) {
+                    detected.push(PiiType::GermanSteuerid);
+                }
+            }
+        }
+
+        // French NIR (context-aware)
+        if self.french_nir.is_match(body) {
+            if body_lower.contains("nir") || body_lower.contains("securite_sociale")
+                || body_lower.contains("french") || body_lower.contains("france") {
+                if !detected.contains(&PiiType::FrenchNir) {
+                    detected.push(PiiType::FrenchNir);
+                }
+            }
+        }
+
+        // Spanish NIE/NIF
+        if self.spanish_nie.is_match(body) && !detected.contains(&PiiType::SpanishNie) {
+            detected.push(PiiType::SpanishNie);
+        }
+
+        // Italian Codice Fiscale
+        if self.italian_cf.is_match(body) && !detected.contains(&PiiType::ItalianCodiceFiscale) {
+            detected.push(PiiType::ItalianCodiceFiscale);
+        }
+
+        // Dutch BSN (context-aware - 9 digits is common)
+        if self.dutch_bsn.is_match(body) {
+            if body_lower.contains("bsn") || body_lower.contains("burgerservicenummer")
+                || body_lower.contains("dutch") || body_lower.contains("netherlands") {
+                if !detected.contains(&PiiType::DutchBsn) {
+                    detected.push(PiiType::DutchBsn);
+                }
+            }
+        }
+
+        // Belgian NRN
+        if self.belgian_nrn.is_match(body) && !detected.contains(&PiiType::BelgianNrn) {
+            detected.push(PiiType::BelgianNrn);
+        }
+
+        // === ASIA PACIFIC IDs ===
+
+        // Australian TFN (context-aware)
+        if self.australian_tfn.is_match(body) {
+            if body_lower.contains("tfn") || body_lower.contains("tax_file")
+                || body_lower.contains("taxfile") || body_lower.contains("australian")
+                || body_lower.contains("australia") {
+                if !detected.contains(&PiiType::AustralianTfn) {
+                    detected.push(PiiType::AustralianTfn);
+                }
+            }
+        }
+
+        // New Zealand IRD (context-aware)
+        if self.nz_ird.is_match(body) {
+            if body_lower.contains("ird") || body_lower.contains("new_zealand")
+                || body_lower.contains("newzealand") || body_lower.contains("nz") {
+                if !detected.contains(&PiiType::NewZealandIrd) {
+                    detected.push(PiiType::NewZealandIrd);
+                }
+            }
+        }
+
+        // Singapore NRIC
+        if self.singapore_nric.is_match(body) && !detected.contains(&PiiType::SingaporeNric) {
+            detected.push(PiiType::SingaporeNric);
+        }
+
+        // === COMMON PII ===
+
+        // Email
         if self.email_pattern.is_match(body) && !detected.contains(&PiiType::Email) {
             detected.push(PiiType::Email);
         }
 
-        // Check for phone numbers in context
+        // Phone (context-aware)
         if self.phone_pattern.is_match(body) {
-            let body_lower = body.to_lowercase();
-            if body_lower.contains("phone")
-                || body_lower.contains("telefon")
-                || body_lower.contains("mobil")
-                || body_lower.contains("puhelin")
-            {
+            if body_lower.contains("phone") || body_lower.contains("telefon")
+                || body_lower.contains("mobil") || body_lower.contains("cell")
+                || body_lower.contains("tel") || body_lower.contains("puhelin")
+                || body_lower.contains("telephone") {
                 if !detected.contains(&PiiType::Phone) {
                     detected.push(PiiType::Phone);
                 }
             }
         }
 
-        // Check for IBAN
+        // Date of Birth
+        if self.dob_pattern.is_match(body) {
+            if body_lower.contains("dob") || body_lower.contains("birth")
+                || body_lower.contains("born") || body_lower.contains("geburt")
+                || body_lower.contains("fodelse") || body_lower.contains("syntyma") {
+                if !detected.contains(&PiiType::DateOfBirth) {
+                    detected.push(PiiType::DateOfBirth);
+                }
+            }
+        }
+
+        // IBAN
         if self.iban_pattern.is_match(body) && !detected.contains(&PiiType::BankAccount) {
             detected.push(PiiType::BankAccount);
         }
 
-        // Check for credit card
+        // Credit card
         if self.credit_card_pattern.is_match(body) && !detected.contains(&PiiType::CreditCard) {
             detected.push(PiiType::CreditCard);
         }
 
-        // Check for name fields
-        let body_lower = body.to_lowercase();
-        if (body_lower.contains("\"namn\"")
-            || body_lower.contains("\"name\"")
-            || body_lower.contains("\"fornamn\"")
-            || body_lower.contains("\"efternamn\""))
-            && !detected.contains(&PiiType::Name)
-        {
+        // Name fields (field name detection)
+        let name_indicators = [
+            "\"name\"", "\"namn\"", "\"firstname\"", "\"lastname\"", "\"fullname\"",
+            "\"first_name\"", "\"last_name\"", "\"full_name\"", "\"fornamn\"", "\"efternamn\"",
+            "\"givenname\"", "\"surname\"", "\"vorname\"", "\"nachname\"", "\"prenom\"",
+            "\"nom\"", "\"nombre\"", "\"apellido\"", "\"nimi\"", "\"etunimi\"", "\"sukunimi\""
+        ];
+        if name_indicators.iter().any(|n| body_lower.contains(n)) && !detected.contains(&PiiType::Name) {
             detected.push(PiiType::Name);
         }
 
-        // Check for address fields
-        if (body_lower.contains("\"adress\"")
-            || body_lower.contains("\"address\"")
-            || body_lower.contains("\"gatuadress\"")
-            || body_lower.contains("\"street\""))
-            && !detected.contains(&PiiType::Address)
-        {
+        // Address fields
+        let address_indicators = [
+            "\"address\"", "\"adress\"", "\"street\"", "\"gatuadress\"", "\"osoite\"",
+            "\"strasse\"", "\"rue\"", "\"direccion\"", "\"calle\"", "\"indirizzo\"",
+            "\"home_address\"", "\"mailing_address\"", "\"street_address\""
+        ];
+        if address_indicators.iter().any(|a| body_lower.contains(a)) && !detected.contains(&PiiType::Address) {
             detected.push(PiiType::Address);
         }
 
-        // Check for financial data
-        if (body_lower.contains("\"salary\"")
-            || body_lower.contains("\"income\"")
-            || body_lower.contains("\"lon\"")
-            || body_lower.contains("\"palkka\"")
-            || body_lower.contains("\"kopsum\""))
-            && !detected.contains(&PiiType::FinancialData)
-        {
+        // Financial data
+        let financial_indicators = [
+            "\"salary\"", "\"income\"", "\"wage\"", "\"pay\"", "\"earnings\"",
+            "\"palkka\"", "\"lon\"", "\"gehalt\"", "\"salaire\"", "\"compensation\""
+        ];
+        if financial_indicators.iter().any(|f| body_lower.contains(f)) && !detected.contains(&PiiType::FinancialData) {
             detected.push(PiiType::FinancialData);
+        }
+
+        // Medical ID indicators
+        let medical_indicators = [
+            "\"patient\"", "\"medical\"", "\"diagnosis\"", "\"medicare\"", "\"medicaid\"",
+            "\"health_id\"", "\"member_id\"", "\"insurance_id\""
+        ];
+        if medical_indicators.iter().any(|m| body_lower.contains(m)) && !detected.contains(&PiiType::MedicalId) {
+            detected.push(PiiType::MedicalId);
+        }
+
+        // Passport/License indicators
+        let id_indicators = [
+            "\"passport\"", "\"license\"", "\"licence\"", "\"driver\"", "\"dl_number\"",
+            "\"id_number\"", "\"identification\""
+        ];
+        if id_indicators.iter().any(|i| body_lower.contains(i)) {
+            if body_lower.contains("passport") && !detected.contains(&PiiType::PassportNumber) {
+                detected.push(PiiType::PassportNumber);
+            }
+            if (body_lower.contains("license") || body_lower.contains("licence") || body_lower.contains("driver"))
+                && !detected.contains(&PiiType::DriversLicense) {
+                detected.push(PiiType::DriversLicense);
+            }
         }
 
         detected
@@ -922,21 +1067,42 @@ impl ArcGISRestScanner {
 
         // Determine severity based on findings
         let (severity, cvss) = if has_pii {
-            if finding
-                .pii_detected
-                .iter()
-                .any(|p| matches!(p, PiiType::SwedishPersonnummer | PiiType::FinnishHetu | PiiType::NorwegianFnr | PiiType::DanishCpr))
-            {
-                (Severity::Critical, 9.1) // National ID exposure
-            } else if finding.pii_detected.iter().any(|p| {
-                matches!(
-                    p,
-                    PiiType::BankAccount | PiiType::CreditCard | PiiType::FinancialData
-                )
-            }) {
-                (Severity::Critical, 8.8) // Financial data exposure
+            // Critical: National IDs (any country)
+            let has_national_id = finding.pii_detected.iter().any(|p| matches!(p,
+                PiiType::SwedishPersonnummer | PiiType::FinnishHetu |
+                PiiType::NorwegianFnr | PiiType::DanishCpr |
+                PiiType::UsSsn | PiiType::CanadianSin |
+                PiiType::UkNin | PiiType::IrishPps |
+                PiiType::GermanSteuerid | PiiType::FrenchNir |
+                PiiType::SpanishNie | PiiType::ItalianCodiceFiscale |
+                PiiType::DutchBsn | PiiType::BelgianNrn |
+                PiiType::AustralianTfn | PiiType::NewZealandIrd |
+                PiiType::SingaporeNric
+            ));
+
+            // Critical: Financial/Payment data
+            let has_financial = finding.pii_detected.iter().any(|p| matches!(p,
+                PiiType::BankAccount | PiiType::CreditCard | PiiType::FinancialData
+            ));
+
+            // Critical: Medical data
+            let has_medical = finding.pii_detected.contains(&PiiType::MedicalId);
+
+            // High: Identity documents
+            let has_identity_docs = finding.pii_detected.iter().any(|p| matches!(p,
+                PiiType::PassportNumber | PiiType::DriversLicense
+            ));
+
+            if has_national_id {
+                (Severity::Critical, 9.1) // National ID exposure - highest impact
+            } else if has_medical {
+                (Severity::Critical, 9.0) // Medical data - HIPAA, GDPR Art 9
+            } else if has_financial {
+                (Severity::Critical, 8.8) // Financial data - PCI DSS
+            } else if has_identity_docs {
+                (Severity::High, 8.0) // Identity documents
             } else {
-                (Severity::High, 7.5) // Other PII
+                (Severity::High, 7.5) // Other PII (email, phone, address, DOB)
             }
         } else if has_sensitive_fields {
             (Severity::High, 7.5) // Potentially sensitive data
