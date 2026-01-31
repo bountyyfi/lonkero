@@ -23,12 +23,40 @@ use crate::types::{
 use crate::vulnerability::VulnerabilityDetector;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
+use once_cell::sync::Lazy;
+use regex::Regex;
+use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
 /// Maximum number of columns to test for UNION-based SQLi
 const MAX_COLUMNS: usize = 20;
+
+/// Compiled regex patterns for SQL error detection
+static ORACLE_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"ora-[0-9]{5}").unwrap()
+});
+
+static SQLITE_NEAR_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"near\s+"(select|insert|update|delete|union|from|where)""#).unwrap()
+});
+
+/// False positive HTML selectors for context validation
+static FP_SELECTORS: Lazy<Vec<Selector>> = Lazy::new(|| {
+    vec![
+        Selector::parse("article").unwrap(),
+        Selector::parse("pre").unwrap(),
+        Selector::parse("code").unwrap(),
+        Selector::parse(".tutorial").unwrap(),
+        Selector::parse(".example").unwrap(),
+        Selector::parse(".post-content").unwrap(),
+        Selector::parse(".comment").unwrap(),
+        Selector::parse(".documentation").unwrap(),
+        Selector::parse("[class*='highlight']").unwrap(),
+        Selector::parse("[class*='language-']").unwrap(),
+    ]
+});
 
 /// Database types detected from response analysis
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1641,73 +1669,79 @@ impl EnhancedSqliScanner {
     fn has_sql_error(&self, response: &HttpResponse) -> bool {
         let body_lower = response.body.to_lowercase();
 
-        // CRITICAL: Only match actual database error message formats, not generic keywords
-        // Each pattern must be specific enough to not match article content, tutorials, or form validation
+        // CRITICAL: Each pattern requires structural elements (quotes, error codes, function names, complete phrases)
+        // to avoid matching documentation/tutorial content
 
-        // MySQL specific error formats (very specific)
+        // MySQL patterns - Must include complete phrases or function names with structural elements
         let mysql_errors = [
-            "you have an error in your sql syntax",  // Complete MySQL error message
-            "check the manual that corresponds to your mysql",
-            "mysql_fetch_array() expects parameter",
+            "you have an error in your sql syntax",  // Complete MySQL error phrase (>15 chars)
+            "check the manual that corresponds to your mysql",  // Complete phrase
+            "mysql_fetch_array() expects parameter",  // Function name with parentheses + context
             "mysql_fetch_assoc() expects parameter",
+            "mysql_fetch_row() expects parameter",
             "mysql_num_rows() expects parameter",
-            "warning: mysql_",  // PHP MySQL warnings
-            "mysqli_",  // MySQLi function errors
-            "mysql server version for the right syntax",
+            "warning: mysql_connect(",  // Function call with opening paren
+            "warning: mysql_query(",
+            "warning: mysql_fetch",  // Function prefix that requires continuation
+            "mysqli_sql_exception",  // Complete exception class name
+            "mysql server version for the right syntax",  // Complete phrase
         ];
 
-        // PostgreSQL specific
+        // PostgreSQL patterns - Must include function names or complete error format
         let postgres_errors = [
-            "postgresql query failed",
-            "pg_query() expects",
+            "pg_query() expects",  // Function with parentheses + context
             "pg_exec() expects",
-            "supplied argument is not a valid postgresql",
+            "pg_fetch_array() expects",
+            "supplied argument is not a valid postgresql",  // Complete error phrase
+            "error: syntax error at or near",  // PostgreSQL-specific error format
         ];
 
-        // MSSQL specific
-        let mssql_errors = [
-            "microsoft sql server",
-            "odbc sql server driver",
-            "unclosed quotation mark after the character string",
-            "incorrect syntax near",
-        ];
-
-        // Oracle specific
+        // Oracle patterns - Error codes (already specific with ora-XXXXX format)
         let oracle_errors = [
-            "ora-00933",  // Oracle error codes
+            "ora-00933",  // Specific Oracle error codes
             "ora-01756",
             "ora-00923",
+            "ora-01722",  // Invalid number
+            "ora-00936",  // Missing expression
         ];
 
-        // SQLite specific
+        // MSSQL patterns - Require complete phrases or quoted context
+        let mssql_errors = [
+            "microsoft sql server",  // Complete product name
+            "odbc sql server driver",  // Complete driver name
+            "unclosed quotation mark after the character string",  // Complete error phrase
+            "incorrect syntax near '",  // Requires quoted identifier
+            "conversion failed when converting",  // Complete MSSQL error phrase
+        ];
+
+        // SQLite patterns - Require specific format with function names
         let sqlite_errors = [
-            "sqlite3::query()",
-            "sqlite3_prepare",
-            "near \"select\"",  // SQLite syntax error format
+            "sqlite3::query()",  // Function with parentheses
+            "sqlite3_prepare",  // Specific function name
+            "sqlite error",  // Only with additional context validation
         ];
 
-        // SQLSTATE error codes (database-agnostic but very specific)
+        // SQLSTATE error codes (database-agnostic but very specific with brackets)
         let sqlstate_errors = [
-            "sqlstate[",  // PDO error format
-            "sqlstate[hy000]",
+            "sqlstate[",  // PDO error format with bracket
+            "sqlstate[hy000]",  // Specific states
             "sqlstate[42000]",
+            "sqlstate[42s",  // Syntax or access violations
         ];
 
-        // Database-specific column/table errors (with context to avoid false positives)
+        // Database-specific column/table errors (with quotes for structural context)
         let structural_errors = [
-            "unknown column '",  // Must have quote to be specific
-            "column '",  // Combined with other context
-            "table '",
-            "table doesn't exist",
+            "unknown column '",  // Must have opening quote
+            "table doesn't exist",  // Complete phrase
             "no such table:",  // SQLite format with colon
         ];
 
-        // Check for highly specific patterns only
+        // Check string patterns first
         let all_patterns = [
             mysql_errors.as_slice(),
             postgres_errors.as_slice(),
-            mssql_errors.as_slice(),
             oracle_errors.as_slice(),
+            mssql_errors.as_slice(),
             sqlite_errors.as_slice(),
             sqlstate_errors.as_slice(),
             structural_errors.as_slice(),
@@ -1715,8 +1749,27 @@ impl EnhancedSqliScanner {
 
         for pattern in &all_patterns {
             if body_lower.contains(pattern) {
-                // Additional validation: Make sure it's not in a <script> tag or article content
-                // by checking for HTML context clues
+                // Additional validation: Make sure it's not in tutorial/article context
+                if self.is_likely_database_error(&response.body, pattern) {
+                    return true;
+                }
+            }
+        }
+
+        // Check Oracle error code regex (ora-XXXXX format)
+        if ORACLE_ERROR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = ORACLE_ERROR_REGEX.find(&body_lower) {
+                let pattern = matched.as_str();
+                if self.is_likely_database_error(&response.body, pattern) {
+                    return true;
+                }
+            }
+        }
+
+        // Check SQLite near pattern regex (near "keyword")
+        if SQLITE_NEAR_REGEX.is_match(&body_lower) {
+            if let Some(matched) = SQLITE_NEAR_REGEX.find(&body_lower) {
+                let pattern = matched.as_str();
                 if self.is_likely_database_error(&response.body, pattern) {
                     return true;
                 }
