@@ -3259,6 +3259,36 @@ async fn execute_standalone_scan(
             info!("  - Skipping XSS - Static site detected");
         }
 
+        // ==========================================================================
+        // STORED/SECOND-ORDER INJECTION SCANNING
+        // ==========================================================================
+        // Detects stored XSS, stored SQLi, and stored command injection where
+        // payloads are injected in one endpoint and triggered in another
+        // ==========================================================================
+        if !is_graphql_only && !is_static_site {
+            info!("  - Testing Second-Order Injection (stored XSS/SQLi/CMDi)");
+            // Create a new scanner instance for this scan (needs &mut self for state tracking)
+            let mut second_order_scanner = lonkero_scanner::scanners::SecondOrderInjectionScanner::new(Arc::clone(&engine.http_client));
+            match second_order_scanner.scan(target, &scan_config).await {
+                Ok((vulns, tests)) => {
+                    // Deduplicate against existing findings
+                    for vuln in vulns {
+                        let already_found = all_vulnerabilities.iter().any(|v| {
+                            v.url == vuln.url && v.vuln_type == vuln.vuln_type && v.parameter == vuln.parameter
+                        });
+                        if !already_found {
+                            all_vulnerabilities.push(vuln);
+                        }
+                    }
+                    total_tests += tests as u64;
+                    info!("    [Second-Order] {} tests completed", tests);
+                }
+                Err(e) => {
+                    debug!("[Second-Order] Error: {}", e);
+                }
+            }
+        }
+
         // Run SQLi scanner (skip for static sites and GraphQL-only backends)
         // GraphQL uses typed queries - no SQL string interpolation
         // SQLi requires Professional+ license

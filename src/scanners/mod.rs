@@ -289,6 +289,7 @@ pub use wordpress_security::WordPressSecurityScanner;
 pub use xml_injection::XMLInjectionScanner;
 pub use xpath_injection::XPathInjectionScanner;
 pub use xxe::XxeScanner;
+pub use second_order_injection::SecondOrderInjectionScanner;
 
 pub struct ScanEngine {
     pub config: ScannerConfig,
@@ -403,6 +404,7 @@ pub struct ScanEngine {
     pub nis2_scanner: Nis2Scanner,
     pub postmessage_vulns_scanner: PostMessageVulnsScanner,
     pub dom_clobbering_scanner: DomClobberingScanner,
+    pub second_order_injection_scanner: SecondOrderInjectionScanner,
     /// ML integration for automatic learning from scan results
     pub ml_integration: Option<crate::ml::MlIntegration>,
     /// Shared intelligence bus for cross-scanner communication
@@ -640,6 +642,7 @@ impl ScanEngine {
             nis2_scanner: Nis2Scanner::new(Arc::clone(&http_client)),
             postmessage_vulns_scanner: PostMessageVulnsScanner::new(Arc::clone(&http_client)),
             dom_clobbering_scanner: DomClobberingScanner::new(Arc::clone(&http_client)),
+            second_order_injection_scanner: SecondOrderInjectionScanner::new(Arc::clone(&http_client)),
             // Initialize ML integration (fails gracefully if ~/.lonkero not writable)
             ml_integration: crate::ml::MlIntegration::new().ok(),
             intelligence_bus,
