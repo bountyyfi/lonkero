@@ -2582,37 +2582,100 @@ impl OpenRedirectScanner {
         category: &BypassCategory,
     ) -> Vulnerability {
         let verified = matches!(confidence, Confidence::High);
+        let payload_lower = payload.to_lowercase();
+        let evidence_lower = evidence.to_lowercase();
 
-        let cvss = match severity {
-            Severity::Critical => 9.1,
-            Severity::High => 7.4,
-            Severity::Medium => 6.1,
-            Severity::Low => 3.7,
-            Severity::Info => 2.0,
+        // Check if this is a javascript:/data: XSS, not just open redirect
+        let is_xss = payload_lower.starts_with("javascript:")
+            || payload_lower.starts_with("data:")
+            || evidence_lower.starts_with("javascript:")
+            || evidence_lower.starts_with("data:")
+            || evidence_lower.contains("javascript:")
+            || evidence_lower.contains("data:text/html");
+
+        let (vuln_type, vuln_category, cwe, cvss) = if is_xss {
+            (
+                format!("XSS via {} Redirect", if payload_lower.starts_with("javascript:") { "javascript:" } else { "data:" }),
+                "XSS".to_string(),
+                "CWE-79".to_string(),
+                7.1_f32, // XSS CVSS
+            )
+        } else {
+            let cvss = match severity {
+                Severity::Critical => 9.1,
+                Severity::High => 7.4,
+                Severity::Medium => 6.1,
+                Severity::Low => 3.7,
+                Severity::Info => 2.0,
+            };
+            (
+                "Open Redirect".to_string(),
+                format!("Open Redirect - {}", category.as_str()),
+                "CWE-601".to_string(),
+                cvss as f32,
+            )
+        };
+
+        let description_text = if is_xss {
+            format!(
+                "XSS vulnerability via redirect in parameter '{}': Attacker can execute JavaScript by redirecting to a javascript: or data: URI. {}",
+                param_name, description
+            )
+        } else {
+            format!(
+                "Open redirect vulnerability in parameter '{}': {}",
+                param_name, description
+            )
         };
 
         Vulnerability {
-            id: format!("open_redirect_{}", uuid::Uuid::new_v4()),
-            vuln_type: "Open Redirect".to_string(),
-            severity,
+            id: format!("{}_{}", if is_xss { "xss_redirect" } else { "open_redirect" }, uuid::Uuid::new_v4()),
+            vuln_type,
+            severity: if is_xss { Severity::High } else { severity },
             confidence,
-            category: format!("Open Redirect - {}", category.as_str()),
+            category: vuln_category,
             url: url.to_string(),
             parameter: Some(param_name.to_string()),
             payload: payload.to_string(),
-            description: format!(
-                "Open redirect vulnerability in parameter '{}': {}",
-                param_name, description
-            ),
+            description: description_text,
             evidence: Some(evidence.to_string()),
-            cwe: "CWE-601".to_string(),
-            cvss: cvss as f32,
+            cwe,
+            cvss,
             verified,
             false_positive: false,
-            remediation: self.get_remediation(category),
+            remediation: if is_xss { self.get_xss_remediation() } else { self.get_remediation(category) },
             discovered_at: chrono::Utc::now().to_rfc3339(),
             ml_data: None,
         }
+    }
+
+    /// Get XSS-specific remediation advice
+    fn get_xss_remediation(&self) -> String {
+        r#"CRITICAL: XSS via Redirect Vulnerability
+
+This is NOT just an open redirect - it's a Cross-Site Scripting (XSS) vulnerability!
+The application allows redirection to javascript: or data: URIs, enabling arbitrary JavaScript execution.
+
+**Immediate Actions:**
+1. Block ALL javascript:, data:, and vbscript: URIs in redirect parameters
+2. Implement strict URL validation with allowlist
+3. Only allow http:// and https:// protocols
+
+**Code Fix Example:**
+```python
+def safe_redirect(url):
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https', ''):
+        return redirect('/error')  # Block dangerous protocols
+    if parsed.netloc and parsed.netloc not in ALLOWED_DOMAINS:
+        return redirect('/error')  # Block external domains
+    return redirect(url)
+```
+
+**Testing:** Verify these payloads are blocked:
+- javascript:alert(document.domain)
+- data:text/html,<script>alert(1)</script>
+- JaVaScRiPt:alert(1) (case variations)"#.to_string()
     }
 
     /// Get remediation advice based on bypass category
