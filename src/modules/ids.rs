@@ -24,6 +24,8 @@ pub mod free {
     pub const CLICKJACKING: &str = "clickjacking";
     /// Information disclosure (basic)
     pub const INFO_DISCLOSURE_BASIC: &str = "info_disclosure_basic";
+    /// ArcGIS REST Services data exposure scanner
+    pub const ARCGIS_REST: &str = "arcgis_rest";
 }
 
 /// Personal+ tier modules - requires cms_security feature
