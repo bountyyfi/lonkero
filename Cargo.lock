@@ -2095,7 +2095,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lonkero"
-version = "3.5.7"
+version = "3.6.1"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2139,6 +2139,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "similar",
+ "socket2 0.5.10",
  "ssh2",
  "tempfile",
  "thiserror 2.0.18",

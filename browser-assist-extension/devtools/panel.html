@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Lonkero Security Scanner</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div class="lonkero-devtools">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <span class="logo">🦑 Lonkero</span>
+        <span class="version">v3.9</span>
+      </div>
+      <div class="header-center">
+        <div class="connection-status" id="connectionStatus">
+          <span class="status-dot"></span>
+          <span class="status-text">Disconnected</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button id="btnConnect" class="btn btn-primary btn-sm">Connect</button>
+        <button id="btnSettings" class="btn btn-icon" title="Settings">⚙️</button>
+      </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="proxy">
+        <span class="tab-icon">📡</span> Proxy
+      </button>
+      <button class="tab" data-tab="scanner">
+        <span class="tab-icon">🔍</span> Scanner
+      </button>
+      <button class="tab" data-tab="findings">
+        <span class="tab-icon">🎯</span> Findings
+        <span class="badge" id="findingsBadge">0</span>
+      </button>
+      <button class="tab" data-tab="intruder">
+        <span class="tab-icon">⚔️</span> Intruder
+      </button>
+      <button class="tab" data-tab="repeater">
+        <span class="tab-icon">🔄</span> Repeater
+      </button>
+    </nav>
+
+    <!-- Tab Panels -->
+    <main class="panels">
+
+      <!-- PROXY PANEL -->
+      <section id="panel-proxy" class="panel active">
+        <div class="panel-toolbar">
+          <input type="text" id="proxyFilter" class="input-filter" placeholder="Filter requests...">
+          <div class="filter-buttons">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="xhr">XHR</button>
+            <button class="filter-btn" data-filter="form">Forms</button>
+            <button class="filter-btn" data-filter="graphql">GraphQL</button>
+          </div>
+          <button id="btnClearProxy" class="btn btn-sm">Clear</button>
+          <button id="btnExportHAR" class="btn btn-sm">Export HAR</button>
+        </div>
+
+        <div class="split-horizontal">
+          <!-- Request List -->
+          <div class="split-pane" style="flex: 1;">
+            <div class="request-list" id="requestList">
+              <div class="empty-state">No requests captured yet</div>
+            </div>
+          </div>
+
+          <!-- Request Detail -->
+          <div class="split-pane" style="flex: 1;">
+            <div class="detail-tabs">
+              <button class="detail-tab active" data-detail="request">Request</button>
+              <button class="detail-tab" data-detail="response">Response</button>
+              <button class="detail-tab" data-detail="params">Params</button>
+              <button class="detail-tab" data-detail="cookies">Cookies</button>
+            </div>
+            <div class="detail-content">
+              <div id="detail-request" class="detail-pane active">
+                <pre class="code-block" id="requestRaw">Select a request to view details</pre>
+              </div>
+              <div id="detail-response" class="detail-pane">
+                <pre class="code-block" id="responseRaw"></pre>
+              </div>
+              <div id="detail-params" class="detail-pane">
+                <table class="data-table" id="paramsTable">
+                  <thead><tr><th>Name</th><th>Value</th><th>Risk</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div id="detail-cookies" class="detail-pane">
+                <table class="data-table" id="cookiesTable">
+                  <thead><tr><th>Name</th><th>Value</th><th>Flags</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="detail-actions">
+              <button id="btnSendToScanner" class="btn btn-primary btn-sm">Scan</button>
+              <button id="btnSendToIntruder" class="btn btn-sm">Intruder</button>
+              <button id="btnSendToRepeater" class="btn btn-sm">Repeater</button>
+              <button id="btnCopyAsCurl" class="btn btn-sm">Copy cURL</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCANNER PANEL -->
+      <section id="panel-scanner" class="panel">
+        <div class="scanner-layout">
+          <div class="scanner-config">
+            <h3>Scan Configuration</h3>
+
+            <div class="form-group">
+              <label>Target Scope</label>
+              <div class="scope-input-row">
+                <input type="text" id="scopeInput" class="input" placeholder="*.example.com">
+                <button id="btnAddScope" class="btn btn-sm">Add</button>
+              </div>
+              <div class="scope-list" id="scopeList"></div>
+            </div>
+
+            <div class="form-group">
+              <label>Options</label>
+              <div class="checkbox-group">
+                <label class="checkbox">
+                  <input type="checkbox" id="optUseSession" checked>
+                  <span>Use captured session (cookies/tokens)</span>
+                </label>
+                <label class="checkbox">
+                  <input type="checkbox" id="optActiveScan" checked>
+                  <span>Active scanning (send payloads)</span>
+                </label>
+                <label class="checkbox">
+                  <input type="checkbox" id="optHighlightFindings" checked>
+                  <span>Highlight findings in page</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="scan-controls">
+              <button id="btnStartScan" class="btn btn-primary btn-lg">
+                🚀 Start Scan
+              </button>
+              <button id="btnPauseScan" class="btn btn-lg" disabled>
+                ⏸️ Pause
+              </button>
+              <button id="btnStopScan" class="btn btn-danger btn-lg" disabled>
+                ⏹️ Stop
+              </button>
+            </div>
+          </div>
+
+          <div class="scanner-status">
+            <h3>Scan Progress</h3>
+
+            <div class="progress-container">
+              <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+              </div>
+              <div class="progress-text" id="progressText">0%</div>
+            </div>
+
+            <div class="scan-stats">
+              <div class="stat">
+                <span class="stat-value" id="statRequests">0</span>
+                <span class="stat-label">Requests</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value" id="statFindings">0</span>
+                <span class="stat-label">Findings</span>
+              </div>
+              <div class="stat">
+                <span class="stat-value" id="statElapsed">00:00</span>
+                <span class="stat-label">Elapsed</span>
+              </div>
+            </div>
+
+            <div class="current-activity" id="currentActivity">
+              Ready to scan
+            </div>
+
+            <div class="scan-queue">
+              <h4>Queue</h4>
+              <div class="queue-list" id="queueList">
+                <div class="empty-state">No items in queue</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FINDINGS PANEL -->
+      <section id="panel-findings" class="panel">
+        <div class="panel-toolbar">
+          <div class="severity-filters">
+            <button class="severity-btn critical active" data-severity="critical">
+              🔴 Critical <span id="countCritical">0</span>
+            </button>
+            <button class="severity-btn high active" data-severity="high">
+              🟠 High <span id="countHigh">0</span>
+            </button>
+            <button class="severity-btn medium active" data-severity="medium">
+              🟡 Medium <span id="countMedium">0</span>
+            </button>
+            <button class="severity-btn low active" data-severity="low">
+              🔵 Low <span id="countLow">0</span>
+            </button>
+          </div>
+          <button id="btnExportFindings" class="btn btn-sm">Export JSON</button>
+          <button id="btnClearFindings" class="btn btn-sm">Clear</button>
+        </div>
+
+        <div class="split-horizontal">
+          <div class="split-pane" style="flex: 1;">
+            <div class="findings-list" id="findingsList">
+              <div class="empty-state">No findings yet</div>
+            </div>
+          </div>
+          <div class="split-pane" style="flex: 1;">
+            <div class="finding-detail" id="findingDetail">
+              <div class="empty-state">Select a finding to view details</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- INTRUDER PANEL -->
+      <section id="panel-intruder" class="panel">
+        <div class="intruder-layout">
+          <div class="intruder-config">
+            <h3>Attack Configuration</h3>
+
+            <div class="form-group">
+              <label>Request Template</label>
+              <textarea id="intruderTemplate" class="code-editor" spellcheck="false" placeholder="Paste request here. Mark injection points with §"></textarea>
+            </div>
+
+            <div class="position-controls">
+              <button id="btnAddMarker" class="btn btn-sm">Add §</button>
+              <button id="btnClearMarkers" class="btn btn-sm">Clear §</button>
+              <button id="btnAutoMark" class="btn btn-sm">Auto-mark params</button>
+            </div>
+
+            <div class="form-group">
+              <label>Payload Set</label>
+              <select id="payloadSet" class="select">
+                <option value="numbers">Numbers (1-1000)</option>
+                <option value="sqli">SQLi Payloads</option>
+                <option value="xss">XSS Payloads</option>
+                <option value="traversal">Path Traversal</option>
+                <option value="ssti">SSTI Payloads</option>
+                <option value="custom">Custom List</option>
+              </select>
+              <textarea id="customPayloads" class="code-editor small" placeholder="One payload per line (for custom)"></textarea>
+            </div>
+
+            <button id="btnStartAttack" class="btn btn-primary btn-lg">⚔️ Start Attack</button>
+          </div>
+
+          <div class="intruder-results">
+            <h3>Results</h3>
+            <table class="data-table" id="intruderResults">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Payload</th>
+                  <th>Status</th>
+                  <th>Length</th>
+                  <th>Time</th>
+                  <th>Diff</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- REPEATER PANEL -->
+      <section id="panel-repeater" class="panel">
+        <div class="repeater-tabs-container">
+          <div class="repeater-tabs" id="repeaterTabs">
+            <button class="repeater-tab active" data-id="1">Request 1</button>
+          </div>
+          <button id="btnNewRepeater" class="btn btn-sm">+ New</button>
+        </div>
+
+        <div class="repeater-layout">
+          <div class="repeater-request">
+            <div class="repeater-header">
+              <span>Request</span>
+              <div class="repeater-actions">
+                <button id="btnSendRequest" class="btn btn-primary btn-sm">Send</button>
+                <button id="btnCancelRequest" class="btn btn-sm">Cancel</button>
+              </div>
+            </div>
+            <textarea id="repeaterRequest" class="code-editor" spellcheck="false"></textarea>
+          </div>
+
+          <div class="repeater-response">
+            <div class="repeater-header">
+              <span>Response</span>
+              <div class="response-meta">
+                <span id="respStatus">-</span>
+                <span id="respTime">-</span>
+                <span id="respSize">-</span>
+              </div>
+            </div>
+            <div class="response-tabs">
+              <button class="resp-tab active" data-view="raw">Raw</button>
+              <button class="resp-tab" data-view="pretty">Pretty</button>
+              <button class="resp-tab" data-view="headers">Headers</button>
+              <button class="resp-tab" data-view="render">Render</button>
+            </div>
+            <div class="response-content">
+              <pre id="repeaterResponse" class="code-block"></pre>
+              <iframe id="repeaterRender" class="render-frame" sandbox="allow-same-origin"></iframe>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+      <span id="statusMessage">Ready</span>
+      <span class="status-right">
+        <span id="cliInfo">CLI: Not connected</span>
+      </span>
+    </footer>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

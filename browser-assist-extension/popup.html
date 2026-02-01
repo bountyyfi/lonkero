@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      width: 420px;
+      padding: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: #000;
+      color: #e0e0e0;
+      margin: 0;
+    }
+    .header {
+      background: #000;
+      border-bottom: 1px solid #39ff14;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-img { width: 100%; height: 48px; object-fit: contain; }
+    .title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #39ff14;
+      text-shadow: 0 0 10px rgba(57, 255, 20, 0.5);
+    }
+    .subtitle { font-size: 10px; color: rgba(57, 255, 20, 0.7); }
+
+    .content { padding: 12px; }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-size: 11px;
+      border: 1px solid #222;
+      background: #0a0a0a;
+    }
+    .status-bar.connected { border-color: #39ff14; background: rgba(57, 255, 20, 0.05); }
+    .status-bar.disconnected { border-color: #ff3939; background: rgba(255, 57, 57, 0.05); }
+    .status-bar.monitoring { border-color: #39ff14; background: rgba(57, 255, 20, 0.1); }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: #39ff14; box-shadow: 0 0 8px #39ff14; }
+    .dot.red { background: #ff3939; box-shadow: 0 0 8px #ff3939; }
+    .dot.blue { background: #39ff14; box-shadow: 0 0 8px #39ff14; animation: pulse 1.5s infinite; }
+
+    .scope-display { font-size: 9px; color: rgba(57, 255, 20, 0.6); margin-left: auto; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px #39ff14; }
+      50% { opacity: 0.5; box-shadow: 0 0 4px #39ff14; }
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #222;
+      margin-bottom: 10px;
+      overflow-x: auto;
+    }
+    .tab {
+      flex: 1;
+      padding: 6px 4px;
+      text-align: center;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      color: #666;
+      font-size: 10px;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .tab:hover { color: #39ff14; }
+    .tab.active { color: #39ff14; border-bottom-color: #39ff14; }
+    .tab .badge {
+      background: #ff3939;
+      color: #000;
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 8px;
+      margin-left: 3px;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .stat-box {
+      background: #0a0a0a;
+      border: 1px solid #222;
+      border-radius: 4px;
+      padding: 8px;
+      text-align: center;
+    }
+    .stat-value { font-size: 18px; font-weight: 600; color: #39ff14; text-shadow: 0 0 10px rgba(57, 255, 20, 0.3); }
+    .stat-label { font-size: 9px; color: #666; margin-top: 2px; text-transform: uppercase; }
+    .stat-box.critical .stat-value { color: #ff3939; text-shadow: 0 0 10px rgba(255, 57, 57, 0.3); }
+    .stat-box.warning .stat-value { color: #ffaa00; text-shadow: 0 0 10px rgba(255, 170, 0, 0.3); }
+    .stat-box.info .stat-value { color: #39ff14; }
+    .stat-box.success .stat-value { color: #39ff14; }
+
+    .list-container {
+      max-height: 180px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+    .item {
+      background: #0a0a0a;
+      border: 1px solid #222;
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin-bottom: 5px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .item:hover { border-color: #39ff14; background: #111; }
+    .item.critical { border-left: 3px solid #ff3939; }
+    .item.high { border-left: 3px solid #ff6600; }
+    .item.medium { border-left: 3px solid #ffaa00; }
+    .item.low { border-left: 3px solid #39ff14; }
+
+    .item-header { display: flex; justify-content: space-between; align-items: center; }
+    .item-type { font-weight: 600; color: #39ff14; }
+    .item-badge { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+    .item-badge.get { background: transparent; border: 1px solid #39ff14; color: #39ff14; }
+    .item-badge.post { background: transparent; border: 1px solid #00aaff; color: #00aaff; }
+    .item-badge.put { background: transparent; border: 1px solid #ffaa00; color: #ffaa00; }
+    .item-badge.delete { background: transparent; border: 1px solid #ff3939; color: #ff3939; }
+    .item-url { color: #888; font-size: 9px; word-break: break-all; margin-top: 4px; }
+    .item-detail { color: #555; font-size: 9px; margin-top: 2px; }
+
+    .endpoint-method { color: #39ff14; font-weight: 600; }
+    .endpoint-path { color: #00aaff; }
+    .endpoint-api { background: rgba(57, 255, 20, 0.1); border: 1px solid rgba(57, 255, 20, 0.3); padding: 1px 4px; border-radius: 2px; font-size: 9px; color: #39ff14; margin-left: 4px; }
+
+    .btn {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #39ff14;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 6px;
+      transition: all 0.2s;
+      background: transparent;
+      color: #39ff14;
+    }
+    .btn:hover { background: rgba(57, 255, 20, 0.1); box-shadow: 0 0 10px rgba(57, 255, 20, 0.3); }
+    .btn-primary { background: rgba(57, 255, 20, 0.1); }
+    .btn-primary:hover { background: rgba(57, 255, 20, 0.2); }
+    .btn-danger { border-color: #ff3939; color: #ff3939; }
+    .btn-danger:hover { background: rgba(255, 57, 57, 0.1); box-shadow: 0 0 10px rgba(255, 57, 57, 0.3); }
+    .btn-secondary { border-color: #444; color: #888; }
+    .btn-secondary:hover { border-color: #39ff14; color: #39ff14; background: rgba(57, 255, 20, 0.05); }
+    .btn-blue { border-color: #00aaff; color: #00aaff; }
+    .btn-blue:hover { background: rgba(0, 170, 255, 0.1); box-shadow: 0 0 10px rgba(0, 170, 255, 0.3); }
+    .btn-orange { border-color: #ffaa00; color: #ffaa00; }
+    .btn-orange:hover { background: rgba(255, 170, 0, 0.1); box-shadow: 0 0 10px rgba(255, 170, 0, 0.3); }
+    .btn-purple { border-color: #aa44ff; color: #aa44ff; }
+    .btn-purple:hover { background: rgba(170, 68, 255, 0.1); box-shadow: 0 0 10px rgba(170, 68, 255, 0.3); }
+
+    .btn-row { display: flex; gap: 6px; }
+    .btn-row .btn { flex: 1; margin-bottom: 0; }
+
+    .btn-sm { padding: 5px 8px; font-size: 10px; width: auto; margin: 0; }
+
+    .section-title {
+      font-size: 10px;
+      color: #39ff14;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 1px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 20px;
+      color: #555;
+      font-size: 10px;
+    }
+
+    /* Request Editor */
+    .request-editor {
+      background: #0a0a0a;
+      border: 1px solid #222;
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .request-editor.active { display: block; border-color: #39ff14; }
+    .editor-row { margin-bottom: 8px; }
+    .editor-label { font-size: 9px; color: #39ff14; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    .editor-input {
+      width: 100%;
+      background: #000;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #e0e0e0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+    .editor-input:focus { border-color: #39ff14; outline: none; }
+    .editor-textarea {
+      width: 100%;
+      min-height: 60px;
+      background: #000;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #e0e0e0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      resize: vertical;
+    }
+    .editor-textarea:focus { border-color: #39ff14; outline: none; }
+    select.editor-input {
+      cursor: pointer;
+    }
+
+    .footer {
+      padding: 8px 12px;
+      border-top: 1px solid #222;
+      text-align: center;
+      font-size: 9px;
+      color: #444;
+    }
+    .footer a { color: #39ff14; text-decoration: none; }
+    .footer a:hover { text-shadow: 0 0 10px rgba(57, 255, 20, 0.5); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0a0a; }
+    ::-webkit-scrollbar-thumb { background: #39ff14; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #50ff30; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero" class="logo-img">
+  </div>
+
+  <div class="content">
+    <div id="statusBar" class="status-bar disconnected">
+      <div id="statusDot" class="dot red"></div>
+      <span id="statusText">Disconnected</span>
+      <span id="scopeDisplay" class="scope-display"></span>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="overview">Overview</div>
+      <div class="tab" data-tab="findings">Findings<span id="findingsBadge" class="badge" style="display:none">0</span></div>
+      <div class="tab" data-tab="secrets">Secrets</div>
+      <div class="tab" data-tab="endpoints">Endpoints</div>
+      <div class="tab" data-tab="requests">Requests</div>
+    </div>
+
+    <!-- Overview Tab -->
+    <div id="tab-overview" class="tab-content active">
+      <div class="stats-grid">
+        <div class="stat-box critical">
+          <div id="findingsCount" class="stat-value">0</div>
+          <div class="stat-label">Findings</div>
+        </div>
+        <div class="stat-box warning">
+          <div id="secretsCount" class="stat-value">0</div>
+          <div class="stat-label">Secrets</div>
+        </div>
+        <div class="stat-box info">
+          <div id="endpointsCount" class="stat-value">0</div>
+          <div class="stat-label">Endpoints</div>
+        </div>
+        <div class="stat-box success">
+          <div id="requestsCount" class="stat-value">0</div>
+          <div class="stat-label">Requests</div>
+        </div>
+      </div>
+
+      <button id="startBtn" class="btn btn-primary">▶ Start Monitoring</button>
+      <button id="deepScanBtn" class="btn btn-blue">🚀 Deep Scan (Lonkero CLI)</button>
+      <button id="fuzzFormsBtn" class="btn btn-orange">🎯 Fuzz Forms</button>
+      <button id="fuzzGraphqlBtn" class="btn btn-purple">⚡ Fuzz GraphQL</button>
+
+      <div class="btn-row">
+        <button id="pauseBtn" class="btn btn-secondary">⏸ Pause</button>
+        <button id="clearBtn" class="btn btn-secondary">🗑 Clear</button>
+      </div>
+    </div>
+
+    <!-- Findings Tab -->
+    <div id="tab-findings" class="tab-content">
+      <div class="section-title">🔍 Detected Vulnerabilities</div>
+      <div id="findingsList" class="list-container">
+        <div class="empty-state">No findings yet. Browse the target site to detect vulnerabilities.</div>
+      </div>
+      <button id="exportFindingsBtn" class="btn btn-secondary">📋 Export Findings</button>
+    </div>
+
+    <!-- Secrets Tab -->
+    <div id="tab-secrets" class="tab-content">
+      <div class="section-title">🔑 Exposed Secrets & Credentials</div>
+      <div id="secretsList" class="list-container">
+        <div class="empty-state">No secrets found. Browse the site to scan JavaScript for credentials.</div>
+      </div>
+      <button id="exportSecretsBtn" class="btn btn-secondary">📋 Export Secrets</button>
+    </div>
+
+    <!-- Endpoints Tab -->
+    <div id="tab-endpoints" class="tab-content">
+      <div class="section-title">🌐 Discovered API Endpoints</div>
+      <div id="endpointsList" class="list-container">
+        <div class="empty-state">No endpoints discovered. Browse the site to discover APIs.</div>
+      </div>
+      <button id="exportEndpointsBtn" class="btn btn-secondary">📋 Export Endpoints</button>
+    </div>
+
+    <!-- Requests Tab -->
+    <div id="tab-requests" class="tab-content">
+      <div class="section-title">📡 Captured Requests</div>
+
+      <!-- Request Editor -->
+      <div id="requestEditor" class="request-editor">
+        <div class="editor-row">
+          <div style="display: flex; gap: 8px;">
+            <div style="width: 80px;">
+              <div class="editor-label">Method</div>
+              <select id="editorMethod" class="editor-input">
+                <option>GET</option>
+                <option>POST</option>
+                <option>PUT</option>
+                <option>PATCH</option>
+                <option>DELETE</option>
+              </select>
+            </div>
+            <div style="flex: 1;">
+              <div class="editor-label">URL</div>
+              <input type="text" id="editorUrl" class="editor-input" placeholder="https://...">
+            </div>
+          </div>
+        </div>
+        <div class="editor-row">
+          <div class="editor-label">Headers (JSON)</div>
+          <textarea id="editorHeaders" class="editor-textarea" placeholder='{"Content-Type": "application/json"}'></textarea>
+        </div>
+        <div class="editor-row">
+          <div class="editor-label">Body</div>
+          <textarea id="editorBody" class="editor-textarea" placeholder="Request body..."></textarea>
+        </div>
+        <div class="btn-row">
+          <button id="sendRequestBtn" class="btn btn-primary btn-sm">▶ Send</button>
+          <button id="closeEditorBtn" class="btn btn-secondary btn-sm">✕ Close</button>
+        </div>
+        <!-- Response Viewer -->
+        <div id="responseViewer" style="display: none; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+          <div class="editor-label" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Response <span id="responseStatus" style="color: #39ff14;"></span></span>
+            <button id="copyResponseBtn" class="btn btn-secondary btn-sm" style="width: auto; padding: 3px 8px;">Copy</button>
+          </div>
+          <div id="responseHeadersView" style="font-size: 9px; color: #666; margin: 6px 0; max-height: 60px; overflow-y: auto;"></div>
+          <textarea id="responseBody" class="editor-textarea" readonly style="min-height: 120px; color: #39ff14; background: #050505;"></textarea>
+        </div>
+      </div>
+
+      <div id="requestsList" class="list-container">
+        <div class="empty-state">No requests captured yet. Browse the site to capture traffic.</div>
+      </div>
+      <div class="btn-row">
+        <button id="newRequestBtn" class="btn btn-secondary">+ New Request</button>
+        <button id="exportRequestsBtn" class="btn btn-secondary">📋 Export</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="https://lonkero.se" target="_blank">lonkero.se</a>
+    <br>Real TLS Fingerprints • Authenticated Scanning • Zero Config
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

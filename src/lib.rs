@@ -94,3 +94,9 @@ pub mod form_replay;
 
 // Session recording for browser session capture and replay
 pub mod session_recording;
+
+// Browser-Assist Mode - legitimate browser-assisted security scanning
+pub mod browser_assist;
+
+// Parasite Mode - route requests through real browser TLS stack
+pub mod parasite;

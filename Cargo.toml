@@ -97,6 +97,9 @@ similar = "2.7"
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 tungstenite = "0.28"
 
+# Socket utilities for WebSocket server
+socket2 = "0.5"
+
 # TLS support for raw TCP sockets (HTTP smuggling)
 tokio-native-tls = "0.3"
 native-tls = "0.2"
