@@ -207,6 +207,24 @@ enum Commands {
         /// In intelligent mode, this overrides per-parameter intensity. In legacy modes, ignored.
         #[arg(long, default_value = "auto")]
         payload_intensity: PayloadIntensityArg,
+
+        // === Browser-Assist Mode ===
+        /// Enable Browser-Assist mode: route requests through real browser for authentic TLS fingerprints
+        /// Requires Lonkero Browser-Assist extension installed in Chrome
+        #[arg(long)]
+        browser_assist: bool,
+
+        /// Authorization type for Browser-Assist mode
+        #[arg(long, default_value = "self-authorized")]
+        auth_type: BrowserAssistAuthType,
+
+        /// Scope patterns for Browser-Assist mode (e.g., "*.example.com")
+        #[arg(long)]
+        scope: Vec<String>,
+
+        /// Audit log output path for Browser-Assist mode
+        #[arg(long)]
+        audit_log: Option<PathBuf>,
     },
 
     /// List available scanner modules
@@ -368,6 +386,34 @@ impl PayloadIntensityArg {
     }
 }
 
+/// Authorization type for Browser-Assist mode
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
+enum BrowserAssistAuthType {
+    /// Bug bounty program authorization
+    BugBounty,
+    /// Pentest engagement
+    Pentest,
+    /// Internal security audit
+    InternalAudit,
+    /// Dev/staging testing
+    DevTesting,
+    /// Self-authorized (testing own assets)
+    #[default]
+    SelfAuthorized,
+}
+
+impl From<BrowserAssistAuthType> for lonkero_scanner::browser_assist::AuthorizationType {
+    fn from(val: BrowserAssistAuthType) -> Self {
+        match val {
+            BrowserAssistAuthType::BugBounty => lonkero_scanner::browser_assist::AuthorizationType::BugBounty,
+            BrowserAssistAuthType::Pentest => lonkero_scanner::browser_assist::AuthorizationType::PentestEngagement,
+            BrowserAssistAuthType::InternalAudit => lonkero_scanner::browser_assist::AuthorizationType::InternalAudit,
+            BrowserAssistAuthType::DevTesting => lonkero_scanner::browser_assist::AuthorizationType::DevTesting,
+            BrowserAssistAuthType::SelfAuthorized => lonkero_scanner::browser_assist::AuthorizationType::SelfAuthorized,
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -452,6 +498,10 @@ async fn async_main(cli: Cli) -> Result<()> {
             session_output,
             session_format,
             payload_intensity,
+            browser_assist,
+            auth_type,
+            scope,
+            audit_log,
         } => {
             // Determine which modules to request authorization for
             // CRITICAL: The modules array is now REQUIRED for paid modules.
@@ -522,6 +572,10 @@ async fn async_main(cli: Cli) -> Result<()> {
                 session_output,
                 session_format,
                 payload_intensity.to_intensity(),
+                browser_assist,
+                auth_type.into(),
+                scope,
+                audit_log,
             )
             .await
         }
@@ -1000,6 +1054,10 @@ async fn run_scan(
     session_output: Option<PathBuf>,
     session_format: SessionRecordingFormat,
     payload_intensity_override: Option<PayloadIntensity>,
+    browser_assist: bool,
+    browser_assist_auth_type: lonkero_scanner::browser_assist::AuthorizationType,
+    browser_assist_scope: Vec<String>,
+    browser_assist_audit_log: Option<PathBuf>,
 ) -> Result<()> {
     // Check if killswitch is active
     if license_status.killswitch_active {
@@ -1045,6 +1103,128 @@ async fn run_scan(
     info!("Initializing Lonkero Scanner v3.5.0");
     info!("Scan mode: {:?}", mode);
     info!("Targets: {}", targets.len());
+
+    // Browser-Assist Mode initialization
+    // Keep browser launcher alive for the duration of the scan
+    let mut _browser_launcher: Option<lonkero_scanner::browser_assist::BrowserLauncher> = None;
+
+    if browser_assist {
+        info!("============================================================");
+        info!("  BROWSER-ASSIST MODE ENABLED");
+        info!("============================================================");
+        info!("Authorization: {:?}", browser_assist_auth_type);
+
+        let scope_patterns = if browser_assist_scope.is_empty() {
+            // Auto-derive scope from targets
+            targets.iter()
+                .filter_map(|t| url::Url::parse(t).ok())
+                .filter_map(|u| u.host_str().map(|h| format!("*.{}", h)))
+                .collect::<Vec<_>>()
+        } else {
+            browser_assist_scope.clone()
+        };
+
+        info!("Scope: {:?}", scope_patterns);
+
+        if let Some(ref audit_path) = browser_assist_audit_log {
+            info!("Audit log: {}", audit_path.display());
+        }
+
+        info!("");
+        info!("Starting WebSocket server for browser extension...");
+        info!("============================================================");
+    }
+
+    // Initialize Browser-Assist client if enabled
+    let browser_assist_client: Option<std::sync::Arc<lonkero_scanner::browser_assist::BrowserAssistClient>> = if browser_assist {
+        let scope_patterns = if browser_assist_scope.is_empty() {
+            targets.iter()
+                .filter_map(|t| url::Url::parse(t).ok())
+                .filter_map(|u| u.host_str().map(|h| format!("*.{}", h)))
+                .collect::<Vec<_>>()
+        } else {
+            browser_assist_scope.clone()
+        };
+
+        let scope = lonkero_scanner::browser_assist::ScopeAuthorization::new(
+            scope_patterns,
+            "lonkero-cli",
+            browser_assist_auth_type,
+        );
+
+        match lonkero_scanner::browser_assist::BrowserAssistClient::new(
+            lonkero_scanner::browser_assist::DEFAULT_BROWSER_ASSIST_PORT,
+            scope,
+            browser_assist_audit_log.clone(),
+        ).await {
+            Ok(client) => {
+                info!("[Browser-Assist] WebSocket server started on port 9339");
+
+                // Try to auto-launch browser with extension
+                info!("[Browser-Assist] Attempting to auto-launch browser with extension...");
+                match lonkero_scanner::browser_assist::BrowserLauncher::new(None) {
+                    Ok(mut launcher) => {
+                        // Open the first target URL in the browser
+                        let start_url = targets.first().map(|s| s.as_str());
+                        match launcher.launch(start_url) {
+                            Ok(()) => {
+                                info!("[Browser-Assist] Browser launched automatically!");
+                                info!("[Browser-Assist] Extension path: {}", launcher.extension_path().display());
+                                _browser_launcher = Some(launcher);
+                            }
+                            Err(e) => {
+                                warn!("[Browser-Assist] Failed to launch browser: {}", e);
+                                warn!("[Browser-Assist] Please manually open Chrome and install the extension");
+                                warn!("[Browser-Assist] Extension location: browser-assist-extension/");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[Browser-Assist] Browser auto-launch unavailable: {}", e);
+                        warn!("[Browser-Assist] Manual setup required:");
+                        warn!("[Browser-Assist]   1. Open Chrome");
+                        warn!("[Browser-Assist]   2. Go to chrome://extensions");
+                        warn!("[Browser-Assist]   3. Enable Developer Mode");
+                        warn!("[Browser-Assist]   4. Load unpacked: browser-assist-extension/");
+                    }
+                }
+
+                info!("[Browser-Assist] Waiting for browser extension to connect...");
+
+                // Wait up to 30 seconds for browser to connect
+                let wait_start = std::time::Instant::now();
+                let timeout_secs = 30;
+                while !client.is_connected() && wait_start.elapsed().as_secs() < timeout_secs {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    if wait_start.elapsed().as_secs() % 5 == 0 && wait_start.elapsed().as_secs() > 0 {
+                        info!("[Browser-Assist] Still waiting for browser connection... ({}s)", wait_start.elapsed().as_secs());
+                    }
+                }
+
+                if client.is_connected() {
+                    if let Some(browser_info) = client.browser_info().await {
+                        info!("[Browser-Assist] Connected to browser!");
+                        info!("[Browser-Assist] User-Agent: {}", browser_info.user_agent);
+                        info!("[Browser-Assist] Platform: {}", browser_info.platform);
+                        info!("[Browser-Assist] Extension: v{}", browser_info.extension_version);
+                    }
+                    Some(client)
+                } else {
+                    warn!("[Browser-Assist] No browser connected after {}s timeout", timeout_secs);
+                    warn!("[Browser-Assist] Falling back to standard HTTP client");
+                    warn!("[Browser-Assist] To use Browser-Assist mode, install the extension and connect");
+                    None
+                }
+            }
+            Err(e) => {
+                error!("[Browser-Assist] Failed to start: {}", e);
+                warn!("[Browser-Assist] Falling back to standard HTTP client");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Build scanner configuration
     let scanner_config = ScannerConfig {
@@ -1278,7 +1458,7 @@ async fn run_scan(
         });
 
         // Execute scan (standalone mode - no Redis queue)
-        match execute_standalone_scan(Arc::clone(&engine), job, &scanner_config, payload_intensity_override).await {
+        match execute_standalone_scan(Arc::clone(&engine), job, &scanner_config, payload_intensity_override, browser_assist_client.clone()).await {
             Ok(results) => {
                 let vuln_count = results.vulnerabilities.len();
                 total_vulns += vuln_count;
@@ -1726,11 +1906,38 @@ fn is_language_selector_form(
     false
 }
 
+/// Make a GET request, optionally routing through browser-assist for real TLS fingerprints
+async fn browser_assist_get(
+    url: &str,
+    http_client: &HttpClient,
+    browser_assist: &Option<std::sync::Arc<lonkero_scanner::browser_assist::BrowserAssistClient>>,
+) -> Result<lonkero_scanner::http_client::HttpResponse> {
+    // Try browser-assist first if available and connected
+    if let Some(ref client) = browser_assist {
+        if client.is_connected() {
+            debug!("[Browser-Assist] Routing GET {} through browser", url);
+            match client.get(url).await {
+                Ok(response) => {
+                    debug!("[Browser-Assist] Response: {} ({}ms)", response.status, response.duration);
+                    return Ok(response.into());
+                }
+                Err(e) => {
+                    debug!("[Browser-Assist] Request failed: {}, falling back to direct", e);
+                }
+            }
+        }
+    }
+
+    // Fall back to regular HTTP client
+    http_client.get(url).await
+}
+
 async fn execute_standalone_scan(
     engine: Arc<ScanEngine>,
     job: Arc<ScanJob>,
     config: &ScannerConfig,
     payload_intensity_override: Option<PayloadIntensity>,
+    browser_assist_client: Option<std::sync::Arc<lonkero_scanner::browser_assist::BrowserAssistClient>>,
 ) -> Result<ScanResults> {
     use lonkero_scanner::crawler::WebCrawler;
     use lonkero_scanner::framework_detector::FrameworkDetector;
@@ -1762,7 +1969,22 @@ async fn execute_standalone_scan(
 
     info!("Starting scan for: {}", target);
 
+    // Check if Browser-Assist mode is active
+    let browser_assist_active = browser_assist_client.as_ref().map(|c| c.is_connected()).unwrap_or(false);
+    if browser_assist_active {
+        info!("[Browser-Assist] Mode ACTIVE - requests route through real browser TLS");
+        if let Some(ref client) = browser_assist_client {
+            let stats = client.stats();
+            debug!("[Browser-Assist] Stats - Sent: {}, Completed: {}, Failed: {}",
+                stats.requests_sent.load(std::sync::atomic::Ordering::SeqCst),
+                stats.requests_completed.load(std::sync::atomic::Ordering::SeqCst),
+                stats.requests_failed.load(std::sync::atomic::Ordering::SeqCst));
+        }
+    }
+
     // Create HTTP client for reconnaissance
+    // When browser-assist is active, this client is still created but browser-assist
+    // will be used for key requests that benefit from real browser TLS fingerprints
     let http_client = Arc::new(HttpClient::with_config(
         config.request_timeout_secs,
         config.max_retries,
@@ -2000,7 +2222,8 @@ async fn execute_standalone_scan(
     if scan_config.enable_crawler && !is_static_site {
         if let Some(ref static_crawl_results) = crawl_results {
             // Fetch HTML for additional trigger signals
-            let html_content: Option<String> = match http_client.get(target).await {
+            // Use browser-assist for real TLS fingerprint when available
+            let html_content: Option<String> = match browser_assist_get(target, &http_client, &browser_assist_client).await {
                 Ok(response) => Some(response.body),
                 Err(_) => None,
             };

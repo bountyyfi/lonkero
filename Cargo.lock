@@ -2139,6 +2139,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "similar",
+ "socket2 0.6.2",
  "ssh2",
  "tempfile",
  "thiserror 2.0.18",
