@@ -3525,29 +3525,82 @@ impl EnhancedSqliScanner {
         }
 
         // ============================================================
-        // TEST 3: Comment injection
-        // If value'-- returns same as value, comment worked
+        // TEST 3: Comment injection (REQUIRES differential proof)
+        // TRUE SQLi: value' breaks, value'-- fixes it (comment suppresses error)
+        // FALSE POSITIVE: value' and value'-- both work (XSS reflection, no SQL)
         // ============================================================
-        for (comment, db_hint) in [("'--", "Generic/MSSQL"), ("'#", "MySQL"), ("'-- -", "MySQL/MariaDB")] {
-            let comment_payload = format!("{}{}", current_value, comment);
-            let comment_url = Self::build_test_url(base_url, parameter, &comment_payload);
-            if let Ok(comment_resp) = self.http_client.get(&comment_url).await {
-                tests_run += 1;
+        // First, verify that single quote alone causes a CHANGE (proves SQL context)
+        let single_quote_for_comment = format!("{}'", current_value);
+        let single_quote_url_comment = Self::build_test_url(base_url, parameter, &single_quote_for_comment);
+        let single_quote_resp_comment = self.http_client.get(&single_quote_url_comment).await.ok();
+        tests_run += 1;
 
-                if self.calculate_similarity(baseline, &comment_resp) > similarity_threshold {
-                    info!("[SQLi] COMMENT INJECTION CONFIRMED: {}{} works ({})", current_value, comment, db_hint);
-                    vulnerabilities.push(self.create_vulnerability(
-                        base_url,
-                        parameter,
-                        &comment_payload,
-                        "Comment Injection SQL Injection",
-                        &format!("SQL comment {} terminates query successfully", comment),
-                        Severity::High,
-                        Confidence::High,
-                    ));
-                    return Ok((vulnerabilities, tests_run));
+        // Check if single quote causes SQL-specific behavior (not just any change)
+        let (single_quote_differs, has_sql_indicators) = single_quote_resp_comment
+            .as_ref()
+            .map(|r| {
+                let body_lower = r.body.to_lowercase();
+                let has_sql_error = Self::detect_sql_error_patterns(&body_lower);
+                let has_db_error_code = r.status_code == 500 || r.status_code == 503;
+                let sim = self.calculate_similarity(baseline, r);
+
+                // Check for SQL-specific response changes (not just any content change)
+                let sql_indicators = has_sql_error
+                    || has_db_error_code
+                    || body_lower.contains("syntax")
+                    || body_lower.contains("error in your sql")
+                    || body_lower.contains("unclosed quotation")
+                    || body_lower.contains("unterminated string")
+                    || body_lower.contains("invalid query");
+
+                // Require EITHER SQL error indicators OR significant similarity drop with 500 error
+                let differs = sql_indicators || (sim < 0.7 && has_db_error_code);
+                (differs, sql_indicators)
+            })
+            .unwrap_or((false, false));
+
+        // Only test comments if single quote causes SQL-specific behavior
+        // This eliminates false positives on XSS/static sites where quote just gets reflected
+        if single_quote_differs {
+            debug!("[SQLi] Quote caused SQL indicators (has_sql_indicators={}), testing comments", has_sql_indicators);
+            for (comment, db_hint) in [("'--", "Generic/MSSQL"), ("'#", "MySQL"), ("'-- -", "MySQL/MariaDB")] {
+                let comment_payload = format!("{}{}", current_value, comment);
+                let comment_url = Self::build_test_url(base_url, parameter, &comment_payload);
+                if let Ok(comment_resp) = self.http_client.get(&comment_url).await {
+                    tests_run += 1;
+
+                    // Check for literal reflection (XSS, not SQLi)
+                    let payload_reflected = comment_resp.body.contains(comment)
+                        || comment_resp.body.contains(&comment.replace("'", "&#39;"))
+                        || comment_resp.body.contains(&comment.replace("'", "&apos;"));
+
+                    if payload_reflected {
+                        debug!("[SQLi] Skipping comment injection - payload reflected in response (likely XSS)");
+                        continue;
+                    }
+
+                    let comment_similarity = self.calculate_similarity(baseline, &comment_resp);
+
+                    // SQLi confirmed: comment FIXES the broken query (returns to baseline)
+                    // AND single quote alone BREAKS the query (differential proof)
+                    if comment_similarity > similarity_threshold {
+                        info!("[SQLi] COMMENT INJECTION CONFIRMED: {}' breaks, {}{} fixes ({})",
+                              current_value, current_value, comment, db_hint);
+                        vulnerabilities.push(self.create_vulnerability(
+                            base_url,
+                            parameter,
+                            &comment_payload,
+                            "Comment Injection SQL Injection",
+                            &format!("SQL comment {} terminates query: quote breaks it, comment fixes it", comment),
+                            Severity::High,
+                            Confidence::High,
+                        ));
+                        return Ok((vulnerabilities, tests_run));
+                    }
                 }
             }
+        } else {
+            debug!("[SQLi] Skipping comment injection - no SQL error indicators from single quote (likely not SQL context)");
         }
 
         // ============================================================
