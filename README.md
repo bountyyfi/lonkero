@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://bountyyfi.s3.eu-north-1.amazonaws.com/lonkero.png" alt="Lonkero Logo" width="200"/>
+<img src="https:/cdn.bountyy.fi/lonkero.png" alt="Lonkero Logo" width="200"/>
 
 ### Wraps around your attack surface
 
