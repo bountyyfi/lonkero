@@ -685,14 +685,21 @@ impl WebSocketScanner {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
-                    // Check for SQL error messages
-                    if response.contains("SQL")
-                        || response.contains("syntax error")
-                        || response.contains("mysql")
-                        || response.contains("postgresql")
-                        || response.contains("sqlite")
-                        || response.contains("ORA-")
-                        || response.contains("syntax")
+                    // Check for SQL error messages (use specific patterns to avoid FPs)
+                    let response_lower = response.to_lowercase();
+                    if response_lower.contains("sql syntax")
+                        || response_lower.contains("you have an error in your sql")
+                        || response_lower.contains("mysql_fetch")
+                        || response_lower.contains("mysql_query")
+                        || response_lower.contains("mysqli_")
+                        || response_lower.contains("pg_query")
+                        || response_lower.contains("pg_exec")
+                        || response_lower.contains("sqlite3_")
+                        || response_lower.contains("sqlstate[")
+                        || response.contains("ORA-0")
+                        || response.contains("ORA-1")
+                        || response_lower.contains("incorrect syntax near")
+                        || response_lower.contains("unclosed quotation mark")
                     {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket SQL Injection",

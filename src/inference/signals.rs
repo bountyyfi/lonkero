@@ -356,23 +356,24 @@ impl ErrorPatternAnalyzer {
                 ("mysql_fetch", 0.9),
                 ("mysql_query", 0.9),
                 ("mysqli_", 0.85),
-                ("syntax error", 0.7),
+                ("sql syntax", 0.85),  // More specific than just "syntax error"
                 ("unexpected end of sql", 0.9),
 
                 // PostgreSQL
                 ("pg_query", 0.9),
                 ("pg_exec", 0.9),
-                ("postgresql", 0.85),
+                ("postgresql error", 0.85),  // Require "error" context
                 ("unterminated quoted string", 0.9),
 
                 // MSSQL
-                ("sql server", 0.85),
+                ("microsoft sql server", 0.85),  // More specific
                 ("mssql_", 0.9),
                 ("unclosed quotation mark", 0.95),
                 ("incorrect syntax near", 0.9),
 
                 // Oracle
-                ("ora-", 0.85),
+                ("ora-0", 0.85),  // More specific oracle error code prefix
+                ("ora-1", 0.85),
                 ("oracle error", 0.9),
                 ("quoted string not properly terminated", 0.9),
 

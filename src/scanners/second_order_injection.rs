@@ -327,26 +327,34 @@ impl SecondOrderInjectionScanner {
     }
 
     /// Check if response contains SQL error messages
+    /// Uses specific patterns to avoid false positives from documentation/tutorials
     fn contains_sql_error(&self, body: &str) -> bool {
+        let body_lower = body.to_lowercase();
+
+        // High-confidence patterns (database-specific function names and error codes)
         let sql_errors = [
-            "SQL syntax",
-            "mysql_fetch",
-            "ORA-",
-            "PostgreSQL",
-            "SQLite",
-            "SQLSTATE",
-            "syntax error",
-            "mysql_query",
-            "pg_query",
-            "sqlite3_",
-            "Microsoft SQL",
-            "ODBC Driver",
-            "Oracle error",
-            "Unclosed quotation mark",
-            "quoted string not properly terminated",
+            "sql syntax",                          // SQL-specific
+            "mysql_fetch",                         // PHP MySQL function
+            "mysql_query",                         // PHP MySQL function
+            "mysqli_",                             // PHP MySQLi function prefix
+            "ora-0",                               // Oracle error code
+            "ora-1",                               // Oracle error code
+            "pg_query",                            // PHP PostgreSQL function
+            "pg_exec",                             // PHP PostgreSQL function
+            "sqlite3_",                            // SQLite C API function prefix
+            "sqlite3::",                           // SQLite exception namespace
+            "sqlstate[",                           // PDO error format
+            "microsoft sql server",                // MSSQL product name
+            "odbc sql server driver",              // MSSQL ODBC driver
+            "oracle error",                        // Oracle with error context
+            "unclosed quotation mark",             // MSSQL specific error
+            "quoted string not properly terminated", // Oracle specific error
+            "you have an error in your sql",       // MySQL specific error
+            "syntax error at or near",             // PostgreSQL specific error
+            "incorrect syntax near",               // MSSQL specific error
         ];
 
-        sql_errors.iter().any(|&error| body.contains(error))
+        sql_errors.iter().any(|&error| body_lower.contains(error))
     }
 
     /// Get storage endpoints configuration

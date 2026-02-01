@@ -1431,16 +1431,27 @@ impl GraphqlSecurityScanner {
     fn detect_injection_success(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check for SQL/database errors or unexpected data
+        // Check for SQL/database errors (specific patterns to avoid false positives)
         let sql_errors = vec![
-            "sql syntax",
-            "mysql",
-            "postgresql",
-            "sqlite",
-            "syntax error",
-            "unclosed quotation",
-            "ora-",
+            "sql syntax",                         // SQL-specific
+            "you have an error in your sql",      // MySQL specific
+            "mysql_fetch",                        // PHP MySQL function
+            "mysql_query",                        // PHP MySQL function
+            "mysqli_",                            // PHP MySQLi function
+            "pg_query",                           // PostgreSQL function
+            "pg_exec",                            // PostgreSQL function
+            "sqlite3_",                           // SQLite function
+            "sqlite3::",                          // SQLite exception
+            "sqlstate[",                          // PDO error
+            "unclosed quotation mark",            // MSSQL specific
+            "incorrect syntax near",              // MSSQL specific
+            "syntax error at or near",            // PostgreSQL specific
         ];
+
+        // Also check Oracle error codes
+        if body.contains("ORA-0") || body.contains("ORA-1") {
+            return true;
+        }
 
         for error in sql_errors {
             if body_lower.contains(error) {

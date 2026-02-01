@@ -4056,25 +4056,41 @@ impl EnhancedSqliScanner {
         let body_lower = response.body.to_lowercase();
 
         // Check for SQL error messages (very strong evidence)
+        // IMPORTANT: These patterns must be specific enough to avoid false positives
+        // from documentation, tutorials, or non-SQL error messages
         let sql_error_patterns = [
-            ("mysql", 12.0),
-            ("mariadb", 12.0),
-            ("postgresql", 12.0),
-            ("pg_query", 10.0),
-            ("sqlite", 10.0),
-            ("sql syntax", 15.0),
-            ("syntax error", 8.0),
-            ("ora-", 12.0),
-            ("microsoft sql", 12.0),
-            ("mssql", 10.0),
-            ("sqlstate", 10.0),
-            ("unknown column", 8.0),
-            ("mysql_fetch", 10.0),
-            ("mysqli", 8.0),
+            // Database-specific function/error patterns (HIGH confidence)
+            ("mysql_fetch", 12.0),      // PHP MySQL function
+            ("mysql_query", 12.0),      // PHP MySQL function
+            ("mysqli_", 10.0),          // PHP MySQLi functions
+            ("pg_query", 12.0),         // PHP PostgreSQL function
+            ("pg_exec", 12.0),          // PHP PostgreSQL function
+            ("mariadb error", 12.0),    // MariaDB with "error" context
+            ("mysql error", 12.0),      // MySQL with "error" context
+            ("postgresql error", 12.0), // PostgreSQL with "error" context
+            ("sqlite error", 10.0),     // SQLite with "error" context
+            ("sqlite3::", 10.0),        // SQLite3 exception namespace
+            // SQL-specific syntax patterns (HIGH confidence)
+            ("sql syntax", 15.0),                            // Explicitly SQL-related
+            ("error in your sql", 15.0),                     // MySQL-specific error
+            ("syntax error at or near", 12.0),               // PostgreSQL-specific
+            ("incorrect syntax near", 12.0),                 // MSSQL-specific
+            // Oracle error codes (VERY HIGH confidence - specific format)
+            ("ora-0", 15.0),                                 // Oracle error codes
+            ("ora-1", 15.0),                                 // Oracle error codes
+            // SQL Server patterns
+            ("microsoft sql server", 12.0),                  // MSSQL product name
+            ("sqlsrv_", 10.0),                               // PHP SQL Server functions
+            // PDO/database abstraction patterns
+            ("sqlstate[", 12.0),                             // PDO error format with bracket
+            ("pdoexception", 12.0),                          // PHP PDO exception
+            // Structural SQL errors (require context)
+            ("unknown column '", 10.0),                      // With quote for specificity
             ("column not found", 8.0),
             ("wrong number of columns", 8.0),
             ("unclosed quotation mark", 10.0),
             ("quoted string not properly terminated", 10.0),
+            ("unterminated quoted string", 10.0),
         ];
 
         for (pattern, likelihood_ratio) in sql_error_patterns {
