@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
     * { box-sizing: border-box; }
     body {
-      width: 420px;
+      width: 600px;
+      min-height: 500px;
       padding: 0;
       font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
@@ -76,6 +78,10 @@
       font-size: 10px;
       white-space: nowrap;
       transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
     }
     .tab:hover { color: #39ff14; }
     .tab.active { color: #39ff14; border-bottom-color: #39ff14; }
@@ -87,6 +93,7 @@
       border-radius: 8px;
       margin-left: 3px;
     }
+    .tab i { width: 14px; height: 14px; }
 
     .tab-content { display: none; }
     .tab-content.active { display: block; }
@@ -112,7 +119,7 @@
     .stat-box.success .stat-value { color: #39ff14; }
 
     .list-container {
-      max-height: 180px;
+      max-height: 280px;
       overflow-y: auto;
       margin-bottom: 10px;
     }
@@ -131,6 +138,7 @@
     .item.high { border-left: 3px solid #ff6600; }
     .item.medium { border-left: 3px solid #ffaa00; }
     .item.low { border-left: 3px solid #39ff14; }
+    .item.info { border-left: 3px solid #00aaff; }
 
     .item-header { display: flex; justify-content: space-between; align-items: center; }
     .item-type { font-weight: 600; color: #39ff14; }
@@ -159,7 +167,12 @@
       transition: all 0.2s;
       background: transparent;
       color: #39ff14;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
     }
+    .btn i { width: 14px; height: 14px; }
     .btn:hover { background: rgba(57, 255, 20, 0.1); box-shadow: 0 0 10px rgba(57, 255, 20, 0.3); }
     .btn-primary { background: rgba(57, 255, 20, 0.1); }
     .btn-primary:hover { background: rgba(57, 255, 20, 0.2); }
@@ -189,6 +202,7 @@
       gap: 6px;
       letter-spacing: 1px;
     }
+    .section-title i { width: 14px; height: 14px; }
 
     .empty-state {
       text-align: center;
@@ -196,6 +210,23 @@
       color: #555;
       font-size: 10px;
     }
+
+    /* Technology tags */
+    .tech-tag {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 600;
+      border: 1px solid;
+    }
+    .tech-tag.cms { background: rgba(255, 57, 57, 0.1); border-color: #ff3939; color: #ff3939; }
+    .tech-tag.framework { background: rgba(0, 170, 255, 0.1); border-color: #00aaff; color: #00aaff; }
+    .tech-tag.cloud { background: rgba(170, 68, 255, 0.1); border-color: #aa44ff; color: #aa44ff; }
+    .tech-tag.analytics { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; color: #ffaa00; }
+    .tech-tag.css { background: rgba(57, 255, 20, 0.1); border-color: #39ff14; color: #39ff14; }
+    .tech-tag.cdn { background: rgba(100, 100, 100, 0.1); border-color: #888; color: #888; }
+    .tech-tag.build { background: rgba(100, 150, 255, 0.1); border-color: #6496ff; color: #6496ff; }
 
     /* Request Editor */
     .request-editor {
@@ -222,7 +253,7 @@
     .editor-input:focus { border-color: #39ff14; outline: none; }
     .editor-textarea {
       width: 100%;
-      min-height: 60px;
+      min-height: 100px;
       background: #000;
       border: 1px solid #333;
       border-radius: 4px;
@@ -267,11 +298,11 @@
     </div>
 
     <div class="tabs">
-      <div class="tab active" data-tab="overview">Overview</div>
-      <div class="tab" data-tab="findings">Findings<span id="findingsBadge" class="badge" style="display:none">0</span></div>
-      <div class="tab" data-tab="secrets">Secrets</div>
-      <div class="tab" data-tab="endpoints">Endpoints</div>
-      <div class="tab" data-tab="requests">Requests</div>
+      <div class="tab active" data-tab="overview"><i data-lucide="layout-dashboard"></i> Overview</div>
+      <div class="tab" data-tab="findings"><i data-lucide="alert-triangle"></i> Findings<span id="findingsBadge" class="badge" style="display:none">0</span></div>
+      <div class="tab" data-tab="secrets"><i data-lucide="key"></i> Secrets</div>
+      <div class="tab" data-tab="endpoints"><i data-lucide="globe"></i> Endpoints</div>
+      <div class="tab" data-tab="requests"><i data-lucide="radio"></i> Requests</div>
     </div>
 
     <!-- Overview Tab -->
@@ -295,47 +326,79 @@
         </div>
       </div>
 
-      <button id="startBtn" class="btn btn-primary">▶ Start Monitoring</button>
-      <button id="deepScanBtn" class="btn btn-blue">🚀 Deep Scan (Lonkero CLI)</button>
-      <button id="fuzzFormsBtn" class="btn btn-orange">🎯 Fuzz Forms</button>
-      <button id="fuzzGraphqlBtn" class="btn btn-purple">⚡ Fuzz GraphQL</button>
+      <!-- Technologies Detected -->
+      <div id="technologiesSection" style="margin-bottom: 10px;">
+        <div class="section-title"><i data-lucide="cpu"></i> Detected Technologies</div>
+        <div id="technologiesList" style="display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px;">
+          <span style="color: #555; font-size: 10px;">Browse a site to detect...</span>
+        </div>
+      </div>
+
+      <button id="startBtn" class="btn btn-primary"><i data-lucide="play"></i> Start Monitoring</button>
+      <div class="btn-row">
+        <button id="xssScanBtn" class="btn btn-danger"><i data-lucide="shield-alert"></i> XSS Scan</button>
+        <button id="cmsScanBtn" class="btn btn-orange"><i data-lucide="server"></i> CMS Scan</button>
+      </div>
+      <button id="deepXssScanBtn" class="btn btn-danger" style="background: linear-gradient(135deg, #ff3939, #aa0000);"><i data-lucide="radar"></i> Deep XSS Scan (Crawl Site)</button>
+      <button id="deepScanBtn" class="btn btn-blue"><i data-lucide="rocket"></i> Deep Scan (Lonkero CLI)</button>
+      <button id="fuzzFormsBtn" class="btn btn-orange"><i data-lucide="target"></i> Fuzz Forms</button>
+      <button id="fuzzGraphqlBtn" class="btn btn-purple"><i data-lucide="zap"></i> Fuzz GraphQL</button>
 
       <div class="btn-row">
-        <button id="pauseBtn" class="btn btn-secondary">⏸ Pause</button>
-        <button id="clearBtn" class="btn btn-secondary">🗑 Clear</button>
+        <button id="pauseBtn" class="btn btn-secondary"><i data-lucide="pause"></i> Pause</button>
+        <button id="clearBtn" class="btn btn-secondary"><i data-lucide="trash-2"></i> Clear</button>
       </div>
     </div>
 
     <!-- Findings Tab -->
     <div id="tab-findings" class="tab-content">
-      <div class="section-title">🔍 Detected Vulnerabilities</div>
+      <div class="section-title"><i data-lucide="shield-alert"></i> Detected Vulnerabilities</div>
+      <!-- Finding Detail View -->
+      <div id="findingDetail" class="request-editor" style="display: none;">
+        <div class="editor-row">
+          <div class="editor-label">Type</div>
+          <div id="findingDetailType" style="color: #ff3939; font-weight: 600;"></div>
+        </div>
+        <div class="editor-row">
+          <div class="editor-label">URL</div>
+          <div id="findingDetailUrl" style="color: #00aaff; word-break: break-all; font-size: 10px;"></div>
+        </div>
+        <div class="editor-row">
+          <div class="editor-label">Details</div>
+          <textarea id="findingDetailData" class="editor-textarea" readonly style="min-height: 120px; color: #39ff14; background: #050505;"></textarea>
+        </div>
+        <div class="btn-row">
+          <button id="copyFindingBtn" class="btn btn-secondary btn-sm"><i data-lucide="copy"></i> Copy</button>
+          <button id="closeFindingBtn" class="btn btn-secondary btn-sm"><i data-lucide="x"></i> Close</button>
+        </div>
+      </div>
       <div id="findingsList" class="list-container">
         <div class="empty-state">No findings yet. Browse the target site to detect vulnerabilities.</div>
       </div>
-      <button id="exportFindingsBtn" class="btn btn-secondary">📋 Export Findings</button>
+      <button id="exportFindingsBtn" class="btn btn-secondary"><i data-lucide="download"></i> Export Findings</button>
     </div>
 
     <!-- Secrets Tab -->
     <div id="tab-secrets" class="tab-content">
-      <div class="section-title">🔑 Exposed Secrets & Credentials</div>
+      <div class="section-title"><i data-lucide="key-round"></i> Exposed Secrets & Credentials</div>
       <div id="secretsList" class="list-container">
         <div class="empty-state">No secrets found. Browse the site to scan JavaScript for credentials.</div>
       </div>
-      <button id="exportSecretsBtn" class="btn btn-secondary">📋 Export Secrets</button>
+      <button id="exportSecretsBtn" class="btn btn-secondary"><i data-lucide="download"></i> Export Secrets</button>
     </div>
 
     <!-- Endpoints Tab -->
     <div id="tab-endpoints" class="tab-content">
-      <div class="section-title">🌐 Discovered API Endpoints</div>
+      <div class="section-title"><i data-lucide="network"></i> Discovered API Endpoints</div>
       <div id="endpointsList" class="list-container">
         <div class="empty-state">No endpoints discovered. Browse the site to discover APIs.</div>
       </div>
-      <button id="exportEndpointsBtn" class="btn btn-secondary">📋 Export Endpoints</button>
+      <button id="exportEndpointsBtn" class="btn btn-secondary"><i data-lucide="download"></i> Export Endpoints</button>
     </div>
 
     <!-- Requests Tab -->
     <div id="tab-requests" class="tab-content">
-      <div class="section-title">📡 Captured Requests</div>
+      <div class="section-title"><i data-lucide="activity"></i> Captured Requests</div>
 
       <!-- Request Editor -->
       <div id="requestEditor" class="request-editor">
@@ -366,17 +429,17 @@
           <textarea id="editorBody" class="editor-textarea" placeholder="Request body..."></textarea>
         </div>
         <div class="btn-row">
-          <button id="sendRequestBtn" class="btn btn-primary btn-sm">▶ Send</button>
-          <button id="closeEditorBtn" class="btn btn-secondary btn-sm">✕ Close</button>
+          <button id="sendRequestBtn" class="btn btn-primary btn-sm"><i data-lucide="send"></i> Send</button>
+          <button id="closeEditorBtn" class="btn btn-secondary btn-sm"><i data-lucide="x"></i> Close</button>
         </div>
         <!-- Response Viewer -->
         <div id="responseViewer" style="display: none; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
           <div class="editor-label" style="display: flex; justify-content: space-between; align-items: center;">
             <span>Response <span id="responseStatus" style="color: #39ff14;"></span></span>
-            <button id="copyResponseBtn" class="btn btn-secondary btn-sm" style="width: auto; padding: 3px 8px;">Copy</button>
+            <button id="copyResponseBtn" class="btn btn-secondary btn-sm" style="width: auto; padding: 3px 8px;"><i data-lucide="copy"></i> Copy</button>
           </div>
           <div id="responseHeadersView" style="font-size: 9px; color: #666; margin: 6px 0; max-height: 60px; overflow-y: auto;"></div>
-          <textarea id="responseBody" class="editor-textarea" readonly style="min-height: 120px; color: #39ff14; background: #050505;"></textarea>
+          <textarea id="responseBody" class="editor-textarea" readonly style="min-height: 200px; color: #39ff14; background: #050505;"></textarea>
         </div>
       </div>
 
@@ -384,17 +447,21 @@
         <div class="empty-state">No requests captured yet. Browse the site to capture traffic.</div>
       </div>
       <div class="btn-row">
-        <button id="newRequestBtn" class="btn btn-secondary">+ New Request</button>
-        <button id="exportRequestsBtn" class="btn btn-secondary">📋 Export</button>
+        <button id="newRequestBtn" class="btn btn-secondary"><i data-lucide="plus"></i> New Request</button>
+        <button id="exportRequestsBtn" class="btn btn-secondary"><i data-lucide="download"></i> Export</button>
       </div>
     </div>
   </div>
 
   <div class="footer">
     <a href="https://lonkero.se" target="_blank">lonkero.se</a>
-    <br>Real TLS Fingerprints • Authenticated Scanning • Zero Config
+    <br>Real TLS Fingerprints - Authenticated Scanning - Zero Config
   </div>
 
   <script src="popup.js"></script>
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
 </body>
 </html>

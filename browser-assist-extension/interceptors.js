@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 /**
  * Lonkero Request Interceptors
  *
@@ -17,10 +20,29 @@
     const url = typeof input === 'string' ? input : (input.url || String(input));
     const method = init?.method || (input?.method) || 'GET';
     const startTime = performance.now();
-    const headers = init?.headers || input?.headers || {};
-    const body = init?.body || null;
+    const reqHeaders = init?.headers || input?.headers || {};
+    const reqBody = init?.body || null;
 
-    return originalFetch.apply(this, arguments).then(response => {
+    return originalFetch.apply(this, arguments).then(async response => {
+      // Clone response to read body without consuming it
+      const cloned = response.clone();
+      let responseBody = null;
+      let responseHeaders = {};
+
+      try {
+        // Capture response headers
+        response.headers.forEach((v, k) => responseHeaders[k] = v);
+
+        // Capture response body (limit size)
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('json') || contentType.includes('text') || contentType.includes('html') || contentType.includes('xml')) {
+          const text = await cloned.text();
+          responseBody = text.length > 50000 ? text.substring(0, 50000) + '...[truncated]' : text;
+        }
+      } catch (e) {
+        // Ignore body read errors
+      }
+
       window.postMessage({
         type: '__lonkero_request__',
         request: {
@@ -29,8 +51,10 @@
           status: response.status,
           statusText: response.statusText,
           duration: Math.round(performance.now() - startTime),
-          headers: headers instanceof Headers ? Object.fromEntries(headers) : headers,
-          body: typeof body === 'string' ? body : null,
+          headers: reqHeaders instanceof Headers ? Object.fromEntries(reqHeaders) : reqHeaders,
+          body: typeof reqBody === 'string' ? reqBody : null,
+          responseHeaders: responseHeaders,
+          responseBody: responseBody,
         }
       }, '*');
       return response;
@@ -43,8 +67,10 @@
           status: 0,
           statusText: 'Error: ' + err.message,
           duration: Math.round(performance.now() - startTime),
-          headers: headers instanceof Headers ? Object.fromEntries(headers) : headers,
-          body: typeof body === 'string' ? body : null,
+          headers: reqHeaders instanceof Headers ? Object.fromEntries(reqHeaders) : reqHeaders,
+          body: typeof reqBody === 'string' ? reqBody : null,
+          responseHeaders: {},
+          responseBody: null,
         }
       }, '*');
       throw err;
@@ -76,6 +102,28 @@
     xhr.__lonkeroBody = typeof body === 'string' ? body : null;
 
     xhr.addEventListener('loadend', function() {
+      // Capture response headers
+      let responseHeaders = {};
+      try {
+        const headerStr = xhr.getAllResponseHeaders();
+        headerStr.split('\r\n').forEach(line => {
+          const idx = line.indexOf(':');
+          if (idx > 0) {
+            responseHeaders[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+          }
+        });
+      } catch (e) {}
+
+      // Capture response body (limit size)
+      let responseBody = null;
+      try {
+        const contentType = xhr.getResponseHeader('content-type') || '';
+        if (contentType.includes('json') || contentType.includes('text') || contentType.includes('html') || contentType.includes('xml')) {
+          const text = xhr.responseText || '';
+          responseBody = text.length > 50000 ? text.substring(0, 50000) + '...[truncated]' : text;
+        }
+      } catch (e) {}
+
       window.postMessage({
         type: '__lonkero_request__',
         request: {
@@ -86,6 +134,8 @@
           duration: Math.round(performance.now() - xhr.__lonkeroStart),
           headers: xhr.__lonkeroHeaders || {},
           body: xhr.__lonkeroBody,
+          responseHeaders: responseHeaders,
+          responseBody: responseBody,
         }
       }, '*');
     });

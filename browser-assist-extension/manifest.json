@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lonkero Security Scanner",
-  "version": "3.0.1",
+  "version": "3.6.0",
   "description": "Advanced browser-based security scanning with DOM XSS detection, prototype pollution, secret scanning, and Lonkero CLI integration.",
 
   "permissions": [
@@ -35,7 +35,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["formfuzzer.js", "graphql-fuzzer.js", "interceptors.js"],
+      "resources": ["formfuzzer.js", "graphql-fuzzer.js", "interceptors.js", "merlin.js", "xss-scanner.js", "cms-scanner.js", "framework-scanner.js"],
       "matches": ["<all_urls>"]
     }
   ]

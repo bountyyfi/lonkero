@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 /**
  * Lonkero Smart GraphQL Fuzzer
  *
@@ -127,6 +130,8 @@
       this.endpoints = [];
       this.schemas = new Map(); // endpoint -> schema
       this.testedEndpoints = new Set();
+      this.extractedQueries = []; // queries found in source code
+      this.discoveredVariables = new Map(); // variable name -> sample value
     }
 
     // Fetch discovered endpoints from extension via postMessage bridge
@@ -239,6 +244,319 @@
         }
       }
       return [...endpoints];
+    }
+
+    // ============================================================
+    // EXTRACT QUERIES FROM SOURCE CODE
+    // ============================================================
+
+    // Extract actual GraphQL queries/mutations from page source
+    extractQueriesFromSource() {
+      const extractedQueries = [];
+      const scripts = document.querySelectorAll('script');
+      const seenQueries = new Set();
+
+      for (const script of scripts) {
+        const content = script.textContent || script.innerHTML || '';
+        if (!content) continue;
+
+        // Pattern 1: gql`query ...` or graphql`query ...` (tagged template literals)
+        const gqlTagPattern = /(?:gql|graphql)\s*`([^`]+)`/g;
+        for (const match of content.matchAll(gqlTagPattern)) {
+          const query = match[1].trim();
+          if (query && !seenQueries.has(query)) {
+            seenQueries.add(query);
+            extractedQueries.push(this.parseExtractedQuery(query, 'gql_tag'));
+          }
+        }
+
+        // Pattern 2: { query: "..." } or { query: `...` }
+        const queryPropPattern = /["']?query["']?\s*:\s*["'`]([^"'`]+(?:query|mutation|subscription)[^"'`]+)["'`]/gi;
+        for (const match of content.matchAll(queryPropPattern)) {
+          const query = match[1].trim().replace(/\\n/g, '\n').replace(/\\"/g, '"');
+          if (query && !seenQueries.has(query)) {
+            seenQueries.add(query);
+            extractedQueries.push(this.parseExtractedQuery(query, 'query_prop'));
+          }
+        }
+
+        // Pattern 3: Inline query/mutation/subscription strings
+        const inlinePattern = /["'`]((?:query|mutation|subscription)\s+\w+[^"'`]{20,})["'`]/gi;
+        for (const match of content.matchAll(inlinePattern)) {
+          const query = match[1].trim().replace(/\\n/g, '\n').replace(/\\"/g, '"');
+          if (query && !seenQueries.has(query)) {
+            seenQueries.add(query);
+            extractedQueries.push(this.parseExtractedQuery(query, 'inline'));
+          }
+        }
+
+        // Pattern 4: __NEXT_DATA__ or similar JSON with GraphQL queries
+        const jsonPattern = /"query"\s*:\s*"((?:query|mutation)[^"]+)"/gi;
+        for (const match of content.matchAll(jsonPattern)) {
+          const query = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          if (query && !seenQueries.has(query)) {
+            seenQueries.add(query);
+            extractedQueries.push(this.parseExtractedQuery(query, 'json_embed'));
+          }
+        }
+
+        // Pattern 5: Apollo Client persisted query documents
+        const apolloPattern = /documentId["']?\s*:\s*["']([a-f0-9]{32,})["']/gi;
+        for (const match of content.matchAll(apolloPattern)) {
+          extractedQueries.push({
+            type: 'persisted',
+            hash: match[1],
+            source: 'apollo_persisted',
+          });
+        }
+
+        // Pattern 6: Variable definitions (useful for payload injection)
+        const varsPattern = /variables\s*[:=]\s*\{([^}]+)\}/gi;
+        for (const match of content.matchAll(varsPattern)) {
+          const varsStr = match[1];
+          // Extract variable names and types
+          const varMatches = varsStr.matchAll(/["']?(\w+)["']?\s*:\s*["']?([^"',}]+)["']?/g);
+          for (const varMatch of varMatches) {
+            const varName = varMatch[1];
+            const varValue = varMatch[2];
+            // Store variable patterns for later use
+            if (!this.discoveredVariables) this.discoveredVariables = new Map();
+            this.discoveredVariables.set(varName, varValue);
+          }
+        }
+      }
+
+      // Also check for persisted queries in Apollo cache
+      if (window.__APOLLO_STATE__) {
+        try {
+          const state = window.__APOLLO_STATE__;
+          for (const key of Object.keys(state)) {
+            if (key.startsWith('ROOT_QUERY') || key.includes('Query')) {
+              extractedQueries.push({
+                type: 'apollo_cache',
+                key: key,
+                data: state[key],
+                source: '__APOLLO_STATE__',
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
+      console.log(`[GraphQL] Extracted ${extractedQueries.length} queries from source`);
+      this.extractedQueries = extractedQueries;
+      return extractedQueries;
+    }
+
+    // Parse extracted query string into structured format
+    parseExtractedQuery(queryStr, source) {
+      const result = {
+        raw: queryStr,
+        source: source,
+        type: 'query', // default
+        name: null,
+        variables: [],
+        selections: [],
+      };
+
+      // Detect operation type
+      if (/^\s*mutation\s/i.test(queryStr)) {
+        result.type = 'mutation';
+      } else if (/^\s*subscription\s/i.test(queryStr)) {
+        result.type = 'subscription';
+      }
+
+      // Extract operation name
+      const nameMatch = queryStr.match(/(?:query|mutation|subscription)\s+(\w+)/i);
+      if (nameMatch) {
+        result.name = nameMatch[1];
+      }
+
+      // Extract variables from operation signature
+      const varsMatch = queryStr.match(/\(([^)]+)\)/);
+      if (varsMatch) {
+        const varDefs = varsMatch[1].matchAll(/\$(\w+)\s*:\s*(\w+!?)/g);
+        for (const v of varDefs) {
+          result.variables.push({
+            name: v[1],
+            type: v[2],
+            required: v[2].endsWith('!'),
+          });
+        }
+      }
+
+      // Extract field selections (simplified)
+      const selectionsMatch = queryStr.match(/\{\s*(\w+)/g);
+      if (selectionsMatch) {
+        result.selections = selectionsMatch.map(s => s.replace(/[{\s]/g, ''));
+      }
+
+      return result;
+    }
+
+    // Use extracted queries for intelligent fuzzing
+    async fuzzWithExtractedQueries(endpoint) {
+      if (!this.extractedQueries || this.extractedQueries.length === 0) {
+        this.extractQueriesFromSource();
+      }
+
+      if (!this.extractedQueries || this.extractedQueries.length === 0) {
+        console.log('[GraphQL] No queries extracted from source');
+        return;
+      }
+
+      console.log(`[GraphQL] Fuzzing with ${this.extractedQueries.length} extracted queries`);
+
+      for (const extracted of this.extractedQueries) {
+        if (extracted.type === 'persisted') {
+          // Test persisted query hash
+          await this.testExtractedPersistedQuery(endpoint, extracted);
+          continue;
+        }
+
+        if (!extracted.raw) continue;
+
+        // Test the actual query with injection payloads
+        await this.fuzzExtractedQuery(endpoint, extracted);
+      }
+    }
+
+    async testExtractedPersistedQuery(endpoint, extracted) {
+      const r = await this.queryRaw(endpoint, {
+        extensions: {
+          persistedQuery: { version: 1, sha256Hash: extracted.hash },
+        },
+      });
+
+      if (r.json?.data && !r.json?.errors) {
+        this.addResult('PERSISTED_QUERY_FOUND', 'MEDIUM', endpoint, {
+          hash: extracted.hash,
+          source: extracted.source,
+          evidence: 'Found working persisted query hash from source code',
+        });
+      }
+    }
+
+    async fuzzExtractedQuery(endpoint, extracted) {
+      console.log(`[GraphQL] Testing extracted ${extracted.type}: ${extracted.name || '(anonymous)'}`);
+
+      // First, test the query as-is to see if it works
+      const baseVars = {};
+      for (const v of (extracted.variables || [])) {
+        baseVars[v.name] = this.generateTestValue(v.type.replace('!', ''));
+      }
+
+      const baseResult = await this.query(endpoint, extracted.raw, Object.keys(baseVars).length > 0 ? baseVars : null);
+
+      if (baseResult.json?.data) {
+        this.addResult('EXTRACTED_QUERY_WORKS', 'INFO', endpoint, {
+          name: extracted.name,
+          type: extracted.type,
+          source: extracted.source,
+          evidence: 'Query extracted from source code executes successfully',
+        });
+      }
+
+      // Now fuzz each string/ID variable with payloads
+      for (const variable of (extracted.variables || [])) {
+        const typeName = variable.type.replace('!', '');
+        if (!['String', 'ID'].includes(typeName)) continue;
+
+        // SQL Injection
+        for (const payload of PAYLOADS.sqli.slice(0, 3)) {
+          const vars = { ...baseVars, [variable.name]: payload };
+          const r = await this.query(endpoint, extracted.raw, vars);
+
+          if (this.detectSQLError(r.raw || '')) {
+            this.addResult('SQLI_EXTRACTED_QUERY', 'CRITICAL', endpoint, {
+              query: extracted.name || extracted.raw.substring(0, 50),
+              variable: variable.name,
+              payload,
+              evidence: 'SQL error in response from real app query',
+            });
+            break;
+          }
+        }
+
+        // NoSQL Injection (for ID fields often used in MongoDB)
+        if (typeName === 'ID') {
+          for (const payload of PAYLOADS.nosqli.slice(0, 2)) {
+            const vars = { ...baseVars, [variable.name]: payload };
+            const r = await this.query(endpoint, extracted.raw, vars);
+
+            if (r.json?.data && !r.json?.errors) {
+              this.addResult('NOSQLI_EXTRACTED_QUERY', 'HIGH', endpoint, {
+                query: extracted.name,
+                variable: variable.name,
+                payload,
+                evidence: 'NoSQL injection payload accepted in real app query',
+              });
+              break;
+            }
+          }
+        }
+
+        // XSS in returned data
+        for (const payload of PAYLOADS.xss.slice(0, 2)) {
+          const vars = { ...baseVars, [variable.name]: payload };
+          const r = await this.query(endpoint, extracted.raw, vars);
+
+          if (r.raw?.includes(payload)) {
+            this.addResult('XSS_REFLECTION', 'HIGH', endpoint, {
+              query: extracted.name,
+              variable: variable.name,
+              payload,
+              evidence: 'XSS payload reflected in GraphQL response',
+            });
+            break;
+          }
+        }
+
+        // IDOR - enumerate IDs
+        if (/id|user|account|order/i.test(variable.name)) {
+          for (const payload of PAYLOADS.idor.slice(0, 4)) {
+            const vars = { ...baseVars, [variable.name]: payload };
+            const r = await this.query(endpoint, extracted.raw, vars);
+
+            if (r.json?.data && !r.json?.errors) {
+              // Check if we got actual data back
+              const dataStr = JSON.stringify(r.json.data);
+              if (dataStr.length > 50 && !dataStr.includes('null')) {
+                this.addResult('IDOR_EXTRACTED_QUERY', 'HIGH', endpoint, {
+                  query: extracted.name,
+                  variable: variable.name,
+                  payload,
+                  evidence: 'Enumerated ID returned data in real app query',
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // For mutations, try auth bypass payloads
+      if (extracted.type === 'mutation') {
+        await this.fuzzMutationAuthBypass(endpoint, extracted, baseVars);
+      }
+    }
+
+    async fuzzMutationAuthBypass(endpoint, extracted, baseVars) {
+      // Try adding auth bypass fields to variables
+      for (const bypass of PAYLOADS.authBypass) {
+        const vars = { ...baseVars, ...bypass };
+
+        try {
+          const r = await this.query(endpoint, extracted.raw, vars);
+          if (r.json?.data && !r.json?.errors?.some(e => /auth|permission|forbidden/i.test(e.message || ''))) {
+            this.addResult('MUTATION_AUTH_BYPASS_ATTEMPT', 'MEDIUM', endpoint, {
+              mutation: extracted.name,
+              bypass: JSON.stringify(bypass),
+              evidence: 'Mutation accepted auth bypass payload',
+            });
+          }
+        } catch (e) {}
+      }
     }
 
     async probeCommonPaths() {
@@ -1221,12 +1539,62 @@
 
       this.results.push({ type, severity, endpoint, data, timestamp: new Date().toISOString() });
 
-      // Also report to extension
-      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({
-          type: 'finding',
-          finding: { type: `GRAPHQL_${type}`, severity, url: endpoint, ...data },
-        });
+      // Report to extension via postMessage (page context can't use chrome.runtime)
+      if (typeof window !== 'undefined') {
+        const msg = {
+          type: '__lonkero_finding__',
+          finding: {
+            type: `GRAPHQL_${type}`,
+            severity: severity.toLowerCase(),
+            url: endpoint,
+            ...data,
+          }
+        };
+        console.log('[GraphQL] Posting finding to extension:', msg.finding.type, msg);
+        window.postMessage(msg, '*');
+      }
+    }
+
+    // Extract server fingerprint from error response
+    fingerprintFromError(endpoint, responseText, status) {
+      const serverPatterns = [
+        { pattern: /openresty/i, name: 'OpenResty' },
+        { pattern: /nginx\/[\d.]+/i, name: 'nginx' },
+        { pattern: /nginx/i, name: 'nginx' },
+        { pattern: /apache\/[\d.]+/i, name: 'Apache' },
+        { pattern: /apache/i, name: 'Apache' },
+        { pattern: /Microsoft-IIS\/[\d.]+/i, name: 'IIS' },
+        { pattern: /cloudflare/i, name: 'Cloudflare' },
+        { pattern: /varnish/i, name: 'Varnish' },
+        { pattern: /LiteSpeed/i, name: 'LiteSpeed' },
+        { pattern: /Express/i, name: 'Express.js' },
+        { pattern: /Tomcat/i, name: 'Tomcat' },
+        { pattern: /Jetty/i, name: 'Jetty' },
+        { pattern: /gunicorn/i, name: 'Gunicorn' },
+        { pattern: /uvicorn/i, name: 'Uvicorn' },
+        { pattern: /werkzeug/i, name: 'Werkzeug' },
+        { pattern: /Kestrel/i, name: 'Kestrel' },
+        { pattern: /ASP\.NET/i, name: 'ASP.NET' },
+        { pattern: /PHP\/[\d.]+/i, name: 'PHP' },
+      ];
+
+      for (const { pattern, name } of serverPatterns) {
+        const match = responseText.match(pattern);
+        if (match) {
+          // Extract version if present
+          const versionMatch = responseText.match(new RegExp(name + '[/\\s]*([\\d.]+)', 'i'));
+          const version = versionMatch ? versionMatch[1] : null;
+
+          this.addResult('SERVER_FINGERPRINT', 'INFO', endpoint, {
+            server: name,
+            version: version,
+            status: status,
+            evidence: match[0],
+            source: 'error_response',
+          });
+          console.log(`[GraphQL] Server fingerprint: ${name}${version ? ' ' + version : ''} (from ${status} response)`);
+          break;
+        }
       }
     }
 
@@ -1257,13 +1625,38 @@
 
         console.log(`[GraphQL] Testing ${endpoint}`);
 
+        // First probe the endpoint
+        const probe = await this.query(endpoint, '{ __typename }');
+
+        // Collect server fingerprint from error responses
+        if (probe.raw && probe.status >= 400) {
+          this.fingerprintFromError(endpoint, probe.raw, probe.status);
+        }
+
+        // Report endpoint status but continue testing
+        if (probe.status === 405) {
+          this.addResult('ENDPOINT_405', 'INFO', endpoint, {
+            evidence: 'Method Not Allowed - may need different Content-Type or method',
+            status: probe.status,
+          });
+        } else if (probe.status === 403 || probe.status === 401) {
+          this.addResult('AUTH_REQUIRED', 'INFO', endpoint, {
+            evidence: `Authentication required (${probe.status})`,
+            status: probe.status,
+          });
+        }
+
         // Get schema
         const schema = await this.analyzeSchema(endpoint);
 
         // Test security controls (always run)
         await this.testSecurityControls(endpoint);
 
-        // Smart or basic fuzzing
+        // FIRST: Extract and fuzz with real queries from source code
+        // This is the smartest approach - use the actual queries the app uses
+        await this.fuzzWithExtractedQueries(endpoint);
+
+        // THEN: Schema-based fuzzing for additional coverage
         if (schema) {
           await this.fuzzWithSchema(endpoint, schema);
         } else {
@@ -1346,15 +1739,23 @@
   // Expose
   window.gqlFuzz = new SmartGraphQLFuzzer();
 
-  console.log('[Lonkero] Smart GraphQL Fuzzer v3.0 loaded (ported from Rust scanner)');
+  console.log('[Lonkero] Smart GraphQL Fuzzer v3.1 loaded (ported from Rust scanner)');
   console.log('');
-  console.log('  gqlFuzz.fuzz()              - Auto-discover and full scan');
-  console.log('  gqlFuzz.fuzz("/graphql")    - Scan specific endpoint');
-  console.log('  gqlFuzz.quickFuzz()         - Quick scan (basic tests)');
-  console.log('  gqlFuzz.aggressiveFuzz()    - Full scan + DoS/complexity tests');
-  console.log('  gqlFuzz.getReport()         - Get detailed results');
+  console.log('  gqlFuzz.fuzz()                    - Auto-discover and full scan');
+  console.log('  gqlFuzz.fuzz("/graphql")          - Scan specific endpoint');
+  console.log('  gqlFuzz.quickFuzz()               - Quick scan (basic tests)');
+  console.log('  gqlFuzz.aggressiveFuzz()          - Full scan + DoS/complexity tests');
+  console.log('  gqlFuzz.extractQueriesFromSource() - Extract queries from page JS');
+  console.log('  gqlFuzz.getReport()               - Get detailed results');
+  console.log('');
+  console.log('Source Code Analysis:');
+  console.log('  - Extracts gql`...` tagged templates');
+  console.log('  - Parses { query: "..." } objects');
+  console.log('  - Finds persisted query hashes');
+  console.log('  - Uses REAL app queries for smarter fuzzing');
   console.log('');
   console.log('Advanced tests included:');
+  console.log('  - Extracted query injection (SQLi, NoSQLi, XSS, IDOR)');
   console.log('  - Batch query attacks (mutation batching, alias coalescing)');
   console.log('  - Query complexity DoS (deep nesting, circular refs)');
   console.log('  - Persisted query attacks (APQ probing, registration)');

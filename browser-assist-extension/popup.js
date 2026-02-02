@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 /**
  * Lonkero Browser-Assist Popup UI
  * Full security testing dashboard with request editor/replayer
@@ -94,14 +97,19 @@ function updateUI(state) {
   const deepScanBtn = document.getElementById('deepScanBtn');
 
   if (state.monitoring) {
-    startBtn.textContent = '⏹ Stop Monitoring';
+    startBtn.innerHTML = '<i data-lucide="square"></i> Stop Monitoring';
     startBtn.className = 'btn btn-danger';
   } else {
-    startBtn.textContent = '▶ Start Monitoring';
+    startBtn.innerHTML = '<i data-lucide="play"></i> Start Monitoring';
     startBtn.className = 'btn btn-primary';
   }
 
-  pauseBtn.textContent = state.paused ? '▶ Resume' : '⏸ Pause';
+  pauseBtn.innerHTML = state.paused ? '<i data-lucide="play"></i> Resume' : '<i data-lucide="pause"></i> Pause';
+
+  // Re-render icons
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
   deepScanBtn.disabled = !state.connected;
 }
 
@@ -114,44 +122,328 @@ function refreshState() {
 }
 
 // ============================================================
+// TECHNOLOGIES DISPLAY
+// ============================================================
+
+function loadTechnologies() {
+  chrome.runtime.sendMessage({ type: 'getTechnologies' }, (techData) => {
+    const container = document.getElementById('technologiesList');
+    if (!container) return;
+
+    if (!techData || techData.length === 0) {
+      container.innerHTML = '<span style="color: #555; font-size: 10px;">Browse a site to detect...</span>';
+      return;
+    }
+
+    // Flatten and dedupe technologies
+    const seen = new Set();
+    const allTechs = [];
+
+    for (const page of techData) {
+      for (const tech of (page.technologies || [])) {
+        const key = tech.name;
+        if (!seen.has(key)) {
+          seen.add(key);
+          allTechs.push(tech);
+        }
+      }
+      for (const fw of (page.frameworks || [])) {
+        const key = fw.name;
+        if (!seen.has(key)) {
+          seen.add(key);
+          allTechs.push({ ...fw, category: 'framework' });
+        }
+      }
+    }
+
+    if (allTechs.length === 0) {
+      container.innerHTML = '<span style="color: #555; font-size: 10px;">No technologies detected</span>';
+      return;
+    }
+
+    container.innerHTML = allTechs.map(t => {
+      const category = t.category || 'framework';
+      const version = t.version && t.version !== 'unknown' ? ` ${t.version}` : '';
+      return `<span class="tech-tag ${category}" title="${t.evidence || ''}">${escapeHtml(t.name)}${version}</span>`;
+    }).join('');
+  });
+}
+
+// ============================================================
 // FINDINGS TAB
 // ============================================================
+
+let currentFindings = [];
 
 function loadFindings() {
   chrome.runtime.sendMessage({ type: 'getFindings' }, (findings) => {
     const container = document.getElementById('findingsList');
     if (!container) return;
 
+    currentFindings = findings || [];
+
     if (!findings || findings.length === 0) {
       container.innerHTML = '<div class="empty-state">No findings yet. Browse the target site to detect vulnerabilities.</div>';
       return;
     }
 
-    container.innerHTML = findings.map(f => {
+    container.innerHTML = findings.map((f, i) => {
       const severity = getSeverity(f.type);
+      const evidence = f.evidence || f.value || f.valuePreview || f.description || '';
       return `
-        <div class="item ${severity}">
+        <div class="item ${severity} finding-item" data-index="${i}">
           <div class="item-header">
             <span class="item-type">${escapeHtml(f.type)}</span>
+            <span class="item-badge" style="background: transparent; border: 1px solid ${severity === 'critical' ? '#ff3939' : severity === 'high' ? '#ff6600' : '#ffaa00'}; color: ${severity === 'critical' ? '#ff3939' : severity === 'high' ? '#ff6600' : '#ffaa00'}; font-size: 8px;">${severity.toUpperCase()}</span>
           </div>
           <div class="item-url">${escapeHtml(f.url || f.tabUrl || 'Unknown')}</div>
-          ${f.evidence ? `<div class="item-detail">${escapeHtml(f.evidence)}</div>` : ''}
+          ${evidence ? `<div class="item-detail">${escapeHtml(evidence.substring(0, 100))}${evidence.length > 100 ? '...' : ''}</div>` : ''}
         </div>
       `;
     }).join('');
+
+    // Add click handlers
+    container.querySelectorAll('.finding-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const index = parseInt(item.dataset.index, 10);
+        showFindingDetail(index);
+      });
+    });
   });
 }
 
+function showFindingDetail(index) {
+  const finding = currentFindings[index];
+  if (!finding) return;
+
+  const detailView = document.getElementById('findingDetail');
+  document.getElementById('findingDetailType').textContent = finding.type;
+  document.getElementById('findingDetailUrl').textContent = finding.url || finding.tabUrl || 'Unknown';
+
+  // Build detailed data
+  const details = { ...finding };
+  delete details.id;
+  delete details.tabId;
+  document.getElementById('findingDetailData').value = JSON.stringify(details, null, 2);
+
+  detailView.style.display = 'block';
+}
+
+// Finding detail buttons
+document.getElementById('closeFindingBtn')?.addEventListener('click', () => {
+  document.getElementById('findingDetail').style.display = 'none';
+});
+
+document.getElementById('copyFindingBtn')?.addEventListener('click', () => {
+  const data = document.getElementById('findingDetailData').value;
+  navigator.clipboard.writeText(data).then(() => {
+    const btn = document.getElementById('copyFindingBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = '📋 Copy', 1500);
+  });
+});
+
 function getSeverity(type) {
   const severities = {
+    // XSS related
     'DOM_XSS_SINK': 'critical',
     'DOM_XSS_SOURCE': 'high',
     'DOM_XSS_POTENTIAL': 'high',
-    'PROTOTYPE_POLLUTION': 'critical',
-    'SECRET_EXPOSED': 'critical',
-    'DANGEROUS_EVAL': 'medium',
+    'DOM_XSS': 'critical',
+    'REFLECTED_XSS': 'critical',
     'XSS': 'critical',
+    // Framework scanner
+    'NEXTJS_MIDDLEWARE_BYPASS': 'critical',
+    'NEXTJS_DATA_EXPOSURE': 'high',
+    'NEXTJS_IMAGE_SSRF': 'high',
+    'SPRING_ACTUATOR_EXPOSED': 'high',
+    'SPRING_H2_CONSOLE': 'critical',
+    'SPRING_JOLOKIA': 'critical',
+    'ASPNET_YSOD': 'medium',
+    'ASPNET_BLAZOR_DEBUG': 'medium',
+    'ASPNET_CONFIG_EXPOSED': 'high',
+    // Injection
+    'PROTOTYPE_POLLUTION': 'critical',
+    'PROTOTYPE_POLLUTION_ATTEMPT': 'high',
     'SQLi': 'critical',
+    // Secrets & Auth
+    'SECRET_EXPOSED': 'critical',
+    'AUTH_COOKIE': 'high',
+    'AUTH_LOCALSTORAGE': 'high',
+    'KEY_DETECTED': 'info',
+    'INSECURE_COOKIE': 'medium',
+    // Libraries
+    'VULNERABLE_LIBRARY': 'high',
+    // Cloud & Storage
+    'CLOUD_STORAGE': 'medium',
+    // Security Headers
+    'MISSING_SECURITY_HEADER': 'low',
+    'WEAK_CSP': 'medium',
+    'PERMISSIVE_CORS': 'medium',
+    'SERVER_DISCLOSURE': 'info',
+    // JWT
+    'JWT_VULNERABILITY': 'critical',
+    'JWT_INFO': 'info',
+    'JWT_EXPIRED': 'low',
+    'JWT_NO_EXPIRY': 'medium',
+    'JWT_SENSITIVE_DATA': 'high',
+    // Source & Paths
+    'SOURCE_MAP_EXPOSED': 'low',
+    'SENSITIVE_PATH': 'medium',
+    'OPEN_REDIRECT_PARAM': 'medium',
+    // Mixed Content
+    'MIXED_CONTENT': 'medium',
+    // Other
+    'DANGEROUS_EVAL': 'medium',
+    'Finnish Y-tunnus': 'low',
+    'Finnish HETU': 'critical',
+    'IBAN': 'high',
+    'Credit Card': 'critical',
+    // Info level
+    'Mapbox Public Token': 'info',
+    // GraphQL findings
+    'GRAPHQL_INTROSPECTION_ENABLED': 'medium',
+    'GRAPHQL_SQL_INJECTION': 'critical',
+    'GRAPHQL_SQLI_EXTRACTED_QUERY': 'critical',
+    'GRAPHQL_NOSQLI_EXTRACTED_QUERY': 'high',
+    'GRAPHQL_XSS_REFLECTION': 'high',
+    'GRAPHQL_POTENTIAL_IDOR': 'high',
+    'GRAPHQL_IDOR_EXTRACTED_QUERY': 'high',
+    'GRAPHQL_DANGEROUS_MUTATION': 'info',
+    'GRAPHQL_NO_DEPTH_LIMIT': 'medium',
+    'GRAPHQL_BATCHING_ENABLED': 'low',
+    'GRAPHQL_NO_ALIAS_LIMIT': 'low',
+    'GRAPHQL_DEBUG_MODE': 'medium',
+    'GRAPHQL_FIELD_SUGGESTIONS': 'low',
+    'GRAPHQL_MUTATION_BATCHING': 'medium',
+    'GRAPHQL_ALIAS_COALESCING': 'medium',
+    'GRAPHQL_LARGE_BATCH_ALLOWED': 'medium',
+    'GRAPHQL_DEEP_NESTING_ALLOWED': 'high',
+    'GRAPHQL_CIRCULAR_REFERENCE': 'high',
+    'GRAPHQL_APQ_ENABLED': 'info',
+    'GRAPHQL_APQ_HASH_FOUND': 'medium',
+    'GRAPHQL_APQ_REGISTRATION_OPEN': 'high',
+    'GRAPHQL_APQ_BYPASS': 'medium',
+    'GRAPHQL_SENSITIVE_FIELD_EXPOSED': 'high',
+    'GRAPHQL_MUTATION_AUTH_BYPASS': 'critical',
+    'GRAPHQL_TIME_BASED_INJECTION': 'critical',
+    'GRAPHQL_ACCESSIBLE_QUERY': 'info',
+    'GRAPHQL_EXTRACTED_QUERY_WORKS': 'info',
+    'GRAPHQL_PERSISTED_QUERY_FOUND': 'medium',
+    'GRAPHQL_SERVER_FINGERPRINT': 'info',
+    'GRAPHQL_ENDPOINT_405': 'info',
+    'GRAPHQL_AUTH_REQUIRED': 'info',
+    'GRAPHQL_SUBSCRIPTION_FOUND': 'info',
+    'GRAPHQL_SENSITIVE_SUBSCRIPTION': 'medium',
+    'GRAPHQL_WEBSOCKET_ENDPOINT': 'info',
+    // Form fuzzer findings
+    'FORM_VULNERABILITY': 'high',
+    'FORM_SQLI': 'critical',
+    'FORM_XSS': 'high',
+    'FORM_SSTI': 'high',
+    'FORM_CMDI': 'critical',
+    // WordPress CMS findings
+    'WP_VERSION_DISCLOSURE': 'low',
+    'WP_USER_ENUMERATION': 'medium',
+    'WP_REST_API_USER_ENUM': 'medium',
+    'WP_XMLRPC_ENABLED': 'medium',
+    'WP_DEBUG_LOG_EXPOSED': 'high',
+    'WP_CONFIG_EXPOSED': 'critical',
+    'WP_INSTALL_SCRIPT_ACCESSIBLE': 'critical',
+    'WP_DIRECTORY_LISTING': 'low',
+    'WP_CRON_EXPOSED': 'info',
+    'WP_VULNERABLE_PLUGIN': 'high',
+    'WP_SQL_DUMP_EXPOSED': 'critical',
+    'WP_PHPMYADMIN_EXPOSED': 'high',
+    'WP_SETUP_CONFIG_ACCESSIBLE': 'critical',
+    'WP_REST_API_INDEX': 'info',
+    'WP_UPGRADE_SCRIPT': 'medium',
+    'WP_BACKUP_DIR_EXPOSED': 'high',
+    'WP_THEME_EDITOR_ACCESSIBLE': 'info',
+    // Drupal CMS findings
+    'DRUPAL_VERSION_DISCLOSURE': 'low',
+    'DRUPAL_DRUPALGEDDON': 'critical',
+    'DRUPAL_DRUPALGEDDON2': 'critical',
+    'DRUPAL_DRUPALGEDDON3': 'critical',
+    'DRUPAL_USER_ENUMERATION': 'medium',
+    'DRUPAL_JSONAPI_USER_ENUM': 'medium',
+    'DRUPAL_API_EXPOSED': 'medium',
+    'DRUPAL_ADMIN_ACCESSIBLE': 'info',
+    'DRUPAL_INSTALL_SCRIPT': 'high',
+    'DRUPAL_CONFIG_EXPOSED': 'critical',
+    'DRUPAL_CRON_EXPOSED': 'medium',
+    'DRUPAL_PRIVATE_FILES_EXPOSED': 'high',
+    'DRUPAL_VIEWS_ENDPOINT': 'info',
+    'DRUPAL_BACKUP_EXPOSED': 'critical',
+    'DRUPAL_MODULE_INFO_EXPOSED': 'low',
+    // Joomla CMS findings
+    'JOOMLA_VERSION_DISCLOSURE': 'low',
+    'JOOMLA_CVE_2023_23752': 'critical',
+    'JOOMLA_CVE_2017_8917': 'critical',
+    'JOOMLA_ADMIN_ACCESSIBLE': 'info',
+    'JOOMLA_API_EXPOSED': 'critical',
+    'JOOMLA_CONFIG_EXPOSED': 'critical',
+    'JOOMLA_INSTALL_DIR': 'high',
+    // Laravel findings
+    'LARAVEL_ENV_EXPOSED': 'critical',
+    'LARAVEL_IGNITION_EXPOSED': 'critical',
+    'LARAVEL_TELESCOPE_EXPOSED': 'high',
+    'LARAVEL_HORIZON_EXPOSED': 'medium',
+    'LARAVEL_LOG_EXPOSED': 'high',
+    'LARAVEL_DEBUG_MODE': 'critical',
+    'LARAVEL_STORAGE_LISTING': 'medium',
+    'LARAVEL_BACKUP_EXPOSED': 'critical',
+    'LARAVEL_NOVA_EXPOSED': 'info',
+    'LARAVEL_ARTISAN_EXPOSED': 'critical',
+    // Liferay findings
+    'LIFERAY_JSONWS_EXPOSED': 'critical',
+    'LIFERAY_WEBDAV_EXPOSED': 'high',
+    'LIFERAY_AXIS_EXPOSED': 'high',
+    'LIFERAY_VERSION_DISCLOSURE': 'low',
+    // Next.js findings
+    'NEXTJS_SENSITIVE_DATA': 'high',
+    'NEXTJS_DEBUG_MODE': 'medium',
+    'NEXTJS_API_EXPOSED': 'medium',
+    'NEXTJS_IMAGE_SSRF': 'critical',
+    'NEXTJS_MIDDLEWARE_BYPASS': 'critical',
+    'NEXTJS_SOURCE_MAPS': 'medium',
+    'NEXTJS_DATA_EXPOSURE': 'high',
+    'NEXTJS_SOURCEMAPS': 'medium',
+    'NEXTJS_CONFIG_EXPOSED': 'high',
+    'NEXTJS_CVE': 'high',
+    // Other framework findings
+    'REACT_DEVTOOLS_PRODUCTION': 'low',
+    'REACT_DANGEROUS_INNERHTML': 'medium',
+    'VUE_DEVTOOLS_PRODUCTION': 'low',
+    'VUE_V_HTML_USAGE': 'medium',
+    'ANGULAR_BYPASS_SECURITY': 'high',
+    'DJANGO_DEBUG_MODE': 'critical',
+    'DJANGO_ADMIN_EXPOSED': 'info',
+    // Framework scanner findings
+    'FRAMEWORK_DETECTED': 'info',
+    'ASPNET_YSOD': 'high',
+    'ASPNET_BLAZOR_DEBUG': 'medium',
+    'ASPNET_SIGNALR': 'low',
+    'ASPNET_CONFIG_EXPOSED': 'critical',
+    'ASPNET_SWAGGER': 'medium',
+    'SPRING_ACTUATOR': 'high',
+    'SPRING_H2_CONSOLE': 'critical',
+    'SPRING_JOLOKIA': 'critical',
+    'SPRING_SWAGGER': 'medium',
+    // General disclosure findings
+    'GIT_EXPOSED': 'critical',
+    'SVN_EXPOSED': 'critical',
+    'ENV_FILE_EXPOSED': 'critical',
+    'PHPINFO_EXPOSED': 'medium',
+    'SERVER_STATUS_EXPOSED': 'medium',
+    'BACKUP_FILE_EXPOSED': 'high',
+    'ADMIN_PANEL_FOUND': 'info',
+    'CLOUD_CREDENTIALS_EXPOSED': 'critical',
+    'IDE_FILES_EXPOSED': 'low',
+    'PACKAGE_FILE_EXPOSED': 'low',
+    'SENSITIVE_DIR_LISTING': 'medium',
+    'ERROR_PAGE_DISCLOSURE': 'medium',
+    'ROBOTS_INTERESTING_PATHS': 'info',
   };
   return severities[type] || 'medium';
 }
@@ -196,8 +488,8 @@ function loadEndpoints() {
       return;
     }
 
-    container.innerHTML = endpoints.map(e => `
-      <div class="item" onclick="loadEndpointToEditor('${escapeHtml(e.method)}', '${escapeHtml(e.url || e.path)}')">
+    container.innerHTML = endpoints.map((e, i) => `
+      <div class="item endpoint-item" data-index="${i}">
         <div class="item-header">
           <span class="endpoint-method">${escapeHtml(e.method)}</span>
           <span class="endpoint-path">${escapeHtml(e.path)}</span>
@@ -205,6 +497,14 @@ function loadEndpoints() {
         </div>
       </div>
     `).join('');
+
+    // Store endpoints for click handler
+    container.querySelectorAll('.endpoint-item').forEach((item, i) => {
+      item.addEventListener('click', () => {
+        const ep = endpoints[parseInt(item.dataset.index, 10)];
+        if (ep) loadEndpointToEditor(ep.method, ep.url || ep.path);
+      });
+    });
   });
 }
 
@@ -224,7 +524,7 @@ function loadRequests() {
     }
 
     container.innerHTML = capturedRequests.slice(-50).reverse().map((r, i) => `
-      <div class="item" onclick="loadRequestToEditor(${capturedRequests.length - 1 - i})">
+      <div class="item request-item" data-index="${capturedRequests.length - 1 - i}">
         <div class="item-header">
           <span class="item-badge ${r.method?.toLowerCase()}">${r.method || 'GET'}</span>
           <span class="item-type">${r.status || 'Pending'}</span>
@@ -233,6 +533,14 @@ function loadRequests() {
         <div class="item-detail">${r.duration ? r.duration + 'ms' : ''}</div>
       </div>
     `).join('');
+
+    // Add click handlers via event delegation
+    container.querySelectorAll('.request-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const index = parseInt(item.dataset.index, 10);
+        loadRequestToEditor(index);
+      });
+    });
   });
 }
 
@@ -255,9 +563,12 @@ window.loadEndpointToEditor = function(method, url) {
 };
 
 // Load captured request into editor
-window.loadRequestToEditor = function(index) {
+function loadRequestToEditor(index) {
   const req = capturedRequests[index];
-  if (!req) return;
+  if (!req) {
+    console.error('[Lonkero] Request not found at index:', index, 'Total:', capturedRequests.length);
+    return;
+  }
 
   const editor = document.getElementById('requestEditor');
   if (!editor) return;
@@ -266,8 +577,44 @@ window.loadRequestToEditor = function(index) {
   document.getElementById('editorUrl').value = req.url || '';
   document.getElementById('editorHeaders').value = JSON.stringify(req.headers || {}, null, 2);
   document.getElementById('editorBody').value = req.body || '';
+
+  // Show captured response if available
+  const responseViewer = document.getElementById('responseViewer');
+  const responseStatus = document.getElementById('responseStatus');
+  const responseHeadersView = document.getElementById('responseHeadersView');
+  const responseBody = document.getElementById('responseBody');
+
+  if (req.responseBody || req.responseHeaders) {
+    responseViewer.style.display = 'block';
+
+    // Show status with color coding
+    const statusColor = req.status < 300 ? '#39ff14' : req.status < 400 ? '#00aaff' : req.status < 500 ? '#ffaa00' : '#ff3939';
+    responseStatus.textContent = `${req.status} ${req.statusText || ''}`;
+    responseStatus.style.color = statusColor;
+
+    // Show response headers
+    const headerLines = Object.entries(req.responseHeaders || {})
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n');
+    responseHeadersView.textContent = headerLines;
+
+    // Show response body (try to pretty-print JSON)
+    let bodyText = req.responseBody || '';
+    try {
+      const parsed = JSON.parse(bodyText);
+      bodyText = JSON.stringify(parsed, null, 2);
+    } catch (e) {
+      // Not JSON, show as-is
+    }
+    responseBody.value = bodyText;
+  } else {
+    responseViewer.style.display = 'none';
+  }
+
   editor.classList.add('active');
-};
+  console.log('[Lonkero] Loaded request:', req);
+}
+window.loadRequestToEditor = loadRequestToEditor;
 
 // ============================================================
 // BUTTON HANDLERS
@@ -370,6 +717,150 @@ document.getElementById('fuzzGraphqlBtn')?.addEventListener('click', () => {
         console.error('Failed to inject GraphQL fuzzer:', err);
         alert('Failed to inject GraphQL fuzzer: ' + err.message);
       });
+    });
+  });
+});
+
+// XSS Scan
+document.getElementById('xssScanBtn')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+
+    // Inject XSS scanner and run full scan
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: 'MAIN',
+      files: ['xss-scanner.js']
+    }).then(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        func: () => {
+          if (window.xssScanner) {
+            // Run comprehensive scan
+            window.xssScanner.scan().then(results => {
+              console.log('[Lonkero] XSS scan complete:', results);
+              const vulnCount = results.length;
+              const domXss = results.filter(r => r.type === 'DOM_XSS' || r.type === 'DOM_XSS_POTENTIAL').length;
+              const reflected = results.filter(r => r.type === 'REFLECTED_XSS').length;
+              alert(`XSS Scan Complete!\n\n${vulnCount} vulnerabilities found:\n- ${domXss} DOM XSS\n- ${reflected} Reflected XSS\n\nCheck console & Findings tab for details.`);
+            }).catch(err => {
+              alert('XSS scan error: ' + err.message);
+            });
+          } else {
+            alert('XSS scanner failed to initialize.');
+          }
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to inject XSS scanner:', err);
+      alert('Failed to inject XSS scanner: ' + err.message);
+    });
+  });
+});
+
+// Deep XSS Scan (Crawl + Test ALL endpoints)
+document.getElementById('deepXssScanBtn')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+
+    alert('Starting Deep XSS Scan...\nThis will crawl the site and test ALL discovered endpoints.\nThis may take a while. Check console for progress.');
+
+    // Inject XSS scanner and run deep scan
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: 'MAIN',
+      files: ['xss-scanner.js']
+    }).then(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        func: () => {
+          if (window.xssScanner) {
+            // Run deep scan with crawler
+            window.xssScanner.deepScan({ maxDepth: 2, maxPages: 100 }).then(result => {
+              console.log('[Lonkero] Deep XSS scan complete:', result);
+              const vulnCount = result.findings.length;
+              const domXss = result.findings.filter(r => r.type === 'DOM_XSS' || r.type === 'DOM_XSS_POTENTIAL').length;
+              const reflected = result.findings.filter(r => r.type === 'REFLECTED_XSS').length;
+              alert(`Deep XSS Scan Complete!\n\nEndpoints crawled: ${result.stats.endpointsCrawled}\nParameters tested: ${result.stats.paramsTested}\n\n${vulnCount} vulnerabilities found:\n- ${domXss} DOM XSS\n- ${reflected} Reflected XSS\n\nCheck console & Findings tab for details.`);
+            }).catch(err => {
+              alert('Deep XSS scan error: ' + err.message);
+            });
+          } else {
+            alert('XSS scanner failed to initialize.');
+          }
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to inject XSS scanner:', err);
+      alert('Failed to inject XSS scanner: ' + err.message);
+    });
+  });
+});
+
+// CMS/Framework Scan
+document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+
+    // Inject CMS scanner and framework scanner
+    Promise.all([
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['cms-scanner.js']
+      }),
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['framework-scanner.js']
+      })
+    ]).then(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        func: async () => {
+          const results = [];
+
+          // Run CMS scanner if available
+          if (window.cmsScanner) {
+            try {
+              const cmsReport = await window.cmsScanner.scan();
+              // scan() returns a report object with findings property
+              if (cmsReport && cmsReport.findings) {
+                results.push(...cmsReport.findings);
+              }
+            } catch (e) {
+              console.error('[Lonkero] CMS scan error:', e);
+            }
+          }
+
+          // Run Framework scanner if available
+          if (window.frameworkScanner) {
+            try {
+              const fwReport = await window.frameworkScanner.scan();
+              // scan() returns a report object with findings property
+              if (fwReport && fwReport.findings) {
+                results.push(...fwReport.findings);
+              }
+            } catch (e) {
+              console.error('[Lonkero] Framework scan error:', e);
+            }
+          }
+
+          console.log('[Lonkero] CMS/Framework scan complete:', results);
+
+          const cmsCount = results.filter(r => r.category === 'cms' || r.type?.includes('WordPress') || r.type?.includes('Drupal') || r.type?.includes('Joomla')).length;
+          const fwCount = results.filter(r => r.category === 'framework' || r.type?.includes('Next') || r.type?.includes('Spring') || r.type?.includes('ASP')).length;
+          const vulnCount = results.filter(r => r.severity === 'critical' || r.severity === 'high').length;
+
+          alert(`CMS/Framework Scan Complete!\n\n${results.length} findings:\n- ${vulnCount} critical/high severity\n- ${cmsCount} CMS issues\n- ${fwCount} framework issues\n\nCheck console & Findings tab for details.`);
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to inject CMS/Framework scanner:', err);
+      alert('Failed to inject scanner: ' + err.message);
     });
   });
 });
@@ -548,5 +1039,9 @@ function getDateStr() {
 
 refreshState();
 loadFindings();
+loadTechnologies();
 
-setInterval(refreshState, 1000);
+setInterval(() => {
+  refreshState();
+  loadTechnologies();
+}, 1000);

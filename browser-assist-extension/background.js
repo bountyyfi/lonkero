@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 /**
  * Lonkero Browser-Assist Mode - Background Service Worker
  *
@@ -379,6 +382,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Findings from content script
     case 'finding':
+      console.log('[Background] Received finding:', message.finding?.type, message.finding);
       const finding = {
         ...message.finding,
         id: state.findings.length + 1,
@@ -386,19 +390,97 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tabUrl: sender.tab?.url,
       };
 
-      // Deduplicate findings by type + url + evidence
-      const findingKey = `${finding.type}:${finding.url || finding.tabUrl}:${finding.evidence || finding.value || ''}`;
-      const isDuplicate = state.findings.some(f =>
-        `${f.type}:${f.url || f.tabUrl}:${f.evidence || f.value || ''}` === findingKey
-      );
+      // Types that should dedupe by type+url only (not by value)
+      const dedupeByTypeAndUrlOnly = [
+        'Finnish Y-tunnus', 'Finnish HETU', 'IBAN', 'Credit Card',
+        'Mapbox Public Token', 'KEY_DETECTED', 'AUTH_COOKIE', 'AUTH_LOCALSTORAGE',
+        'CLOUD_STORAGE', 'DOM_XSS_SOURCE', 'DOM_XSS_POTENTIAL',
+        // Security headers (one per type per URL)
+        'MISSING_SECURITY_HEADER', 'WEAK_CSP', 'PERMISSIVE_CORS', 'SERVER_DISCLOSURE',
+        // Cookies & JWT
+        'INSECURE_COOKIE', 'JWT_INFO', 'JWT_EXPIRED', 'JWT_NO_EXPIRY',
+        // Other security checks
+        'SOURCE_MAP_EXPOSED', 'MIXED_CONTENT', 'OPEN_REDIRECT_PARAM',
+        // GraphQL findings (one per type per endpoint)
+        'GRAPHQL_INTROSPECTION_ENABLED', 'GRAPHQL_NO_DEPTH_LIMIT', 'GRAPHQL_BATCHING_ENABLED',
+        'GRAPHQL_NO_ALIAS_LIMIT', 'GRAPHQL_DEBUG_MODE', 'GRAPHQL_FIELD_SUGGESTIONS',
+        'GRAPHQL_APQ_ENABLED', 'GRAPHQL_SERVER_FINGERPRINT', 'GRAPHQL_ENDPOINT_405',
+        'GRAPHQL_AUTH_REQUIRED', 'GRAPHQL_WEBSOCKET_ENDPOINT',
+        // WordPress CMS findings (one per type per site)
+        'WP_VERSION_DISCLOSURE', 'WP_USER_ENUMERATION', 'WP_REST_API_USER_ENUM',
+        'WP_XMLRPC_ENABLED', 'WP_DEBUG_LOG_EXPOSED', 'WP_CONFIG_EXPOSED',
+        'WP_INSTALL_SCRIPT_ACCESSIBLE', 'WP_DIRECTORY_LISTING', 'WP_CRON_EXPOSED',
+        'WP_VULNERABLE_PLUGIN', 'WP_SQL_DUMP_EXPOSED', 'WP_PHPMYADMIN_EXPOSED',
+        'WP_SETUP_CONFIG_ACCESSIBLE', 'WP_REST_API_INDEX', 'WP_UPGRADE_SCRIPT',
+        'WP_BACKUP_DIR_EXPOSED', 'WP_THEME_EDITOR_ACCESSIBLE',
+        // Drupal CMS findings
+        'DRUPAL_VERSION_DISCLOSURE', 'DRUPAL_DRUPALGEDDON', 'DRUPAL_DRUPALGEDDON2',
+        'DRUPAL_DRUPALGEDDON3', 'DRUPAL_USER_ENUMERATION', 'DRUPAL_JSONAPI_USER_ENUM',
+        'DRUPAL_API_EXPOSED', 'DRUPAL_ADMIN_ACCESSIBLE', 'DRUPAL_INSTALL_SCRIPT',
+        'DRUPAL_CONFIG_EXPOSED', 'DRUPAL_CRON_EXPOSED', 'DRUPAL_PRIVATE_FILES_EXPOSED',
+        'DRUPAL_VIEWS_ENDPOINT', 'DRUPAL_BACKUP_EXPOSED', 'DRUPAL_MODULE_INFO_EXPOSED',
+        // Joomla CMS findings
+        'JOOMLA_VERSION_DISCLOSURE', 'JOOMLA_CVE_2023_23752', 'JOOMLA_CVE_2017_8917',
+        'JOOMLA_ADMIN_ACCESSIBLE', 'JOOMLA_API_EXPOSED', 'JOOMLA_CONFIG_EXPOSED',
+        'JOOMLA_INSTALL_DIR',
+        // Laravel findings
+        'LARAVEL_ENV_EXPOSED', 'LARAVEL_IGNITION_EXPOSED', 'LARAVEL_TELESCOPE_EXPOSED',
+        'LARAVEL_HORIZON_EXPOSED', 'LARAVEL_LOG_EXPOSED', 'LARAVEL_DEBUG_MODE',
+        'LARAVEL_STORAGE_LISTING', 'LARAVEL_BACKUP_EXPOSED', 'LARAVEL_NOVA_EXPOSED',
+        'LARAVEL_ARTISAN_EXPOSED',
+        // Liferay findings
+        'LIFERAY_JSONWS_EXPOSED', 'LIFERAY_WEBDAV_EXPOSED', 'LIFERAY_AXIS_EXPOSED',
+        'LIFERAY_VERSION_DISCLOSURE',
+        // Next.js findings
+        'NEXTJS_SENSITIVE_DATA', 'NEXTJS_DEBUG_MODE', 'NEXTJS_API_EXPOSED',
+        'NEXTJS_IMAGE_SSRF', 'NEXTJS_MIDDLEWARE_BYPASS', 'NEXTJS_SOURCE_MAPS',
+        'NEXTJS_DATA_EXPOSURE',
+        // Other framework findings
+        'REACT_DEVTOOLS_PRODUCTION', 'REACT_DANGEROUS_INNERHTML',
+        'VUE_DEVTOOLS_PRODUCTION', 'VUE_V_HTML_USAGE',
+        'ANGULAR_BYPASS_SECURITY',
+        'DJANGO_DEBUG_MODE', 'DJANGO_ADMIN_EXPOSED',
+        // Framework scanner findings
+        'FRAMEWORK_DETECTED', 'ASPNET_YSOD', 'ASPNET_BLAZOR_DEBUG', 'ASPNET_SIGNALR',
+        'ASPNET_CONFIG_EXPOSED', 'ASPNET_SWAGGER',
+        'SPRING_ACTUATOR', 'SPRING_H2_CONSOLE', 'SPRING_JOLOKIA', 'SPRING_SWAGGER',
+        'NEXTJS_SOURCEMAPS', 'NEXTJS_CONFIG_EXPOSED', 'NEXTJS_CVE',
+        // General disclosure findings
+        'GIT_EXPOSED', 'SVN_EXPOSED', 'ENV_FILE_EXPOSED', 'PHPINFO_EXPOSED',
+        'SERVER_STATUS_EXPOSED', 'BACKUP_FILE_EXPOSED', 'ADMIN_PANEL_FOUND',
+        'CLOUD_CREDENTIALS_EXPOSED', 'IDE_FILES_EXPOSED', 'PACKAGE_FILE_EXPOSED',
+        'SENSITIVE_DIR_LISTING', 'ERROR_PAGE_DISCLOSURE', 'ROBOTS_INTERESTING_PATHS',
+      ];
+
+      let findingKey;
+      if (dedupeByTypeAndUrlOnly.includes(finding.type)) {
+        // For common findings, dedupe by type + URL only (ignore individual values)
+        findingKey = `${finding.type}:${finding.url || finding.tabUrl}`;
+      } else {
+        // For other findings, include evidence in the key
+        findingKey = `${finding.type}:${finding.url || finding.tabUrl}:${finding.evidence || finding.value || ''}`;
+      }
+
+      const isDuplicate = state.findings.some(f => {
+        let existingKey;
+        if (dedupeByTypeAndUrlOnly.includes(f.type)) {
+          existingKey = `${f.type}:${f.url || f.tabUrl}`;
+        } else {
+          existingKey = `${f.type}:${f.url || f.tabUrl}:${f.evidence || f.value || ''}`;
+        }
+        return existingKey === findingKey;
+      });
 
       if (!isDuplicate) {
         state.findings.push(finding);
+        console.log('[Background] Finding stored:', finding.type, '| Total findings:', state.findings.length);
 
         // Forward to CLI if connected
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'finding', finding }));
         }
+      } else {
+        console.log('[Background] Duplicate finding ignored:', finding.type);
       }
       sendResponse({ ok: true });
       break;
@@ -463,6 +545,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'getCapturedRequests':
       sendResponse(state.capturedRequests);
+      break;
+
+    case 'getTechnologies':
+      // Get technologies from the most recent page analysis
+      const techList = [];
+      for (const [url, analysis] of state.pageAnalysis) {
+        if (analysis.technologies && analysis.technologies.length > 0) {
+          techList.push({
+            url: url,
+            technologies: analysis.technologies,
+            frameworks: analysis.frameworks || [],
+          });
+        }
+      }
+      sendResponse(techList);
       break;
 
     // Request replay
