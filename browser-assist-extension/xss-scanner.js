@@ -2,23 +2,25 @@
 // This software is proprietary and confidential.
 
 /**
- * Lonkero Comprehensive XSS Scanner v2.4
+ * Lonkero Comprehensive XSS Scanner v2.5
  * Ported from Rust proof-based, differential, and taint analysis scanners
  *
  * Features:
  * 1. Proof-based XSS detection (context analysis + escape testing)
  * 2. DOM Differential Analysis (before/after comparison)
  * 3. Static Taint Analysis (source → sink tracking)
- * 4. AGGRESSIVE auto-discovery (100+ common params probed)
+ * 4. AGGRESSIVE auto-discovery (160+ common params probed)
  * 5. Form-based XSS testing (GET + POST)
  * 6. 95%+ detection rate without false positives
  * 7. 80+ WAF bypass payloads
  * 8. Enhanced attribute breakout detection
  * 9. Auto-scan on every page load
  * 10. SITE CRAWLER - discovers and tests all endpoints recursively
- * 11. JSONP/callback XSS detection
- * 12. Template injection detection (Angular, Vue, ES6)
+ * 11. JSONP/callback XSS detection (priority testing for callback params)
+ * 12. Template injection detection (unique math probes to avoid FPs)
  * 13. Form input extraction from crawled pages
+ * 14. API endpoint discovery (probes common API paths)
+ * 15. SPA support via intercepted endpoints
  */
 
 (function() {
@@ -1188,32 +1190,58 @@
 
   /**
    * Test for template injection (Angular, Vue, etc.)
+   * Uses unique math results to avoid false positives from naturally occurring numbers
    */
   async function testTemplateInjection(url, paramName) {
     console.log(`[XSS Scanner] Template injection test: ${paramName}`);
 
     try {
-      // First check if template syntax reflects
-      const mathProbe = '{{7*7}}';
-      const probeUrl = buildTestUrl(url, paramName, mathProbe);
-      const resp = await fetch(probeUrl, { credentials: 'include' });
-      const html = await resp.text();
+      // First get baseline to check what numbers already exist on the page
+      const baselineUrl = buildTestUrl(url, paramName, 'TPLBASELINE');
+      const baselineResp = await fetch(baselineUrl, { credentials: 'include' });
+      const baselineHtml = await baselineResp.text();
 
-      // Check for template evaluation (7*7=49)
-      if (html.includes('49') && !html.includes('{{7*7}}')) {
-        console.log(`[XSS Scanner] Template evaluation detected for ${paramName}`);
+      // Use unique numbers unlikely to appear naturally
+      const probes = [
+        { template: '{{191*7}}', result: '1337' },      // 191*7 = 1337
+        { template: '{{13*101}}', result: '1313' },     // 13*101 = 1313
+      ];
 
-        // Try XSS payloads
-        for (const payload of TEMPLATE_PAYLOADS) {
+      let successfulProbe = null;
+
+      for (const probe of probes) {
+        // Skip if result already exists in baseline (would be false positive)
+        if (baselineHtml.includes(probe.result)) {
+          console.log(`[XSS Scanner] Skipping ${probe.result} - exists in baseline`);
+          continue;
+        }
+
+        const probeUrl = buildTestUrl(url, paramName, probe.template);
+        const resp = await fetch(probeUrl, { credentials: 'include' });
+        const html = await resp.text();
+
+        // Template must be evaluated (result appears) AND template syntax removed
+        if (html.includes(probe.result) && !html.includes(probe.template)) {
+          successfulProbe = probe;
+          break;
+        }
+      }
+
+      // Only report if we have confirmed evaluation with a unique number
+      if (successfulProbe) {
+        console.log(`[XSS Scanner] Template evaluation CONFIRMED for ${paramName}: ${successfulProbe.template} → ${successfulProbe.result}`);
+
+        // Try XSS payloads (only first 5 to save time)
+        for (const payload of TEMPLATE_PAYLOADS.slice(0, 5)) {
           const testUrl = buildTestUrl(url, paramName, payload);
           try {
             const testResp = await fetch(testUrl, { credentials: 'include' });
             const testHtml = await testResp.text();
 
-            // Check for signs of code execution
-            if (testHtml.includes('alert(') ||
-                testHtml.includes('constructor') ||
-                testHtml.match(/\[object\s+\w+\]/)) {
+            // Check for signs of code execution (not in baseline)
+            if ((testHtml.includes('alert(') && !baselineHtml.includes('alert(')) ||
+                (testHtml.includes('constructor') && !baselineHtml.includes('constructor')) ||
+                testHtml.match(/\[object\s+(Window|Object|Function)\]/)) {
               return {
                 type: 'TEMPLATE_INJECTION',
                 subtype: 'Client-Side Template Injection',
@@ -1223,7 +1251,7 @@
                 payload: payload,
                 proof: {
                   templateEvaluated: true,
-                  mathProbe: '{{7*7}} → 49',
+                  mathProbe: `${successfulProbe.template} → ${successfulProbe.result}`,
                 },
                 explanation: `Template injection: expressions are evaluated. Payload: ${payload}`,
               };
@@ -1238,35 +1266,37 @@
           parameter: paramName,
           severity: 'medium',
           url: url,
-          payload: mathProbe,
+          payload: successfulProbe.template,
           proof: {
             templateEvaluated: true,
-            evidence: '{{7*7}} evaluated to 49',
+            evidence: `${successfulProbe.template} evaluated to ${successfulProbe.result}`,
           },
           explanation: `Template expressions are evaluated. Could lead to XSS with right payload.`,
         };
       }
 
-      // Also check ${} syntax
-      const es6Probe = '${7*7}';
-      const es6Url = buildTestUrl(url, paramName, es6Probe);
-      const es6Resp = await fetch(es6Url, { credentials: 'include' });
-      const es6Html = await es6Resp.text();
+      // Also check ${} syntax with unique result
+      if (!baselineHtml.includes('1337')) {
+        const es6Probe = '${191*7}';
+        const es6Url = buildTestUrl(url, paramName, es6Probe);
+        const es6Resp = await fetch(es6Url, { credentials: 'include' });
+        const es6Html = await es6Resp.text();
 
-      if (es6Html.includes('49') && !es6Html.includes('${7*7}')) {
-        return {
-          type: 'TEMPLATE_INJECTION',
-          subtype: 'ES6 Template Literal Injection',
-          parameter: paramName,
-          severity: 'high',
-          url: url,
-          payload: '${alert(1)}',
-          proof: {
-            templateEvaluated: true,
-            evidence: '${7*7} evaluated to 49',
-          },
-          explanation: `ES6 template literal injection: expressions are evaluated server-side.`,
-        };
+        if (es6Html.includes('1337') && !es6Html.includes('${191*7}')) {
+          return {
+            type: 'TEMPLATE_INJECTION',
+            subtype: 'ES6 Template Literal Injection',
+            parameter: paramName,
+            severity: 'high',
+            url: url,
+            payload: '${alert(1)}',
+            proof: {
+              templateEvaluated: true,
+              evidence: '${191*7} evaluated to 1337',
+            },
+            explanation: `ES6 template literal injection: expressions are evaluated server-side.`,
+          };
+        }
       }
 
       return null;
@@ -1371,6 +1401,15 @@
     // Misc common
     'from', 'source', 'origin', 'referrer', 'referer', 'r', 'u', 'v', 'c', 't',
     'preview', 'edit', 'delete', 'remove', 'add', 'create', 'update', 'save',
+    // XSS-prone params (diff viewers, polls, configs, etc.)
+    'left', 'right', 'old', 'new', 'before', 'after', 'diff',
+    'options', 'option', 'choice', 'choices', 'select',
+    'header', 'headers', 'footer', 'heading',
+    'config', 'settings', 'prefs', 'preferences',
+    'snippet', 'script', 'css', 'js',
+    'question', 'answer', 'poll', 'vote',
+    'image', 'img', 'photo', 'avatar', 'icon', 'logo',
+    'first', 'last', 'middle', 'prefix', 'suffix',
   ];
 
   async function comprehensiveScan() {
@@ -1441,25 +1480,33 @@
   }
 
   /**
-   * Full test: proof-based + differential fuzzing + JSONP + template injection
+   * Full test: JSONP first (for callback params), then proof-based + differential + template
    */
   async function testParameterFull(url, paramName, value) {
-    // First try proof-based detection
-    let vuln = await testParameterWithProof(url, paramName, value);
+    let vuln = null;
 
-    // If proof-based didn't find it, try differential fuzzing
-    if (!vuln) {
-      vuln = await differentialFuzz(url, paramName);
-    }
-
-    // Test for JSONP callback XSS (for callback-like params)
-    if (!vuln) {
+    // Check JSONP FIRST for callback-like params (before HTML-based tests fail)
+    const callbackParams = ['callback', 'cb', 'jsonp', 'jsonpcallback', 'func', 'function', 'call'];
+    if (callbackParams.includes(paramName.toLowerCase())) {
       vuln = await testJSONPCallback(url, paramName);
+      if (vuln) return vuln;
     }
+
+    // Try proof-based detection (for HTML responses)
+    vuln = await testParameterWithProof(url, paramName, value);
+    if (vuln) return vuln;
+
+    // Try differential fuzzing
+    vuln = await differentialFuzz(url, paramName);
+    if (vuln) return vuln;
 
     // Test for template injection
-    if (!vuln) {
-      vuln = await testTemplateInjection(url, paramName);
+    vuln = await testTemplateInjection(url, paramName);
+    if (vuln) return vuln;
+
+    // Test JSONP for non-callback params too (some APIs use different param names)
+    if (!callbackParams.includes(paramName.toLowerCase())) {
+      vuln = await testJSONPCallback(url, paramName);
     }
 
     return vuln;
@@ -1751,12 +1798,18 @@
       const content = script.textContent;
       // Match URL patterns in JS
       const urlPatterns = [
-        /["'`](\/[a-z0-9\/_-]+(?:\?[^"'`\s]*)?)/gi,
+        /["'`](\/[a-z0-9\/_\-\.]+(?:\?[^"'`\s]*)?)/gi,
         /["'`](\/api\/[^"'`\s]+)/gi,
         /fetch\s*\(\s*["'`](\/[^"'`]+)/gi,
         /href\s*[:=]\s*["'`](\/[^"'`]+)/gi,
         /action\s*[:=]\s*["'`](\/[^"'`]+)/gi,
         /url\s*[:=]\s*["'`](\/[^"'`]+)/gi,
+        /\.get\s*\(\s*["'`](\/[^"'`]+)/gi,
+        /\.post\s*\(\s*["'`](\/[^"'`]+)/gi,
+        /XMLHttpRequest[^;]*["'`](\/[^"'`]+)/gi,
+        /endpoint\s*[:=]\s*["'`](\/[^"'`]+)/gi,
+        /path\s*[:=]\s*["'`](\/[^"'`]+)/gi,
+        /route\s*[:=]\s*["'`](\/[^"'`]+)/gi,
       ];
 
       for (const pattern of urlPatterns) {
@@ -1768,6 +1821,35 @@
           }
         }
       }
+    });
+
+    // Also extract from onclick and other event handlers
+    doc.querySelectorAll('[onclick], [onsubmit], [onload]').forEach(el => {
+      const handlers = [
+        el.getAttribute('onclick'),
+        el.getAttribute('onsubmit'),
+        el.getAttribute('onload'),
+      ].filter(Boolean);
+
+      for (const handler of handlers) {
+        const matches = handler.match(/["'`](\/[a-z0-9\/_\-\.]+[^"'`]*)/gi);
+        if (matches) {
+          matches.forEach(m => {
+            const path = m.slice(1, -1) || m.slice(1);
+            if (path.startsWith('/')) endpoints.add(path);
+          });
+        }
+      }
+    });
+
+    // Extract from data attributes
+    doc.querySelectorAll('[data-url], [data-href], [data-src], [data-endpoint], [data-action]').forEach(el => {
+      ['data-url', 'data-href', 'data-src', 'data-endpoint', 'data-action'].forEach(attr => {
+        const val = el.getAttribute(attr);
+        if (val && val.startsWith('/')) {
+          endpoints.add(val);
+        }
+      });
     });
 
     // Extract from meta refresh
@@ -2062,8 +2144,15 @@
     const origin = location.origin;
     for (const endpoint of interceptedEndpoints) {
       try {
+        // Endpoints come as objects: { url, path, method, ... }
+        const endpointUrl = typeof endpoint === 'string' ? endpoint : (endpoint.url || endpoint.path);
+        if (!endpointUrl) {
+          console.log(`[XSS Scanner] Skipping invalid endpoint:`, endpoint);
+          continue;
+        }
+
         // Parse the intercepted endpoint URL
-        const url = new URL(endpoint, origin);
+        const url = new URL(endpointUrl, origin);
         if (url.origin !== origin) continue; // Skip cross-origin
 
         const normalizedPath = url.pathname.replace(/\/$/, '') || '/';
@@ -2079,13 +2168,51 @@
             formParams: [],
             depth: 0,
             source: 'intercepted',
+            method: endpoint.method || 'GET',
+            isGraphQL: endpoint.isGraphQL || false,
           });
-          console.log(`[XSS Scanner] Added intercepted endpoint: ${pathWithQuery}`);
+          console.log(`[XSS Scanner] Added intercepted endpoint: ${pathWithQuery} (${endpoint.method || 'GET'})`);
+        }
+      } catch (e) {
+        console.log(`[XSS Scanner] Could not parse intercepted endpoint:`, endpoint, e.message);
+      }
+    }
+
+    // Phase 1.5: Probe for common API endpoints that might not be linked
+    console.log('[XSS Scanner] Phase 1.5: Probing common API endpoints...');
+    const basePath = new URL(location.href).pathname.replace(/\/[^/]*$/, '') || '';
+    const apiPaths = [
+      '/api/stats', '/api/user', '/api/data', '/api/search', '/api/config',
+      '/api/callback', '/api/jsonp', '/api/v1/stats', '/api/v1/user',
+      `${basePath}/api/stats`, `${basePath}/api/data`,
+      '/feed.xml', '/rss.xml', '/sitemap.xml',
+      `${basePath}/feed.xml`, `${basePath}/stats`,
+    ];
+
+    for (const apiPath of apiPaths) {
+      if (discovered.has(apiPath)) continue;
+
+      try {
+        // Quick check if endpoint exists
+        const testUrl = new URL(apiPath, origin);
+        const resp = await fetch(testUrl.toString(), { credentials: 'include', method: 'HEAD' });
+
+        if (resp.ok || resp.status === 405) { // 405 = method not allowed but endpoint exists
+          discovered.set(apiPath, {
+            url: testUrl.toString(),
+            path: apiPath,
+            params: [],
+            formInputs: [],
+            formParams: [],
+            depth: 0,
+            source: 'api-probe',
+          });
+          console.log(`[XSS Scanner] Found API endpoint: ${apiPath}`);
         }
       } catch {}
     }
 
-    console.log(`[XSS Scanner] Found ${discovered.size} unique endpoints to test (crawled + intercepted)`);
+    console.log(`[XSS Scanner] Found ${discovered.size} unique endpoints to test (crawled + intercepted + api-probed)`);
 
     // Phase 2: Test each endpoint
     console.log('[XSS Scanner] Phase 2: Testing discovered endpoints...');
@@ -2364,10 +2491,10 @@
     }
   }, 1500);
 
-  console.log('[Lonkero] XSS Scanner v2.4 loaded.');
+  console.log('[Lonkero] XSS Scanner v2.5 loaded.');
   console.log('  xssScanner.quickScan()  - Fast scan (current page)');
   console.log('  xssScanner.scan()       - Full scan (current page + param discovery)');
-  console.log('  xssScanner.deepScan()   - DEEP SCAN (crawl site + test ALL endpoints)');
+  console.log('  xssScanner.deepScan()   - DEEP SCAN (crawl + API probe + test ALL)');
   console.log('  xssScanner.crawl()      - Crawl site (returns discovered endpoints)');
-  console.log('  + JSONP/callback XSS, template injection, form extraction');
+  console.log('  + JSONP, template injection (no FPs), API discovery, SPA support');
 })();
