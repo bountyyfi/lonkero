@@ -128,7 +128,7 @@ jobs:
             || true
 
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
+        uses: github/codeql-action/upload-sarif@ab5b0e3aabf4de044f07a63754c2110d3ef2df38 # v3.28.1
         if: always()
         with:
           sarif_file: semgrep-results.sarif
@@ -166,7 +166,7 @@ jobs:
           scanners: 'vuln,misconfig'
 
       - name: Upload Trivy SARIF (filesystem)
-        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
+        uses: github/codeql-action/upload-sarif@ab5b0e3aabf4de044f07a63754c2110d3ef2df38 # v3.28.1
         if: always()
         with:
           sarif_file: trivy-fs-results.sarif
@@ -212,7 +212,7 @@ jobs:
           output-file: grype-results.sarif
 
       - name: Upload Grype SARIF
-        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
+        uses: github/codeql-action/upload-sarif@ab5b0e3aabf4de044f07a63754c2110d3ef2df38 # v3.28.1
         if: always()
         with:
           sarif_file: grype-results.sarif
@@ -393,7 +393,7 @@ jobs:
           publish_results: true
 
       - name: Upload Scorecard SARIF
-        uses: github/codeql-action/upload-sarif@f985be5b50bd175586d44aac9ac52926adf12893 # v3.28.1
+        uses: github/codeql-action/upload-sarif@ab5b0e3aabf4de044f07a63754c2110d3ef2df38 # v3.28.1
         with:
           sarif_file: scorecard-results.sarif
           category: scorecard
