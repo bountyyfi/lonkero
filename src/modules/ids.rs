@@ -253,6 +253,8 @@ pub mod advanced_scanning {
     pub const SECOND_ORDER_INJECTION: &str = "second_order_injection";
     /// Authentication flow tester (session fixation, password reset IDOR, MFA bypass)
     pub const AUTH_FLOW_TESTER: &str = "auth_flow_tester";
+    /// README invisible prompt injection scanner
+    pub const README_PROMPT_INJECTION: &str = "readme_prompt_injection";
 }
 
 /// Team+ tier modules - requires cloud_scanning feature
@@ -465,6 +467,7 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         // New Scanners (v3.1)
         advanced_scanning::SECOND_ORDER_INJECTION,
         advanced_scanning::AUTH_FLOW_TESTER,
+        advanced_scanning::README_PROMPT_INJECTION,
         // Cloud Scanning (Team+)
         cloud_scanning::CONTAINER_SCANNER,
         cloud_scanning::CLOUD_STORAGE,
