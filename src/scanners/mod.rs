@@ -118,6 +118,7 @@ pub mod proof_xss_scanner; // Proof-based XSS detection (no Chrome, 2-3 requests
 pub mod prototype_pollution;
 pub mod race_condition;
 pub mod rails_scanner;
+pub mod readme_prompt_injection;
 pub mod rate_limiting;
 pub mod react_security;
 pub mod redos;
@@ -256,6 +257,7 @@ pub use postmessage_vulns::PostMessageVulnsScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use race_condition::RaceConditionScanner;
 pub use rails_scanner::RailsScanner;
+pub use readme_prompt_injection::ReadmePromptInjectionScanner;
 pub use rate_limiting::RateLimitingScanner;
 pub use react_security::ReactSecurityScanner;
 pub use redos::RedosScanner;
@@ -342,6 +344,7 @@ pub struct ScanEngine {
     pub code_injection_scanner: CodeInjectionScanner,
     pub ssi_injection_scanner: SSIInjectionScanner,
     pub race_condition_scanner: RaceConditionScanner,
+    pub readme_prompt_injection_scanner: ReadmePromptInjectionScanner,
     pub mass_assignment_scanner: MassAssignmentScanner,
     pub information_disclosure_scanner: InformationDisclosureScanner,
     pub cache_poisoning_scanner: CachePoisoningScanner,
@@ -568,6 +571,7 @@ impl ScanEngine {
             code_injection_scanner: CodeInjectionScanner::new(Arc::clone(&http_client)),
             ssi_injection_scanner: SSIInjectionScanner::new(Arc::clone(&http_client)),
             race_condition_scanner: RaceConditionScanner::new(Arc::clone(&http_client)),
+            readme_prompt_injection_scanner: ReadmePromptInjectionScanner::new(Arc::clone(&http_client)),
             mass_assignment_scanner: MassAssignmentScanner::new(Arc::clone(&http_client)),
             information_disclosure_scanner: InformationDisclosureScanner::new(Arc::clone(
                 &http_client,
@@ -1923,6 +1927,19 @@ impl ScanEngine {
         queue
             .increment_tests(scan_id.clone(), js_miner_tests as u64)
             .await?;
+
+        // README Invisible Prompt Injection Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::README_PROMPT_INJECTION) {
+            info!("Checking README.md for invisible prompt injection");
+            modules_used.push(crate::modules::ids::advanced_scanning::README_PROMPT_INJECTION.to_string());
+            let (readme_pi_vulns, readme_pi_tests) =
+                self.readme_prompt_injection_scanner.scan(&target, &config).await?;
+            all_vulnerabilities.extend(readme_pi_vulns);
+            total_tests += readme_pi_tests as u64;
+            queue
+                .increment_tests(scan_id.clone(), readme_pi_tests as u64)
+                .await?;
+        }
 
         // Sensitive Data Exposure Check (Professional+)
         if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SENSITIVE_DATA) {

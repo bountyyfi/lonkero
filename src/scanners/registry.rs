@@ -733,6 +733,10 @@ pub enum ScannerType {
     SstiAdvanced,
     /// Merlin exploit scanner
     Merlin,
+
+    // === Supply Chain ===
+    /// README invisible prompt injection scanner
+    ReadmePromptInjection,
 }
 
 impl ScannerType {
@@ -835,6 +839,7 @@ impl ScannerType {
             ScannerType::Cve202555184 => "CVE-2025-55184 Scanner",
             ScannerType::SstiAdvanced => "Advanced SSTI Scanner",
             ScannerType::Merlin => "Merlin Scanner",
+            ScannerType::ReadmePromptInjection => "README Prompt Injection Scanner",
         }
     }
 
