@@ -16,7 +16,7 @@ use crate::http_client::HttpClient;
 use crate::queue::RedisQueue;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use crate::subdomain_enum::SubdomainEnumerator;
-use crate::types::{ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
+use crate::types::{Confidence, ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -717,6 +717,120 @@ impl ScanEngine {
 
         let mut all_vulnerabilities: Vec<Vulnerability> = Vec::new();
         let mut total_tests: u64 = 0;
+
+        // ============================================================
+        // PARKED SITE DETECTION - Early termination for false positive prevention
+        // ============================================================
+        // Parked/placeholder domains (GoDaddy, Sedo, Bodis, etc.) respond
+        // generically to all requests, causing massive false positives across
+        // every scanner module. Detect them early and skip scanning entirely.
+        info!("[Baseline] Checking for parked/placeholder site");
+        let parked_check = match self.http_client.get(&target).await {
+            Ok(response) => {
+                let result = BaselineDetector::detect_parked_site(&response);
+                result
+            }
+            Err(_) => (false, None),
+        };
+
+        if parked_check.0 {
+            let service_name = parked_check.1.as_deref().unwrap_or("Unknown");
+            warn!(
+                "PARKED SITE DETECTED: {} is a parked/placeholder domain (service: {}). \
+                Skipping vulnerability scan to prevent false positives.",
+                target, service_name
+            );
+
+            // Create an informational finding explaining why the scan was skipped
+            let info_vuln = Vulnerability {
+                id: uuid::Uuid::new_v4().to_string(),
+                vuln_type: "Parked Domain Detected".to_string(),
+                severity: Severity::Info,
+                confidence: Confidence::High,
+                category: "Information".to_string(),
+                url: target.clone(),
+                parameter: None,
+                payload: String::new(),
+                description: format!(
+                    "The target {} is a parked/placeholder domain hosted by {}. \
+                    Parked domains respond generically to all requests and produce \
+                    false positive vulnerability findings. The scan was terminated \
+                    early to prevent false positive results.",
+                    target, service_name
+                ),
+                evidence: Some(format!("Parking service detected: {}", service_name)),
+                cwe: "CWE-0".to_string(),
+                cvss: 0.0,
+                verified: true,
+                false_positive: false,
+                remediation: "If this domain should host a real application, configure \
+                    proper web hosting. Otherwise, no action needed."
+                    .to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
+            };
+
+            let elapsed = start_time.elapsed();
+            let license_sig = crate::license::get_license_signature();
+
+            let mut results = ScanResults {
+                scan_id: scan_id.clone(),
+                target: target.clone(),
+                tests_run: 1,
+                vulnerabilities: vec![info_vuln],
+                started_at,
+                completed_at: chrono::Utc::now().to_rfc3339(),
+                duration_seconds: elapsed.as_secs_f64(),
+                early_terminated: true,
+                termination_reason: Some(format!(
+                    "Parked domain detected ({})",
+                    service_name
+                )),
+                scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                license_signature: Some(license_sig),
+                quantum_signature: None,
+                authorization_token_id: Some(scan_token.token.clone()),
+            };
+
+            // Sign the early-terminated results (same flow as normal results)
+            let results_hash = crate::signing::hash_results(&results)
+                .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
+            let findings_summary =
+                crate::signing::FindingsSummary::from_vulnerabilities(&results.vulnerabilities);
+
+            match crate::signing::sign_results(
+                &results_hash,
+                &scan_token,
+                vec!["baseline_detector".to_string()],
+                Some(crate::signing::ScanMetadata {
+                    targets_count: Some(1),
+                    scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    scan_duration_ms: Some(elapsed.as_millis() as u64),
+                }),
+                Some(findings_summary),
+                Some(vec![job.target.clone()]),
+            )
+            .await
+            {
+                Ok(signature) => {
+                    info!(
+                        "[SIGNED] Parked site results signed: {}",
+                        signature.algorithm
+                    );
+                    results.quantum_signature = Some(signature);
+                }
+                Err(crate::signing::SigningError::ServerUnreachable(msg)) => {
+                    error!("Failed to sign results - server unreachable: {}", msg);
+                    return Err(anyhow::anyhow!("Signing server unreachable: {}", msg));
+                }
+                Err(e) => {
+                    error!("Failed to sign results: {}", e);
+                    return Err(anyhow::anyhow!("Failed to sign results: {}", e));
+                }
+            }
+
+            return Ok(results);
+        }
 
         // Phase 0: Crawl & Reconnaissance
         info!("[Phase 0] Starting reconnaissance crawl");
