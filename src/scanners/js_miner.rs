@@ -180,10 +180,25 @@ impl JsMinerScanner {
 
     /// Check if URL is from a third-party domain that should be skipped
     fn is_third_party_url(&self, js_url: &str, target_host: &str) -> bool {
-        let js_host = match url::Url::parse(js_url) {
-            Ok(u) => u.host_str().unwrap_or("").to_lowercase(),
+        let parsed = match url::Url::parse(js_url) {
+            Ok(u) => u,
             Err(_) => return false,
         };
+        let js_host = parsed.host_str().unwrap_or("").to_lowercase();
+        let js_path = parsed.path().to_lowercase();
+
+        // Skip CDN infrastructure paths that exist on the target domain
+        // These are injected by CDNs/WAFs and are NOT the site's own code
+        let infrastructure_paths = [
+            "/cdn-cgi/",          // Cloudflare challenge/worker scripts
+            "/_next/static/",     // Next.js framework chunks (not app code)
+            "/__vite_ping",       // Vite dev server
+        ];
+        for infra_path in &infrastructure_paths {
+            if js_path.starts_with(infra_path) {
+                return true; // Treat as third-party (skip analysis)
+            }
+        }
 
         // Same host - not third-party
         if js_host == target_host || js_host.ends_with(&format!(".{}", target_host)) {

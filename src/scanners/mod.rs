@@ -2533,6 +2533,25 @@ impl ScanEngine {
 
         let elapsed = start_time.elapsed();
 
+        // Deduplicate vulnerabilities - multiple scanners may report the same finding
+        // (e.g., session_management and advanced_auth both check SameSite/concurrent sessions)
+        let pre_dedup_count = all_vulnerabilities.len();
+        {
+            let mut seen = std::collections::HashSet::new();
+            all_vulnerabilities.retain(|v| {
+                let key = format!("{}|{}|{}", v.vuln_type, v.url, v.parameter.as_deref().unwrap_or(""));
+                seen.insert(key)
+            });
+        }
+        if all_vulnerabilities.len() < pre_dedup_count {
+            info!(
+                "Deduplicated {} duplicate findings ({} -> {})",
+                pre_dedup_count - all_vulnerabilities.len(),
+                pre_dedup_count,
+                all_vulnerabilities.len()
+            );
+        }
+
         info!(
             "Scan completed: {} vulnerabilities found in {} tests ({:.2}s)",
             all_vulnerabilities.len(),
