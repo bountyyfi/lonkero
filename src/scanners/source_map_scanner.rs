@@ -368,7 +368,8 @@ impl SourceMapScanner {
                 4. Use environment variables for sensitive configuration"
                 .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         };
 
         Some(vec![vuln])
@@ -481,7 +482,8 @@ impl SourceMapScanner {
                 5. Never include sensitive data in source code"
                 .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 

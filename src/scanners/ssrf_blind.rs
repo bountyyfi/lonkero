@@ -684,6 +684,7 @@ Additional Security Measures:
 - Consider using SSRF-safe libraries (e.g., SafeCurl for PHP)
 - Regularly scan for SSRF vulnerabilities as part of SDLC"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
         }
     }

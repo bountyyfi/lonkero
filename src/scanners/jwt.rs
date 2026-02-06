@@ -634,6 +634,7 @@ impl JwtScanner {
 9. Implement token revocation/blacklisting
 10. Use a well-tested JWT library (jose, jsonwebtoken, etc.)"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
         }
     }

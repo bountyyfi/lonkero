@@ -89,6 +89,9 @@ pub mod features;
 // Model scorer for vulnerability detection
 pub mod scorer;
 
+// ML Enhancer - bridges scanner findings to model scorer (one-way, no data uploaded)
+pub mod ml_enhancer;
+
 // Probe payload library
 pub mod probes;
 

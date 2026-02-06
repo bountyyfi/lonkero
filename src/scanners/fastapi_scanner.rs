@@ -305,6 +305,7 @@ impl FastApiScanner {
                     4. If docs are required, implement authentication via dependencies"
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -381,6 +382,7 @@ impl FastApiScanner {
                                 3. Implement custom exception handlers that don't expose internals\n\
                                 4. Set PYTHONOPTIMIZE=2 in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         return Ok((vulnerabilities, tests_run));
@@ -483,7 +485,8 @@ impl FastApiScanner {
                                 4. Review and restrict `allow_methods` and `allow_headers`"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                         break;
                     }
@@ -608,7 +611,8 @@ impl FastApiScanner {
                                 5. Implement account lockout after failed attempts"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                     break;
@@ -729,6 +733,7 @@ impl FastApiScanner {
                     4. Deploy internal services on separate networks"
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -759,6 +764,7 @@ impl FastApiScanner {
                     3. Expose metrics only on internal interfaces"
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -873,6 +879,7 @@ impl FastApiScanner {
                                             5. Use Field(...) with strict constraints"
                                             .to_string(),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                     });
                                     break;
@@ -980,7 +987,8 @@ impl FastApiScanner {
                                             4. Implement proper token validation in dependencies"
                                             .to_string(),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                                     });
                                     return Ok((vulnerabilities, tests_run));
                                 }
@@ -1064,7 +1072,8 @@ impl FastApiScanner {
                             4. Consider using signed cookies or JWT with proper validation"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                 }
             }
@@ -1099,7 +1108,8 @@ impl FastApiScanner {
                     remediation: "Remove Server-Timing header in production if not required."
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }

@@ -239,6 +239,7 @@ impl IdorAnalyzer {
                                         false_positive: false,
                                         remediation: "Implement proper object-level authorization checks. Verify the requesting user owns or has permission to access the requested object.".to_string(),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                     });
                                     break; // Found one, don't spam
@@ -396,6 +397,7 @@ impl IdorAnalyzer {
                             false_positive: false,
                             remediation: "Implement object-level authorization. Verify the requesting user has permission to access each object before returning data.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break; // One finding per object is enough
@@ -444,6 +446,7 @@ impl IdorAnalyzer {
                             false_positive: false,
                             remediation: "Add authorization checks before returning object data. Ensure users can only access objects they own or have explicit permission to view.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break; // One per endpoint
@@ -508,6 +511,7 @@ impl IdorAnalyzer {
                             false_positive: false,
                             remediation: "Implement role-based access control. Admin endpoints should verify the requesting user has admin privileges before allowing access.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }

@@ -129,6 +129,7 @@ impl Cve202555183Scanner {
                             waf
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 } else {
@@ -178,6 +179,7 @@ impl Cve202555183Scanner {
                             Reference: https://nextjs.org/blog/security-update-2025-12-11"
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
