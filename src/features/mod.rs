@@ -12,9 +12,12 @@
  * @license Proprietary
  */
 pub mod cmdi;
+pub mod combo;
+pub mod severity;
 pub mod signals;
 pub mod sqli;
 pub mod ssti;
+pub mod tech;
 pub mod traversal;
 pub mod xss;
 
@@ -98,6 +101,43 @@ pub fn extract_features(ctx: &ProbeContext) -> HashMap<String, f64> {
     features
 }
 
+/// Extract features with v3 pipeline: category + signals + tech + severity + combo.
+/// This is the full pipeline that produces all 627 feature keys.
+///
+/// - `tech_features`: cached per target from `tech::extract_tech_features()`
+/// - `is_authenticated` / `is_admin`: auth context for severity extraction
+/// - `retry_results`: optional retry feature maps for combo consistency checks
+pub fn extract_features_v3(
+    ctx: &ProbeContext,
+    tech_features: &HashMap<String, f64>,
+    is_authenticated: bool,
+    is_admin: bool,
+    retry_results: Option<&[HashMap<String, f64>]>,
+) -> HashMap<String, f64> {
+    // 1. Run category + signal extractors (existing v2 pipeline)
+    let mut features = extract_features(ctx);
+
+    // 2. Merge tech features (cached per target)
+    features.extend(tech_features.clone());
+
+    // 3. Extract severity features (once per endpoint+param)
+    let severity_features = severity::extract_severity_features(
+        &ctx.request_url,
+        &ctx.request_method,
+        &ctx.param_name,
+        &ctx.response,
+        is_authenticated,
+        is_admin,
+    );
+    features.extend(severity_features);
+
+    // 4. Run combo extractor LAST (it reads what other extractors found)
+    let combo_features = combo::extract_combo_features(&features, retry_results);
+    features.extend(combo_features);
+
+    features
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +197,65 @@ mod tests {
 
         // Should still have signal features
         assert!(!features.contains_key("sqli:error_mysql_syntax"));
+    }
+
+    #[test]
+    fn test_extract_features_v3_full_pipeline() {
+        let response = make_response(
+            "You have an error in your SQL syntax near '1'",
+            500,
+        );
+        let ctx = make_ctx("sqli", "'", response);
+
+        // Simulate tech features cached per target
+        let mut tech_features = HashMap::new();
+        tech_features.insert("tech:runtime_php".to_string(), 1.0);
+        tech_features.insert("tech:db_mysql".to_string(), 1.0);
+
+        let features = extract_features_v3(&ctx, &tech_features, false, false, None);
+
+        // Category features
+        assert!(features.contains_key("sqli:error_mysql_syntax"));
+        // Signal features
+        assert!(features.contains_key("signal:error_triggered"));
+        // Tech features (merged in)
+        assert!(features.contains_key("tech:runtime_php"));
+        assert!(features.contains_key("tech:db_mysql"));
+        // Severity features
+        assert!(features.contains_key("severity:production_environment"));
+        assert!(features.contains_key("severity:endpoint_is_public"));
+        // Combo features (sqli error + input char triggers combo)
+        assert!(features.contains_key("combo:sqli_error_plus_input_char"));
+    }
+
+    #[test]
+    fn test_extract_features_v3_with_retries() {
+        let response = make_response(
+            "You have an error in your SQL syntax near '1'",
+            500,
+        );
+        let ctx = make_ctx("sqli", "'", response);
+        let tech_features = HashMap::new();
+
+        // Simulate retry results with consistent signals
+        let retry1: HashMap<String, f64> = [
+            ("sqli:error_mysql_syntax".to_string(), 0.95),
+            ("sqli:single_quote_triggers_error".to_string(), 1.0),
+        ]
+        .into_iter()
+        .collect();
+        let retry2: HashMap<String, f64> = [
+            ("sqli:error_mysql_syntax".to_string(), 0.95),
+            ("sqli:single_quote_triggers_error".to_string(), 1.0),
+        ]
+        .into_iter()
+        .collect();
+        let retries = vec![retry1, retry2];
+
+        let features =
+            extract_features_v3(&ctx, &tech_features, false, false, Some(&retries));
+
+        assert!(features.contains_key("sqli:error_mysql_syntax"));
+        assert!(features.contains_key("combo:consistent_across_retries"));
     }
 }

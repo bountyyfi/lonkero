@@ -126,6 +126,25 @@ pub fn extract_sqli_features(ctx: &ProbeContext, features: &mut HashMap<String, 
     if ctx.baseline.status >= 500 && ctx.response.status >= 500 {
         features.insert("sqli:error_in_unrelated_context".into(), 1.0);
     }
+
+    // FP suppressors: sqli:error_matches_baseline - baseline already has SQL/error content
+    if ctx.baseline.body.contains("SQL")
+        || ctx.baseline.body.to_lowercase().contains("error")
+    {
+        features.insert("sqli:error_matches_baseline".into(), 1.0);
+    }
+
+    // sqli:error_on_all_inputs - baseline itself is a 500
+    if ctx.baseline.status >= 500 {
+        features.insert("sqli:error_on_all_inputs".into(), 1.0);
+    }
+
+    // sqli:param_is_boolean_flag - parameter name suggests a boolean toggle, not injectable
+    if ["true", "false", "0", "1", "yes", "no"]
+        .contains(&ctx.param_name.to_lowercase().as_str())
+    {
+        features.insert("sqli:param_is_boolean_flag".into(), 1.0);
+    }
 }
 
 #[cfg(test)]
