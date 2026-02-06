@@ -26,7 +26,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 Lonkero is a production-grade web security scanner designed for professional security testing:
 
 - **v3.0 Intelligent Mode** - Context-aware scanning with tech detection, endpoint deduplication, and per-parameter risk scoring
-- **ML Auto-Learning** - Learns from every scan to reduce false positives over time (federated learning available)
+- **ML Auto-Learning** - Learns from every scan to reduce false positives over time, with server-side detection model
 - **Scanner Intelligence System** - Real-time scanner communication, Bayesian hypothesis testing, multi-step attack planning, and semantic response understanding
 - Near-zero false positives (5% vs industry 20-30%)
 - Intelligent testing - Skips framework internals, focuses on real vulnerabilities
@@ -1044,7 +1044,7 @@ High-value features for critical infrastructure:
 
 ## Machine Learning Features
 
-Lonkero v3.0 includes an integrated ML system that automatically learns from scan results to improve detection accuracy over time.
+Lonkero includes an integrated ML system that automatically learns from scan results and downloads a server-trained detection model for improved vulnerability scoring.
 
 ### Overview
 
@@ -1055,34 +1055,49 @@ Lonkero v3.0 includes an integrated ML system that automatically learns from sca
 │  • No user verification required                                 │
 │  • Reduces false positives based on response patterns            │
 ├─────────────────────────────────────────────────────────────────┤
-│  Federated Learning (Opt-in)                                     │
-│  • Share model weights (not data) with the community             │
-│  • Benefit from collective knowledge                             │
-│  • Differential privacy ensures no data leakage                  │
+│  Detection Model (Server-Trained)                                │
+│  • 509 weighted features across 28 vulnerability categories      │
+│  • Downloaded from Bountyy servers (requires valid license)      │
+│  • No data is uploaded from your machine                         │
+│  • Cached locally for offline use                                │
+├─────────────────────────────────────────────────────────────────┤
+│  Feature Extraction & Scoring Pipeline                           │
+│  • Probes sent to target → response analyzed vs baseline         │
+│  • Features extracted per category (SQLi, XSS, SSTI, etc.)      │
+│  • Model weights applied → confidence score per vulnerability    │
+│  • Negative-weight features suppress false positives             │
 ├─────────────────────────────────────────────────────────────────┤
 │  GDPR Compliant                                                  │
 │  • Explicit consent required                                     │
 │  • Right to erasure (delete all data)                            │
 │  • Right to access (export your data)                            │
-│  • All data stored locally by default                            │
+│  • All data stored locally                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### How It Works
 
 1. **Auto-Learning**: After each scan, Lonkero analyzes vulnerabilities and their HTTP responses
-2. **Feature Extraction**: Extracts 23 features (status codes, error patterns, reflection analysis, timing)
-3. **Pattern Recognition**: Builds endpoint-specific patterns to reduce false positives
+2. **Feature Extraction**: Extracts category-specific features (e.g. `sqli:error_mysql_syntax`, `xss:reflection_unencoded`)
+3. **Model Scoring**: Multiplies extracted features by model weights + bias to determine vulnerability likelihood
 4. **Confidence Scoring**: Auto-confirms high-confidence true positives, rejects obvious false positives
+
+### Scoring Pipeline
+
+```
+Target URL → Probe Generator → Send Request → Feature Extractor → Model Scorer → Finding
+
+1. Probe Generator sends attack payloads to target endpoints
+2. Feature Extractor analyzes the response vs a baseline response
+3. Model Scorer multiplies extracted features by model weights + bias
+4. If score > 0.0 for a vuln category → report finding
+```
 
 ### ML Commands
 
 ```bash
-# Enable ML with local-only learning
+# Enable ML features
 lonkero ml enable
-
-# Enable ML with federated learning (contribute to community model)
-lonkero ml enable --federated
 
 # View ML statistics
 lonkero ml stats
@@ -1099,7 +1114,7 @@ lonkero ml export -o my_ml_data.json
 # Delete all ML data (GDPR right to erasure)
 lonkero ml delete-data
 
-# Manually sync with federated network
+# Fetch latest detection model from server
 lonkero ml sync
 ```
 
@@ -1111,37 +1126,31 @@ $ lonkero ml stats
 ML Pipeline Statistics
 ======================
 Status: Enabled
-Federated: Enabled (1,247 contributors)
 
-Session Stats:
-  Processed: 45 findings
-  Auto-confirmed: 12 true positives
-  Auto-rejected: 28 false positives
-
-Lifetime Stats:
-  Total confirmed: 1,892
-  Total rejected: 4,521
+Training Data:
+  True positives:    1,892
+  False positives:   4,521
   Endpoint patterns: 347
-  Can contribute: Yes
+
+Detection Model:
+  Available:         Yes
+  Contributors:      1,247
 ```
 
 ### Privacy & Consent
 
 ML features require explicit user consent:
 
-- **Local-only mode**: All data stays on your machine. Model weights are trained locally.
-- **Federated mode**: Only aggregated model weights are shared (not raw data). Differential privacy with noise injection ensures individual findings cannot be reconstructed.
+- All training data stays on your machine
+- Detection model is downloaded from server (one-way, no uploads)
+- Model is cached locally for offline use
+- No URLs, payloads, or raw responses are ever sent to the server
 
-**Data stored locally** (in `~/.lonkero/ml/`):
+**Data stored locally** (in `~/.lonkero/`):
 - Training examples with extracted features
-- Local model weights
+- Cached detection model weights
 - Endpoint patterns learned
 - Verification history
-
-**Data shared in federated mode**:
-- Aggregated model weight gradients only
-- Noise-injected to prevent reconstruction
-- No URLs, payloads, or raw responses
 
 ### GDPR Compliance
 
@@ -1477,7 +1486,7 @@ Plain text reports for documentation and version control.
 |---------|---------|----------------|-----------|----------|
 | **Price** | [See website](https://lonkero.bountyy.fi/en) | $449/year | Free | $4,500/year |
 | **False Positive Rate** | 5% | 10-15% | 20-30% | 10-15% |
-| **ML Auto-Learning** | Yes (federated) | No | No | No |
+| **ML Auto-Learning** | Yes (model-based) | No | No | No |
 | **Modern Framework Support** | Next.js, React, GraphQL | Limited | Limited | Limited |
 | **Smart Parameter Filtering** | Yes | No | No | No |
 | **Blind Detection** | OOBZero Engine | Burp Collaborator | No | OOB callbacks |

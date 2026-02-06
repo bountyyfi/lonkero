@@ -2633,7 +2633,7 @@ impl ScanEngine {
         // ============================================================
         // ML INTEGRATION - AUTOMATIC LEARNING FROM SCAN RESULTS
         // ============================================================
-        // Process vulnerabilities for federated learning (runs in background)
+        // Process vulnerabilities for ML learning (runs in background)
         if let Some(ref ml) = self.ml_integration {
             // Learn from each vulnerability found
             for vuln in &results.vulnerabilities {
@@ -2650,7 +2650,7 @@ impl ScanEngine {
                 }
             }
 
-            // Notify ML system that scan is complete (triggers federated sync if enabled)
+            // Notify ML system that scan is complete (triggers model sync)
             if let Err(e) = ml.scan_complete().await {
                 debug!("ML scan_complete failed: {}", e);
             }

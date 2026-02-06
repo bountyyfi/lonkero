@@ -80,8 +80,17 @@ pub mod signing;
 // Module IDs for server-side authorization
 pub mod modules;
 
-// Machine Learning module (federated learning, GDPR-compliant)
+// Machine Learning module (model-based detection, GDPR-compliant)
 pub mod ml;
+
+// Feature extraction layer for model-based vulnerability scoring
+pub mod features;
+
+// Model scorer for vulnerability detection
+pub mod scorer;
+
+// Probe payload library
+pub mod probes;
 
 // GraphQL introspection and schema parsing
 pub mod graphql_introspection;
