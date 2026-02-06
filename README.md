@@ -1,7 +1,7 @@
 <div align="center">
 
-<img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero Logo" width="200"/>
-
+<img src="https://cdn.bountyy.fi/lonkero%20logo-1-Photoroom.png" alt="Lonkero Logo" width="300"/>
+<br/><br/><br/>
 <img src="https://cdn.bountyy.fi/lonkero_extensio.png" alt="Lonkero EXTENSIO" width="700"/>
 
 
