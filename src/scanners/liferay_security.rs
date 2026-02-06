@@ -325,6 +325,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Restrict JSONWS API access via portal-ext.properties\n2. Set json.web.service.context.exclude properties\n3. Implement authentication for API access\n4. Use IP-based access controls".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break; // Only report once
@@ -358,6 +359,7 @@ impl LiferaySecurityScanner {
                     false_positive: false,
                     remediation: "1. Enable JSONWS authentication in portal-ext.properties\n2. Set json.web.service.context.exclude=*\n3. Use service access policies to restrict access".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -413,6 +415,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Configure proper role-based access controls\n2. Disable guest access to control panel\n3. Use IP whitelist for admin interfaces\n4. Enable MFA for admin accounts".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -496,6 +499,7 @@ impl LiferaySecurityScanner {
                         false_positive: false,
                         remediation: "1. Change default passwords immediately\n2. Remove or disable default accounts\n3. Implement strong password policies\n4. Enable account lockout after failed attempts".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                     break; // Stop after first successful default credential
@@ -542,6 +546,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Disable tunnel-web in portal-ext.properties\n2. Set tunnel.servlet.hosts.allowed=127.0.0.1\n3. Block access via web server/firewall\n4. Upgrade to patched Liferay version".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break;
@@ -587,6 +592,7 @@ impl LiferaySecurityScanner {
                         false_positive: false,
                         remediation: "1. Disable WebDAV if not needed\n2. Require authentication for WebDAV access\n3. Restrict WebDAV to specific folders\n4. Use IP-based access controls".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -615,6 +621,7 @@ impl LiferaySecurityScanner {
                     false_positive: false,
                     remediation: "1. Review guest folder permissions\n2. Remove sensitive content from guest folders\n3. Disable public WebDAV access".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -681,6 +688,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Block access to configuration files via web server\n2. Move sensitive configs outside web root\n3. Use environment variables for secrets\n4. Review web server directory listing settings".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -731,6 +739,7 @@ impl LiferaySecurityScanner {
                         false_positive: false,
                         remediation: "1. Disable GraphQL introspection in production\n2. Implement authentication for GraphQL endpoint\n3. Use query complexity limits\n4. Enable query depth limiting".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                     break;
@@ -796,6 +805,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Enable authentication for headless APIs\n2. Configure service access policies\n3. Use OAuth 2.0 for API access\n4. Restrict API access by role".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -848,6 +858,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Disable directory listing\n2. Configure proper access controls on documents\n3. Review document permissions".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -894,6 +905,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Disable Axis services if not needed\n2. Restrict access to authenticated users only\n3. Apply patches for CVE-2019-16891 (XXE)\n4. Use IP-based access controls".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break;
@@ -942,6 +954,7 @@ impl LiferaySecurityScanner {
                             false_positive: false,
                             remediation: "1. Upgrade to patched Liferay version\n2. Disable combo servlet if not needed\n3. Implement input validation".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -976,6 +989,7 @@ impl LiferaySecurityScanner {
                     false_positive: false,
                     remediation: format!("Upgrade Liferay to a version not affected by {}. Check Liferay security advisories for patches.", cve.id),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }

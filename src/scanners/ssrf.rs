@@ -2169,6 +2169,7 @@ impl SsrfScanner {
             false_positive: false,
             remediation: "Validate and sanitize all URLs. Use allowlists, block private IPs, disable unnecessary protocols.".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
         }
     }
