@@ -868,7 +868,7 @@ impl PostMessageVulnsScanner {
             .map(|m| m.as_str().to_string());
 
         // Extract sandbox
-        let sandbox_regex = Regex::new(r#"(?i)sandbox\s*=\s*['"]([^'"]*)['"#).unwrap();
+        let sandbox_regex = Regex::new(r#"(?i)sandbox\s*=\s*['"]([^'"]*)['"]"#).unwrap();
         let sandbox = sandbox_regex
             .captures(iframe_tag)
             .and_then(|c| c.get(1))
