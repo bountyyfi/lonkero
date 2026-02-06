@@ -2,6 +2,9 @@
 
 <img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero Logo" width="200"/>
 
+<img src="https://cdn.bountyy.fi/lonkero_extensio.png" alt="Lonkero EXTENSIO" width="700"/>
+
+
 ### Wraps around your attack surface
 
 Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
