@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use tracing::{debug, info};
 
-use crate::features::{self, HttpResponse as FeatureHttpResponse, ProbeContext};
+use crate::features::{self, ProbeContext};
 use crate::scorer::ModelScorer;
 use crate::types::Vulnerability;
 
@@ -56,27 +56,44 @@ impl MlEnhancer {
     }
 
     /// Enhance a list of findings with ML confidence, optionally filtering FPs.
+    /// Runs chain feature extraction across all vulns before scoring individual findings.
     pub fn enhance_findings(&self, vulns: &mut Vec<Vulnerability>, filter_fps: bool) {
         let original_count = vulns.len();
+
+        // Extract chain features across all findings (post-processing)
+        let chain_features = features::extract_chain_features(vulns);
+
         let mut enhanced = Vec::with_capacity(vulns.len());
 
         for vuln in vulns.drain(..) {
-            if let Some((ml_confidence, _features)) = self.score_finding(&vuln, None) {
-                let mut v = vuln;
-                v.ml_confidence = Some(ml_confidence);
+            let mut extracted_features = HashMap::new();
 
-                if filter_fps && ml_confidence < self.min_confidence_threshold {
-                    debug!(
-                        "[ML] Filtered FP: {} on {} (ml_conf={:.3})",
-                        v.vuln_type, v.url, ml_confidence
-                    );
-                    continue; // Skip this finding
-                }
-                enhanced.push(v);
-            } else {
-                // No ML score available - keep the finding as-is
+            // Enrich from vulnerability metadata
+            self.enrich_features_from_vuln(&mut extracted_features, &vuln);
+
+            // Merge chain features (shared across all findings)
+            extracted_features.extend(chain_features.clone());
+
+            if extracted_features.is_empty() {
                 enhanced.push(vuln);
+                continue;
             }
+
+            // Score using the model
+            let result = self.scorer.score_detailed(&extracted_features);
+            let ml_confidence = result.confidence;
+
+            let mut v = vuln;
+            v.ml_confidence = Some(ml_confidence);
+
+            if filter_fps && ml_confidence < self.min_confidence_threshold {
+                debug!(
+                    "[ML] Filtered FP: {} on {} (ml_conf={:.3})",
+                    v.vuln_type, v.url, ml_confidence
+                );
+                continue; // Skip this finding
+            }
+            enhanced.push(v);
         }
 
         let filtered = original_count - enhanced.len();
@@ -116,6 +133,33 @@ impl MlEnhancer {
             "cmdi"
         } else if vuln_type_lower.contains("ssti") || vuln_type_lower.contains("template") {
             "ssti"
+        } else if vuln_type_lower.contains("auth") || vuln_type_lower.contains("jwt") {
+            "auth"
+        } else if vuln_type_lower.contains("idor") {
+            "idor"
+        } else if vuln_type_lower.contains("xxe") {
+            "xxe"
+        } else if vuln_type_lower.contains("redirect") {
+            "redirect"
+        } else if vuln_type_lower.contains("csrf") {
+            "csrf"
+        } else if vuln_type_lower.contains("deser") {
+            "deser"
+        } else if vuln_type_lower.contains("upload") {
+            "upload"
+        } else if vuln_type_lower.contains("graphql") {
+            "graphql"
+        } else if vuln_type_lower.contains("nosql") {
+            "nosqli"
+        } else if vuln_type_lower.contains("cors") || vuln_type_lower.contains("config") {
+            "config"
+        } else if vuln_type_lower.contains("cloud")
+            || vuln_type_lower.contains("s3")
+            || vuln_type_lower.contains("aws")
+        {
+            "cloud"
+        } else if vuln_type_lower.contains("api") || vuln_type_lower.contains("bola") {
+            "api"
         } else {
             "signal"
         };
@@ -143,15 +187,34 @@ impl MlEnhancer {
         {
             extracted_features.insert("severity:endpoint_is_payment".into(), 1.0);
         }
+        if url_lower.contains("/health")
+            || url_lower.contains("/status")
+            || url_lower.contains("/ping")
+        {
+            extracted_features.insert("api:endpoint_is_healthcheck".into(), 1.0);
+        }
 
         // Set signal features from evidence
         if let Some(ref evidence) = vuln.evidence {
             let evidence_lower = evidence.to_lowercase();
-            if evidence_lower.contains("reflected") {
+            if evidence_lower.contains("reflected") || evidence_lower.contains("echo") {
                 extracted_features.insert("signal:input_reflected_anywhere".into(), 1.0);
             }
-            if evidence_lower.contains("error") || evidence_lower.contains("exception") {
+            if evidence_lower.contains("error") || evidence_lower.contains("exception") || evidence_lower.contains("traceback") {
                 extracted_features.insert("signal:error_triggered".into(), 1.0);
+            }
+            if evidence_lower.contains("time") || evidence_lower.contains("delay") || evidence_lower.contains("sleep") {
+                extracted_features.insert("signal:response_time_anomaly".into(), 1.0);
+            }
+            // Cloud evidence detection
+            if evidence_lower.contains("accesskeyid") || evidence_lower.contains("secretaccesskey") {
+                extracted_features.insert("cloud:iam_role_credentials_leaked".into(), 1.0);
+            }
+            if evidence_lower.contains("169.254.169.254") || evidence_lower.contains("metadata") {
+                extracted_features.insert("cloud:imds_v1_accessible".into(), 1.0);
+            }
+            if evidence_lower.contains("listbucketresult") {
+                extracted_features.insert("cloud:s3_bucket_listing".into(), 1.0);
             }
         }
 
