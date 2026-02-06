@@ -225,6 +225,10 @@ enum Commands {
         /// Audit log output path for Browser-Assist mode
         #[arg(long)]
         audit_log: Option<PathBuf>,
+
+        /// Disable ML model scoring (model scoring is one-way, no data leaves your machine)
+        #[arg(long)]
+        no_ml: bool,
     },
 
     /// List available scanner modules
@@ -498,6 +502,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             auth_type,
             scope,
             audit_log,
+            no_ml,
         } => {
             // Determine which modules to request authorization for
             // CRITICAL: The modules array is now REQUIRED for paid modules.
@@ -572,6 +577,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 auth_type.into(),
                 scope,
                 audit_log,
+                no_ml,
             )
             .await
         }
@@ -1026,6 +1032,7 @@ async fn run_scan(
     browser_assist_auth_type: lonkero_scanner::browser_assist::AuthorizationType,
     browser_assist_scope: Vec<String>,
     browser_assist_audit_log: Option<PathBuf>,
+    no_ml: bool,
 ) -> Result<()> {
     // Check if killswitch is active
     if license_status.killswitch_active {
@@ -1337,6 +1344,28 @@ async fn run_scan(
     let engine = Arc::new(ScanEngine::new(scanner_config.clone())?);
     info!("[OK] Scan engine initialized with {} scanner modules", 60);
 
+    // Auto-download ML model if not cached (one-way: model downloaded, no data uploaded)
+    if !no_ml {
+        let model_path = dirs::home_dir().map(|h| h.join(".lonkero/federated/global_model.json"));
+        if model_path.as_ref().map_or(true, |p| !p.exists()) {
+            info!("[ML] Downloading detection model for first scan...");
+            if let Ok(mut client) = lonkero_scanner::ml::FederatedClient::new() {
+                // Try to get license key from environment for authenticated model download
+                if let Ok(key) = std::env::var("LONKERO_LICENSE_KEY") {
+                    client.set_license_key(key);
+                }
+                match client.fetch_and_cache_model().await {
+                    Ok(model) => info!(
+                        "[ML] Model downloaded: v{} ({} features)",
+                        model.weights.version,
+                        model.weights.weights.len()
+                    ),
+                    Err(e) => info!("[ML] Model download skipped (scanning without ML): {}", e),
+                }
+            }
+        }
+    }
+
     // Google Dorking - generate reconnaissance queries if enabled
     if dorks {
         info!("");
@@ -1496,6 +1525,34 @@ async fn run_scan(
             info!("");
         } else {
             warn!("[MultiRole] Multi-role testing requires both user (--auth-username, --auth-password) and admin (--admin-username, --admin-password) credentials");
+        }
+    }
+
+    // ML Model Scoring: enhance findings with model confidence (one-way, no data uploaded)
+    if !no_ml {
+        if let Some(ref scorer) = engine.model_scorer {
+            let enhancer = lonkero_scanner::ml_enhancer::MlEnhancer::new(
+                lonkero_scanner::scorer::ModelScorer {
+                    weights: scorer.weights.clone(),
+                    bias: scorer.bias,
+                },
+            );
+            let mut ml_enhanced = 0;
+            for result in &mut all_results {
+                let before = result.vulnerabilities.len();
+                enhancer.enhance_findings(&mut result.vulnerabilities, true);
+                ml_enhanced += result.vulnerabilities.iter().filter(|v| v.ml_confidence.is_some()).count();
+                let filtered = before - result.vulnerabilities.len();
+                if filtered > 0 {
+                    info!("[ML] Filtered {} likely false positives from results", filtered);
+                    total_vulns -= filtered;
+                }
+            }
+            if ml_enhanced > 0 {
+                info!("[ML] Scored {} findings with model confidence", ml_enhanced);
+            }
+        } else {
+            debug!("[ML] No model available - results not ML-scored");
         }
     }
 

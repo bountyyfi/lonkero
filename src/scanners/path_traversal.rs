@@ -1362,6 +1362,7 @@ impl PathTraversalScanner {
             false_positive: false,
             remediation: "Validate file paths, use allowlists, canonicalize paths, block traversal sequences.".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
         }
     }

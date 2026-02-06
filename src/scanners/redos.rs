@@ -340,6 +340,7 @@ impl RedosScanner {
 9. Test regex patterns with long inputs during development
 10. Consider using safe regex libraries with built-in protection"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
         }
     }

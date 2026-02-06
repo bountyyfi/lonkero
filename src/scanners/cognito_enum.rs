@@ -461,6 +461,7 @@ impl CognitoEnumScanner {
                      5. Consider notifying affected users of potential exposure"
                         .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -504,6 +505,7 @@ impl CognitoEnumScanner {
                      4. Monitor for suspicious authentication patterns"
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -592,7 +594,8 @@ impl CognitoEnumScanner {
                              5. Enable email/phone verification"
                                 .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                 }
 
@@ -621,6 +624,7 @@ impl CognitoEnumScanner {
                         remediation:
                             "Consider using generic error messages that don't reveal password requirements.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -719,6 +723,7 @@ impl CognitoEnumScanner {
                              3. Implement account lockout and rate limiting\n\
                              4. Monitor for enumeration attempts".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -808,6 +813,7 @@ impl CognitoEnumScanner {
                              4. This returns generic messages for all forgot password requests\n\
                              5. Add rate limiting via Lambda triggers or WAF".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 } else if resp_body.contains("NotAuthorizedException") {

@@ -511,7 +511,8 @@ impl FaviconHashScanner {
                 4. Review security configuration for the detected technology"
                 .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 
@@ -543,7 +544,8 @@ impl FaviconHashScanner {
                 reconnaissance to find related infrastructure."
                 .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 

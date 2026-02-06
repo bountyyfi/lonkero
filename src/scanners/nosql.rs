@@ -310,6 +310,7 @@ impl NoSqlScanner {
 9. Log and monitor for NoSQL injection attempts
 10. Consider using MongoDB's role-based access control (RBAC)"#.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
         }
     }

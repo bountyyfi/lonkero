@@ -120,6 +120,7 @@ impl Cve202555182Scanner {
                             waf
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 } else {
@@ -164,6 +165,7 @@ impl Cve202555182Scanner {
                             Reference: https://vercel.com/changelog/cve-2025-55182"
                         ),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -197,6 +199,7 @@ impl Cve202555182Scanner {
                         Verify your React version is one of: 19.0.1, 19.1.2, 19.2.1\n\
                         If not, upgrade immediately.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }

@@ -412,6 +412,7 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "1. Implement multi-layer encoding detection\n2. Decode payloads recursively before validation\n3. Use strict whitelisting for input validation\n4. Normalize Unicode before processing".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -501,7 +502,8 @@ impl WafBypassScanner {
                             remediation: "Implement case-insensitive pattern matching in WAF rules"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -586,6 +588,7 @@ impl WafBypassScanner {
                                 false_positive: false,
                                 remediation: "1. Strip null bytes from input\n2. Use binary-safe string functions\n3. Validate entire input after decoding".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                         }
@@ -672,7 +675,8 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "Strip comments before WAF analysis".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -746,6 +750,7 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "Disable HTTP method override headers or configure WAF to inspect them".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -785,6 +790,7 @@ impl WafBypassScanner {
         //                     false_positive: false,
         //                     remediation: "Restrict allowed HTTP methods to only those required".to_string(),
         //                     discovered_at: chrono::Utc::now().to_rfc3339(),
+        //                     ml_confidence: None,
         //                     ml_data: None,
         //                 });
         //             }
@@ -867,6 +873,7 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "Configure WAF to inspect all content types regardless of Content-Type header".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -937,7 +944,8 @@ impl WafBypassScanner {
                             "Configure WAF to reassemble chunked encoding before inspection"
                                 .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                 }
             }
@@ -1010,7 +1018,8 @@ impl WafBypassScanner {
                         false_positive: false,
                         remediation: "Reject requests with multiple Transfer-Encoding headers".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                 }
             }
@@ -1096,6 +1105,7 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "1. Don't trust IP headers for security decisions\n2. Configure WAF to not whitelist based on IP headers\n3. Use the actual client IP from the connection".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1168,7 +1178,8 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "Normalize request URIs before WAF inspection".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -1269,7 +1280,8 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "1. Normalize Unicode (NFC/NFKC) before WAF inspection\n2. Strip zero-width characters\n3. Use Unicode-aware pattern matching".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -1374,7 +1386,8 @@ impl WafBypassScanner {
                             remediation: "Parse and validate JSON before WAF inspection"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -1462,7 +1475,8 @@ impl WafBypassScanner {
                             remediation: "Parse XML and inspect content after entity resolution"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -1565,7 +1579,8 @@ impl WafBypassScanner {
                             false_positive: false,
                             remediation: "1. Normalize parameters before WAF inspection\n2. Use same parsing logic as backend\n3. Reject duplicate parameters".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }

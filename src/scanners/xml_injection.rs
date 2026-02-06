@@ -417,7 +417,8 @@ impl XMLInjectionScanner {
                          10. Use SOAP message validation for web services"
                 .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 }

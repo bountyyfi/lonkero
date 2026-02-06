@@ -245,6 +245,9 @@ pub struct Vulnerability {
     pub false_positive: bool,
     pub remediation: String,
     pub discovered_at: String,
+    /// ML model confidence score (0.0-1.0), set by MlEnhancer after scoring
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ml_confidence: Option<f64>,
     /// ML response data for learning (not serialized to reports)
     /// This field is skipped during serialization and defaults to None
     #[serde(skip)]

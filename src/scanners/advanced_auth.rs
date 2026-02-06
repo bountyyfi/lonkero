@@ -218,6 +218,7 @@ impl AdvancedAuthScanner {
                 false_positive: false,
                 remediation: "1. CRITICAL: Regenerate session IDs upon authentication\n2. Never accept session IDs from query parameters or POST data\n3. Implement session ID regeneration on privilege escalation\n4. Use framework-provided session management\n5. Set secure session configuration (HttpOnly, Secure, SameSite)\n6. Implement session binding to IP address (with caution for mobile users)\n7. Log session creation and regeneration events".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             }));
         }
@@ -272,6 +273,7 @@ impl AdvancedAuthScanner {
                 false_positive: false,
                 remediation: "1. CRITICAL: Use cryptographically secure random number generator (CSPRNG)\n2. Generate session IDs with minimum 128 bits of entropy\n3. Use UUID v4 or equivalent random generation\n4. Never use sequential, timestamp-based, or user-data-based session IDs\n5. Implement session ID complexity validation\n6. Rotate session IDs frequently".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         } else if analysis.entropy < 64.0 {
@@ -292,6 +294,7 @@ impl AdvancedAuthScanner {
                 false_positive: false,
                 remediation: "1. Increase session ID length to minimum 128 bits (16 bytes)\n2. Use cryptographically secure random generation\n3. Use standard session management libraries\n4. Implement rate limiting on session creation\n5. Monitor for session brute-force attempts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -314,6 +317,7 @@ impl AdvancedAuthScanner {
                 false_positive: false,
                 remediation: "1. Remove all timestamp components from session IDs\n2. Use purely random generation\n3. Store creation time separately in session data\n4. Implement proper session timeout using server-side tracking".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -357,6 +361,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. Implement maximum concurrent session limits per user\n2. Provide 'logout other sessions' functionality\n3. Display active sessions to users\n4. Implement session anomaly detection (impossible travel)\n5. Notify users of new logins from unknown devices\n6. Allow session revocation from user dashboard\n7. Consider single-session mode for high-security applications".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 }));
             }
@@ -398,6 +403,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. Set appropriate session timeouts (15-30 minutes for sensitive apps)\n2. Implement idle timeout (separate from absolute timeout)\n3. Use shorter timeouts for privileged operations\n4. Implement 'Remember Me' separately from sessions\n5. Provide session refresh on user activity\n6. Force re-authentication for sensitive operations".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             }));
                         } else if max_age < 300 {
@@ -419,6 +425,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. Balance security and usability (15-30 minutes recommended)\n2. Implement session refresh on user activity\n3. Use idle timeout combined with absolute timeout\n4. Provide warnings before session expiration".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             }));
                         }
@@ -445,6 +452,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. Set explicit Max-Age for session cookies\n2. Implement server-side session timeout\n3. Use both idle and absolute timeouts\n4. Invalidate sessions after inactivity period".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 }));
             }
@@ -481,6 +489,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Add HttpOnly flag to all session cookies\n2. Set HttpOnly in cookie configuration\n3. Review all cookies for HttpOnly requirement\n4. Test that JavaScript cannot access session cookies\n5. Use secure session management libraries".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -504,6 +513,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Add Secure flag to all cookies on HTTPS sites\n2. Enforce HTTPS throughout application\n3. Implement HSTS (HTTP Strict Transport Security)\n4. Redirect all HTTP traffic to HTTPS\n5. Never set cookies over HTTP connections".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -527,6 +537,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. Add SameSite=Strict or SameSite=Lax to session cookies\n2. Use SameSite=Strict for maximum CSRF protection\n3. Use SameSite=Lax if cross-site navigation needed\n4. Never use SameSite=None unless absolutely required\n5. Implement additional CSRF tokens for state-changing operations".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             } else if cookie_lower.contains("samesite=none") {
@@ -547,6 +558,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. Change to SameSite=Strict or SameSite=Lax\n2. Only use SameSite=None for embedded content from different domains\n3. Implement CSRF tokens for all state-changing operations\n4. Review if cross-site cookie access is truly necessary".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -662,6 +674,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. CRITICAL: Enforce strong password policy:\n   - Minimum 12 characters (14+ recommended)\n   - Mix of uppercase, lowercase, numbers, symbols\n   - No common passwords (check against breach databases)\n   - No dictionary words or personal information\n2. Integrate with HaveIBeenPwned API to reject breached passwords\n3. Implement password strength meter (zxcvbn)\n4. Support passphrases as an alternative\n5. Educate users on password security\n6. Consider passwordless authentication (WebAuthn)".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                             break; // Found one vulnerability, don't spam
@@ -753,6 +766,7 @@ impl AdvancedAuthScanner {
                                     false_positive: false,
                                     remediation: "1. CRITICAL: Force password reset for affected accounts\n2. Implement password breach detection (HaveIBeenPwned)\n3. Enforce strong password policy\n4. Implement account lockout after failed attempts\n5. Enable multi-factor authentication\n6. Audit all user accounts for weak passwords\n7. Educate users on password security".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                 });
 
@@ -812,6 +826,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. Use POST-based token submission\n2. Implement token in request body, not URL\n3. Use single-use tokens with short expiration\n4. Require email verification before showing reset form\n5. Invalidate token after use\n6. Implement rate limiting on reset attempts".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                         }
@@ -854,6 +869,7 @@ impl AdvancedAuthScanner {
                                     false_positive: false,
                                     remediation: "1. CRITICAL: Use cryptographically secure random tokens (minimum 256 bits)\n2. Make tokens long and unpredictable (32+ characters)\n3. Implement rate limiting on token validation\n4. Use single-use tokens\n5. Set short expiration (15-30 minutes)\n6. Implement CAPTCHA for reset requests\n7. Log all reset attempts for monitoring".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                 });
                                 break;
@@ -945,6 +961,7 @@ impl AdvancedAuthScanner {
                 false_positive: false,
                 remediation: "1. Implement constant-time authentication\n2. Always perform password hashing, even for non-existent users\n3. Add random delays to normalize response times\n4. Use rate limiting to make timing attacks impractical\n5. Monitor for rapid sequential login attempts\n6. Implement CAPTCHA after multiple failures".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -1030,6 +1047,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: format!("1. Use generic error messages:\n   - Login: 'Invalid username or password'\n   - Register: Use email verification without confirming existence\n   - Reset: 'If that email exists, we sent a reset link'\n2. Return identical responses for valid/invalid users\n3. Implement rate limiting\n4. Use CAPTCHA after multiple attempts\n5. Log enumeration attempts for monitoring"),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                             break;
@@ -1126,6 +1144,7 @@ impl AdvancedAuthScanner {
                             false_positive: false,
                             remediation: "1. CRITICAL: Enforce MFA verification for all authenticated sessions\n2. Check MFA status on every protected request\n3. Use session flags to track MFA completion\n4. Implement step-up authentication for sensitive operations\n5. Never trust client-side MFA indicators".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1159,6 +1178,7 @@ impl AdvancedAuthScanner {
                             false_positive: false,
                             remediation: "1. CRITICAL: Validate that MFA code is non-empty\n2. Implement strict code format validation\n3. Use constant-time comparison for code verification\n4. Implement rate limiting on MFA attempts\n5. Lock account after repeated failures".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1191,6 +1211,7 @@ impl AdvancedAuthScanner {
                             false_positive: false,
                             remediation: "1. Implement strict code format validation (6 digits for TOTP)\n2. Reject codes that don't match expected format\n3. Use constant-time comparison\n4. Implement rate limiting\n5. Log all MFA verification attempts".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1280,6 +1301,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Implement strict rate limiting (3-5 attempts per session)\n2. Lock MFA after failed attempts\n3. Require re-authentication after MFA lockout\n4. Implement exponential backoff\n5. Use CAPTCHA after failures\n6. Monitor and alert on brute force attempts\n7. Consider using longer codes or alternative methods".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -1332,6 +1354,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. CRITICAL: Generate backup codes using CSPRNG\n2. Use sufficient length (16+ characters) and complexity\n3. Make codes single-use only\n4. Limit number of backup codes (8-10 recommended)\n5. Implement rate limiting on backup code verification\n6. Require re-authentication to view backup codes\n7. Notify users when backup codes are used".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                             break;
@@ -1387,6 +1410,7 @@ impl AdvancedAuthScanner {
                             false_positive: false,
                             remediation: "1. Require users to verify MFA code before completing enrollment\n2. Test both current code and next code for TOTP\n3. Provide clear setup instructions with QR code\n4. Offer account recovery options before enabling MFA\n5. Generate and display backup codes during enrollment\n6. Allow MFA disabling via verified email link".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1485,6 +1509,7 @@ impl AdvancedAuthScanner {
                                     false_positive: false,
                                     remediation: "1. CRITICAL: Enforce HTTPS for all redirect URIs\n2. Reject HTTP redirect URIs\n3. Validate redirect_uri against whitelist\n4. Implement PKCE for public clients\n5. Use short-lived authorization codes (60 seconds)\n6. Make codes single-use only".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                 });
                             }
@@ -1553,6 +1578,7 @@ impl AdvancedAuthScanner {
                                         false_positive: false,
                                         remediation: "1. CRITICAL: Implement strict redirect URI whitelist\n2. Require exact match (not substring/prefix)\n3. Validate URI scheme, host, and path\n4. Reject URIs with @ or embedded credentials\n5. Reject javascript:, data:, and other dangerous schemes\n6. Require pre-registration of redirect URIs\n7. Use PKCE to mitigate code interception".to_string(),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                     });
                                     break; // Found vulnerability for this endpoint
@@ -1611,6 +1637,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. CRITICAL: Require state parameter in authorization requests\n2. Generate cryptographically random state values\n3. Validate state parameter in callback\n4. Bind state to user session\n5. Implement short expiration for state values\n6. Use single-use state tokens".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                         }
@@ -1649,6 +1676,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. Generate state using CSPRNG (minimum 128 bits)\n2. Validate state is non-empty and sufficiently random\n3. Bind state to user session\n4. Implement state expiration\n5. Make state values single-use".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                             break;
@@ -1701,6 +1729,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. CRITICAL: Require client authentication for confidential clients\n2. Use client_secret or private_key_jwt authentication\n3. Implement PKCE for public clients (mobile/SPA)\n4. Validate authorization code was issued to requesting client\n5. Make authorization codes single-use\n6. Implement short code expiration (60 seconds)".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                         }
@@ -1729,6 +1758,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Enforce HTTPS for all OAuth endpoints\n2. Redirect HTTP requests to HTTPS\n3. Implement HSTS\n4. Disable HTTP access entirely\n5. Use certificate pinning where possible".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -1780,6 +1810,7 @@ impl AdvancedAuthScanner {
                                 false_positive: false,
                                 remediation: "1. CRITICAL: Require PKCE for all public clients\n2. Enforce code_challenge in authorization request\n3. Validate code_verifier in token request\n4. Use S256 code challenge method (SHA-256)\n5. Reject plain text code challenge method\n6. Make PKCE mandatory for mobile and SPA applications".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                         }
@@ -1957,6 +1988,7 @@ impl AdvancedAuthScanner {
                             false_positive: false,
                             remediation: "1. CRITICAL: Explicitly validate JWT algorithm\n2. Never trust the alg header value\n3. Use algorithm whitelisting\n4. Separate keys for different algorithms\n5. Use modern JWT libraries with algorithm validation\n6. Consider switching to asymmetric algorithms only\n7. Implement key rotation".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -2013,6 +2045,7 @@ impl AdvancedAuthScanner {
                         false_positive: false,
                         remediation: "1. CRITICAL: Reject all JWTs with alg:none\n2. Implement strict algorithm whitelist\n3. Always verify JWT signature\n4. Use secure JWT libraries\n5. Never allow unsigned tokens in production\n6. Implement comprehensive JWT validation".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -2101,6 +2134,7 @@ impl AdvancedAuthScanner {
                         false_positive: false,
                         remediation: "1. CRITICAL: Always verify JWT signature before trusting claims\n2. Validate signature using proper key\n3. Check token expiration\n4. Validate all critical claims server-side\n5. Never trust client-provided authorization data\n6. Implement proper access control\n7. Use secure JWT libraries with automatic validation".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -2169,6 +2203,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Generate strong cryptographic secret (minimum 256 bits)\n2. Use cryptographically secure random generator\n3. Rotate secrets regularly\n4. Store secrets securely (environment variables, secrets manager)\n5. Never commit secrets to version control\n6. Consider using asymmetric algorithms (RS256, ES256)\n7. Implement proper key management".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
                 break; // Found weak secret, no need to continue
@@ -2226,6 +2261,7 @@ impl AdvancedAuthScanner {
                     false_positive: false,
                     remediation: "1. Set short token expiration (15-60 minutes for access tokens)\n2. Use refresh tokens for extended sessions\n3. Implement token revocation mechanism\n4. Force re-authentication for sensitive operations\n5. Monitor for token reuse after expiration\n6. Implement sliding sessions where appropriate".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -2248,6 +2284,7 @@ impl AdvancedAuthScanner {
                 false_positive: false,
                 remediation: "1. CRITICAL: Always include exp claim in JWTs\n2. Set appropriate expiration time (15-60 minutes)\n3. Implement token refresh mechanism\n4. Validate exp claim server-side\n5. Implement token revocation for security events\n6. Monitor for use of expired tokens".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }

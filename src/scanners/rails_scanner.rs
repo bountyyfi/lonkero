@@ -124,7 +124,8 @@ impl RailsScanner {
                         remediation: "Disable development mode in production environment"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                 }
             }
@@ -181,7 +182,8 @@ impl RailsScanner {
                                 false_positive: false,
                                 remediation: "Remove configuration files from web root".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                                ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                             });
                             break;
                         }
@@ -225,7 +227,8 @@ impl RailsScanner {
                             remediation: "Remove log files from web-accessible directories"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -268,6 +271,7 @@ impl RailsScanner {
                             false_positive: false,
                             remediation: "Configure session cookies with Secure, HttpOnly, and SameSite attributes".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -314,7 +318,8 @@ impl RailsScanner {
                             false_positive: false,
                             remediation: "Remove source maps from production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     } else if path.contains(".git") && response.body.contains("[core]") {
                         vulnerabilities.push(Vulnerability {
@@ -335,7 +340,8 @@ impl RailsScanner {
                             false_positive: false,
                             remediation: "Remove .git directory from web root".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }

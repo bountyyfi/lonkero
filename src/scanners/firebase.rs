@@ -502,7 +502,8 @@ impl FirebaseScanner {
                                           4. Review Firebase security rules"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -554,7 +555,8 @@ impl FirebaseScanner {
                                   4. Use IAM policies to limit access"
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }
@@ -618,6 +620,7 @@ impl FirebaseScanner {
                                       3. Use same response for existing and non-existing accounts\n\
                                       4. Implement rate limiting on password reset requests".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -694,6 +697,7 @@ impl FirebaseScanner {
                               6. Set usage quotas to prevent billing surprises"
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -814,6 +818,7 @@ impl FirebaseScanner {
                                       \n\
                                       Reference: https://cloud.google.com/identity-platform/docs/admin/email-enumeration-protection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -943,7 +948,8 @@ impl FirebaseScanner {
                                   6. Audit existing data for exposed sensitive information"
                             .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }
@@ -987,6 +993,7 @@ impl FirebaseScanner {
                                   3. Follow principle of least privilege in rules\n\
                                   4. Use Firebase Console to manage rules securely".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -1028,6 +1035,7 @@ impl FirebaseScanner {
                         false_positive: false,
                         remediation: "Fix Firebase Realtime Database security rules. See Firebase documentation.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
 
@@ -1087,7 +1095,8 @@ impl FirebaseScanner {
                                       4. Never use 'allow read, write: if true;'"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
 
                     // Only report first accessible collection
@@ -1143,7 +1152,8 @@ impl FirebaseScanner {
                                   4. Never use 'allow read: if true;'"
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }
@@ -1320,6 +1330,7 @@ impl FirebaseScanner {
                                       \n\
                                       Reference: https://firebase.google.com/docs/auth/admin/manage-users".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -1357,6 +1368,7 @@ impl FirebaseScanner {
                         false_positive: false,
                         remediation: "Disable email/password signup in Firebase Console or use Admin SDK for controlled registration.".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -1420,6 +1432,7 @@ impl FirebaseScanner {
                                       3. If needed, implement rate limiting and abuse prevention\n\
                                       4. Monitor for anomalous signup patterns".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }

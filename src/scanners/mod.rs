@@ -410,6 +410,8 @@ pub struct ScanEngine {
     pub postmessage_vulns_scanner: PostMessageVulnsScanner,
     pub dom_clobbering_scanner: DomClobberingScanner,
     pub second_order_injection_scanner: SecondOrderInjectionScanner,
+    /// ML model scorer for vulnerability confidence scoring (one-way, no data uploaded)
+    pub model_scorer: Option<crate::scorer::ModelScorer>,
     /// ML integration for automatic learning from scan results
     pub ml_integration: Option<crate::ml::MlIntegration>,
     /// Shared intelligence bus for cross-scanner communication
@@ -649,6 +651,20 @@ impl ScanEngine {
             postmessage_vulns_scanner: PostMessageVulnsScanner::new(Arc::clone(&http_client)),
             dom_clobbering_scanner: DomClobberingScanner::new(Arc::clone(&http_client)),
             second_order_injection_scanner: SecondOrderInjectionScanner::new(Arc::clone(&http_client)),
+            // Load ML model at scan start (one-way: model downloaded, no data uploaded)
+            model_scorer: match crate::ml::FederatedClient::load_cached_model() {
+                Ok(model) => {
+                    info!(
+                        "[ML] Model loaded: {} (v{})",
+                        model.weights.model_id, model.weights.version
+                    );
+                    Some(crate::scorer::ModelScorer::from_model(&model))
+                }
+                Err(e) => {
+                    debug!("No ML model available, scanning without model scoring: {}", e);
+                    None
+                }
+            },
             // Initialize ML integration (fails gracefully if ~/.lonkero not writable)
             ml_integration: crate::ml::MlIntegration::new().ok(),
             intelligence_bus,
@@ -769,6 +785,7 @@ impl ScanEngine {
                     proper web hosting. Otherwise, no action needed."
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             };
 
@@ -3099,6 +3116,7 @@ impl ScanEngine {
                                 false_positive: false,
                                 remediation: "1. Validate and sanitize all URLs\n2. Use allowlists for permitted domains\n3. Disable unnecessary URL schemes (file://, gopher://)\n4. Implement network segmentation".to_string(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             };
 

@@ -315,6 +315,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Enforce MFA for all users, especially privileged accounts\n2. Do not allow users to skip or postpone MFA setup\n3. Implement risk-based MFA for sensitive operations\n4. Use strong MFA methods (TOTP/U2F) over SMS".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -342,6 +343,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Implement MFA using TOTP (RFC 6238) or hardware tokens\n2. Support multiple MFA methods (authenticator app, U2F, WebAuthn)\n3. Enforce MFA for all users, especially administrators\n4. Provide secure MFA enrollment and recovery processes".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -414,6 +416,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Enforce MFA server-side, never rely on client parameters\n2. Maintain MFA state in secure server-side sessions\n3. Validate MFA completion before granting access\n4. Use cryptographic tokens for MFA verification\n5. Log and monitor MFA bypass attempts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -456,6 +459,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Use RFC 6238 compliant TOTP libraries\n2. Enforce 6-8 digit codes with proper time windows\n3. Implement rate limiting on TOTP attempts\n4. Use secure random number generation\n5. Validate time synchronization with NTP".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -494,6 +498,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Implement strict rate limiting (e.g., 3-5 attempts per time window)\n2. Use exponential backoff after failed attempts\n3. Lock account after multiple failures\n4. Log and alert on brute force attempts\n5. Consider using longer codes or U2F for high-security accounts".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -536,6 +541,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Show backup codes only once during generation\n2. Hash backup codes before storage (like passwords)\n3. Require authentication to regenerate backup codes\n4. Limit number of backup codes (e.g., 10)\n5. Invalidate backup codes after use\n6. Log backup code usage for security monitoring".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -559,6 +565,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Make backup codes single-use only\n2. Invalidate codes immediately after use\n3. Generate new codes when regenerating\n4. Track code usage in audit logs\n5. Alert users when backup codes are used".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -602,6 +609,7 @@ impl MfaScanner {
                     false_positive: false,
                     remediation: "1. Never expose TOTP secrets in URLs or response bodies\n2. Use QR codes rendered server-side as images\n3. Ensure QR code URLs require authentication\n4. Implement proper access controls on enrollment endpoints\n5. Use HTTPS for all MFA enrollment flows\n6. Rotate secrets if exposure is detected".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -632,6 +640,7 @@ impl MfaScanner {
                     false_positive: false,
                     remediation: "1. Require authentication before MFA enrollment\n2. Verify user identity before allowing MFA changes\n3. Send email/SMS notifications on MFA changes\n4. Require password re-entry for MFA operations\n5. Implement CSRF protection on enrollment endpoints".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -680,6 +689,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Implement aggressive rate limiting (3-5 attempts per minute)\n2. Use exponential backoff after failures\n3. Implement account lockout after excessive failures\n4. Add CAPTCHA after failed attempts\n5. Log and monitor brute force attempts\n6. Consider IP-based blocking for distributed attacks".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -728,6 +738,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Prefer TOTP (RFC 6238) or hardware tokens over SMS\n2. Support WebAuthn/FIDO2 for phishing-resistant MFA\n3. If using SMS, also offer authenticator apps\n4. Educate users about SMS security risks\n5. Implement fraud detection for SIM swap attempts\n6. Use push notifications as an alternative to SMS".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -752,6 +763,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. Mask phone numbers (e.g., show only last 4 digits: ***-***-1234)\n2. Only show full numbers to authenticated account owners\n3. Implement proper access controls on user data\n4. Use secure communication channels for PII".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -849,6 +861,7 @@ impl MfaScanner {
                     false_positive: false,
                     remediation: "1. CRITICAL: Invalidate OTP immediately after first use\n2. Store used OTPs in a cache with TTL matching code validity period\n3. Check if code was previously used before verification\n4. For TOTP: track last successful timestamp to prevent replay\n5. For email/SMS OTP: mark as consumed in database\n6. Implement nonce or session-specific codes\n7. Log all OTP verification attempts for monitoring".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -941,6 +954,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. CRITICAL: Implement atomic OTP validation with distributed locking\n2. Use database transactions with row-level locking\n3. Check and mark OTP as used in a single atomic operation\n4. Implement Redis-based distributed locks for clustered environments\n5. Add request deduplication based on session + code hash\n6. Use optimistic locking with version numbers\n7. Reject subsequent attempts if code validation is in progress\n8. Add unique constraint on (user_id, code, timestamp) in database".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -1006,6 +1020,7 @@ impl MfaScanner {
                             false_positive: false,
                             remediation: "1. CRITICAL: Validate OTP expiration server-side\n2. For TOTP: verify code is within acceptable time window (±1 period)\n3. For email/SMS OTP: enforce strict expiration (e.g., 5-10 minutes)\n4. Never trust client-provided timestamps\n5. Use server time for all expiration checks\n6. Invalidate codes immediately after use\n7. Implement maximum lifetime for all OTP types\n8. Log attempts to use expired codes".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break; // Found the vulnerability, no need to test more scenarios
@@ -1043,6 +1058,7 @@ impl MfaScanner {
                         false_positive: false,
                         remediation: "1. CRITICAL: Never accept time parameters from client\n2. Use fixed server-side TOTP window (typically ±1 period = 60 seconds)\n3. Implement RFC 6238 compliant TOTP validation\n4. Use trusted time source (NTP)\n5. Reject any client attempts to modify time-related parameters".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -1162,6 +1178,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. CRITICAL: Implement strict rate limiting (3-5 attempts per session)\n2. Lock account after 5-10 failed attempts\n3. Require account recovery process after lockout\n4. Implement exponential backoff (delay increases with failures)\n5. Add CAPTCHA after 3 failed attempts\n6. Use longer OTP codes (8+ digits) for high-security accounts\n7. Implement IP-based rate limiting\n8. Monitor and alert on brute force patterns\n9. Consider adaptive authentication (step-up security)".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
 
@@ -1188,6 +1205,7 @@ impl MfaScanner {
                     false_positive: false,
                     remediation: "1. Use constant-time comparison for OTP validation\n2. Add random delay to normalize response times\n3. Always perform full validation even if early mismatch detected\n4. Hash codes before comparison if possible\n5. Implement response time monitoring\n6. Use timing-safe comparison functions".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -1266,6 +1284,7 @@ impl MfaScanner {
                             false_positive: false,
                             remediation: "1. CRITICAL: Generate backup codes using cryptographically secure random numbers\n2. Use at least 128 bits of entropy per code\n3. Format codes as Base32/Base36 for readability (e.g., XXXX-XXXX-XXXX-XXXX)\n4. Generate 8-12 codes per user\n5. Make codes single-use only\n6. Invalidate all codes when new set is generated\n7. Hash codes before storage (like passwords)\n8. Implement rate limiting on backup code attempts\n9. Alert user when backup codes are used\n10. Example: use crypto.randomBytes(16).toString('base32')".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break; // Found vulnerability, no need to test more
@@ -1316,6 +1335,7 @@ impl MfaScanner {
                 false_positive: false,
                 remediation: "1. CRITICAL: Use cryptographically random code generation\n2. Avoid sequential or predictable patterns\n3. Each code should be independent and random\n4. Implement rate limiting to prevent enumeration\n5. Lock account after multiple failed backup code attempts\n6. Monitor for enumeration patterns".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }

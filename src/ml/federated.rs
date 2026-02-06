@@ -262,6 +262,26 @@ impl FederatedClient {
         }
     }
 
+    /// Load cached model from disk without network. Fast path for scan start.
+    /// This is a static method - no client instance needed.
+    pub fn load_cached_model() -> Result<AggregatedModel> {
+        let path = Self::get_data_dir()?.join("global_model.json");
+        let content = fs::read_to_string(&path)
+            .context("No cached model found at ~/.lonkero/federated/global_model.json")?;
+        let model: AggregatedModel = serde_json::from_str(&content)
+            .context("Failed to parse cached model")?;
+        info!("Loaded cached detection model v{}", model.global_version);
+        Ok(model)
+    }
+
+    /// Fetch model and cache it. Convenience method for auto-download.
+    pub async fn fetch_and_cache_model(&mut self) -> Result<AggregatedModel> {
+        match self.fetch_global_model().await? {
+            Some(model) => Ok(model),
+            None => Err(anyhow::anyhow!("No model available from server")),
+        }
+    }
+
     /// Get client statistics
     pub fn get_stats(&self) -> FederatedStats {
         FederatedStats {

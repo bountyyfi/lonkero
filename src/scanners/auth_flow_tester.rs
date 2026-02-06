@@ -216,7 +216,8 @@ References:
 - CWE-384: https://cwe.mitre.org/data/definitions/384.html"#
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                     break; // Found the vulnerability, no need to test more
                 }
@@ -452,7 +453,8 @@ References:
 - CWE-639: https://cwe.mitre.org/data/definitions/639.html"#
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                         break;
                     }
@@ -651,7 +653,8 @@ References:
 - CWE-425: https://cwe.mitre.org/data/definitions/425.html"#
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                         break;
                     }
@@ -744,7 +747,8 @@ References:
 - OWASP MFA: https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html"#
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                         break;
                     }
@@ -818,7 +822,8 @@ References:
 "#
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -946,6 +951,7 @@ References:
 - CWE-330: https://cwe.mitre.org/data/definitions/330.html"#
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -977,6 +983,7 @@ References:
                     timestamps, or sequential values in session IDs."
                         .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -1189,6 +1196,7 @@ fn create_idor_vulnerability(
         remediation: "Validate user ownership server-side. Never trust client-provided user IDs."
             .to_string(),
         discovered_at: chrono::Utc::now().to_rfc3339(),
-        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
     }
 }

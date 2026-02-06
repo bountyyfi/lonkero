@@ -74,6 +74,16 @@ pub fn extract_traversal_features(ctx: &ProbeContext, features: &mut HashMap<Str
     {
         features.insert("traversal:waf_blocked".into(), 1.0);
     }
+
+    // FP suppressor: traversal:404_on_traversal - server returned 404, path doesn't exist
+    if ctx.response.status == 404 {
+        features.insert("traversal:404_on_traversal".into(), 1.0);
+    }
+
+    // FP suppressor: traversal:same_response_all_paths - response body identical to baseline
+    if ctx.response.body == ctx.baseline.body {
+        features.insert("traversal:same_response_all_paths".into(), 1.0);
+    }
 }
 
 #[cfg(test)]
