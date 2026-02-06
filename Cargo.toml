@@ -1,6 +1,6 @@
 [package]
 name = "lonkero"
-version = "3.6.3"
+version = "3.6.4"
 rust-version = "1.85"
 edition = "2021"
 authors = ["Bountyy Oy <info@bountyy.fi>"]
