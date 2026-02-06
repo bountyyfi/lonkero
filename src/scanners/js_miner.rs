@@ -5485,13 +5485,41 @@ impl JsMinerScanner {
             }
         }
 
-        // Telegram Bot Token
-        if let Some(findings) = self.scan_pattern(
-            content,
-            r"[0-9]{8,10}:[a-zA-Z0-9_-]{35}",
-            "Telegram Bot Token",
-        ) {
-            for evidence in findings.into_iter().take(2) {
+        // Telegram Bot Token (context-aware to avoid minified JS false positives)
+        // Pattern: 8-10 digits, colon, 35 alphanumeric/dash/underscore chars
+        // In minified JS, `{1234567890:someIdentifier}` is an object property, not a token.
+        // Real tokens appear in string literals or assignments, not as object keys.
+        if let Ok(telegram_re) = Regex::new(r"[0-9]{8,10}:[a-zA-Z0-9_-]{35}") {
+            let mut telegram_seen = std::collections::HashSet::new();
+            for m in telegram_re.find_iter(content) {
+                let evidence = m.as_str().to_string();
+                if !telegram_seen.insert(evidence.clone()) {
+                    continue;
+                }
+                // Context check: examine the character before the match
+                // In minified JS objects like {1234:abc...}, the number is preceded by
+                // '{', ',', or another object/code character without quotes.
+                // Real tokens appear inside strings: "1234:abc..." or '1234:abc...'
+                let start = m.start();
+                let is_in_string = if start > 0 {
+                    let prev = content.as_bytes()[start - 1];
+                    // Preceded by a quote = inside a string literal (likely a real token)
+                    prev == b'"' || prev == b'\'' || prev == b'`'
+                } else {
+                    false
+                };
+                // Also check character after the match
+                let end = m.end();
+                let ends_in_string = if end < content.len() {
+                    let next = content.as_bytes()[end];
+                    next == b'"' || next == b'\'' || next == b'`'
+                } else {
+                    false
+                };
+                // Only report if the match appears inside a string literal
+                if !is_in_string && !ends_in_string {
+                    continue;
+                }
                 self.add_unique_vuln(
                     vulnerabilities,
                     seen_evidence,
@@ -5504,6 +5532,9 @@ impl JsMinerScanner {
                         "Revoke Telegram bot token via @BotFather immediately.",
                     ),
                 );
+                if telegram_seen.len() >= 2 {
+                    break;
+                }
             }
         }
 
@@ -5811,9 +5842,18 @@ impl JsMinerScanner {
         // OTHER PII
         // ============================================
 
-        // Generic Credit Card Numbers (with Luhn validation and false positive filtering)
-        if let Some(findings) = self.scan_pattern(content, r"(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})", "Credit Card") {
-            for evidence in findings.into_iter().take(2) {
+        // Generic Credit Card Numbers (with Luhn validation, context-aware filtering)
+        // In minified JS, long numeric literals are common as hash constants, property keys,
+        // BigInt values, etc. We require the number to appear in a string context to reduce
+        // false positives while still catching real CC numbers in code.
+        if let Ok(cc_re) = Regex::new(r"(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})") {
+            let mut cc_count = 0;
+            for m in cc_re.find_iter(content) {
+                if cc_count >= 2 {
+                    break;
+                }
+                let evidence = m.as_str().to_string();
+
                 // Filter known JavaScript numeric constants (powers of 2, MAX_SAFE_INTEGER related)
                 let known_js_constants = [
                     "4503599627370496",  // 2^52
@@ -5834,6 +5874,42 @@ impl JsMinerScanner {
                     continue;
                 }
 
+                // Context check: bare numbers in minified JS are usually constants/keys.
+                // Real CC numbers in code appear in strings or assignments with CC-related context.
+                let start = m.start();
+                let end = m.end();
+
+                // Check if the number is inside a string literal
+                let prev_is_quote = start > 0 && matches!(content.as_bytes()[start - 1], b'"' | b'\'' | b'`');
+                let next_is_quote = end < content.len() && matches!(content.as_bytes()[end], b'"' | b'\'' | b'`');
+                let in_string = prev_is_quote || next_is_quote;
+
+                // Check if preceded by another digit (part of a larger number, not a standalone CC)
+                let preceded_by_digit = start > 0 && content.as_bytes()[start - 1].is_ascii_digit();
+                // Check if followed by another digit (part of a larger number)
+                let followed_by_digit = end < content.len() && content.as_bytes()[end].is_ascii_digit();
+
+                if preceded_by_digit || followed_by_digit {
+                    continue; // Part of a larger number, not a standalone CC
+                }
+
+                if !in_string {
+                    // Not in a string - check nearby context for CC-related keywords
+                    // to distinguish real CC assignments from numeric constants
+                    let context_start = if start > 200 { start - 200 } else { 0 };
+                    let context_end = if end + 200 < content.len() { end + 200 } else { content.len() };
+                    let nearby = content[context_start..context_end].to_lowercase();
+                    let has_cc_context = nearby.contains("card")
+                        || nearby.contains("credit")
+                        || nearby.contains("payment")
+                        || nearby.contains("pan")
+                        || nearby.contains("ccnum")
+                        || nearby.contains("cardnumber");
+                    if !has_cc_context {
+                        continue; // Bare number without CC context - likely a JS constant
+                    }
+                }
+
                 self.add_unique_vuln(vulnerabilities, seen_evidence, self.create_vulnerability(
                     "Potential Credit Card Number Exposed",
                     location,
@@ -5842,6 +5918,7 @@ impl JsMinerScanner {
                     "CWE-311",
                     "Possible credit card number in code. PCI-DSS violation if confirmed.",
                 ));
+                cc_count += 1;
             }
         }
 

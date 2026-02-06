@@ -411,19 +411,10 @@ impl TrainingDataCollector {
         })
     }
 
-    /// Export training data for federated learning (anonymized features only)
-    pub fn export_for_federated(&self) -> Result<FederatedTrainingData> {
+    /// Export training data as anonymized features for analysis
+    pub fn export_features(&self) -> Result<Vec<Vec<f32>>> {
         let examples = self.get_training_data()?;
-
-        let features: Vec<Vec<f32>> = examples.iter().map(|e| e.to_feature_vector()).collect();
-
-        let labels: Vec<f32> = examples.iter().filter_map(|e| e.get_label()).collect();
-
-        Ok(FederatedTrainingData {
-            features,
-            labels,
-            example_count: examples.len(),
-        })
+        Ok(examples.iter().map(|e| e.to_feature_vector()).collect())
     }
 }
 
@@ -454,13 +445,6 @@ impl TrainingStats {
     }
 }
 
-/// Anonymized training data for federated learning
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FederatedTrainingData {
-    pub features: Vec<Vec<f32>>,
-    pub labels: Vec<f32>,
-    pub example_count: usize,
-}
 
 #[cfg(test)]
 mod tests {

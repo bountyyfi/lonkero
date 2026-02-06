@@ -283,11 +283,7 @@ enum LicenseAction {
 #[derive(Subcommand)]
 enum MlAction {
     /// Enable ML features with GDPR consent
-    Enable {
-        /// Also opt-in to federated learning (share model weights to improve detection for all users)
-        #[arg(long)]
-        federated: bool,
-    },
+    Enable,
     /// Disable ML features
     Disable {
         /// Also delete all collected training data
@@ -304,7 +300,7 @@ enum MlAction {
     },
     /// Delete all ML data (GDPR Article 17 - Right to erasure)
     DeleteData,
-    /// Manually sync with federated network
+    /// Fetch latest detection model from server
     Sync,
 }
 
@@ -857,7 +853,7 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
     use lonkero_scanner::ml::{MlPipeline, PrivacyManager};
 
     match action {
-        MlAction::Enable { federated } => {
+        MlAction::Enable => {
             println!();
             println!("========================================================");
             println!("LONKERO ML - GDPR CONSENT");
@@ -870,31 +866,19 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
             println!("     - Only statistical features (response codes, timing, etc.)");
             println!("     - Data stored in ~/.lonkero/training_data/");
             println!();
-
-            if federated {
-                println!("  2. Federated Learning (you opted in with --federated):");
-                println!("     - Model WEIGHTS are shared (not your actual data)");
-                println!("     - Differential privacy noise applied before sharing");
-                println!("     - Cannot reconstruct your findings from weights");
-                println!("     - Benefits: Better detection accuracy for everyone");
-                println!();
-            }
+            println!("  2. Detection model download from Bountyy servers");
+            println!("     - Latest model weights are fetched (requires valid license)");
+            println!("     - No data is uploaded from your machine");
+            println!();
 
             println!("You can withdraw consent at any time with: lonkero ml disable");
             println!("You can delete all data with: lonkero ml delete-data");
             println!();
 
             let mut privacy = PrivacyManager::new()?;
-            privacy.record_consent(federated)?;
+            privacy.record_consent(false)?;
 
-            println!(
-                "[OK] ML features enabled{}",
-                if federated {
-                    " with federated learning"
-                } else {
-                    ""
-                }
-            );
+            println!("[OK] ML features enabled");
             println!();
         }
 
@@ -933,22 +917,14 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
                     println!("  Pending:           {}", stats.pending_learning);
                     println!("  Endpoint patterns: {}", stats.endpoint_patterns);
                     println!();
-                    println!("Federated Learning:");
+                    println!("Detection Model:");
                     println!(
-                        "  Connected:         {}",
-                        if stats.federated_enabled { "Yes" } else { "No" }
+                        "  Available:         {}",
+                        if stats.model_available { "Yes" } else { "No" }
                     );
-                    if let Some(contributors) = stats.federated_contributors {
+                    if let Some(contributors) = stats.model_contributors {
                         println!("  Contributors:      {}", contributors);
                     }
-                    println!(
-                        "  Can contribute:    {}",
-                        if stats.can_contribute {
-                            "Yes (50+ examples)"
-                        } else {
-                            "No (need 50+ examples)"
-                        }
-                    );
                 }
                 Err(e) => {
                     println!("ML not initialized: {}", e);
@@ -993,21 +969,13 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
         }
 
         MlAction::Sync => {
-            println!("Syncing with federated network...");
-
-            let privacy = PrivacyManager::new()?;
-            if !privacy.is_federated_allowed() {
-                println!();
-                println!("Federated learning not enabled.");
-                println!("Enable with: lonkero ml enable --federated");
-                return Ok(());
-            }
+            println!("Fetching latest detection model...");
 
             match MlPipeline::new() {
                 Ok(mut pipeline) => {
                     pipeline.on_scan_complete().await?;
                     println!();
-                    println!("[OK] Sync complete");
+                    println!("[OK] Detection model sync complete");
                 }
                 Err(e) => {
                     error!("Sync failed: {}", e);
@@ -1611,21 +1579,21 @@ async fn run_scan(
                         );
                     }
 
-                    // Signal scan completion to trigger federated sync
+                    // Signal scan completion to trigger model sync
                     if let Err(e) = ml_pipeline.on_scan_complete().await {
                         warn!("[ML] Failed to complete scan processing: {}", e);
                     } else {
                         let stats = ml_pipeline.get_stats().await;
-                        if stats.federated_enabled || stats.can_contribute {
+                        if stats.model_available {
                             info!(
-                                "[ML] Federated sync complete (contributors: {:?})",
-                                stats.federated_contributors
+                                "[ML] Detection model sync complete (contributors: {:?})",
+                                stats.model_contributors
                             );
                         }
                     }
                 } else {
                     debug!(
-                        "[ML] Auto-learning disabled - enable with: lonkero ml enable --federated"
+                        "[ML] Auto-learning disabled - enable with: lonkero ml enable"
                     );
                 }
             }

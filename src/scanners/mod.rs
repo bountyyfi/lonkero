@@ -16,7 +16,7 @@ use crate::http_client::HttpClient;
 use crate::queue::RedisQueue;
 use crate::rate_limiter::{AdaptiveRateLimiter, RateLimiterConfig};
 use crate::subdomain_enum::SubdomainEnumerator;
-use crate::types::{ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
+use crate::types::{Confidence, ScanJob, ScanMode, ScanResults, Severity, Vulnerability};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -118,6 +118,7 @@ pub mod proof_xss_scanner; // Proof-based XSS detection (no Chrome, 2-3 requests
 pub mod prototype_pollution;
 pub mod race_condition;
 pub mod rails_scanner;
+pub mod readme_prompt_injection;
 pub mod rate_limiting;
 pub mod react_security;
 pub mod redos;
@@ -257,6 +258,7 @@ pub use postmessage_vulns::PostMessageVulnsScanner;
 pub use prototype_pollution::PrototypePollutionScanner;
 pub use race_condition::RaceConditionScanner;
 pub use rails_scanner::RailsScanner;
+pub use readme_prompt_injection::ReadmePromptInjectionScanner;
 pub use rate_limiting::RateLimitingScanner;
 pub use react_security::ReactSecurityScanner;
 pub use redos::RedosScanner;
@@ -344,6 +346,7 @@ pub struct ScanEngine {
     pub code_injection_scanner: CodeInjectionScanner,
     pub ssi_injection_scanner: SSIInjectionScanner,
     pub race_condition_scanner: RaceConditionScanner,
+    pub readme_prompt_injection_scanner: ReadmePromptInjectionScanner,
     pub mass_assignment_scanner: MassAssignmentScanner,
     pub information_disclosure_scanner: InformationDisclosureScanner,
     pub cache_poisoning_scanner: CachePoisoningScanner,
@@ -570,6 +573,7 @@ impl ScanEngine {
             code_injection_scanner: CodeInjectionScanner::new(Arc::clone(&http_client)),
             ssi_injection_scanner: SSIInjectionScanner::new(Arc::clone(&http_client)),
             race_condition_scanner: RaceConditionScanner::new(Arc::clone(&http_client)),
+            readme_prompt_injection_scanner: ReadmePromptInjectionScanner::new(Arc::clone(&http_client)),
             mass_assignment_scanner: MassAssignmentScanner::new(Arc::clone(&http_client)),
             information_disclosure_scanner: InformationDisclosureScanner::new(Arc::clone(
                 &http_client,
@@ -715,6 +719,120 @@ impl ScanEngine {
 
         let mut all_vulnerabilities: Vec<Vulnerability> = Vec::new();
         let mut total_tests: u64 = 0;
+
+        // ============================================================
+        // PARKED SITE DETECTION - Early termination for false positive prevention
+        // ============================================================
+        // Parked/placeholder domains (GoDaddy, Sedo, Bodis, etc.) respond
+        // generically to all requests, causing massive false positives across
+        // every scanner module. Detect them early and skip scanning entirely.
+        info!("[Baseline] Checking for parked/placeholder site");
+        let parked_check = match self.http_client.get(&target).await {
+            Ok(response) => {
+                let result = BaselineDetector::detect_parked_site(&response);
+                result
+            }
+            Err(_) => (false, None),
+        };
+
+        if parked_check.0 {
+            let service_name = parked_check.1.as_deref().unwrap_or("Unknown");
+            warn!(
+                "PARKED SITE DETECTED: {} is a parked/placeholder domain (service: {}). \
+                Skipping vulnerability scan to prevent false positives.",
+                target, service_name
+            );
+
+            // Create an informational finding explaining why the scan was skipped
+            let info_vuln = Vulnerability {
+                id: uuid::Uuid::new_v4().to_string(),
+                vuln_type: "Parked Domain Detected".to_string(),
+                severity: Severity::Info,
+                confidence: Confidence::High,
+                category: "Information".to_string(),
+                url: target.clone(),
+                parameter: None,
+                payload: String::new(),
+                description: format!(
+                    "The target {} is a parked/placeholder domain hosted by {}. \
+                    Parked domains respond generically to all requests and produce \
+                    false positive vulnerability findings. The scan was terminated \
+                    early to prevent false positive results.",
+                    target, service_name
+                ),
+                evidence: Some(format!("Parking service detected: {}", service_name)),
+                cwe: "CWE-0".to_string(),
+                cvss: 0.0,
+                verified: true,
+                false_positive: false,
+                remediation: "If this domain should host a real application, configure \
+                    proper web hosting. Otherwise, no action needed."
+                    .to_string(),
+                discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_data: None,
+            };
+
+            let elapsed = start_time.elapsed();
+            let license_sig = crate::license::get_license_signature();
+
+            let mut results = ScanResults {
+                scan_id: scan_id.clone(),
+                target: target.clone(),
+                tests_run: 1,
+                vulnerabilities: vec![info_vuln],
+                started_at,
+                completed_at: chrono::Utc::now().to_rfc3339(),
+                duration_seconds: elapsed.as_secs_f64(),
+                early_terminated: true,
+                termination_reason: Some(format!(
+                    "Parked domain detected ({})",
+                    service_name
+                )),
+                scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                license_signature: Some(license_sig),
+                quantum_signature: None,
+                authorization_token_id: Some(scan_token.token.clone()),
+            };
+
+            // Sign the early-terminated results (same flow as normal results)
+            let results_hash = crate::signing::hash_results(&results)
+                .map_err(|e| anyhow::anyhow!("Failed to hash results: {}", e))?;
+            let findings_summary =
+                crate::signing::FindingsSummary::from_vulnerabilities(&results.vulnerabilities);
+
+            match crate::signing::sign_results(
+                &results_hash,
+                &scan_token,
+                vec!["baseline_detector".to_string()],
+                Some(crate::signing::ScanMetadata {
+                    targets_count: Some(1),
+                    scanner_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                    scan_duration_ms: Some(elapsed.as_millis() as u64),
+                }),
+                Some(findings_summary),
+                Some(vec![job.target.clone()]),
+            )
+            .await
+            {
+                Ok(signature) => {
+                    info!(
+                        "[SIGNED] Parked site results signed: {}",
+                        signature.algorithm
+                    );
+                    results.quantum_signature = Some(signature);
+                }
+                Err(crate::signing::SigningError::ServerUnreachable(msg)) => {
+                    error!("Failed to sign results - server unreachable: {}", msg);
+                    return Err(anyhow::anyhow!("Signing server unreachable: {}", msg));
+                }
+                Err(e) => {
+                    error!("Failed to sign results: {}", e);
+                    return Err(anyhow::anyhow!("Failed to sign results: {}", e));
+                }
+            }
+
+            return Ok(results);
+        }
 
         // Phase 0: Crawl & Reconnaissance
         info!("[Phase 0] Starting reconnaissance crawl");
@@ -1926,6 +2044,19 @@ impl ScanEngine {
             .increment_tests(scan_id.clone(), js_miner_tests as u64)
             .await?;
 
+        // README Invisible Prompt Injection Check (Professional+)
+        if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::README_PROMPT_INJECTION) {
+            info!("Checking README.md for invisible prompt injection");
+            modules_used.push(crate::modules::ids::advanced_scanning::README_PROMPT_INJECTION.to_string());
+            let (readme_pi_vulns, readme_pi_tests) =
+                self.readme_prompt_injection_scanner.scan(&target, &config).await?;
+            all_vulnerabilities.extend(readme_pi_vulns);
+            total_tests += readme_pi_tests as u64;
+            queue
+                .increment_tests(scan_id.clone(), readme_pi_tests as u64)
+                .await?;
+        }
+
         // Sensitive Data Exposure Check (Professional+)
         if scan_token.is_module_authorized(crate::modules::ids::advanced_scanning::SENSITIVE_DATA) {
             info!("Checking for sensitive data exposure");
@@ -2404,6 +2535,25 @@ impl ScanEngine {
 
         let elapsed = start_time.elapsed();
 
+        // Deduplicate vulnerabilities - multiple scanners may report the same finding
+        // (e.g., session_management and advanced_auth both check SameSite/concurrent sessions)
+        let pre_dedup_count = all_vulnerabilities.len();
+        {
+            let mut seen = std::collections::HashSet::new();
+            all_vulnerabilities.retain(|v| {
+                let key = format!("{}|{}|{}", v.vuln_type, v.url, v.parameter.as_deref().unwrap_or(""));
+                seen.insert(key)
+            });
+        }
+        if all_vulnerabilities.len() < pre_dedup_count {
+            info!(
+                "Deduplicated {} duplicate findings ({} -> {})",
+                pre_dedup_count - all_vulnerabilities.len(),
+                pre_dedup_count,
+                all_vulnerabilities.len()
+            );
+        }
+
         info!(
             "Scan completed: {} vulnerabilities found in {} tests ({:.2}s)",
             all_vulnerabilities.len(),
@@ -2485,7 +2635,7 @@ impl ScanEngine {
         // ============================================================
         // ML INTEGRATION - AUTOMATIC LEARNING FROM SCAN RESULTS
         // ============================================================
-        // Process vulnerabilities for federated learning (runs in background)
+        // Process vulnerabilities for ML learning (runs in background)
         if let Some(ref ml) = self.ml_integration {
             // Learn from each vulnerability found
             for vuln in &results.vulnerabilities {
@@ -2502,7 +2652,7 @@ impl ScanEngine {
                 }
             }
 
-            // Notify ML system that scan is complete (triggers federated sync if enabled)
+            // Notify ML system that scan is complete (triggers model sync)
             if let Err(e) = ml.scan_complete().await {
                 debug!("ML scan_complete failed: {}", e);
             }
