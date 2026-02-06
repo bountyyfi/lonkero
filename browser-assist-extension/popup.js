@@ -10,6 +10,43 @@ let currentState = null;
 let capturedRequests = [];
 
 // ============================================================
+// CONSENT MANAGEMENT
+// ============================================================
+
+const CONSENT_KEY = 'lonkero_analytics_consent';
+
+function checkConsent() {
+  return localStorage.getItem(CONSENT_KEY) === 'accepted';
+}
+
+function showConsentModal() {
+  const modal = document.getElementById('consentModal');
+  if (modal) {
+    modal.style.display = 'block';
+    // Re-render icons in modal
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  }
+}
+
+function hideConsentModal() {
+  const modal = document.getElementById('consentModal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+function acceptConsent() {
+  localStorage.setItem(CONSENT_KEY, 'accepted');
+  hideConsentModal();
+  trackUsage(); // Track now that consent is given
+}
+
+// Setup consent button handler
+document.getElementById('acceptConsentBtn')?.addEventListener('click', acceptConsent);
+
+// ============================================================
 // TAB NAVIGATION
 // ============================================================
 
@@ -1110,8 +1147,51 @@ function getDateStr() {
 }
 
 // ============================================================
+// ANALYTICS TRACKING
+// ============================================================
+
+/**
+ * Track extension usage via lonkero.bountyy.fi
+ * Only fires once per session and requires consent
+ */
+function trackUsage() {
+  // Require consent
+  if (!checkConsent()) return;
+
+  const sessionKey = 'lonkero_ext_tracked';
+
+  // Only track once per browser session
+  if (sessionStorage.getItem(sessionKey)) return;
+
+  try {
+    const version = chrome.runtime.getManifest().version;
+
+    fetch('https://lonkero.bountyy.fi/t', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        p: '/extension',
+        v: version
+      })
+    }).catch(() => {});
+
+    sessionStorage.setItem(sessionKey, '1');
+  } catch (e) {
+    // Silently fail
+  }
+}
+
+// ============================================================
 // INITIALIZATION
 // ============================================================
+
+// Check consent before allowing usage
+if (!checkConsent()) {
+  showConsentModal();
+} else {
+  // User already consented, track and initialize
+  trackUsage();
+}
 
 refreshState();
 loadFindings();

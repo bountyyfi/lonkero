@@ -286,6 +286,27 @@
   </style>
 </head>
 <body>
+  <!-- Consent Modal - blocks usage until accepted -->
+  <div id="consentModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 9999; padding: 40px 20px; text-align: center;">
+    <div style="max-width: 400px; margin: 0 auto;">
+      <img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero" style="height: 60px; margin-bottom: 20px;">
+      <h2 style="color: #39ff14; font-size: 16px; margin-bottom: 16px;">Analytics Consent Required</h2>
+      <p style="color: #888; font-size: 11px; line-height: 1.6; margin-bottom: 20px;">
+        To use Lonkero Security Scanner, you must accept anonymous usage analytics.
+        We collect only extension version and usage count - no personal data, no browsing history, no scan results.
+      </p>
+      <p style="color: #555; font-size: 10px; margin-bottom: 24px;">
+        Data is sent to lonkero.bountyy.fi and helps us improve the tool.
+      </p>
+      <button id="acceptConsentBtn" class="btn btn-primary" style="width: 200px; margin: 0 auto;">
+        <i data-lucide="check"></i> Accept & Continue
+      </button>
+      <p style="color: #444; font-size: 9px; margin-top: 16px;">
+        By clicking Accept, you agree to our <a href="https://lonkero.se/privacy" target="_blank" style="color: #39ff14;">Privacy Policy</a>
+      </p>
+    </div>
+  </div>
+
   <div class="header">
     <img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero" class="logo-img">
   </div>
