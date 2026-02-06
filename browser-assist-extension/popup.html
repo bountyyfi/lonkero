@@ -7,8 +7,8 @@
   <style>
     * { box-sizing: border-box; }
     body {
-      width: 600px;
-      min-height: 500px;
+      width: 700px;
+      min-height: 600px;
       padding: 0;
       font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
@@ -335,14 +335,26 @@
       </div>
 
       <button id="startBtn" class="btn btn-primary"><i data-lucide="play"></i> Start Monitoring</button>
-      <div class="btn-row">
+
+      <div class="btn-row" style="margin-bottom: 6px;">
         <button id="xssScanBtn" class="btn btn-danger"><i data-lucide="shield-alert"></i> XSS Scan</button>
-        <button id="cmsScanBtn" class="btn btn-orange"><i data-lucide="server"></i> CMS Scan</button>
+        <button id="sqliScanBtn" class="btn btn-purple"><i data-lucide="database"></i> SQLi Scan</button>
       </div>
-      <button id="deepXssScanBtn" class="btn btn-danger" style="background: linear-gradient(135deg, #ff3939, #aa0000);"><i data-lucide="radar"></i> Deep XSS Scan (Crawl Site)</button>
-      <button id="deepScanBtn" class="btn btn-blue"><i data-lucide="rocket"></i> Deep Scan (Lonkero CLI)</button>
-      <button id="fuzzFormsBtn" class="btn btn-orange"><i data-lucide="target"></i> Fuzz Forms</button>
-      <button id="fuzzGraphqlBtn" class="btn btn-purple"><i data-lucide="zap"></i> Fuzz GraphQL</button>
+
+      <div class="btn-row" style="margin-bottom: 6px;">
+        <button id="deepXssScanBtn" class="btn btn-danger" style="background: linear-gradient(135deg, #ff3939, #aa0000);"><i data-lucide="radar"></i> Deep XSS</button>
+        <button id="deepSqliScanBtn" class="btn btn-purple" style="background: linear-gradient(135deg, #aa44ff, #6600aa);"><i data-lucide="timer"></i> Deep SQLi</button>
+      </div>
+
+      <div class="btn-row" style="margin-bottom: 6px;">
+        <button id="cmsScanBtn" class="btn btn-orange"><i data-lucide="server"></i> CMS Scan</button>
+        <button id="deepScanBtn" class="btn btn-blue"><i data-lucide="rocket"></i> Lonkero CLI</button>
+      </div>
+
+      <div class="btn-row" style="margin-bottom: 6px;">
+        <button id="fuzzFormsBtn" class="btn btn-orange"><i data-lucide="target"></i> Fuzz Forms</button>
+        <button id="fuzzGraphqlBtn" class="btn btn-purple"><i data-lucide="zap"></i> Fuzz GraphQL</button>
+      </div>
 
       <div class="btn-row">
         <button id="pauseBtn" class="btn btn-secondary"><i data-lucide="pause"></i> Pause</button>

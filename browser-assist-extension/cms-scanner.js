@@ -1288,34 +1288,44 @@
     }
 
     // ============================================================
-    // GENERAL DISCLOSURE SCANNER
+    // GENERAL DISCLOSURE SCANNER (COMPREHENSIVE)
     // ============================================================
 
     async scanGeneralDisclosure() {
-      console.log('[CMS Scanner] Running general disclosure checks...');
+      console.log('[CMS Scanner] Running COMPREHENSIVE disclosure checks...');
       const results = [];
 
+      // ===========================================
+      // VERSION CONTROL EXPOSURE
+      // ===========================================
+
       // Git repository exposure
-      const gitPaths = ['/.git/config', '/.git/HEAD', '/.git/index'];
+      const gitPaths = [
+        '/.git/config', '/.git/HEAD', '/.git/index', '/.git/logs/HEAD',
+        '/.git/COMMIT_EDITMSG', '/.git/description', '/.git/info/exclude',
+        '/.git/objects/', '/.git/refs/heads/master', '/.git/refs/heads/main',
+        '/.git/packed-refs', '/.gitignore', '/.gitattributes',
+      ];
       for (const path of gitPaths) {
         const git = await checkPathExists(path, text =>
           CONTENT_VALIDATORS.git(text) || text.includes('[core]') ||
-          text.includes('ref:') || text.includes('repositoryformatversion')
+          text.includes('ref:') || text.includes('repositoryformatversion') ||
+          text.includes('gitdir') || /[a-f0-9]{40}/i.test(text)
         );
         if (git.exists) {
           results.push({
             type: 'GIT_EXPOSED',
             severity: 'critical',
             path: path,
-            evidence: 'Git repository exposed - source code and history can be downloaded',
-            exploit: 'Use git-dumper or similar to extract full source',
+            evidence: 'Git repository exposed - FULL SOURCE CODE + COMMIT HISTORY downloadable',
+            exploit: 'Use: git-dumper, GitTools, or GitHack to extract',
           });
           break;
         }
       }
 
       // SVN exposure
-      const svnPaths = ['/.svn/entries', '/.svn/wc.db'];
+      const svnPaths = ['/.svn/entries', '/.svn/wc.db', '/.svn/pristine/', '/.svn/text-base/'];
       for (const path of svnPaths) {
         const svn = await checkPathExists(path, text =>
           text.includes('svn') || text.includes('dir') || text.length > 100
@@ -1325,86 +1335,418 @@
             type: 'SVN_EXPOSED',
             severity: 'critical',
             path: path,
-            evidence: 'SVN repository exposed - source code can be extracted',
+            evidence: 'SVN repository exposed - source code extractable',
+            exploit: 'Use: svn-extractor, dvcs-ripper',
           });
           break;
         }
       }
 
-      // Generic .env exposure (non-Laravel)
-      const envCheck = await checkPathExists('/.env', CONTENT_VALIDATORS.env);
-      if (envCheck.exists && !envCheck.content.includes('APP_KEY')) {
-        results.push({
-          type: 'ENV_FILE_EXPOSED',
-          severity: 'critical',
-          path: '/.env',
-          evidence: 'Environment file exposed - credentials/secrets leaked',
-        });
+      // Mercurial exposure
+      const hgPaths = ['/.hg/store/00manifest.i', '/.hg/dirstate', '/.hg/requires'];
+      for (const path of hgPaths) {
+        const hg = await checkPathExists(path, text => text.length > 10);
+        if (hg.exists) {
+          results.push({
+            type: 'MERCURIAL_EXPOSED',
+            severity: 'critical',
+            path: path,
+            evidence: 'Mercurial repository exposed - source code extractable',
+          });
+          break;
+        }
       }
 
-      // phpinfo exposure
+      // Bazaar exposure
+      const bzrPaths = ['/.bzr/README', '/.bzr/branch-format', '/.bzr/checkout/'];
+      for (const path of bzrPaths) {
+        const bzr = await checkPathExists(path, text => text.length > 10);
+        if (bzr.exists) {
+          results.push({
+            type: 'BAZAAR_EXPOSED',
+            severity: 'critical',
+            path: path,
+            evidence: 'Bazaar repository exposed',
+          });
+          break;
+        }
+      }
+
+      // ===========================================
+      // ENVIRONMENT FILES (MASSIVE LIST)
+      // ===========================================
+
+      const envPaths = [
+        // Standard .env variations
+        '/.env', '/.env.local', '/.env.dev', '/.env.development',
+        '/.env.prod', '/.env.production', '/.env.staging', '/.env.stage',
+        '/.env.test', '/.env.testing', '/.env.qa', '/.env.uat',
+        '/.env.backup', '/.env.bak', '/.env.old', '/.env.save',
+        '/.env.example', '/.env.sample', '/.env.dist', '/.env.default',
+        '/.env.txt', '/.env.orig', '/.env.copy', '/.env.swp',
+        '/.env.1', '/.env.2', '/.env_backup', '/.env-backup',
+        '/.env~', '/.env.php', '/.env.js', '/.env.json',
+        // Framework specific
+        '/app/.env', '/public/.env', '/html/.env', '/www/.env',
+        '/htdocs/.env', '/web/.env', '/webroot/.env', '/httpdocs/.env',
+        '/application/.env', '/src/.env', '/config/.env',
+        '/.env.local.php', '/.env.development.local', '/.env.production.local',
+        // Docker/container
+        '/.docker.env', '/docker.env', '/.dockerenv', '/env.docker',
+        '/docker-compose.env', '/.env.docker', '/.env.container',
+        // Cloud provider specific
+        '/.env.aws', '/.env.azure', '/.env.gcp', '/.env.heroku',
+        '/.env.vercel', '/.env.netlify', '/.env.railway',
+        // CI/CD
+        '/.env.ci', '/.env.circleci', '/.env.travis', '/.env.github',
+        '/.env.gitlab', '/.env.jenkins', '/.env.build',
+      ];
+
+      for (const path of envPaths) {
+        const env = await checkPathExists(path, text =>
+          CONTENT_VALIDATORS.env(text) || (
+            text.includes('=') && (
+              /DATABASE|DB_|MYSQL|POSTGRES|MONGO|REDIS/i.test(text) ||
+              /SECRET|KEY|TOKEN|PASSWORD|PASS|PWD|AUTH/i.test(text) ||
+              /API_|AWS_|STRIPE|TWILIO|SENDGRID|MAILGUN/i.test(text) ||
+              /APP_|DEBUG|ENV|NODE_ENV|RAILS_ENV/i.test(text)
+            )
+          )
+        );
+        if (env.exists) {
+          results.push({
+            type: 'ENV_FILE_EXPOSED',
+            severity: 'critical',
+            path: path,
+            evidence: 'Environment file exposed - DATABASE/API CREDENTIALS LEAKED',
+            preview: env.content.substring(0, 200).replace(/=.*/g, '=***REDACTED***'),
+          });
+        }
+      }
+
+      // ===========================================
+      // CONFIGURATION FILES
+      // ===========================================
+
+      const configPaths = [
+        // PHP configs
+        '/config.php', '/config.php.bak', '/config.php.old', '/config.php~',
+        '/config.inc.php', '/config.inc.php.bak', '/configuration.php',
+        '/settings.php', '/settings.php.bak', '/local.php', '/local.php.bak',
+        '/database.php', '/db.php', '/db_config.php', '/dbconfig.php',
+        '/conn.php', '/connection.php', '/connect.php', '/mysql.php',
+        '/conf.php', '/conf.inc.php', '/global.php', '/globals.php',
+        '/parameters.php', '/parameters.yml', '/parameters.ini',
+        // Application configs
+        '/app/config/parameters.yml', '/app/config/config.yml',
+        '/config/app.php', '/config/database.php', '/config/mail.php',
+        '/config/services.php', '/config/auth.php', '/config/filesystems.php',
+        // Web server configs
+        '/.htaccess', '/.htpasswd', '/nginx.conf', '/httpd.conf',
+        '/apache.conf', '/web.config', '/Web.config', '/app.config',
+        '/.user.ini', '/php.ini', '/.php.ini', '/php5.ini',
+        // Python configs
+        '/settings.py', '/config.py', '/local_settings.py', '/secrets.py',
+        '/wsgi.py', '/asgi.py', '/manage.py', '/django.cfg',
+        // Ruby configs
+        '/config/database.yml', '/config/secrets.yml', '/config/credentials.yml.enc',
+        '/config/master.key', '/config/application.yml', '/database.yml',
+        '/secrets.yml', '/credentials.yml', '/.ruby-version',
+        // Node.js configs
+        '/config.js', '/config.json', '/config.yaml', '/config.yml',
+        '/.babelrc', '/.prettierrc', '/tsconfig.json', '/jsconfig.json',
+        '/next.config.js', '/nuxt.config.js', '/vue.config.js',
+        '/webpack.config.js', '/vite.config.js', '/rollup.config.js',
+        '/nest-cli.json', '/angular.json', '/.npmrc',
+        // Java configs
+        '/application.properties', '/application.yml', '/application-dev.yml',
+        '/application-prod.yml', '/bootstrap.yml', '/bootstrap.properties',
+        '/WEB-INF/web.xml', '/META-INF/context.xml', '/persistence.xml',
+        '/hibernate.cfg.xml', '/struts.xml', '/beans.xml',
+        // .NET configs
+        '/web.config', '/appsettings.json', '/appsettings.Development.json',
+        '/appsettings.Production.json', '/connectionStrings.config',
+        '/machine.config', '/App.config', '/applicationhost.config',
+        // Generic
+        '/settings.json', '/settings.yaml', '/settings.yml', '/settings.xml',
+        '/conf.json', '/conf.yaml', '/conf.yml', '/conf.xml',
+        '/credentials.json', '/credentials.xml', '/auth.json', '/secrets.json',
+      ];
+
+      for (const path of configPaths) {
+        const config = await checkPathExists(path, text =>
+          CONTENT_VALIDATORS.config(text) || CONTENT_VALIDATORS.env(text) ||
+          text.includes('password') || text.includes('secret') ||
+          text.includes('database') || text.includes('connection') ||
+          /["']?(password|passwd|pwd|secret|key|token)["']?\s*[=:]/i.test(text)
+        );
+        if (config.exists) {
+          results.push({
+            type: 'CONFIG_FILE_EXPOSED',
+            severity: 'critical',
+            path: path,
+            evidence: 'Configuration file exposed - may contain credentials',
+          });
+        }
+      }
+
+      // ===========================================
+      // DATABASE FILES & BACKUPS
+      // ===========================================
+
+      const dbPaths = [
+        // SQL dumps
+        '/backup.sql', '/dump.sql', '/database.sql', '/db.sql',
+        '/mysql.sql', '/data.sql', '/export.sql', '/db_backup.sql',
+        '/_backup.sql', '/backup-db.sql', '/site.sql', '/wp.sql',
+        '/wordpress.sql', '/drupal.sql', '/joomla.sql', '/magento.sql',
+        // Compressed SQL
+        '/backup.sql.gz', '/dump.sql.gz', '/database.sql.gz', '/db.sql.gz',
+        '/backup.sql.zip', '/dump.sql.zip', '/database.sql.zip',
+        '/backup.sql.tar', '/dump.sql.tar', '/backup.sql.tar.gz',
+        '/backup.sql.bz2', '/dump.sql.bz2', '/data.sql.gz',
+        // Date-based backups
+        `/backup-${new Date().toISOString().split('T')[0]}.sql`,
+        `/db-${new Date().toISOString().split('T')[0]}.sql`,
+        '/backup-2024.sql', '/backup-2023.sql', '/backup-2025.sql',
+        '/db-backup-latest.sql', '/latest-backup.sql', '/full-backup.sql',
+        // SQLite databases
+        '/database.db', '/data.db', '/app.db', '/sqlite.db',
+        '/db.sqlite', '/db.sqlite3', '/database.sqlite', '/database.sqlite3',
+        '/users.db', '/admin.db', '/site.db', '/main.db',
+        '/.sqlite_history', '/dev.db', '/test.db', '/production.db',
+        // Other databases
+        '/dump.rdb', '/redis.rdb', '/appendonly.aof', // Redis
+        '/mongodump/', '/mongodb.json', // MongoDB
+        // Common backup directories
+        '/backups/db.sql', '/backup/database.sql', '/sql/backup.sql',
+        '/dumps/latest.sql', '/exports/database.sql', '/db/backup.sql',
+      ];
+
+      for (const path of dbPaths) {
+        const db = await checkPathExists(path, text =>
+          CONTENT_VALIDATORS.sql(text) || text.length > 500 ||
+          /SQLite format|CREATE TABLE|INSERT INTO|mysqldump/i.test(text)
+        );
+        if (db.exists) {
+          results.push({
+            type: 'DATABASE_EXPOSED',
+            severity: 'critical',
+            path: path,
+            evidence: 'DATABASE DUMP/FILE EXPOSED - FULL DATA BREACH',
+            preview: db.content?.substring(0, 150),
+          });
+        }
+      }
+
+      // ===========================================
+      // ARCHIVE & BACKUP FILES
+      // ===========================================
+
+      const archivePaths = [
+        // ZIP archives
+        '/backup.zip', '/site.zip', '/www.zip', '/web.zip',
+        '/html.zip', '/public.zip', '/httpdocs.zip', '/htdocs.zip',
+        '/source.zip', '/src.zip', '/code.zip', '/app.zip',
+        '/archive.zip', '/files.zip', '/data.zip', '/old.zip',
+        '/website.zip', '/webroot.zip', '/deploy.zip', '/release.zip',
+        '/_backup.zip', '/full-backup.zip', '/site-backup.zip',
+        // TAR archives
+        '/backup.tar', '/backup.tar.gz', '/backup.tgz', '/backup.tar.bz2',
+        '/site.tar.gz', '/www.tar.gz', '/source.tar.gz', '/code.tar.gz',
+        '/archive.tar.gz', '/files.tar.gz', '/data.tar.gz',
+        '/app.tar.gz', '/web.tar.gz', '/public.tar.gz',
+        // RAR archives
+        '/backup.rar', '/site.rar', '/source.rar', '/archive.rar',
+        // 7z archives
+        '/backup.7z', '/site.7z', '/source.7z', '/archive.7z',
+        // Date-based
+        `/backup-${new Date().getFullYear()}.zip`,
+        `/backup-${new Date().toISOString().split('T')[0]}.zip`,
+        '/backup-latest.zip', '/backup-full.zip', '/backup-complete.zip',
+        // CMS/Framework specific
+        '/wordpress.zip', '/wp-backup.zip', '/drupal-backup.zip',
+        '/joomla-backup.zip', '/magento-backup.zip', '/laravel.zip',
+        // Incremental
+        '/backup.0.zip', '/backup.1.zip', '/backup-1.zip', '/backup-2.zip',
+        // Directories
+        '/backup/', '/backups/', '/bak/', '/old/', '/archive/',
+        '/_backup/', '/_backups/', '/bkp/', '/bkup/',
+      ];
+
+      for (const path of archivePaths) {
+        const archive = await checkPathExists(path, text =>
+          CONTENT_VALIDATORS.dirListing(text) ||
+          text.startsWith('PK') || // ZIP magic
+          text.startsWith('\x1f\x8b') || // GZIP magic
+          text.length > 1000
+        );
+        if (archive.exists) {
+          results.push({
+            type: 'BACKUP_ARCHIVE_EXPOSED',
+            severity: 'critical',
+            path: path,
+            evidence: 'BACKUP ARCHIVE EXPOSED - may contain full source code + database',
+          });
+        }
+      }
+
+      // ===========================================
+      // LOG FILES
+      // ===========================================
+
+      const logPaths = [
+        // Application logs
+        '/debug.log', '/error.log', '/errors.log', '/app.log',
+        '/application.log', '/server.log', '/access.log', '/access_log',
+        '/error_log', '/php_errors.log', '/php-errors.log', '/php_error.log',
+        '/.log', '/log.txt', '/logs.txt', '/output.log',
+        // Framework logs
+        '/storage/logs/laravel.log', '/var/log/laravel.log',
+        '/logs/error.log', '/logs/debug.log', '/logs/app.log',
+        '/log/development.log', '/log/production.log', '/log/test.log',
+        '/tmp/logs/error.log', '/var/log/app.log',
+        // Web server logs
+        '/var/log/apache2/error.log', '/var/log/nginx/error.log',
+        '/var/log/httpd/error_log', '/apache/logs/error.log',
+        '/nginx/logs/error.log', '/logs/access.log', '/logs/error.log',
+        // Debug/trace
+        '/trace.log', '/debug.txt', '/trace.txt', '/dump.log',
+        '/sql.log', '/queries.log', '/db.log', '/database.log',
+        '/mail.log', '/email.log', '/cron.log', '/scheduler.log',
+        // FTP/deployment
+        '/ftp.log', '/sftp.log', '/deploy.log', '/deployment.log',
+        '/git.log', '/update.log', '/upgrade.log', '/migration.log',
+        // Specific CMS
+        '/wp-content/debug.log', '/wp-content/error.log',
+        '/sites/default/files/logs/', '/administrator/logs/',
+        '/var/logs/', '/tmp/debug.log',
+      ];
+
+      for (const path of logPaths) {
+        const log = await checkPathExists(path, CONTENT_VALIDATORS.log);
+        if (log.exists) {
+          results.push({
+            type: 'LOG_FILE_EXPOSED',
+            severity: 'high',
+            path: path,
+            evidence: 'Log file exposed - may contain errors, stack traces, sensitive data',
+            preview: log.content?.substring(0, 200),
+          });
+        }
+      }
+
+      // ===========================================
+      // PHPINFO & DEBUG ENDPOINTS
+      // ===========================================
+
       const phpinfoPaths = [
         '/phpinfo.php', '/info.php', '/php_info.php', '/test.php',
         '/i.php', '/pi.php', '/php.php', '/_phpinfo.php',
+        '/pinfo.php', '/p.php', '/inf.php', '/check.php',
+        '/debug.php', '/server-info.php', '/server.php', '/status.php',
+        '/health.php', '/ping.php', '/test/phpinfo.php', '/tests/info.php',
+        '/admin/phpinfo.php', '/_info.php', '/~info.php',
+        '/phpversion.php', '/version.php', '/environment.php',
       ];
+
       for (const path of phpinfoPaths) {
         const phpinfo = await checkPathExists(path, CONTENT_VALIDATORS.phpinfo);
         if (phpinfo.exists) {
           results.push({
             type: 'PHPINFO_EXPOSED',
-            severity: 'medium',
+            severity: 'high',
             path: path,
-            evidence: 'phpinfo() output exposed - server configuration leaked',
+            evidence: 'phpinfo() exposed - FULL SERVER CONFIGURATION LEAKED',
           });
         }
       }
 
-      // Server status pages
+      // ===========================================
+      // SERVER STATUS & ADMIN PANELS
+      // ===========================================
+
       const statusPaths = [
-        '/server-status', '/server-info', '/.htaccess',
-        '/nginx_status', '/status', '/nginx-status',
+        '/server-status', '/server-info', '/status', '/health',
+        '/nginx_status', '/nginx-status', '/stub_status',
+        '/apc.php', '/apc-info.php', '/opcache.php', '/opcache-status.php',
+        '/memcache.php', '/memcached.php', '/redis-info.php',
+        '/jmx-console/', '/web-console/', '/manager/html',
+        '/manager/status', '/admin-console/', '/jboss-console/',
+        '/invoker/JMXInvokerServlet', '/solr/admin/', '/solr/',
+        '/elasticsearch/', '/_cluster/health', '/_cat/indices',
+        '/hawtio/', '/actuator', '/actuator/health', '/actuator/env',
+        '/actuator/configprops', '/actuator/mappings', '/actuator/beans',
+        '/metrics', '/prometheus', '/grafana/', '/kibana/',
+        '/debug/', '/debug/default/view', '/trace/', '/traces/',
+        '/.well-known/health', '/.well-known/status',
       ];
+
       for (const path of statusPaths) {
-        const status = await checkPathExists(path, CONTENT_VALIDATORS.serverStatus);
+        const status = await checkPathExists(path, text =>
+          CONTENT_VALIDATORS.serverStatus(text) || CONTENT_VALIDATORS.json(text) ||
+          text.includes('status') || text.includes('health') ||
+          text.includes('version') || text.includes('uptime')
+        );
         if (status.exists) {
           results.push({
             type: 'SERVER_STATUS_EXPOSED',
             severity: 'medium',
             path: path,
-            evidence: 'Server status page exposed - internal info leaked',
+            evidence: 'Server status/monitoring endpoint exposed',
           });
         }
       }
 
-      // Common backup file extensions
-      const backupExtensions = [
-        '/index.php.bak', '/index.php~', '/index.php.old',
-        '/config.php.bak', '/config.inc.php.bak',
-        '/database.yml', '/secrets.yml', '/credentials.json',
-        '/settings.json', '/config.json', '/app.config',
+      // Database admin tools
+      const dbAdminPaths = [
+        '/phpmyadmin/', '/phpMyAdmin/', '/pma/', '/myadmin/',
+        '/mysql/', '/mysqladmin/', '/sqlmanager/', '/sql/',
+        '/db/', '/dbadmin/', '/database/', '/phpmyadmin2/',
+        '/phpmyadmin3/', '/phpmyadmin4/', '/phpmyadmin5/',
+        '/pma2/', '/pma3/', '/pma4/', '/MyAdmin/',
+        '/adminer.php', '/adminer/', '/adminer-4.8.1.php',
+        '/adminer-4.php', '/adminer.php.bak', '/_adminer.php',
+        '/sqladmin/', '/sqlweb/', '/phpminiadmin.php',
+        '/sysadmin/', '/webadmin/', '/dbweb/', '/websql/',
       ];
-      for (const path of backupExtensions) {
-        const backup = await checkPathExists(path, CONTENT_VALIDATORS.backup);
-        if (backup.exists) {
+
+      for (const path of dbAdminPaths) {
+        const dbAdmin = await checkPathExists(path, text =>
+          text.includes('phpMyAdmin') || text.includes('Adminer') ||
+          text.includes('Database') || text.includes('SQL') ||
+          (text.includes('login') && text.includes('server'))
+        );
+        if (dbAdmin.exists) {
           results.push({
-            type: 'BACKUP_FILE_EXPOSED',
+            type: 'DB_ADMIN_EXPOSED',
             severity: 'high',
             path: path,
-            evidence: 'Backup/config file exposed',
+            evidence: 'Database admin panel found - potential DB access',
           });
         }
       }
 
-      // Admin panels (generic)
+      // Admin panels
       const adminPaths = [
         '/admin/', '/administrator/', '/admin.php', '/login.php',
-        '/cpanel/', '/manager/', '/phpmyadmin/', '/adminer.php',
-        '/adminer/', '/pma/', '/sql/', '/mysql/',
+        '/cpanel/', '/manager/', '/control/', '/controlpanel/',
+        '/adminpanel/', '/admin-panel/', '/administration/',
+        '/cms/', '/cms-admin/', '/backend/', '/backoffice/',
+        '/dashboard/', '/panel/', '/webmaster/', '/siteadmin/',
+        '/system/', '/sys/', '/sysadmin/', '/useradmin/',
+        '/moderator/', '/manage/', '/management/', '/admin/login',
+        '/admin/dashboard', '/admin/index.php', '/wp-admin/',
+        '/user/login', '/account/login', '/auth/login', '/signin',
+        '/_admin/', '/~admin/', '/admin1/', '/admin2/',
+        '/secret-admin/', '/hidden-admin/', '/super-admin/',
       ];
+
       for (const path of adminPaths) {
         const admin = await checkPathExists(path, text =>
           text.includes('login') || text.includes('admin') ||
-          text.includes('password') || text.includes('Log in')
+          text.includes('password') || text.includes('username') ||
+          text.includes('sign in') || text.includes('Log in')
         );
         if (admin.exists) {
           results.push({
@@ -1416,17 +1758,65 @@
         }
       }
 
-      // AWS/Cloud credentials
+      // ===========================================
+      // CLOUD & CI/CD CREDENTIALS
+      // ===========================================
+
       const cloudPaths = [
-        '/.aws/credentials', '/aws.yml', '/aws.json',
-        '/.docker/config.json', '/docker-compose.yml',
-        '/.kube/config', '/kubeconfig',
-        '/.npmrc', '/.pypirc',
+        // AWS
+        '/.aws/credentials', '/.aws/config', '/aws.yml', '/aws.json',
+        '/aws-credentials', '/credentials.aws', '/.s3cfg',
+        // Azure
+        '/.azure/credentials', '/azure.json', '/azure-credentials.json',
+        '/azureauth.json', '/.azure/',
+        // GCP
+        '/gcp-credentials.json', '/google-credentials.json',
+        '/service-account.json', '/keyfile.json', '/gcloud-service-key.json',
+        '/.config/gcloud/credentials', '/application_default_credentials.json',
+        // Docker
+        '/.docker/config.json', '/docker-compose.yml', '/docker-compose.yaml',
+        '/docker-compose.override.yml', '/Dockerfile', '/.dockerignore',
+        '/docker-compose.dev.yml', '/docker-compose.prod.yml',
+        // Kubernetes
+        '/.kube/config', '/kubeconfig', '/kubeconfig.yml', '/kubeconfig.yaml',
+        '/kubernetes.yml', '/k8s.yml', '/helm/values.yaml',
+        '/.helm/', '/charts/', '/manifests/',
+        // Terraform
+        '/terraform.tfvars', '/terraform.tfstate', '/.terraform/',
+        '/main.tf', '/variables.tf', '/secrets.tf', '/backend.tf',
+        '/terraform.tfstate.backup', '/.terraform.lock.hcl',
+        // Ansible
+        '/ansible.cfg', '/hosts', '/inventory', '/vault-password',
+        '/group_vars/all.yml', '/host_vars/', '/ansible-vault',
+        // CI/CD
+        '/.travis.yml', '/.gitlab-ci.yml', '/.github/workflows/',
+        '/Jenkinsfile', '/jenkins.yml', '/.circleci/config.yml',
+        '/bitbucket-pipelines.yml', '/azure-pipelines.yml',
+        '/.drone.yml', '/wercker.yml', '/appveyor.yml',
+        '/cloudbuild.yaml', '/buildspec.yml', '/taskcat.yml',
+        // Heroku
+        '/Procfile', '/app.json', '/.buildpacks', '/heroku.yml',
+        // Vercel/Netlify
+        '/vercel.json', '/now.json', '/netlify.toml', '/_redirects',
+        // Firebase
+        '/firebase.json', '/.firebaserc', '/firestore.rules',
+        '/storage.rules', '/database.rules.json',
+        // Package registries
+        '/.npmrc', '/.yarnrc', '/.yarnrc.yml', '/yarn.lock',
+        '/.pypirc', '/pip.conf', '/.gem/credentials',
+        '/rubygems_api_key', '/settings.xml', '/.m2/settings.xml',
+        '/.nuget/NuGet.Config', '/nuget.config',
       ];
+
       for (const path of cloudPaths) {
         const cloud = await checkPathExists(path, text =>
           text.includes('aws_access_key') || text.includes('aws_secret') ||
-          text.includes('apiVersion') || text.includes('registry') ||
+          text.includes('AKIA') || // AWS key prefix
+          text.includes('client_secret') || text.includes('client_id') ||
+          text.includes('api_key') || text.includes('apikey') ||
+          text.includes('private_key') || text.includes('-----BEGIN') ||
+          text.includes('registry') || text.includes('credentials') ||
+          text.includes('token') || text.includes('password') ||
           text.length > 50
         );
         if (cloud.exists) {
@@ -1434,91 +1824,254 @@
             type: 'CLOUD_CREDENTIALS_EXPOSED',
             severity: 'critical',
             path: path,
-            evidence: 'Cloud/container credentials exposed',
+            evidence: 'CLOUD/CI CREDENTIALS EXPOSED - Infrastructure compromise possible',
           });
         }
       }
 
-      // IDE/editor files
-      const idePaths = [
-        '/.idea/workspace.xml', '/.vscode/settings.json',
-        '/.project', '/.classpath', '/nbproject/project.xml',
+      // ===========================================
+      // SSH & CRYPTO KEYS
+      // ===========================================
+
+      const keyPaths = [
+        '/.ssh/id_rsa', '/.ssh/id_rsa.pub', '/.ssh/id_dsa',
+        '/.ssh/id_ecdsa', '/.ssh/id_ed25519', '/.ssh/authorized_keys',
+        '/.ssh/known_hosts', '/.ssh/config', '/id_rsa', '/id_rsa.pub',
+        '/private.key', '/private.pem', '/privatekey.pem', '/server.key',
+        '/ssl.key', '/certificate.key', '/cert.key', '/key.pem',
+        '/privkey.pem', '/fullchain.pem', '/chain.pem', '/cert.pem',
+        '/server.crt', '/ssl.crt', '/certificate.crt', '/ca.crt',
+        '/.gnupg/', '/gpg.key', '/secret.key', '/signing.key',
+        '/jwt.key', '/jwt_secret', '/encryption.key', '/master.key',
+        '/crypto.key', '/api.key', '/auth.key', '/secret.pem',
       ];
+
+      for (const path of keyPaths) {
+        const key = await checkPathExists(path, text =>
+          text.includes('-----BEGIN') || text.includes('PRIVATE KEY') ||
+          text.includes('ssh-rsa') || text.includes('ssh-ed25519') ||
+          text.includes('PuTTY') || text.includes('ENCRYPTED')
+        );
+        if (key.exists) {
+          results.push({
+            type: 'PRIVATE_KEY_EXPOSED',
+            severity: 'critical',
+            path: path,
+            evidence: 'PRIVATE KEY EXPOSED - Server/SSL/SSH compromise possible',
+          });
+        }
+      }
+
+      // ===========================================
+      // API DOCUMENTATION & SWAGGER
+      // ===========================================
+
+      const apiDocPaths = [
+        '/swagger.json', '/swagger.yaml', '/swagger/', '/swagger-ui/',
+        '/swagger-ui.html', '/api-docs', '/api-docs/', '/api-docs.json',
+        '/openapi.json', '/openapi.yaml', '/openapi/', '/v2/api-docs',
+        '/v3/api-docs', '/docs/api', '/api/docs', '/api/swagger',
+        '/api/documentation', '/documentation/', '/redoc/', '/redoc.html',
+        '/graphql', '/graphiql', '/graphql-playground', '/graphql/console',
+        '/__graphql', '/api/graphql', '/graphql/schema',
+        '/api/v1/docs', '/api/v2/docs', '/api/v3/docs',
+        '/api/v1/', '/api/v2/', '/api/v3/', '/api/latest/',
+        '/developer/', '/developers/', '/api-reference/',
+        '/postman/', '/postman_collection.json', '/insomnia.json',
+        '/.well-known/openapi.json', '/rest/api/',
+      ];
+
+      for (const path of apiDocPaths) {
+        const apiDoc = await checkPathExists(path, text =>
+          text.includes('swagger') || text.includes('openapi') ||
+          text.includes('paths') || text.includes('schemas') ||
+          text.includes('graphql') || text.includes('__schema') ||
+          text.includes('endpoints') || text.includes('API')
+        );
+        if (apiDoc.exists) {
+          results.push({
+            type: 'API_DOCUMENTATION_EXPOSED',
+            severity: 'medium',
+            path: path,
+            evidence: 'API documentation exposed - reveals all endpoints',
+          });
+        }
+      }
+
+      // ===========================================
+      // IDE & EDITOR FILES
+      // ===========================================
+
+      const idePaths = [
+        // JetBrains (IntelliJ, PHPStorm, WebStorm, etc.)
+        '/.idea/', '/.idea/workspace.xml', '/.idea/modules.xml',
+        '/.idea/misc.xml', '/.idea/vcs.xml', '/.idea/dataSources.xml',
+        '/.idea/dataSources.local.xml', '/.idea/httpRequests/',
+        // VS Code
+        '/.vscode/', '/.vscode/settings.json', '/.vscode/launch.json',
+        '/.vscode/tasks.json', '/.vscode/extensions.json',
+        '/.vscode/sftp.json', // SFTP credentials!
+        // Eclipse
+        '/.project', '/.classpath', '/.settings/', '/.buildpath',
+        '/.externalToolBuilders/', '/.metadata/',
+        // NetBeans
+        '/nbproject/', '/nbproject/project.xml', '/nbproject/private/',
+        // Sublime
+        '/.sublime-project', '/.sublime-workspace',
+        // Vim/Emacs
+        '/.vimrc', '/.vim/', '/.emacs', '/.emacs.d/',
+        '/Session.vim', '/*.swp', '/*~',
+        // Editors leave these
+        '/.editorconfig', '/.prettierrc', '/.eslintrc',
+        '/.babelrc', '/.stylelintrc',
+      ];
+
       for (const path of idePaths) {
         const ide = await checkPathExists(path, text =>
           text.includes('version') || text.includes('project') ||
-          CONTENT_VALIDATORS.xml(text) || CONTENT_VALIDATORS.json(text)
+          text.includes('module') || text.includes('source') ||
+          CONTENT_VALIDATORS.xml(text) || CONTENT_VALIDATORS.json(text) ||
+          text.includes('password') || text.includes('host')
         );
         if (ide.exists) {
           results.push({
             type: 'IDE_FILES_EXPOSED',
-            severity: 'low',
+            severity: 'medium',
             path: path,
-            evidence: 'IDE project files exposed - internal paths leaked',
+            evidence: 'IDE project files exposed - may contain paths, credentials',
           });
         }
       }
 
-      // Composer/package files
+      // ===========================================
+      // PACKAGE MANAGER FILES
+      // ===========================================
+
       const packagePaths = [
-        '/composer.json', '/composer.lock', '/package.json', '/package-lock.json',
-        '/yarn.lock', '/Gemfile', '/Gemfile.lock', '/requirements.txt',
-        '/Pipfile', '/Pipfile.lock', '/go.mod', '/go.sum',
+        '/composer.json', '/composer.lock', '/vendor/',
+        '/package.json', '/package-lock.json', '/yarn.lock',
+        '/node_modules/', '/npm-debug.log', '/yarn-error.log',
+        '/Gemfile', '/Gemfile.lock', '/vendor/bundle/',
+        '/requirements.txt', '/requirements-dev.txt', '/Pipfile',
+        '/Pipfile.lock', '/poetry.lock', '/pyproject.toml', '/setup.py',
+        '/go.mod', '/go.sum', '/vendor/', '/Gopkg.lock',
+        '/Cargo.toml', '/Cargo.lock', '/target/',
+        '/pom.xml', '/build.gradle', '/settings.gradle', '/gradlew',
+        '/build.sbt', '/project/', '/ivy.xml',
+        '/mix.exs', '/mix.lock', '/deps/',
+        '/cpanfile', '/Makefile.PL', '/Build.PL',
+        '/cabal.config', '/stack.yaml', '/package.yaml',
+        '/pubspec.yaml', '/pubspec.lock', '/.packages',
+        '/bower.json', '/bower_components/', '/shrinkwrap.yaml',
       ];
+
       for (const path of packagePaths) {
         const pkg = await checkPathExists(path, text =>
-          CONTENT_VALIDATORS.json(text) || text.includes('dependencies') ||
-          text.includes('require') || text.includes('gem ')
+          CONTENT_VALIDATORS.json(text) || CONTENT_VALIDATORS.dirListing(text) ||
+          text.includes('dependencies') || text.includes('require') ||
+          text.includes('version') || text.includes('name')
         );
         if (pkg.exists) {
           results.push({
             type: 'PACKAGE_FILE_EXPOSED',
             severity: 'low',
             path: path,
-            evidence: 'Package manager file exposed - dependency info leaked',
+            evidence: 'Package manager files exposed - dependency info leaked',
           });
         }
       }
 
-      // Sensitive directories
+      // ===========================================
+      // SENSITIVE DIRECTORIES
+      // ===========================================
+
       const sensitiveDirs = [
-        '/backup/', '/backups/', '/tmp/', '/temp/', '/cache/',
-        '/logs/', '/log/', '/data/', '/db/', '/sql/',
-        '/private/', '/secret/', '/internal/', '/dev/',
+        '/backup/', '/backups/', '/bak/', '/old/', '/archive/',
+        '/tmp/', '/temp/', '/cache/', '/caches/',
+        '/logs/', '/log/', '/logging/',
+        '/data/', '/db/', '/database/', '/sql/', '/mysql/',
+        '/private/', '/secret/', '/secrets/', '/internal/',
+        '/dev/', '/development/', '/test/', '/testing/', '/staging/',
+        '/upload/', '/uploads/', '/files/', '/documents/', '/docs/',
+        '/media/', '/assets/', '/static/', '/resources/',
+        '/include/', '/includes/', '/inc/', '/lib/', '/libs/',
+        '/src/', '/source/', '/sources/', '/app/', '/application/',
+        '/core/', '/system/', '/sys/', '/modules/', '/plugins/',
+        '/themes/', '/templates/', '/views/', '/components/',
+        '/api/', '/rest/', '/services/', '/handlers/',
+        '/admin/', '/administrator/', '/manage/', '/management/',
+        '/config/', '/conf/', '/configuration/', '/settings/',
+        '/scripts/', '/cgi-bin/', '/bin/', '/tools/',
+        '/export/', '/exports/', '/import/', '/imports/',
+        '/download/', '/downloads/', '/dl/',
+        '/.hidden/', '/_private/', '/__backup/',
       ];
+
       for (const path of sensitiveDirs) {
         const dir = await checkPathExists(path, CONTENT_VALIDATORS.dirListing);
         if (dir.exists) {
           results.push({
-            type: 'SENSITIVE_DIR_LISTING',
+            type: 'DIRECTORY_LISTING',
             severity: 'medium',
             path: path,
-            evidence: 'Sensitive directory listing enabled',
+            evidence: 'Directory listing enabled - file enumeration possible',
           });
         }
       }
 
-      // Error page information disclosure
-      const errorPaths = [
-        '/error', '/404', '/500', '/403',
-        '/errors/500.html', '/errors/404.html',
+      // ===========================================
+      // MISC SENSITIVE FILES
+      // ===========================================
+
+      const miscPaths = [
+        // History files
+        '/.bash_history', '/.sh_history', '/.zsh_history',
+        '/.mysql_history', '/.psql_history', '/.sqlite_history',
+        '/.node_repl_history', '/.python_history', '/.irb_history',
+        // Profile files
+        '/.bashrc', '/.bash_profile', '/.profile', '/.zshrc',
+        // System files
+        '/etc/passwd', '/etc/shadow', '/etc/hosts', '/etc/hostname',
+        '/proc/self/environ', '/proc/self/cmdline', '/proc/version',
+        // Temp and cache
+        '/.cache/', '/cache.json', '/cache.xml', '/.tmp/',
+        // Debug/test files
+        '/test.txt', '/test.html', '/test.php', '/debug.txt',
+        '/info.txt', '/readme.txt', '/README.md', '/CHANGELOG.md',
+        '/TODO.txt', '/notes.txt', '/INSTALL.txt', '/LICENSE',
+        // Backup extensions
+        '/index.php.bak', '/index.php~', '/index.php.old',
+        '/index.php.orig', '/index.php.save', '/index.php.swp',
+        '/index.html.bak', '/index.html~', '/index.html.old',
+        // Common vulnerable paths
+        '/cgi-bin/test-cgi', '/cgi-bin/printenv', '/cgi-bin/php',
+        '/fcgi-bin/', '/servlet/', '/axis/', '/axis2/',
+        // File upload
+        '/upload.php', '/uploader.php', '/fileupload.php',
+        '/upload/', '/uploads/', '/uploaded/', '/attachments/',
+        // Installers
+        '/install/', '/install.php', '/setup/', '/setup.php',
+        '/installer/', '/installer.php', '/init/', '/initialize/',
       ];
-      for (const path of errorPaths) {
-        const error = await checkPathExists(path, text =>
-          text.includes('stack') || text.includes('trace') ||
-          text.includes('Exception') || text.includes('Error:')
+
+      for (const path of miscPaths) {
+        const misc = await checkPathExists(path, text =>
+          text.length > 20 || CONTENT_VALIDATORS.dirListing(text)
         );
-        if (error.exists && error.content.includes('stack')) {
+        if (misc.exists && misc.content && misc.content.length > 50) {
           results.push({
-            type: 'ERROR_PAGE_DISCLOSURE',
+            type: 'SENSITIVE_FILE_EXPOSED',
             severity: 'medium',
             path: path,
-            evidence: 'Error page exposes stack trace/debug info',
+            evidence: 'Potentially sensitive file exposed',
           });
         }
       }
 
-      // robots.txt analysis for hidden paths
+      // ===========================================
+      // ROBOTS.TXT ANALYSIS
+      // ===========================================
+
       const robots = await checkPathExists('/robots.txt', text =>
         text.includes('Disallow') || text.includes('User-agent')
       );
@@ -1526,23 +2079,67 @@
         const disallowedPaths = robots.content.match(/Disallow:\s*(\S+)/gi) || [];
         const interestingPaths = disallowedPaths
           .map(d => d.replace(/Disallow:\s*/i, ''))
-          .filter(p => p && p !== '/' && (
-            p.includes('admin') || p.includes('backup') ||
-            p.includes('config') || p.includes('private') ||
-            p.includes('secret') || p.includes('api') ||
-            p.includes('internal') || p.includes('.env')
-          ));
+          .filter(p => p && p !== '/' && p.length > 1);
+
         if (interestingPaths.length > 0) {
           results.push({
             type: 'ROBOTS_INTERESTING_PATHS',
             severity: 'info',
             path: '/robots.txt',
-            evidence: 'robots.txt reveals potentially sensitive paths',
-            paths: interestingPaths.slice(0, 10),
+            evidence: `robots.txt reveals ${interestingPaths.length} disallowed paths`,
+            paths: interestingPaths.slice(0, 20),
           });
+
+          // Auto-check interesting disallowed paths
+          const criticalPatterns = [
+            'admin', 'backup', 'config', 'private', 'secret',
+            'api', 'internal', '.env', 'database', 'sql',
+            'password', 'credential', 'key', 'token',
+          ];
+
+          for (const disPath of interestingPaths.slice(0, 10)) {
+            if (criticalPatterns.some(p => disPath.toLowerCase().includes(p))) {
+              const check = await checkPathExists(disPath, text => text.length > 50);
+              if (check.exists) {
+                results.push({
+                  type: 'ROBOTS_HIDDEN_PATH_ACCESSIBLE',
+                  severity: 'high',
+                  path: disPath,
+                  evidence: `Hidden path from robots.txt is accessible: ${disPath}`,
+                });
+              }
+            }
+          }
         }
       }
 
+      // ===========================================
+      // SITEMAP ANALYSIS
+      // ===========================================
+
+      const sitemapPaths = ['/sitemap.xml', '/sitemap_index.xml', '/sitemap/', '/sitemaps/'];
+      for (const path of sitemapPaths) {
+        const sitemap = await checkPathExists(path, text =>
+          text.includes('<url>') || text.includes('<sitemap>') ||
+          text.includes('<loc>') || text.includes('urlset')
+        );
+        if (sitemap.exists) {
+          // Look for interesting URLs in sitemap
+          const adminUrls = sitemap.content.match(/<loc>[^<]*(admin|manage|dashboard|internal|api|secret)[^<]*<\/loc>/gi);
+          if (adminUrls && adminUrls.length > 0) {
+            results.push({
+              type: 'SITEMAP_SENSITIVE_URLS',
+              severity: 'low',
+              path: path,
+              evidence: 'Sitemap reveals potentially sensitive URLs',
+              urls: adminUrls.slice(0, 5),
+            });
+          }
+          break;
+        }
+      }
+
+      console.log(`[CMS Scanner] Disclosure scan found ${results.length} issues`);
       return results;
     }
 

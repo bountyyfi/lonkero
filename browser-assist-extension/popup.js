@@ -799,6 +799,82 @@ document.getElementById('deepXssScanBtn')?.addEventListener('click', () => {
   });
 });
 
+// SQLi Scan
+document.getElementById('sqliScanBtn')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+
+    // Inject SQLi scanner and run scan
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: 'MAIN',
+      files: ['sql-scanner.js']
+    }).then(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        func: () => {
+          if (window.sqlScanner) {
+            window.sqlScanner.scan().then(results => {
+              console.log('[Lonkero] SQLi scan complete:', results);
+              const critical = results.filter(r => r.severity === 'critical').length;
+              const high = results.filter(r => r.severity === 'high').length;
+              const errorBased = results.filter(r => r.subtype === 'ERROR_BASED').length;
+              const booleanBased = results.filter(r => r.subtype === 'BOOLEAN_BASED').length;
+              const timeBased = results.filter(r => r.subtype === 'TIME_BASED').length;
+              alert(`SQLi Scan Complete!\n\n${results.length} vulnerabilities found:\n- ${critical} Critical (error-based)\n- ${high} High (boolean/time-based)\n\nTypes:\n- ${errorBased} Error-based\n- ${booleanBased} Boolean-based\n- ${timeBased} Time-based\n\nCheck console & Findings tab for details.`);
+            }).catch(err => {
+              alert('SQLi scan error: ' + err.message);
+            });
+          } else {
+            alert('SQLi scanner failed to initialize.');
+          }
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to inject SQLi scanner:', err);
+      alert('Failed to inject SQLi scanner: ' + err.message);
+    });
+  });
+});
+
+// Deep SQLi Scan (includes time-based)
+document.getElementById('deepSqliScanBtn')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+
+    alert('Starting Deep SQLi Scan...\nThis includes time-based detection which is slower.\nCheck console for progress.');
+
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: 'MAIN',
+      files: ['sql-scanner.js']
+    }).then(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        func: () => {
+          if (window.sqlScanner) {
+            window.sqlScanner.deepScan().then(results => {
+              console.log('[Lonkero] Deep SQLi scan complete:', results);
+              const critical = results.filter(r => r.severity === 'critical').length;
+              const high = results.filter(r => r.severity === 'high').length;
+              alert(`Deep SQLi Scan Complete!\n\n${results.length} vulnerabilities found:\n- ${critical} Critical\n- ${high} High\n\nCheck console & Findings tab for details.`);
+            }).catch(err => {
+              alert('Deep SQLi scan error: ' + err.message);
+            });
+          } else {
+            alert('SQLi scanner failed to initialize.');
+          }
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to inject SQLi scanner:', err);
+      alert('Failed to inject SQLi scanner: ' + err.message);
+    });
+  });
+});
+
 // CMS/Framework Scan
 document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {

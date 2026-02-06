@@ -20,6 +20,60 @@
   if (window.__lonkeroInjected) return;
   window.__lonkeroInjected = true;
 
+  // ============================================================
+  // SCOPE CHECK - Only run on main frame, not ad/tracking iframes
+  // ============================================================
+
+  // Skip if we're in an iframe (not the top window)
+  const isMainFrame = window === window.top;
+
+  // Known third-party/ad domains to NEVER scan
+  const SKIP_DOMAINS = new Set([
+    // Ad networks
+    'adnxs.com', 'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
+    'adsrvr.org', 'adform.net', 'criteo.com', 'taboola.com', 'outbrain.com',
+    'openx.net', 'pubmatic.com', 'rubiconproject.com', 'casalemedia.com',
+    'advertising.com', 'bidswitch.net', 'media.net', 'amazon-adsystem.com',
+    'ib.adnxs.com', 'acdn.adnxs.com',
+    // Analytics & Tracking
+    'google-analytics.com', 'googletagmanager.com', 'facebook.net', 'facebook.com',
+    'twitter.com', 'linkedin.com', 'hotjar.com', 'segment.com', 'mixpanel.com',
+    'amplitude.com', 'heapanalytics.com', 'fullstory.com', 'logrocket.com',
+    'mouseflow.com', 'crazyegg.com', 'luckyorange.com', 'clicktale.net',
+    'userreport.com', 'ebxcdn.com',
+    // Consent/Privacy
+    'cookiebot.com', 'onetrust.com', 'trustarc.com', 'quantcast.com',
+    'consentmanager.net', 'usercentrics.com', 'cookielaw.org', 'cookiepro.com',
+    'privacy-mgmt.com', 'sourcepoint.com', 'sp-prod.net',
+    // CDNs (don't scan these)
+    'cloudflare.com', 'cloudfront.net', 'akamaized.net', 'fastly.net',
+    'jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com', 'bootstrapcdn.com',
+    // Social widgets
+    'platform.twitter.com', 'connect.facebook.net', 'platform.linkedin.com',
+    // Chat widgets
+    'intercom.io', 'zendesk.com', 'crisp.chat', 'tawk.to', 'drift.com',
+    // Other common third-party
+    'recaptcha.net', 'gstatic.com', 'google.com', 'googleapis.com',
+  ]);
+
+  // Check if current hostname should be skipped
+  function shouldSkipDomain(hostname) {
+    const host = hostname.toLowerCase();
+    // Direct match
+    if (SKIP_DOMAINS.has(host)) return true;
+    // Subdomain match (e.g., acdn.adnxs.com matches adnxs.com)
+    for (const domain of SKIP_DOMAINS) {
+      if (host === domain || host.endsWith('.' + domain)) return true;
+    }
+    return false;
+  }
+
+  // If we're in an iframe on a third-party domain, exit immediately
+  if (!isMainFrame && shouldSkipDomain(location.hostname)) {
+    console.log('[Lonkero] Skipping third-party iframe:', location.hostname);
+    return;
+  }
+
   const findings = [];
   const discoveredEndpoints = new Set();
   const discoveredSecrets = [];
@@ -866,6 +920,11 @@
   // ============================================================
 
   async function analyzeSecurityHeaders() {
+    // SCOPE CHECK: Only run on main frame, skip third-party iframes
+    if (!isMainFrame || shouldSkipDomain(location.hostname)) {
+      return;
+    }
+
     try {
       // Fetch the current page to get response headers
       const response = await fetch(location.href, { method: 'HEAD', credentials: 'same-origin' });
@@ -993,6 +1052,11 @@
   // ============================================================
 
   async function fingerprintFromErrorPages() {
+    // SCOPE CHECK: Only run on main frame, skip third-party iframes
+    if (!isMainFrame || shouldSkipDomain(location.hostname)) {
+      return;
+    }
+
     // Request a non-existent path to get error page
     const testUrl = location.origin + '/lonkero-probe-' + Date.now();
 
@@ -1263,7 +1327,7 @@
     'googletagmanager.com', 'google-analytics.com', 'gtag', 'googlesyndication.com',
     'facebook.net', 'facebook.com', 'fbcdn.net',
     'twitter.com', 'twimg.com',
-    'cloudflare.com', 'cdnjs.cloudflare.com',
+    'cloudflare.com', 'cdnjs.cloudflare.com', 'cloudfront.net',
     'jsdelivr.net', 'unpkg.com', 'esm.sh',
     'hotjar.com', 'segment.com', 'segment.io', 'mixpanel.com',
     'intercom.io', 'crisp.chat', 'zendesk.com', 'zopim.com',
@@ -1279,6 +1343,19 @@
     'typekit.net', 'use.typekit.net',
     'bootstrapcdn.com', 'maxcdn.bootstrapcdn.com',
     'jquery.com', 'code.jquery.com',
+    // Consent/Privacy CDNs
+    'privacy-mgmt.com', 'sourcepoint.com', 'sp-prod.net',
+    'userreport.com', 'ebxcdn.com',
+    'onetrust.com', 'cookielaw.org', 'cookiepro.com',
+    'consentmanager.net', 'usercentrics.com',
+    // Ad networks
+    'adnxs.com', 'doubleclick.net', 'pubmatic.com', 'rubiconproject.com',
+    'openx.net', 'criteo.com', 'taboola.com', 'outbrain.com',
+    // Analytics
+    'crazyegg.com', 'mouseflow.com', 'luckyorange.com', 'fullstory.com',
+    'logrocket.com', 'heapanalytics.com', 'amplitude.com',
+    // General CDNs
+    'akamaized.net', 'fastly.net', 'azureedge.net',
   ];
 
   function isThirdPartyScript(url) {
@@ -1288,6 +1365,9 @@
 
       // Same origin = not third-party
       if (scriptHost === pageHost) return false;
+
+      // Check global skip list first
+      if (shouldSkipDomain(scriptHost)) return true;
 
       // Check if it's a known third-party service
       for (const domain of thirdPartyDomains) {
@@ -1303,6 +1383,11 @@
   }
 
   async function detectSourceMaps() {
+    // SCOPE CHECK: Only run on main frame, skip third-party iframes
+    if (!isMainFrame || shouldSkipDomain(location.hostname)) {
+      return;
+    }
+
     const scripts = document.querySelectorAll('script[src]');
 
     for (const script of scripts) {
@@ -1395,6 +1480,18 @@
   ];
 
   async function checkSensitivePaths() {
+    // SCOPE CHECK: Only run on main frame, skip third-party iframes
+    if (!isMainFrame) {
+      console.log('[Lonkero] Skipping sensitive path check - not main frame');
+      return;
+    }
+
+    // Skip third-party domains entirely
+    if (shouldSkipDomain(location.hostname)) {
+      console.log('[Lonkero] Skipping sensitive path check - third-party domain:', location.hostname);
+      return;
+    }
+
     const sensitivePaths = [
       { path: '/.git/config', name: 'Git config', severity: 'critical' },
       { path: '/.env', name: 'Environment file', severity: 'critical' },
@@ -1695,33 +1792,23 @@
   // ============================================================
 
   function init() {
-    // Run detections
+    // PASSIVE detections only - no active probing to avoid WAF bans
+    // Active scans (source maps, sensitive paths, security headers) are now MANUAL via popup buttons
     setTimeout(() => {
+      // These are safe passive checks - no network requests
       checkSources();
       checkPrototypePollution();
-      scanInlineScripts();
 
-      // Security analysis (run once per page)
-      detectMixedContent();
-      checkOpenRedirect();
-      auditCookies();
-      analyzeJWTs();
-
-      // Delayed scans
+      // Delayed passive scans
       setTimeout(() => {
-        scanExternalScripts();
+        // Scan inline scripts for secrets (no network requests)
+        scanInlineScripts();
 
         const sessionData = extractSessionData();
         const frameworks = detectFrameworks();
         const technologies = detectTechnologies();
 
-        // Security headers (async)
-        analyzeSecurityHeaders();
-
-        // Source maps (async, lightweight)
-        detectSourceMaps();
-
-        // Report page analysis
+        // Report page analysis (passive only)
         safeSendMessage({
           type: 'pageAnalysis',
           data: {
@@ -1737,14 +1824,95 @@
           }
         });
 
-        // Sensitive paths (async, delayed to reduce noise)
-        setTimeout(() => checkSensitivePaths(), 2000);
+        // NOTE: These active scans are now DISABLED by default to avoid WAF detection
+        // They can be triggered manually via popup buttons:
+        // - analyzeSecurityHeaders()  -> "Headers Scan" button
+        // - detectSourceMaps()        -> "Source Maps" button
+        // - checkSensitivePaths()     -> "Sensitive Paths" button
+        // - scanExternalScripts()     -> "Secrets Scan" button
+        // - detectMixedContent()      -> Part of "Full Scan"
+        // - checkOpenRedirect()       -> Part of "Full Scan"
+        // - auditCookies()            -> Part of "Full Scan"
+        // - analyzeJWTs()             -> Part of "Full Scan"
       }, 1000);
     }, 500);
 
-    // Periodic checks
+    // Periodic passive checks only
     setInterval(checkPrototypePollution, 5000);
   }
+
+  // ============================================================
+  // MANUAL SCAN FUNCTIONS (triggered from popup)
+  // ============================================================
+
+  // Run all active scans
+  async function runFullScan() {
+    console.log('[Lonkero] Running full scan...');
+    const results = { findings: 0, errors: [] };
+
+    try {
+      // Security headers
+      await analyzeSecurityHeaders();
+
+      // Source maps
+      await detectSourceMaps();
+
+      // Sensitive paths
+      await checkSensitivePaths();
+
+      // External scripts for secrets
+      scanExternalScripts();
+
+      // Other checks
+      detectMixedContent();
+      checkOpenRedirect();
+      auditCookies();
+      analyzeJWTs();
+
+      results.findings = findings.length;
+      console.log('[Lonkero] Full scan complete:', results);
+    } catch (e) {
+      results.errors.push(e.message);
+      console.error('[Lonkero] Full scan error:', e);
+    }
+
+    return results;
+  }
+
+  // Individual scan functions for granular control
+  async function runHeadersScan() {
+    console.log('[Lonkero] Running security headers scan...');
+    await analyzeSecurityHeaders();
+    return { success: true };
+  }
+
+  async function runSourceMapsScan() {
+    console.log('[Lonkero] Running source maps scan...');
+    await detectSourceMaps();
+    return { success: true };
+  }
+
+  async function runSensitivePathsScan() {
+    console.log('[Lonkero] Running sensitive paths scan...');
+    await checkSensitivePaths();
+    return { success: true };
+  }
+
+  async function runSecretsScan() {
+    console.log('[Lonkero] Running secrets scan...');
+    scanInlineScripts();
+    scanExternalScripts();
+    return { success: true };
+  }
+
+  // Expose scan functions globally for popup to call
+  window.__lonkeroScans = {
+    fullScan: runFullScan,
+    headersScan: runHeadersScan,
+    sourceMapsScan: runSourceMapsScan,
+    sensitivePathsScan: runSensitivePathsScan,
+    secretsScan: runSecretsScan,
+  };
 
   // Inject Form Fuzzer into page context
   function injectFormFuzzer() {
