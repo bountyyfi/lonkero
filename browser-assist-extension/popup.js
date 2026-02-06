@@ -15,7 +15,12 @@ let capturedRequests = [];
 
 const CONSENT_KEY = 'lonkero_analytics_consent';
 
-function checkConsent() {
+function checkConsentAnswered() {
+  const val = localStorage.getItem(CONSENT_KEY);
+  return val === 'accepted' || val === 'declined';
+}
+
+function checkConsentAccepted() {
   return localStorage.getItem(CONSENT_KEY) === 'accepted';
 }
 
@@ -43,8 +48,15 @@ function acceptConsent() {
   trackUsage(); // Track now that consent is given
 }
 
-// Setup consent button handler
+function declineConsent() {
+  localStorage.setItem(CONSENT_KEY, 'declined');
+  hideConsentModal();
+  // No tracking - user declined
+}
+
+// Setup consent button handlers
 document.getElementById('acceptConsentBtn')?.addEventListener('click', acceptConsent);
+document.getElementById('declineConsentBtn')?.addEventListener('click', declineConsent);
 
 // ============================================================
 // TAB NAVIGATION
@@ -1155,8 +1167,8 @@ function getDateStr() {
  * Only fires once per session and requires consent
  */
 function trackUsage() {
-  // Require consent
-  if (!checkConsent()) return;
+  // Require explicit consent to track
+  if (!checkConsentAccepted()) return;
 
   const sessionKey = 'lonkero_ext_tracked';
 
@@ -1185,13 +1197,14 @@ function trackUsage() {
 // INITIALIZATION
 // ============================================================
 
-// Check consent before allowing usage
-if (!checkConsent()) {
+// Show consent modal if user hasn't answered yet
+if (!checkConsentAnswered()) {
   showConsentModal();
-} else {
-  // User already consented, track and initialize
+} else if (checkConsentAccepted()) {
+  // User already consented, track usage
   trackUsage();
 }
+// If declined, we just continue without tracking
 
 refreshState();
 loadFindings();
