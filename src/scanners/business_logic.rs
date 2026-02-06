@@ -637,6 +637,13 @@ impl BusinessLogicScanner {
 
         debug!("Testing coupon/voucher abuse vulnerabilities");
 
+        // Get baseline response from homepage to detect soft-404s
+        // (sites that return 200 with their homepage for any path)
+        let baseline_len = match self.http_client.get(url).await {
+            Ok(resp) => resp.body.len(),
+            Err(_) => 0,
+        };
+
         let coupon_endpoints = vec![
             format!("{}/apply-coupon", url.trim_end_matches('/')),
             format!("{}/discount", url.trim_end_matches('/')),
@@ -673,6 +680,24 @@ impl BusinessLogicScanner {
                         if self.is_not_found_response(&response) {
                             debug!("Skipping non-existent endpoint: {}", endpoint);
                             break; // Skip this endpoint entirely
+                        }
+
+                        // Skip if response is suspiciously similar to the homepage (soft-404)
+                        // Sites behind CDNs/WAFs often return 200 with the same page for any path
+                        if baseline_len > 0 {
+                            let resp_len = response.body.len();
+                            let len_ratio = if baseline_len > resp_len {
+                                resp_len as f64 / baseline_len as f64
+                            } else {
+                                baseline_len as f64 / resp_len as f64
+                            };
+                            if len_ratio > 0.9 {
+                                debug!(
+                                    "Skipping endpoint {} - response similar to homepage (soft-404, ratio: {:.2})",
+                                    endpoint, len_ratio
+                                );
+                                break;
+                            }
                         }
 
                         // Check for coupon bypass
@@ -2433,8 +2458,21 @@ impl BusinessLogicScanner {
     fn detect_coupon_bypass(&self, body: &str, value: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check for SQL injection success
-        if value.contains("'") && (body_lower.contains("sql") || body_lower.contains("syntax")) {
+        // Check for SQL injection success - require SPECIFIC SQL error messages,
+        // not just the word "sql" which appears in normal page content/JS
+        if value.contains("'")
+            && (body_lower.contains("sql syntax")
+                || body_lower.contains("you have an error in your sql")
+                || body_lower.contains("unclosed quotation mark")
+                || body_lower.contains("syntax error at or near")
+                || body_lower.contains("mysql_")
+                || body_lower.contains("pg_query")
+                || body_lower.contains("sqlite3.operationalerror")
+                || body_lower.contains("microsoft ole db")
+                || body_lower.contains("ora-0")
+                || body_lower.contains("warning: mysql")
+                || body_lower.contains("jdbc.sqltransientconnectionexception"))
+        {
             return true;
         }
 
@@ -2445,12 +2483,16 @@ impl BusinessLogicScanner {
             return true;
         }
 
-        // Check for coupon applied successfully
+        // Check for coupon applied successfully - require specific coupon success phrases
+        // "savings" alone is too generic (gambling/finance sites mention it normally)
         (body_lower.contains("discount applied")
             || body_lower.contains("coupon valid")
-            || body_lower.contains("savings"))
+            || body_lower.contains("coupon applied")
+            || body_lower.contains("promo code applied")
+            || body_lower.contains("voucher applied"))
             && !body_lower.contains("invalid")
             && !body_lower.contains("expired")
+            && !body_lower.contains("error")
     }
 
     /// Detect coupon reuse vulnerability
