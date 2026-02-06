@@ -103,3 +103,10 @@ pub mod form_replay;
 
 // Session recording for browser session capture and replay
 pub mod session_recording;
+
+// Parasite Mode - route requests through real browser TLS (legacy name)
+pub mod parasite;
+
+// Browser-Assist Mode - legitimate browser-assisted security scanning
+// This is the proper, enterprise-ready approach: transparent, auditable, user-controlled
+pub mod browser_assist;

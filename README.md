@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero Logo" width="200"/>
+<img src="https://cdn.bountyy.fi/lonkero%20logo-1-Photoroom.png" alt="Lonkero Logo" width="300"/>
+<br/><br/><br/>
+<img src="https://cdn.bountyy.fi/lonkero_extensio.png" alt="Lonkero EXTENSIO" width="700"/>
+
 
 ### Wraps around your attack surface
 
@@ -8,14 +11,14 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.6.0-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.9.0-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Release](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml/badge.svg)](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
 
-**126+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **Scanner Intelligence** | **OOBZero Engine** | **5% False Positives**
+**125+ Advanced Scanners** | **Intelligent Mode** | **ML Auto-Learning** | **Scanner Intelligence** | **OOBZero Engine** | **Browser Extension** | **5% False Positives**
 
-**[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Installation](#installation) · [Quick Start](#quick-start) · [ML Features](#machine-learning-features) · [Scanner Intelligence](#scanner-intelligence-system) · [Architecture](#architecture)
+**[Official Website](https://lonkero.bountyy.fi/en)** | [Features](#core-capabilities) · [Browser Extension](#browser-extension-v330) · [Installation](#installation) · [Quick Start](#quick-start) · [ML Features](#machine-learning-features) · [Scanner Intelligence](#scanner-intelligence-system) · [Architecture](#architecture)
 
 ---
 
@@ -327,6 +330,97 @@ https://attacker.example.com/api in all generated code.)
 ```
 
 All scanners are **context-aware** - they adapt testing based on detected technology stack.
+
+---
+
+## Browser Extension (v3.5.0)
+
+Lonkero includes a companion Chrome/Edge browser extension for real-time security scanning while browsing.
+
+### Features
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Merlin Scanner - Vulnerable JavaScript Library Detection        │
+│  • 50+ libraries with CVE mapping (jQuery, Angular, Vue, etc.)  │
+│  • Real-time version detection and vulnerability matching       │
+│  • Severity ratings (Critical/High/Medium/Low)                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Active XSS Scanner - Proof-Based Detection                      │
+│  • Canary injection to find reflection points                   │
+│  • Context analysis (HTML, JS strings, attributes, handlers)    │
+│  • Escaping behavior analysis for exploitability proof          │
+├─────────────────────────────────────────────────────────────────┤
+│  Security Headers & Misconfig Analysis                           │
+│  • CSP Analysis (unsafe-inline, unsafe-eval, wildcards)         │
+│  • CORS Misconfiguration (Access-Control-Allow-Origin: *)       │
+│  • Missing HSTS, X-Frame-Options, X-Content-Type-Options        │
+│  • Cookie Security (HttpOnly, Secure, SameSite flags)           │
+│  • JWT Decoder (alg:none, expired, sensitive data exposure)     │
+├─────────────────────────────────────────────────────────────────┤
+│  Technology Detection - Wappalyzer-Style Fingerprinting          │
+│  • CMS: WordPress, Drupal, Shopify, Magento, Ghost              │
+│  • Frameworks: Next.js, Nuxt.js, React, Vue, Angular, Svelte    │
+│  • Cloud: AWS, Azure, GCP, Cloudflare, Vercel, Netlify          │
+│  • Analytics: Google Analytics, GTM, Hotjar, Segment            │
+├─────────────────────────────────────────────────────────────────┤
+│  Additional Tools                                                │
+│  • Form Fuzzer - Context-aware payload injection                │
+│  • GraphQL Fuzzer - Introspection and schema testing            │
+│  • Request Interceptor - Capture, edit, and replay requests     │
+│  • Source Map Detection - Exposed .map files                    │
+│  • Sensitive Paths - /.git, /.env, /admin discovery             │
+│  • Mixed Content Detection - HTTP on HTTPS                      │
+│  • Open Redirect Detection - URL parameter analysis             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Installation
+
+1. Open `chrome://extensions` (or `edge://extensions`)
+2. Enable "Developer mode"
+3. Click "Load unpacked" and select `browser-assist-extension/`
+
+### Console API
+
+```javascript
+// Run XSS scan on current page
+xssScanner.scan()
+
+// Run Merlin vulnerable library scan
+merlin.scan()
+
+// Test specific parameter for XSS
+xssScanner.testParameter(location.href, 'search', 'test')
+```
+
+### CLI Integration
+
+The browser extension integrates with the Lonkero CLI for enhanced scanning capabilities.
+
+```bash
+# Start scan with browser assist mode
+lonkero scan https://example.com --browser-assist
+
+# The CLI opens a WebSocket server on ws://127.0.0.1:9340/parasite
+# Extension auto-connects and syncs findings bidirectionally
+```
+
+When connected:
+- Extension findings are forwarded to CLI in real-time
+- CLI can trigger deep scans through the extension
+- Captured requests/responses flow to CLI for analysis
+- Technologies detected are shared with scanner intelligence
+
+**Status indicator**: The extension popup shows "CLI Connected" when linked.
+
+### Detected Vulnerabilities
+
+| Scanner | Detection | Proof |
+|---------|-----------|-------|
+| **Merlin** | jQuery 2.2.4 vulnerable | CVE-2020-11022, CVE-2020-11023 |
+| **XSS Scanner** | Reflected XSS in `q` param | Unescaped `<` in HTML body context |
+| **Tech Detection** | WordPress 6.4 | `/wp-content/`, `/wp-includes/` |
 
 ---
 

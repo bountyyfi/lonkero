@@ -14,27 +14,88 @@ use crate::analysis::{
 use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::rate_limiter::AdaptiveRateLimiter;
 
-/// Realistic browser User-Agents to avoid detection
-const BROWSER_USER_AGENTS: &[&str] = &[
-    // Chrome on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    // Chrome on macOS
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    // Firefox on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    // Safari on macOS
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-    // Edge on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-];
+/// Generate a randomized browser User-Agent that looks like a real browser
+/// Each call generates unique version numbers - indistinguishable from real users
+/// Scanner identification moved to From header (RFC 7231) to avoid WAF blocks
+fn generate_user_agent() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Get a realistic browser User-Agent (rotates to avoid blocks)
-fn get_browser_user_agent() -> &'static str {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    // Simple random based on time nanoseconds
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
 
-    let index = COUNTER.fetch_add(1, Ordering::Relaxed) % BROWSER_USER_AGENTS.len();
-    BROWSER_USER_AGENTS[index]
+    // Random version components (realistic ranges)
+    let chrome_major = 118 + (nanos % 12) as u8;      // 118-129
+    let chrome_build = 5000 + (nanos / 7 % 1000);     // 5000-5999
+    let chrome_patch = nanos / 13 % 200;              // 0-199
+    let firefox_major = 115 + (nanos / 3 % 15) as u8; // 115-129
+    let safari_minor = (nanos / 11 % 5) as u8;        // 0-4
+    let edge_major = chrome_major;
+    let macos_minor = 2 + (nanos / 17 % 4) as u8;     // 2-5
+
+    // Pure browser User-Agents - no scanner identification (moved to From header)
+    let variants: [fn(u32, u8, u32, u32, u8, u8) -> String; 10] = [
+        // Chrome Windows
+        |_, cm, cb, cp, _, _| format!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.{}.{} Safari/537.36",
+            cm, cb, cp
+        ),
+        // Chrome macOS
+        |_, cm, cb, cp, mm, _| format!(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_{}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.{}.{} Safari/537.36",
+            mm, cm, cb, cp
+        ),
+        // Chrome Linux
+        |_, cm, cb, cp, _, _| format!(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.{}.{} Safari/537.36",
+            cm, cb, cp
+        ),
+        // Firefox Windows
+        |_, _, _, _, _, fm| format!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{}.0) Gecko/20100101 Firefox/{}.0",
+            fm, fm
+        ),
+        // Firefox macOS
+        |_, _, _, _, mm, fm| format!(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.{}; rv:{}.0) Gecko/20100101 Firefox/{}.0",
+            mm, fm, fm
+        ),
+        // Firefox Linux
+        |_, _, _, _, _, fm| format!(
+            "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:{}.0) Gecko/20100101 Firefox/{}.0",
+            fm, fm
+        ),
+        // Safari macOS
+        |_, _, _, _, mm, sm| format!(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_{}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.{} Safari/605.1.15",
+            mm, sm
+        ),
+        // Edge Windows
+        |_, cm, cb, cp, _, _| format!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.{}.{} Safari/537.36 Edg/{}.0.{}.{}",
+            cm, cb, cp, cm, cb, cp
+        ),
+        // Opera Windows
+        |_, cm, cb, cp, _, _| format!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.{}.{} Safari/537.36 OPR/{}.0.0.0",
+            cm, cb, cp, cm - 12
+        ),
+        // Brave Windows
+        |_, cm, cb, cp, _, _| format!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.{}.{} Safari/537.36",
+            cm, cb, cp
+        ),
+    ];
+
+    let variant_idx = (nanos / 19) as usize % variants.len();
+    variants[variant_idx](nanos, chrome_major, chrome_build, chrome_patch, macos_minor, firefox_major)
+}
+
+/// Get a browser User-Agent - generates unique one each time
+fn get_browser_user_agent() -> String {
+    generate_user_agent()
 }
 
 /// Maximum response body size (10MB) to prevent memory exhaustion
@@ -107,11 +168,66 @@ impl HttpClient {
             eprintln!("========================================\n");
         }
 
+        // Multi-layer identification headers - look like normal browser traffic
+        // but allow identification if admin investigates their logs
+        let mut default_headers = reqwest::header::HeaderMap::new();
+
+        // Layer 1: From header (RFC 7231) - standard bot identification
+        // Rarely blocked because legitimate crawlers use it
+        default_headers.insert(
+            reqwest::header::FROM,
+            reqwest::header::HeaderValue::from_static("scanner@lonkero.bountyy.fi"),
+        );
+
+        // Layer 2: Accept-Language with Finnish locale hint
+        // Looks completely normal, but hints at origin
+        default_headers.insert(
+            reqwest::header::ACCEPT_LANGUAGE,
+            reqwest::header::HeaderValue::from_static("en-US,en;q=0.9,fi;q=0.8"),
+        );
+
+        // Layer 3: Standard browser headers for stealth
+        default_headers.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"),
+        );
+        default_headers.insert(
+            reqwest::header::ACCEPT_ENCODING,
+            reqwest::header::HeaderValue::from_static("gzip, deflate, br"),
+        );
+        default_headers.insert(
+            reqwest::header::DNT,
+            reqwest::header::HeaderValue::from_static("1"),
+        );
+        default_headers.insert(
+            reqwest::header::UPGRADE_INSECURE_REQUESTS,
+            reqwest::header::HeaderValue::from_static("1"),
+        );
+
+        // Layer 4: Sec-Fetch headers (modern browsers send these)
+        default_headers.insert(
+            reqwest::header::HeaderName::from_static("sec-fetch-dest"),
+            reqwest::header::HeaderValue::from_static("document"),
+        );
+        default_headers.insert(
+            reqwest::header::HeaderName::from_static("sec-fetch-mode"),
+            reqwest::header::HeaderValue::from_static("navigate"),
+        );
+        default_headers.insert(
+            reqwest::header::HeaderName::from_static("sec-fetch-site"),
+            reqwest::header::HeaderValue::from_static("none"),
+        );
+        default_headers.insert(
+            reqwest::header::HeaderName::from_static("sec-fetch-user"),
+            reqwest::header::HeaderValue::from_static("?1"),
+        );
+
         let mut client_builder = Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .danger_accept_invalid_certs(accept_invalid_certs)
             .redirect(reqwest::redirect::Policy::limited(5))
             .user_agent(get_browser_user_agent())
+            .default_headers(default_headers)
             .pool_max_idle_per_host(pool_idle)
             .pool_idle_timeout(Duration::from_secs(DEFAULT_POOL_MAX_IDLE_TIMEOUT))
             .tcp_keepalive(Duration::from_secs(60))
@@ -1064,6 +1180,60 @@ impl HttpClient {
     }
 }
 
+/// Type of WAF/CDN block detected
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockType {
+    /// Cloudflare JavaScript challenge
+    CloudflareChallenge,
+    /// Cloudflare block page
+    CloudflareBlock,
+    /// Cloudflare rate limit
+    CloudflareRateLimit,
+    /// Akamai block
+    Akamai,
+    /// AWS WAF block
+    AwsWaf,
+    /// Imperva/Incapsula block
+    Imperva,
+    /// Sucuri firewall
+    Sucuri,
+    /// ModSecurity block
+    ModSecurity,
+    /// Barracuda WAF
+    Barracuda,
+    /// F5 BIG-IP ASM
+    F5BigIp,
+    /// Fortinet FortiWeb
+    Fortinet,
+    /// Generic 403 block
+    Generic403,
+    /// Generic captcha challenge
+    Captcha,
+    /// Unknown WAF
+    Unknown,
+}
+
+impl std::fmt::Display for BlockType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockType::CloudflareChallenge => write!(f, "Cloudflare Challenge"),
+            BlockType::CloudflareBlock => write!(f, "Cloudflare Block"),
+            BlockType::CloudflareRateLimit => write!(f, "Cloudflare Rate Limit"),
+            BlockType::Akamai => write!(f, "Akamai"),
+            BlockType::AwsWaf => write!(f, "AWS WAF"),
+            BlockType::Imperva => write!(f, "Imperva/Incapsula"),
+            BlockType::Sucuri => write!(f, "Sucuri"),
+            BlockType::ModSecurity => write!(f, "ModSecurity"),
+            BlockType::Barracuda => write!(f, "Barracuda WAF"),
+            BlockType::F5BigIp => write!(f, "F5 BIG-IP"),
+            BlockType::Fortinet => write!(f, "Fortinet FortiWeb"),
+            BlockType::Generic403 => write!(f, "Generic 403"),
+            BlockType::Captcha => write!(f, "Captcha Challenge"),
+            BlockType::Unknown => write!(f, "Unknown WAF"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status_code: u16,
@@ -1079,5 +1249,154 @@ impl HttpResponse {
 
     pub fn header(&self, name: &str) -> Option<String> {
         self.headers.get(&name.to_lowercase()).cloned()
+    }
+
+    /// Detect if this response is a WAF/CDN block page
+    /// Returns Some(BlockType) if blocked, None if normal response
+    pub fn detect_block(&self) -> Option<BlockType> {
+        let body_lower = self.body.to_lowercase();
+        let body_len = self.body.len();
+
+        // === CLOUDFLARE ===
+        // Challenge page (JavaScript challenge)
+        if body_lower.contains("cf-browser-verification")
+            || body_lower.contains("checking your browser")
+            || body_lower.contains("cf_clearance")
+            || body_lower.contains("cf-challenge-running")
+            || body_lower.contains("jschl_vc")
+            || body_lower.contains("jschl_answer")
+        {
+            return Some(BlockType::CloudflareChallenge);
+        }
+
+        // Cloudflare block page
+        if (self.status_code == 403 || self.status_code == 503)
+            && (body_lower.contains("cloudflare")
+                || body_lower.contains("cf-ray")
+                || self.headers.get("cf-ray").is_some()
+                || self.headers.get("cf-cache-status").is_some())
+        {
+            if self.status_code == 429 || body_lower.contains("rate limit") {
+                return Some(BlockType::CloudflareRateLimit);
+            }
+            return Some(BlockType::CloudflareBlock);
+        }
+
+        // === AKAMAI ===
+        if body_lower.contains("akamai")
+            || body_lower.contains("access denied")
+                && self.headers.get("server").map(|s| s.contains("AkamaiGHost")).unwrap_or(false)
+            || body_lower.contains("reference&#32telefonläche32;id")
+        {
+            return Some(BlockType::Akamai);
+        }
+
+        // === AWS WAF ===
+        if body_lower.contains("aws waf")
+            || (self.status_code == 403
+                && self.headers.get("x-amzn-requestid").is_some())
+            || body_lower.contains("request blocked")
+                && body_lower.contains("aws")
+        {
+            return Some(BlockType::AwsWaf);
+        }
+
+        // === IMPERVA / INCAPSULA ===
+        if body_lower.contains("incapsula")
+            || body_lower.contains("imperva")
+            || body_lower.contains("_incap_")
+            || self.headers.get("x-iinfo").is_some()
+            || body_lower.contains("visid_incap")
+        {
+            return Some(BlockType::Imperva);
+        }
+
+        // === SUCURI ===
+        if body_lower.contains("sucuri")
+            || body_lower.contains("sucuri cloudproxy")
+            || self.headers.get("x-sucuri-id").is_some()
+            || body_lower.contains("access denied - sucuri")
+        {
+            return Some(BlockType::Sucuri);
+        }
+
+        // === MODSECURITY ===
+        if body_lower.contains("mod_security")
+            || body_lower.contains("modsecurity")
+            || body_lower.contains("naxsi")
+            || (self.status_code == 403 && body_lower.contains("not acceptable"))
+        {
+            return Some(BlockType::ModSecurity);
+        }
+
+        // === BARRACUDA ===
+        if body_lower.contains("barracuda")
+            || self.headers.get("server").map(|s| s.to_lowercase().contains("barracuda")).unwrap_or(false)
+        {
+            return Some(BlockType::Barracuda);
+        }
+
+        // === F5 BIG-IP ===
+        if body_lower.contains("big-ip")
+            || body_lower.contains("f5 networks")
+            || self.headers.get("server").map(|s| s.contains("BIG-IP")).unwrap_or(false)
+            || body_lower.contains("the requested url was rejected")
+        {
+            return Some(BlockType::F5BigIp);
+        }
+
+        // === FORTINET ===
+        if body_lower.contains("fortinet")
+            || body_lower.contains("fortiweb")
+            || body_lower.contains("fortigate")
+        {
+            return Some(BlockType::Fortinet);
+        }
+
+        // === GENERIC CAPTCHA ===
+        if body_lower.contains("captcha")
+            || body_lower.contains("recaptcha")
+            || body_lower.contains("hcaptcha")
+            || body_lower.contains("g-recaptcha")
+            || body_lower.contains("challenge-form")
+        {
+            return Some(BlockType::Captcha);
+        }
+
+        // === GENERIC BLOCK DETECTION ===
+        // Small 403 page is likely a block
+        if self.status_code == 403 && body_len < 2000 {
+            // Common block page phrases
+            if body_lower.contains("access denied")
+                || body_lower.contains("forbidden")
+                || body_lower.contains("blocked")
+                || body_lower.contains("not allowed")
+                || body_lower.contains("permission denied")
+            {
+                return Some(BlockType::Generic403);
+            }
+        }
+
+        // 406 Not Acceptable often indicates WAF
+        if self.status_code == 406 {
+            return Some(BlockType::Unknown);
+        }
+
+        // 429 rate limiting
+        if self.status_code == 429 {
+            return Some(BlockType::Unknown);
+        }
+
+        None
+    }
+
+    /// Check if response indicates we're being blocked/challenged
+    pub fn is_blocked(&self) -> bool {
+        self.detect_block().is_some()
+    }
+
+    /// Check if this looks like a legitimate response (not a block page)
+    pub fn is_legitimate(&self) -> bool {
+        !self.is_blocked()
     }
 }

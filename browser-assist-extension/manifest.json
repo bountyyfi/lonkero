@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Lonkero Security Scanner",
+  "version": "3.6.0",
+  "description": "Advanced browser-based security scanning with DOM XSS detection, prototype pollution, secret scanning, and Lonkero CLI integration.",
+
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "webNavigation",
+    "clipboardWrite"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["formfuzzer.js", "graphql-fuzzer.js", "interceptors.js", "merlin.js", "xss-scanner.js", "sql-scanner.js", "cms-scanner.js", "framework-scanner.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

@@ -151,6 +151,7 @@ dirs = "6.0"
 
 # Secure credential storage (OS keychain)
 keyring = "3.6.3"
+socket2 = "0.6.2"
 
 [profile.release]
 opt-level = 3
