@@ -319,7 +319,7 @@ impl MlPipeline {
         Ok((filtered, filtered_count))
     }
 
-    /// Called at end of scan to potentially sync with federated network
+    /// Called at end of scan to sync detection model
     pub async fn on_scan_complete(&mut self) -> Result<()> {
         if !self.enabled {
             return Ok(());
@@ -330,36 +330,13 @@ impl MlPipeline {
             self.findings_processed, self.auto_confirmed, self.auto_rejected
         );
 
-        // Check if we should sync with federated network
-        let privacy = self.privacy_manager.read().await;
-        if privacy.is_federated_allowed() {
-            drop(privacy); // Release lock before async operation
-
-            let mut federated = self.federated_client.write().await;
-
-            // Try to fetch latest global model
-            if let Ok(Some(model)) = federated.fetch_global_model().await {
-                info!(
-                    "ML: Fetched global model v{} ({} contributors)",
-                    model.global_version, model.contributor_count
-                );
-            }
-
-            // Contribute if we have enough data
-            if federated.can_contribute() {
-                match federated.contribute_weights().await {
-                    Ok(true) => info!("ML: Contributed to federated network"),
-                    Ok(false) => debug!("ML: Not enough data to contribute yet"),
-                    Err(e) => warn!("ML: Failed to contribute: {}", e),
-                }
-            }
-
-            // Upload any pending contributions from offline mode
-            if let Ok(count) = federated.upload_pending().await {
-                if count > 0 {
-                    info!("ML: Uploaded {} pending contributions", count);
-                }
-            }
+        // Try to fetch latest detection model
+        let mut federated = self.federated_client.write().await;
+        if let Ok(Some(model)) = federated.fetch_global_model().await {
+            info!(
+                "ML: Fetched detection model v{} ({} contributors)",
+                model.global_version, model.contributor_count
+            );
         }
 
         // Reset session counters
@@ -371,12 +348,12 @@ impl MlPipeline {
     }
 
     /// Enable ML features (requires user consent)
-    pub async fn enable(&mut self, federated_opt_in: bool) -> Result<()> {
+    pub async fn enable(&mut self) -> Result<()> {
         let mut privacy = self.privacy_manager.write().await;
-        privacy.record_consent(federated_opt_in)?;
+        privacy.record_consent(false)?;
         self.enabled = true;
 
-        info!("ML: Enabled (federated: {})", federated_opt_in);
+        info!("ML: Enabled");
         Ok(())
     }
 
@@ -412,9 +389,8 @@ impl MlPipeline {
             total_rejected: learning_stats.auto_rejected,
             pending_learning: learning_stats.pending_learning,
             endpoint_patterns: learning_stats.endpoint_patterns,
-            federated_enabled: federated_stats.has_global_model,
-            federated_contributors: federated_stats.global_contributors,
-            can_contribute: federated_stats.can_contribute,
+            model_available: federated_stats.has_global_model,
+            model_contributors: federated_stats.global_contributors,
         }
     }
 }
@@ -456,12 +432,10 @@ pub struct MlPipelineStats {
     pub pending_learning: usize,
     /// Unique endpoint patterns learned
     pub endpoint_patterns: usize,
-    /// Whether federated learning is active
-    pub federated_enabled: bool,
-    /// Number of federated contributors
-    pub federated_contributors: Option<usize>,
-    /// Whether we can contribute to federated network
-    pub can_contribute: bool,
+    /// Whether detection model is available
+    pub model_available: bool,
+    /// Number of model contributors
+    pub model_contributors: Option<usize>,
 }
 
 /// Simplified interface for scan pipeline integration
