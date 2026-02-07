@@ -62,7 +62,6 @@
   function injectLicenseKey() {
     if (!__lonkeroLicenseKey) return;
     try {
-      // Use hidden DOM element - works even with strict CSP
       const el = document.createElement('div');
       el.id = '__lk_c';
       el.style.display = 'none';
@@ -70,15 +69,6 @@
       (document.head || document.documentElement).appendChild(el);
     } catch (e) {
       // Silently fail
-    }
-    try {
-      // Also try inline script for window.__lonkeroKey (may be blocked by CSP)
-      const script = document.createElement('script');
-      script.textContent = `window.__lonkeroKey="${__lonkeroLicenseKey}";`;
-      (document.head || document.documentElement).appendChild(script);
-      script.remove();
-    } catch (e) {
-      // Silently fail - DOM element above is the primary method
     }
   }
 
