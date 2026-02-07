@@ -943,9 +943,10 @@ async function handleReplayRequest(msg) {
 
 // Handle replay request from popup
 async function handleReplayFromPopup(request) {
-  // Scope enforcement — prevent SSRF via popup replay
-  if (!isInScope(request.url)) {
-    return { error: `Replay blocked — not in scope: ${(state.scope || []).join(', ')}` };
+  // Scope enforcement — when CLI has set a scope, enforce it.
+  // In extension-only mode (no scope set), user drives replay manually so allow it.
+  if (state.scope && state.scope.length > 0 && !isInScope(request.url)) {
+    return { error: `Replay blocked — not in scope: ${state.scope.join(', ')}` };
   }
 
   try {
