@@ -28,19 +28,18 @@
   // If not licensed, the content script will not inject any scanners.
   let __lonkeroLicensed = false;
 
-  let __lonkeroLicenseToken = null;
+  let __lonkeroLicenseKey = null;
 
   function checkContentLicense() {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage({ type: 'checkLicense' }, (response) => {
           if (chrome.runtime.lastError) {
-            // Extension context invalidated or not available
             resolve(false);
             return;
           }
-          if (response && response.licensed && response.token) {
-            __lonkeroLicenseToken = response.token;
+          if (response && response.licensed && response.key) {
+            __lonkeroLicenseKey = response.key;
           }
           resolve(response && response.licensed);
         });
@@ -51,15 +50,16 @@
   }
 
   /**
-   * Inject the license session token into page context.
-   * Scanner files (which run in MAIN world) check for this token.
-   * This is defense-in-depth against trivial JS stripping.
+   * Inject the license key into page context so scanner files can
+   * independently validate against the Bountyy license server.
+   * Each scanner does its own server-side check - stripping the
+   * content.js check alone is not enough.
    */
-  function injectLicenseToken() {
-    if (!__lonkeroLicenseToken) return;
+  function injectLicenseKey() {
+    if (!__lonkeroLicenseKey) return;
     try {
       const script = document.createElement('script');
-      script.textContent = `window.__lonkeroLicenseToken="${__lonkeroLicenseToken}";`;
+      script.textContent = `window.__lonkeroKey="${__lonkeroLicenseKey}";`;
       (document.head || document.documentElement).appendChild(script);
       script.remove();
     } catch (e) {
@@ -2163,8 +2163,8 @@
       return;
     }
 
-    // Licensed - inject token and initialize all scanning features
-    injectLicenseToken();
+    // Licensed - inject key and initialize all scanning features
+    injectLicenseKey();
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {

@@ -101,25 +101,13 @@ function isLicensed() {
 }
 
 /**
- * Generate a license session token for scanner file verification.
- * This is injected into the page context so scanner files can verify
- * they were loaded by a licensed extension instance.
- *
- * NOTE: This is defense-in-depth. Client-side checks can always be bypassed
- * by a determined actor. The real enforcement is server-side + legal.
+ * Get the license key for scanner file verification.
+ * Scanner files independently validate against the Bountyy license server.
+ * This returns the actual key so scanners can do their own server check.
  */
-function generateLicenseToken() {
-  if (!isLicensed()) return null;
-  // Simple HMAC-like token: combines license type + timestamp + extension ID
-  const payload = `${licenseState.licenseType}:${chrome.runtime.id}:${Math.floor(Date.now() / 3600000)}`;
-  // Simple hash for verification (not cryptographically secure, but sufficient for tamper-detection)
-  let hash = 0;
-  for (let i = 0; i < payload.length; i++) {
-    const char = payload.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit int
-  }
-  return `lkr_${Math.abs(hash).toString(36)}_${licenseState.licenseType || 'unk'}`;
+function getLicenseKeyForScanners() {
+  if (!isLicensed() || !licenseState.licenseKey) return null;
+  return licenseState.licenseKey;
 }
 
 /**
@@ -516,10 +504,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'checkLicense':
-      // Content scripts can check if licensed (includes token for scanner files)
+      // Content scripts can check if licensed
+      // Includes the license key so scanner files can independently validate
+      // against the Bountyy server (defense-in-depth)
       sendResponse({
         licensed: isLicensed(),
-        token: isLicensed() ? generateLicenseToken() : null,
+        key: isLicensed() ? getLicenseKeyForScanners() : null,
       });
       break;
 

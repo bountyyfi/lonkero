@@ -23,12 +23,18 @@
 (function() {
   'use strict';
 
-  // License check - requires valid Lonkero license token
-  if (!window.__lonkeroLicenseToken || !window.__lonkeroLicenseToken.startsWith('lkr_')) {
+  // License check - validates against Bountyy license server
+  const _lk = window.__lonkeroKey;
+  if (!_lk || !_lk.startsWith('LONKERO-') || _lk.split('-').length !== 5) {
     console.warn('[Lonkero] GraphQL Fuzzer requires a valid license. Visit https://bountyy.fi');
     window.gqlFuzz = { fuzz: () => Promise.reject(new Error('License required')), getReport: () => ({error: 'License required'}) };
     return;
   }
+  let _lkValid = true;
+  fetch('https://lonkero.bountyy.fi/api/v1/validate', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({license_key: _lk, product: 'lonkero', version: '3.6.0'})
+  }).then(r => r.json()).then(d => { if (!d.valid || d.killswitch_active) _lkValid = false; }).catch(() => {});
 
   const PAYLOADS = {
     sqli: [
@@ -1607,6 +1613,7 @@
 
     // Main entry point
     async fuzz(endpointOrAuto = null, options = {}) {
+      if (!_lkValid) throw new Error('License validation failed. Visit https://bountyy.fi');
       const {
         quick = false,        // Quick scan (basic tests only)
         aggressive = false,   // Aggressive mode (all tests including DoS)
