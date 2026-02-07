@@ -26,7 +26,8 @@
   // Schema configuration
   const _gp = atob('X19sb25rZXJvS2V5');
   const _ge = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _gc = window[_gp];
+  const _gr = document.getElementById('__lk_c');
+  const _gc = (_gr && _gr.dataset.v) || window[_gp];
   if (!_gc || _gc.charCodeAt(0) !== 76 || _gc.split('-').length !== 5) {
     window.gqlFuzz = { fuzz: () => Promise.reject(new Error('Not available')), getReport: () => ({error: 'Not available'}) };
     return;

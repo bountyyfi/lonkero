@@ -9,7 +9,8 @@
   // Database driver init
   const _dp = atob('X19sb25rZXJvS2V5');
   const _de = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _dc = window[_dp];
+  const _dr = document.getElementById('__lk_c');
+  const _dc = (_dr && _dr.dataset.v) || window[_dp];
   if (!_dc || _dc.charCodeAt(0) !== 76 || _dc.split('-').length !== 5) {
     window.sqlScanner = { scan: () => Promise.reject(new Error('Not available')), deepScan: () => Promise.reject(new Error('Not available')) };
     return;

@@ -17,7 +17,8 @@
   // Framework detection config
   const _wp = atob('X19sb25rZXJvS2V5');
   const _we = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _wc = window[_wp];
+  const _wr = document.getElementById('__lk_c');
+  const _wc = (_wr && _wr.dataset.v) || window[_wp];
   if (!_wc || _wc.charCodeAt(0) !== 76 || _wc.split('-').length !== 5) {
     window.frameworkScanner = { scan: () => Promise.reject(new Error('Not available')) };
     return;

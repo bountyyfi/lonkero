@@ -29,7 +29,8 @@
   // Context initialization
   const _xp = atob('X19sb25rZXJvS2V5');
   const _xe = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _xc = window[_xp];
+  const _xr = document.getElementById('__lk_c');
+  const _xc = (_xr && _xr.dataset.v) || window[_xp];
   if (!_xc || _xc.charCodeAt(0) !== 76 || _xc.split('-').length !== 5) {
     window.xssScanner = { scan: () => Promise.reject(new Error('Not available')), deepScan: () => Promise.reject(new Error('Not available')) };
     return;

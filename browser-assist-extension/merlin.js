@@ -12,7 +12,8 @@
   // Vulnerability database config
   const _vp = atob('X19sb25rZXJvS2V5');
   const _ve = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _vc = window[_vp];
+  const _vr = document.getElementById('__lk_c');
+  const _vc = (_vr && _vr.dataset.v) || window[_vp];
   if (!_vc || _vc.charCodeAt(0) !== 76 || _vc.split('-').length !== 5) { return; }
   let _dbLoaded = true;
   fetch(_ve, {
