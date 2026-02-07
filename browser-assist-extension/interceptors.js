@@ -27,7 +27,7 @@
   window.__lonkeroInterceptorsInjected = true;
 
   // Gated message relay
-  function _hkPost(data) { if (_hookOk && window[_hp]) window.postMessage(data, '*'); }
+  function _hkPost(data) { if (_hookOk && _hc) window.postMessage(data, '*'); }
 
   // Intercept fetch
   const originalFetch = window.fetch;

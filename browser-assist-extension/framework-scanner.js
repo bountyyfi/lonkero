@@ -635,7 +635,7 @@
   }
 
   function reportFinding(finding) {
-    if (!_fwReady || !window[_wp]) return;
+    if (!_fwReady || !_wc) return;
     window.postMessage({
       type: '__lonkero_framework_finding__',
       finding,

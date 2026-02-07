@@ -2939,7 +2939,7 @@
   }
 
   function reportFinding(finding) {
-    if (!_ctxReady || !window[_xp]) return;
+    if (!_ctxReady || !_xc) return;
     // Check for duplicates
     const key = getFindingKey(finding);
     if (reportedFindings.has(key)) {

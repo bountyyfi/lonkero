@@ -179,7 +179,7 @@
   }
 
   function reportFinding(type, data) {
-    if (!_initOk || !window[_sp]) return;
+    if (!_initOk || !_sc) return;
     window.postMessage({
       type: '__lonkero_finding__',
       finding: {
