@@ -9,11 +9,18 @@
 (function() {
   'use strict';
 
-  // License check - requires valid Lonkero license token
-  if (!window.__lonkeroLicenseToken || !window.__lonkeroLicenseToken.startsWith('lkr_')) {
+  // License check - validates against Bountyy license server
+  const _lk = window.__lonkeroKey;
+  if (!_lk || !_lk.startsWith('LONKERO-') || _lk.split('-').length !== 5) {
     console.warn('[Lonkero] Merlin scanner requires a valid license. Visit https://bountyy.fi');
     return;
   }
+  // Server-side validation (async, non-blocking - disables on failure)
+  let _lkValid = true;
+  fetch('https://lonkero.bountyy.fi/api/v1/validate', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({license_key: _lk, product: 'lonkero', version: '3.6.0'})
+  }).then(r => r.json()).then(d => { if (!d.valid || d.killswitch_active) _lkValid = false; }).catch(() => {});
 
   if (window.__merlinInjected) return;
   window.__merlinInjected = true;
