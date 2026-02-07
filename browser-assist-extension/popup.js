@@ -69,6 +69,14 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
     return;
   }
 
+  // Format check: LONKERO-XXXX-XXXX-XXXX-XXXX
+  const keyParts = key.split('-');
+  if (keyParts.length !== 5 || keyParts[0] !== 'LONKERO' || !keyParts.slice(1).every(p => /^[A-Z0-9]{4}$/.test(p))) {
+    errorEl.textContent = 'Invalid format. Expected: LONKERO-XXXX-XXXX-XXXX-XXXX';
+    errorEl.style.display = 'block';
+    return;
+  }
+
   // Show loading state
   const btn = document.getElementById('activateLicenseBtn');
   btn.disabled = true;

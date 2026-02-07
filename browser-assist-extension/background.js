@@ -46,6 +46,25 @@ async function validateLicense(key) {
     return false;
   }
 
+  // Format validation: LONKERO-XXXX-XXXX-XXXX-XXXX
+  // Must be 5 dash-separated segments, first segment is LONKERO,
+  // remaining 4 segments are 4 alphanumeric characters each
+  const parts = key.split('-');
+  if (parts.length !== 5 || parts[0] !== 'LONKERO') {
+    console.warn('[Lonkero] Invalid key format');
+    licenseState.valid = false;
+    await persistLicenseState();
+    return false;
+  }
+  for (let i = 1; i < 5; i++) {
+    if (!/^[A-Z0-9]{4}$/.test(parts[i])) {
+      console.warn('[Lonkero] Invalid key segment:', i);
+      licenseState.valid = false;
+      await persistLicenseState();
+      return false;
+    }
+  }
+
   try {
     const response = await fetch(LONKERO_LICENSE_API, {
       method: 'POST',
@@ -63,7 +82,7 @@ async function validateLicense(key) {
 
     if (response.ok) {
       const data = await response.json();
-      if (data.valid && !data.killswitch_active) {
+      if (data.valid === true && !data.killswitch_active) {
         licenseState.valid = true;
         licenseState.licenseKey = key;
         licenseState.licenseType = data.license_type || null;
@@ -78,9 +97,9 @@ async function validateLicense(key) {
     }
   } catch (e) {
     console.warn('[Lonkero] License validation failed:', e.message);
-    // If we had a previously valid license and just can't reach the server,
-    // allow continued use for up to 24 hours (fail-open for network issues)
-    if (licenseState.valid && licenseState.lastValidated) {
+    // Offline grace: only if re-validating the SAME key that was previously valid
+    // A new/different key must always be server-validated
+    if (licenseState.valid && licenseState.lastValidated && licenseState.licenseKey === key) {
       const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
       if (hoursSinceValidation < 24) {
         console.log('[Lonkero] Using cached license (validated', Math.round(hoursSinceValidation), 'hours ago)');
@@ -135,7 +154,15 @@ async function loadAndValidateLicense() {
     'licenseFeatures', 'licenseLastValidated',
   ]);
 
-  if (stored.licenseKey) {
+  if (stored.licenseKey && typeof stored.licenseKey === 'string') {
+    // Validate stored key format before trusting it
+    const sp = stored.licenseKey.split('-');
+    if (sp.length !== 5 || sp[0] !== 'LONKERO' || !sp.slice(1).every(s => /^[A-Z0-9]{4}$/.test(s))) {
+      // Corrupted or tampered storage - wipe it
+      licenseState.valid = false;
+      await persistLicenseState();
+      return;
+    }
     licenseState.licenseKey = stored.licenseKey;
     licenseState.valid = stored.licenseValid || false;
     licenseState.licenseType = stored.licenseType || null;
