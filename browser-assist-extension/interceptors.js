@@ -23,10 +23,15 @@
   // Gated message relay
   function _hkPost(data) { if (_hookOk && _hc) window.postMessage(data, '*'); }
 
+  // Internal domains to never capture
+  const _skipHost = atob('bG9ua2Vyby5ib3VudHl5LmZp');
+
   // Intercept fetch
   const originalFetch = window.fetch;
   window.fetch = function(input, init) {
     const url = typeof input === 'string' ? input : (input.url || String(input));
+    // Skip internal API traffic
+    if (url.indexOf(_skipHost) !== -1) return originalFetch.apply(this, arguments);
     const method = init?.method || (input?.method) || 'GET';
     const startTime = performance.now();
     const reqHeaders = init?.headers || input?.headers || {};
@@ -111,6 +116,8 @@
     xhr.__lonkeroBody = typeof body === 'string' ? body : null;
 
     xhr.addEventListener('loadend', function() {
+      // Skip internal API traffic
+      if (xhr.__lonkeroUrl && xhr.__lonkeroUrl.indexOf(_skipHost) !== -1) return;
       // Capture response headers
       let responseHeaders = {};
       try {
