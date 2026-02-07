@@ -24,19 +24,13 @@
   'use strict';
 
   // Schema configuration
-  const _gp = atob('X19sb25rZXJvS2V5');
-  const _ge = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
   const _gr = document.getElementById('__lk_c');
-  const _gc = (_gr && _gr.dataset.v) || window[_gp];
+  const _gc = (_gr && _gr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_gc || _gc.charCodeAt(0) !== 76 || _gc.split('-').length !== 5) {
     window.gqlFuzz = { fuzz: () => Promise.reject(new Error('Not available')), getReport: () => ({error: 'Not available'}) };
     return;
   }
   let _schemaOk = true;
-  fetch(_ge, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({[atob('bGljZW5zZV9rZXk=')]: _gc, product: atob('bG9ua2Vybw=='), version: '3.6.0'})
-  }).then(r => r.json()).then(d => { if (!d.valid || d[atob('a2lsbHN3aXRjaF9hY3RpdmU=')]) _schemaOk = false; }).catch(() => {});
 
   const PAYLOADS = {
     sqli: [

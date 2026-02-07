@@ -27,19 +27,13 @@
   'use strict';
 
   // Context initialization
-  const _xp = atob('X19sb25rZXJvS2V5');
-  const _xe = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
   const _xr = document.getElementById('__lk_c');
-  const _xc = (_xr && _xr.dataset.v) || window[_xp];
+  const _xc = (_xr && _xr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_xc || _xc.charCodeAt(0) !== 76 || _xc.split('-').length !== 5) {
     window.xssScanner = { scan: () => Promise.reject(new Error('Not available')), deepScan: () => Promise.reject(new Error('Not available')) };
     return;
   }
   let _ctxReady = true;
-  fetch(_xe, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({[atob('bGljZW5zZV9rZXk=')]: _xc, product: atob('bG9ua2Vybw=='), version: '3.6.0'})
-  }).then(r => r.json()).then(d => { if (!d.valid || d[atob('a2lsbHN3aXRjaF9hY3RpdmU=')]) _ctxReady = false; }).catch(() => {});
 
   if (window.__lonkeroXSSScanner) return;
   window.__lonkeroXSSScanner = true;

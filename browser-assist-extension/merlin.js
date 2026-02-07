@@ -10,16 +10,10 @@
   'use strict';
 
   // Vulnerability database config
-  const _vp = atob('X19sb25rZXJvS2V5');
-  const _ve = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
   const _vr = document.getElementById('__lk_c');
-  const _vc = (_vr && _vr.dataset.v) || window[_vp];
+  const _vc = (_vr && _vr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_vc || _vc.charCodeAt(0) !== 76 || _vc.split('-').length !== 5) { return; }
   let _dbLoaded = true;
-  fetch(_ve, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({[atob('bGljZW5zZV9rZXk=')]: _vc, product: atob('bG9ua2Vybw=='), version: '3.6.0'})
-  }).then(r => r.json()).then(d => { if (!d.valid || d[atob('a2lsbHN3aXRjaF9hY3RpdmU=')]) _dbLoaded = false; }).catch(() => {});
 
   if (window.__merlinInjected) return;
   window.__merlinInjected = true;

@@ -12,16 +12,10 @@
   'use strict';
 
   // Hook initialization
-  const _hp = atob('X19sb25rZXJvS2V5');
-  const _he = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
   const _hr = document.getElementById('__lk_c');
-  const _hc = (_hr && _hr.dataset.v) || window[_hp];
+  const _hc = (_hr && _hr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_hc || _hc.charCodeAt(0) !== 76 || _hc.split('-').length !== 5) { return; }
   let _hookOk = true;
-  fetch(_he, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({[atob('bGljZW5zZV9rZXk=')]: _hc, product: atob('bG9ua2Vybw=='), version: '3.6.0'})
-  }).then(r => r.json()).then(d => { if (!d.valid || d[atob('a2lsbHN3aXRjaF9hY3RpdmU=')]) _hookOk = false; }).catch(() => {});
 
   if (window.__lonkeroInterceptorsInjected) return;
   window.__lonkeroInterceptorsInjected = true;
