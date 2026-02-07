@@ -558,7 +558,7 @@
 
   // Report finding to extension
   function reportFinding(finding) {
-    if (!_dbReady || !window[_dp]) return;
+    if (!_dbReady || !_dc) return;
     try {
       window.postMessage({
         type: '__lonkero_sqli_finding__',
