@@ -72,6 +72,7 @@ async function validateLicense(key) {
         licenseState.lastValidated = Date.now();
         console.log('[Lonkero] License validated:', data.license_type, data.licensee);
         await persistLicenseState();
+        if (self.lonkeroTracker) self.lonkeroTracker.track('license_validated', { type: data.license_type });
         return true;
       }
     }
@@ -90,6 +91,7 @@ async function validateLicense(key) {
 
   licenseState.valid = false;
   await persistLicenseState();
+  if (self.lonkeroTracker) self.lonkeroTracker.track('license_invalid');
   return false;
 }
 
@@ -220,6 +222,7 @@ function connect() {
       }));
 
       audit('CONNECTED', '', '', 'Session started');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('cli_connected');
     };
 
     ws.onmessage = async (event) => {
@@ -237,6 +240,7 @@ function connect() {
       state.connected = false;
       ws = null;
       audit('DISCONNECTED', '', '', 'Session ended');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('cli_disconnected');
 
       if (!state.stopped && !reconnectInterval) {
         reconnectInterval = setInterval(() => connect(), 3000);
@@ -272,6 +276,7 @@ async function handleMessage(msg) {
       state.scope = msg.patterns || [];
       state.authorization = msg.authorization || null;
       audit('SCOPE_SET', '', '', `Scope: ${state.scope.join(', ')}`);
+      if (self.lonkeroTracker) self.lonkeroTracker.track('scope_set', { count: state.scope.length });
       break;
 
     case 'pause':
@@ -296,6 +301,7 @@ async function handleMessage(msg) {
       if (msg.licenseType) licenseState.licenseType = msg.licenseType;
       if (msg.licensee) licenseState.licensee = msg.licensee;
       console.log('[Lonkero] License validated via CLI:', msg.licenseType);
+      if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: msg.licenseType });
       break;
 
     case 'getFindings':
@@ -487,6 +493,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'setLicenseKey':
       validateLicense(message.key).then((valid) => {
+        if (self.lonkeroTracker) self.lonkeroTracker.track('license_activate', { success: valid, type: licenseState.licenseType });
         sendResponse({ valid, licenseType: licenseState.licenseType, licensee: licenseState.licensee });
       });
       return true; // Async response
@@ -500,6 +507,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       licenseState.lastValidated = null;
       licenseState.cliValidated = false;
       persistLicenseState();
+      if (self.lonkeroTracker) self.lonkeroTracker.track('license_removed');
       sendResponse({ ok: true });
       break;
 
@@ -520,17 +528,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       state.monitoring = true;
+      if (self.lonkeroTracker) self.lonkeroTracker.track('monitoring_start');
       sendResponse({ ok: true });
       break;
 
     case 'stopMonitoring':
       state.monitoring = false;
+      if (self.lonkeroTracker) self.lonkeroTracker.track('monitoring_stop');
       sendResponse({ ok: true });
       break;
 
     case 'pause':
       state.paused = true;
       audit('PAUSED', '', '', 'By user');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('scan_pause');
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'userPaused' }));
       }
@@ -540,6 +551,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'resume':
       state.paused = false;
       audit('RESUMED', '', '', 'By user');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('scan_resume');
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'userResumed' }));
       }
@@ -668,6 +680,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!isDuplicate) {
         state.findings.push(finding);
         console.log('[Background] Finding stored:', finding.type, '| Total findings:', state.findings.length);
+        if (self.lonkeroTracker) self.lonkeroTracker.track('finding', { type: finding.type, total: state.findings.length });
 
         // Forward to CLI if connected
         if (ws?.readyState === WebSocket.OPEN) {
@@ -760,15 +773,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Request replay
     case 'replayRequest':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('request_replay', { method: message.request?.method });
       handleReplayFromPopup(message.request).then(sendResponse);
       return true; // Async response
 
     // Export
     case 'exportAuditLog':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('export', { type: 'audit_log', count: state.auditLog.length });
       sendResponse({ log: JSON.stringify(state.auditLog, null, 2) });
       break;
 
     case 'exportFindings':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('export', { type: 'findings', count: state.findings.length });
       sendResponse({
         findings: state.findings,
         endpoints: state.endpoints,
@@ -782,17 +798,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: 'License required. Enter your license key in the extension popup.' });
         return false;
       }
+      if (self.lonkeroTracker) self.lonkeroTracker.track('deep_scan', { endpoints: state.endpoints.length, findings: state.findings.length });
       triggerDeepScan().then(sendResponse);
       return true;
 
     // Clear data
     case 'clearData':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('clear_data', { findings: state.findings.length, endpoints: state.endpoints.length });
       state.findings = [];
       state.endpoints = [];
       state.secrets = [];
       state.capturedRequests = [];
       state.auditLog = [];
       chrome.storage.local.remove(['findings', 'endpoints', 'auditLog']);
+      sendResponse({ ok: true });
+      break;
+
+    // Tracking relay: popup and content scripts send events here
+    case 'trackEvent':
+      if (self.lonkeroTracker) {
+        self.lonkeroTracker.track(message.event, message.props || {});
+      }
       sendResponse({ ok: true });
       break;
 

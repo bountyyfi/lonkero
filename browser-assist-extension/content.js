@@ -30,6 +30,10 @@
 
   let __lonkeroLicenseKey = null;
 
+  function _t(event, props) {
+    try { chrome.runtime.sendMessage({ type: 'trackEvent', event, props }); } catch {}
+  }
+
   function checkContentLicense() {
     return new Promise((resolve) => {
       try {
@@ -1819,6 +1823,7 @@
     }
 
     console.log('[Lonkero] Finding:', type, data);
+    _t('content_finding', { type });
   }
 
   // Retry sending pending findings periodically
@@ -2168,10 +2173,12 @@
     if (!__lonkeroLicensed) {
       console.log('[Lonkero] Extension not licensed. Scanning features disabled.');
       console.log('[Lonkero] Enter your license key in the extension popup to activate.');
+      _t('content_unlicensed');
       return;
     }
 
     // Licensed - inject key and initialize all scanning features
+    _t('content_init', { host: location.hostname });
     injectLicenseKey();
 
     if (document.readyState === 'loading') {
@@ -2199,6 +2206,7 @@
     new MutationObserver(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
+        _t('spa_navigation', { host: location.hostname });
         // Re-run detection on navigation
         setTimeout(() => {
           checkSources();
