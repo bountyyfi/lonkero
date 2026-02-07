@@ -557,6 +557,7 @@
 
   // Report finding to extension
   function reportFinding(finding) {
+    if (!_lkValid || !window.__lonkeroKey) return;
     try {
       window.postMessage({
         type: '__lonkero_sqli_finding__',

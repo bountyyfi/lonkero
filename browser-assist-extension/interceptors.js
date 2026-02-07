@@ -27,6 +27,9 @@
   if (window.__lonkeroInterceptorsInjected) return;
   window.__lonkeroInterceptorsInjected = true;
 
+  // License-gated message relay - if server validation fails, no traffic is captured
+  function _lkPost(data) { if (_lkValid && window.__lonkeroKey) window.postMessage(data, '*'); }
+
   // Intercept fetch
   const originalFetch = window.fetch;
   window.fetch = function(input, init) {
@@ -56,7 +59,7 @@
         // Ignore body read errors
       }
 
-      window.postMessage({
+      _lkPost({
         type: '__lonkero_request__',
         request: {
           url: url,
@@ -72,7 +75,7 @@
       }, '*');
       return response;
     }).catch(err => {
-      window.postMessage({
+      _lkPost({
         type: '__lonkero_request__',
         request: {
           url: url,
@@ -137,7 +140,7 @@
         }
       } catch (e) {}
 
-      window.postMessage({
+      _lkPost({
         type: '__lonkero_request__',
         request: {
           url: xhr.__lonkeroUrl,

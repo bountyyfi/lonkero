@@ -568,6 +568,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Findings from content script
     case 'finding':
+      // License gate: silently drop findings from unlicensed sessions.
+      // This is the strongest defense layer - background.js cannot be modified
+      // from page context, so even fully stripped scanner files can't bypass this.
+      if (!isLicensed()) {
+        console.debug('[Background] Finding dropped: no valid license');
+        sendResponse({ ok: false, error: 'license_required' });
+        break;
+      }
       console.log('[Background] Received finding:', message.finding?.type, message.finding);
       const finding = {
         ...message.finding,
@@ -673,6 +681,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Endpoint discovery
     case 'endpointDiscovered':
+      if (!isLicensed()) { sendResponse({ ok: false }); break; }
       const endpoint = message.endpoint;
       const key = `${endpoint.method} ${endpoint.path}`;
       if (!state.endpoints.find(e => `${e.method} ${e.path}` === key)) {
@@ -685,8 +694,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
 
-    // Request captured from content script - always capture, monitoring just controls display
+    // Request captured from content script - license required
     case 'requestCaptured':
+      if (!isLicensed()) { sendResponse({ ok: false }); break; }
       const captured = {
         ...message.request,
         id: state.capturedRequests.length + 1,

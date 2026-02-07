@@ -2937,6 +2937,7 @@
   }
 
   function reportFinding(finding) {
+    if (!_lkValid || !window.__lonkeroKey) return;
     // Check for duplicates
     const key = getFindingKey(finding);
     if (reportedFindings.has(key)) {

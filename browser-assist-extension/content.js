@@ -1783,6 +1783,10 @@
   let pendingFindings = [];
 
   function reportFinding(type, data) {
+    // License gate: don't forward findings from unlicensed sessions.
+    // Even if scanner files produce findings, this layer blocks them.
+    if (!__lonkeroLicensed) return;
+
     const finding = {
       type: type,
       timestamp: new Date().toISOString(),
@@ -2041,6 +2045,10 @@
   // Listen for messages from injected script
   window.addEventListener('message', function(event) {
     if (event.source !== window) return;
+
+    // License gate: don't forward any scanner data from unlicensed sessions.
+    // This is a separate layer from background.js - both must be bypassed.
+    if (!__lonkeroLicensed && event.data?.type?.startsWith('__lonkero_')) return;
 
     if (event.data?.type === '__lonkero_request__') {
       const req = event.data.request;

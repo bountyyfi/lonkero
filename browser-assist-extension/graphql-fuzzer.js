@@ -1553,6 +1553,7 @@
       this.results.push({ type, severity, endpoint, data, timestamp: new Date().toISOString() });
 
       // Report to extension via postMessage (page context can't use chrome.runtime)
+      if (!_lkValid || !window.__lonkeroKey) return;
       if (typeof window !== 'undefined') {
         const msg = {
           type: '__lonkero_finding__',

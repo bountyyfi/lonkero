@@ -606,6 +606,7 @@
 
   // Report finding to content script
   function reportVulnerableLibrary(vuln) {
+    if (!_lkValid || !window.__lonkeroKey) return;
     window.postMessage({
       type: '__lonkero_merlin_finding__',
       finding: {

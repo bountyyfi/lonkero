@@ -178,6 +178,7 @@
   }
 
   function reportFinding(type, data) {
+    if (!_lkValid || !window.__lonkeroKey) return;
     window.postMessage({
       type: '__lonkero_finding__',
       finding: {

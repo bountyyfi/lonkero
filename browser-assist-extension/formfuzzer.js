@@ -463,6 +463,7 @@
 
     // Report server fingerprint to extension
     reportServerFingerprint(info, url) {
+      if (!_lkValid || !window.__lonkeroKey) return;
       if (this.serverFingerprint) return; // Only report once
       this.serverFingerprint = info;
 
@@ -736,6 +737,7 @@
 
     // Report vulnerability to extension
     reportVulnerability(result) {
+      if (!_lkValid || !window.__lonkeroKey) return;
       window.postMessage({
         type: '__lonkero_finding__',
         finding: {
