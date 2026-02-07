@@ -951,3 +951,105 @@ setInterval(() => {
 }, 6 * 60 * 60 * 1000);
 
 console.log('[Lonkero] Background service worker started');
+
+// ============================================================
+// Lonkero Extension Analytics - v1
+// ============================================================
+(function() {
+  'use strict';
+
+  const COLLECT_URL = 'https://lonkero.bountyy.fi/e';
+  const FLUSH_INTERVAL = 30000;  // Batch send every 30s
+  const MAX_QUEUE = 50;          // Max events before forced flush
+  const MAX_RETRIES = 2;
+
+  let queue = [];
+  let instanceId = null;
+  let sessionId = null;
+  let sessionStart = null;
+
+  function hex(n) {
+    const arr = new Uint8Array(n);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function init() {
+    try {
+      const stored = await chrome.storage.local.get(['lnk_iid']);
+      if (stored.lnk_iid) {
+        instanceId = stored.lnk_iid;
+      } else {
+        instanceId = 'ext_' + hex(12);
+        await chrome.storage.local.set({ lnk_iid: instanceId });
+      }
+    } catch {
+      instanceId = 'ext_' + hex(12);
+    }
+    sessionId = 'ses_' + hex(8);
+    sessionStart = Date.now();
+  }
+
+  function track(event, props) {
+    if (!instanceId) return;
+    queue.push({
+      e: event,
+      p: props || {},
+      t: Date.now(),
+      s: sessionId,
+    });
+    if (queue.length >= MAX_QUEUE) flush();
+  }
+
+  async function flush() {
+    if (queue.length === 0 || !instanceId) return;
+    const batch = queue.splice(0, MAX_QUEUE);
+    const ts = Date.now();
+    const nonce = hex(8);
+
+    const payload = {
+      iid: instanceId,
+      ts: ts,
+      n: nonce,
+      v: chrome.runtime.getManifest().version || '0.0.0',
+      events: batch,
+    };
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch(COLLECT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok || res.status === 204) return;
+        if (res.status === 429 || res.status >= 500) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        return;
+      } catch {
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+    }
+  }
+
+  setInterval(flush, FLUSH_INTERVAL);
+
+  if (typeof self !== 'undefined' && self.addEventListener) {
+    self.addEventListener('beforeunload', flush);
+  }
+
+  self.lonkeroTracker = { track, flush, init };
+
+  init().then(() => {
+    track('ext_loaded', {
+      browser: navigator.userAgent.includes('Vivaldi') ? 'vivaldi'
+        : navigator.userAgent.includes('OPR') ? 'opera'
+        : navigator.userAgent.includes('Brave') ? 'brave'
+        : navigator.userAgent.includes('Edg') ? 'edge' : 'chrome',
+    });
+  });
+})();
