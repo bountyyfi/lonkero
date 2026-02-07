@@ -25,7 +25,8 @@
   // Scan environment setup
   const _sp = atob('X19sb25rZXJvS2V5');
   const _se = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _sc = window[_sp];
+  const _sr = document.getElementById('__lk_c');
+  const _sc = (_sr && _sr.dataset.v) || window[_sp];
   if (!_sc || _sc.charCodeAt(0) !== 76 || _sc.split('-').length !== 5) {
     window.cmsScanner = { scan: () => Promise.reject(new Error('Not available')) };
     return;

@@ -14,7 +14,8 @@
   // Hook initialization
   const _hp = atob('X19sb25rZXJvS2V5');
   const _he = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _hc = window[_hp];
+  const _hr = document.getElementById('__lk_c');
+  const _hc = (_hr && _hr.dataset.v) || window[_hp];
   if (!_hc || _hc.charCodeAt(0) !== 76 || _hc.split('-').length !== 5) { return; }
   let _hookOk = true;
   fetch(_he, {

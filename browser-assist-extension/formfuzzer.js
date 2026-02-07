@@ -20,7 +20,8 @@
   // Runtime configuration
   const _fp = atob('X19sb25rZXJvS2V5');
   const _fe = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
-  const _fc = window[_fp];
+  const _fr = document.getElementById('__lk_c');
+  const _fc = (_fr && _fr.dataset.v) || window[_fp];
   if (!_fc || _fc.charCodeAt(0) !== 76 || _fc.split('-').length !== 5) {
     window.formFuzzer = { scan: () => Promise.reject(new Error('Not available')), discoverAndFuzzForms: () => Promise.reject(new Error('Not available')), getReport: () => ({error: 'Not available'}) };
     return;
