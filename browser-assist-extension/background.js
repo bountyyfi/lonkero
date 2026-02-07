@@ -13,8 +13,140 @@
  */
 
 const LONKERO_WS_URL = 'ws://127.0.0.1:9340/parasite';
+const LONKERO_LICENSE_API = 'https://lonkero.bountyy.fi/api/v1/validate';
 let ws = null;
 let reconnectInterval = null;
+
+// ============================================================
+// LICENSE MANAGEMENT
+// ============================================================
+
+let licenseState = {
+  valid: false,
+  licenseKey: null,
+  licenseType: null,
+  licensee: null,
+  features: [],
+  lastValidated: null,
+  // When CLI connects and confirms license, trust that
+  cliValidated: false,
+};
+
+/**
+ * Validate license key against Bountyy license server.
+ * Uses the existing /api/v1/validate endpoint (no new APIs).
+ */
+async function validateLicense(key) {
+  if (!key) {
+    licenseState.valid = false;
+    licenseState.licenseType = null;
+    licenseState.licensee = null;
+    licenseState.features = [];
+    await persistLicenseState();
+    return false;
+  }
+
+  try {
+    const response = await fetch(LONKERO_LICENSE_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Product': 'lonkero-extension',
+        'X-Version': chrome.runtime.getManifest().version,
+      },
+      body: JSON.stringify({
+        license_key: key,
+        product: 'lonkero',
+        version: chrome.runtime.getManifest().version,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.valid && !data.killswitch_active) {
+        licenseState.valid = true;
+        licenseState.licenseKey = key;
+        licenseState.licenseType = data.license_type || null;
+        licenseState.licensee = data.licensee || null;
+        licenseState.features = data.features || [];
+        licenseState.lastValidated = Date.now();
+        console.log('[Lonkero] License validated:', data.license_type, data.licensee);
+        await persistLicenseState();
+        if (self.lonkeroTracker) self.lonkeroTracker.track('license_validated', { type: data.license_type });
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn('[Lonkero] License validation failed:', e.message);
+    // If we had a previously valid license and just can't reach the server,
+    // allow continued use for up to 24 hours (fail-open for network issues)
+    if (licenseState.valid && licenseState.lastValidated) {
+      const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
+      if (hoursSinceValidation < 24) {
+        console.log('[Lonkero] Using cached license (validated', Math.round(hoursSinceValidation), 'hours ago)');
+        return true;
+      }
+    }
+  }
+
+  licenseState.valid = false;
+  await persistLicenseState();
+  if (self.lonkeroTracker) self.lonkeroTracker.track('license_invalid');
+  return false;
+}
+
+/**
+ * Check if the extension is licensed (any paid tier).
+ */
+function isLicensed() {
+  return licenseState.valid || licenseState.cliValidated;
+}
+
+/**
+ * Get the license key for scanner file verification.
+ * Scanner files independently validate against the Bountyy license server.
+ * This returns the actual key so scanners can do their own server check.
+ */
+function getLicenseKeyForScanners() {
+  if (!isLicensed() || !licenseState.licenseKey) return null;
+  return licenseState.licenseKey;
+}
+
+/**
+ * Persist license state to chrome.storage.
+ */
+async function persistLicenseState() {
+  await chrome.storage.local.set({
+    licenseKey: licenseState.licenseKey,
+    licenseValid: licenseState.valid,
+    licenseType: licenseState.licenseType,
+    licensee: licenseState.licensee,
+    licenseFeatures: licenseState.features,
+    licenseLastValidated: licenseState.lastValidated,
+  });
+}
+
+/**
+ * Load license state from chrome.storage and re-validate.
+ */
+async function loadAndValidateLicense() {
+  const stored = await chrome.storage.local.get([
+    'licenseKey', 'licenseValid', 'licenseType', 'licensee',
+    'licenseFeatures', 'licenseLastValidated',
+  ]);
+
+  if (stored.licenseKey) {
+    licenseState.licenseKey = stored.licenseKey;
+    licenseState.valid = stored.licenseValid || false;
+    licenseState.licenseType = stored.licenseType || null;
+    licenseState.licensee = stored.licensee || null;
+    licenseState.features = stored.licenseFeatures || [];
+    licenseState.lastValidated = stored.licenseLastValidated || null;
+
+    // Re-validate with server
+    await validateLicense(stored.licenseKey);
+  }
+}
 
 // ============================================================
 // STATE MANAGEMENT
@@ -90,6 +222,7 @@ function connect() {
       }));
 
       audit('CONNECTED', '', '', 'Session started');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('cli_connected');
     };
 
     ws.onmessage = async (event) => {
@@ -107,6 +240,7 @@ function connect() {
       state.connected = false;
       ws = null;
       audit('DISCONNECTED', '', '', 'Session ended');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('cli_disconnected');
 
       if (!state.stopped && !reconnectInterval) {
         reconnectInterval = setInterval(() => connect(), 3000);
@@ -142,6 +276,7 @@ async function handleMessage(msg) {
       state.scope = msg.patterns || [];
       state.authorization = msg.authorization || null;
       audit('SCOPE_SET', '', '', `Scope: ${state.scope.join(', ')}`);
+      if (self.lonkeroTracker) self.lonkeroTracker.track('scope_set', { count: state.scope.length });
       break;
 
     case 'pause':
@@ -157,6 +292,16 @@ async function handleMessage(msg) {
     case 'stop':
       state.stopped = true;
       audit('STOPPED', '', '', 'Scanning stopped');
+      break;
+
+    case 'licenseValidated':
+      // CLI has validated the license server-side; trust this connection
+      licenseState.cliValidated = true;
+      licenseState.valid = true;
+      if (msg.licenseType) licenseState.licenseType = msg.licenseType;
+      if (msg.licensee) licenseState.licensee = msg.licensee;
+      console.log('[Lonkero] License validated via CLI:', msg.licenseType);
+      if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: msg.licenseType });
       break;
 
     case 'getFindings':
@@ -328,23 +473,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         findingsCount: state.findings.length,
         endpointsCount: state.endpoints.length,
         secretsCount: state.secrets.length,
+        // License info
+        licensed: isLicensed(),
+        licenseType: licenseState.licenseType,
+        licensee: licenseState.licensee,
+      });
+      break;
+
+    // License management
+    case 'getLicenseState':
+      sendResponse({
+        valid: isLicensed(),
+        licenseType: licenseState.licenseType,
+        licensee: licenseState.licensee,
+        licenseKey: licenseState.licenseKey ? '****' + licenseState.licenseKey.slice(-4) : null,
+        lastValidated: licenseState.lastValidated,
+      });
+      break;
+
+    case 'setLicenseKey':
+      validateLicense(message.key).then((valid) => {
+        if (self.lonkeroTracker) self.lonkeroTracker.track('license_activate', { success: valid, type: licenseState.licenseType });
+        sendResponse({ valid, licenseType: licenseState.licenseType, licensee: licenseState.licensee });
+      });
+      return true; // Async response
+
+    case 'removeLicenseKey':
+      licenseState.valid = false;
+      licenseState.licenseKey = null;
+      licenseState.licenseType = null;
+      licenseState.licensee = null;
+      licenseState.features = [];
+      licenseState.lastValidated = null;
+      licenseState.cliValidated = false;
+      persistLicenseState();
+      if (self.lonkeroTracker) self.lonkeroTracker.track('license_removed');
+      sendResponse({ ok: true });
+      break;
+
+    case 'checkLicense':
+      // Content scripts can check if licensed
+      // Includes the license key so scanner files can independently validate
+      // against the Bountyy server (defense-in-depth)
+      sendResponse({
+        licensed: isLicensed(),
+        key: isLicensed() ? getLicenseKeyForScanners() : null,
       });
       break;
 
     // Control commands
     case 'startMonitoring':
+      if (!isLicensed()) {
+        sendResponse({ ok: false, error: 'license_required' });
+        break;
+      }
       state.monitoring = true;
+      if (self.lonkeroTracker) self.lonkeroTracker.track('monitoring_start');
       sendResponse({ ok: true });
       break;
 
     case 'stopMonitoring':
       state.monitoring = false;
+      if (self.lonkeroTracker) self.lonkeroTracker.track('monitoring_stop');
       sendResponse({ ok: true });
       break;
 
     case 'pause':
       state.paused = true;
       audit('PAUSED', '', '', 'By user');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('scan_pause');
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'userPaused' }));
       }
@@ -354,6 +551,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'resume':
       state.paused = false;
       audit('RESUMED', '', '', 'By user');
+      if (self.lonkeroTracker) self.lonkeroTracker.track('scan_resume');
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'userResumed' }));
       }
@@ -382,6 +580,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Findings from content script
     case 'finding':
+      // License gate: silently drop findings from unlicensed sessions.
+      // This is the strongest defense layer - background.js cannot be modified
+      // from page context, so even fully stripped scanner files can't bypass this.
+      if (!isLicensed()) {
+        console.debug('[Background] Finding dropped: no valid license');
+        sendResponse({ ok: false, error: 'license_required' });
+        break;
+      }
       console.log('[Background] Received finding:', message.finding?.type, message.finding);
       const finding = {
         ...message.finding,
@@ -474,6 +680,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!isDuplicate) {
         state.findings.push(finding);
         console.log('[Background] Finding stored:', finding.type, '| Total findings:', state.findings.length);
+        if (self.lonkeroTracker) self.lonkeroTracker.track('finding', { type: finding.type, total: state.findings.length });
 
         // Forward to CLI if connected
         if (ws?.readyState === WebSocket.OPEN) {
@@ -487,6 +694,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Endpoint discovery
     case 'endpointDiscovered':
+      if (!isLicensed()) { sendResponse({ ok: false }); break; }
       const endpoint = message.endpoint;
       const key = `${endpoint.method} ${endpoint.path}`;
       if (!state.endpoints.find(e => `${e.method} ${e.path}` === key)) {
@@ -499,8 +707,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
 
-    // Request captured from content script - always capture, monitoring just controls display
+    // Request captured from content script - license required
     case 'requestCaptured':
+      if (!isLicensed()) { sendResponse({ ok: false }); break; }
       const captured = {
         ...message.request,
         id: state.capturedRequests.length + 1,
@@ -564,15 +773,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Request replay
     case 'replayRequest':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('request_replay', { method: message.request?.method });
       handleReplayFromPopup(message.request).then(sendResponse);
       return true; // Async response
 
     // Export
     case 'exportAuditLog':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('export', { type: 'audit_log', count: state.auditLog.length });
       sendResponse({ log: JSON.stringify(state.auditLog, null, 2) });
       break;
 
     case 'exportFindings':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('export', { type: 'findings', count: state.findings.length });
       sendResponse({
         findings: state.findings,
         endpoints: state.endpoints,
@@ -582,17 +794,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Deep scan trigger
     case 'triggerDeepScan':
+      if (!isLicensed()) {
+        sendResponse({ error: 'License required. Enter your license key in the extension popup.' });
+        return false;
+      }
+      if (self.lonkeroTracker) self.lonkeroTracker.track('deep_scan', { endpoints: state.endpoints.length, findings: state.findings.length });
       triggerDeepScan().then(sendResponse);
       return true;
 
     // Clear data
     case 'clearData':
+      if (self.lonkeroTracker) self.lonkeroTracker.track('clear_data', { findings: state.findings.length, endpoints: state.endpoints.length });
       state.findings = [];
       state.endpoints = [];
       state.secrets = [];
       state.capturedRequests = [];
       state.auditLog = [];
       chrome.storage.local.remove(['findings', 'endpoints', 'auditLog']);
+      sendResponse({ ok: true });
+      break;
+
+    // Tracking relay: popup and content scripts send events here
+    case 'trackEvent':
+      if (self.lonkeroTracker) {
+        self.lonkeroTracker.track(message.event, message.props || {});
+      }
       sendResponse({ ok: true });
       break;
 
@@ -715,8 +941,18 @@ chrome.storage.local.get(['auditLog', 'findings', 'endpoints', 'storageVersion']
   }
 });
 
-// Start connection
-connect();
+// Load and validate license before starting
+loadAndValidateLicense().then(() => {
+  if (isLicensed()) {
+    console.log('[Lonkero] License valid:', licenseState.licenseType);
+  } else {
+    console.log('[Lonkero] No valid license. Extension features are locked.');
+    console.log('[Lonkero] Enter your license key in the extension popup to activate.');
+  }
+
+  // Start WebSocket connection (always connect - CLI validates its own license)
+  connect();
+});
 
 // Heartbeat
 setInterval(() => {
@@ -733,4 +969,113 @@ setInterval(() => {
   });
 }, 30000);
 
+// Re-validate license periodically (every 6 hours)
+setInterval(() => {
+  if (licenseState.licenseKey) {
+    validateLicense(licenseState.licenseKey);
+  }
+}, 6 * 60 * 60 * 1000);
+
 console.log('[Lonkero] Background service worker started');
+
+// ============================================================
+// Lonkero Extension Analytics - v1
+// ============================================================
+(function() {
+  'use strict';
+
+  const COLLECT_URL = 'https://lonkero.bountyy.fi/e';
+  const FLUSH_INTERVAL = 30000;  // Batch send every 30s
+  const MAX_QUEUE = 50;          // Max events before forced flush
+  const MAX_RETRIES = 2;
+
+  let queue = [];
+  let instanceId = null;
+  let sessionId = null;
+  let sessionStart = null;
+
+  function hex(n) {
+    const arr = new Uint8Array(n);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function init() {
+    try {
+      const stored = await chrome.storage.local.get(['lnk_iid']);
+      if (stored.lnk_iid) {
+        instanceId = stored.lnk_iid;
+      } else {
+        instanceId = 'ext_' + hex(12);
+        await chrome.storage.local.set({ lnk_iid: instanceId });
+      }
+    } catch {
+      instanceId = 'ext_' + hex(12);
+    }
+    sessionId = 'ses_' + hex(8);
+    sessionStart = Date.now();
+  }
+
+  function track(event, props) {
+    if (!instanceId) return;
+    queue.push({
+      e: event,
+      p: props || {},
+      t: Date.now(),
+      s: sessionId,
+    });
+    if (queue.length >= MAX_QUEUE) flush();
+  }
+
+  async function flush() {
+    if (queue.length === 0 || !instanceId) return;
+    const batch = queue.splice(0, MAX_QUEUE);
+    const ts = Date.now();
+    const nonce = hex(8);
+
+    const payload = {
+      iid: instanceId,
+      ts: ts,
+      n: nonce,
+      v: chrome.runtime.getManifest().version || '0.0.0',
+      events: batch,
+    };
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch(COLLECT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok || res.status === 204) return;
+        if (res.status === 429 || res.status >= 500) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        return;
+      } catch {
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+    }
+  }
+
+  setInterval(flush, FLUSH_INTERVAL);
+
+  if (typeof self !== 'undefined' && self.addEventListener) {
+    self.addEventListener('beforeunload', flush);
+  }
+
+  self.lonkeroTracker = { track, flush, init };
+
+  init().then(() => {
+    track('ext_loaded', {
+      browser: navigator.userAgent.includes('Vivaldi') ? 'vivaldi'
+        : navigator.userAgent.includes('OPR') ? 'opera'
+        : navigator.userAgent.includes('Brave') ? 'brave'
+        : navigator.userAgent.includes('Edg') ? 'edge' : 'chrome',
+    });
+  });
+})();

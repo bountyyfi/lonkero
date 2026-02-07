@@ -289,6 +289,8 @@ const PREMIUM_FEATURES: &[&str] = &[
     "session_analyzer",
     "baseline_detector",
     "information_disclosure",
+    // Browser extension (any paid license)
+    "browser_extension",
 ];
 
 /// Check if a premium feature is available for the current license
@@ -364,7 +366,21 @@ pub fn is_feature_available(feature: &str) -> bool {
                     return true;
                 }
                 LicenseType::Personal => {
-                    // Personal/Free gets limited premium features
+                    // Personal gets limited premium features
+                    // Browser extension is available for all paid tiers including Personal
+                    if feature == "browser_extension" {
+                        // Verify this is a server-validated paid Personal, not offline default
+                        // Paid Personal users have "cms_security" in their features list
+                        let is_paid = license.features.iter().any(|f| {
+                            f == "cms_security"
+                                || f == "all_features"
+                                || f == "browser_extension"
+                        });
+                        if is_paid {
+                            return true;
+                        }
+                        return false;
+                    }
                     // Check if explicitly granted in features list
                     let granted = license.features.iter().any(|f| f == feature);
                     if granted {
@@ -438,19 +454,25 @@ pub fn has_feature(feature: &str) -> bool {
                     return true;
                 }
                 LicenseType::Team => {
-                    // Team gets cloud_scanning, advanced_scanning, cms_security
+                    // Team gets cloud_scanning, advanced_scanning, cms_security, browser_extension
                     return matches!(
                         feature,
-                        "cloud_scanning" | "advanced_scanning" | "cms_security"
+                        "cloud_scanning"
+                            | "advanced_scanning"
+                            | "cms_security"
+                            | "browser_extension"
                     );
                 }
                 LicenseType::Professional => {
-                    // Professional gets advanced_scanning, cms_security
-                    return matches!(feature, "advanced_scanning" | "cms_security");
+                    // Professional gets advanced_scanning, cms_security, browser_extension
+                    return matches!(
+                        feature,
+                        "advanced_scanning" | "cms_security" | "browser_extension"
+                    );
                 }
                 LicenseType::Personal => {
-                    // Personal gets cms_security only
-                    return feature == "cms_security";
+                    // Personal gets cms_security and browser_extension
+                    return matches!(feature, "cms_security" | "browser_extension");
                 }
             }
         }

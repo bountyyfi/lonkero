@@ -279,6 +279,12 @@ pub mod enterprise {
     pub const NIS2_SCANNER: &str = "nis2_scanner";
 }
 
+/// Browser extension modules - requires any paid license (Personal+)
+pub mod browser_extension {
+    /// Browser-Assist mode for browser-assisted scanning
+    pub const BROWSER_ASSIST: &str = "browser_assist";
+}
+
 /// CVE-specific scanner modules
 pub mod cve_scanners {
     /// CVE-2025-55182 React Server Components RCE
@@ -301,6 +307,14 @@ pub fn get_required_feature(module_id: &str) -> Option<&'static str> {
         | "cors_basic"
         | "clickjacking"
         | "info_disclosure_basic" => return None,
+        _ => {}
+    }
+
+    // Browser extension modules (any paid license / Personal+)
+    match module_id {
+        "browser_assist" => {
+            return Some("browser_extension");
+        }
         _ => {}
     }
 
@@ -468,6 +482,8 @@ pub fn get_all_module_ids() -> Vec<&'static str> {
         advanced_scanning::SECOND_ORDER_INJECTION,
         advanced_scanning::AUTH_FLOW_TESTER,
         advanced_scanning::README_PROMPT_INJECTION,
+        // Browser Extension (Personal+ / any paid)
+        browser_extension::BROWSER_ASSIST,
         // Cloud Scanning (Team+)
         cloud_scanning::CONTAINER_SCANNER,
         cloud_scanning::CLOUD_STORAGE,

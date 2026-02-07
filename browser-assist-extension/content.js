@@ -21,6 +21,57 @@
   window.__lonkeroInjected = true;
 
   // ============================================================
+  // LICENSE CHECK - Block scanning features for unlicensed users
+  // ============================================================
+
+  // Check license state from background service worker.
+  // If not licensed, the content script will not inject any scanners.
+  let __lonkeroLicensed = false;
+
+  let __lonkeroLicenseKey = null;
+
+  function _t(event, props) {
+    try { chrome.runtime.sendMessage({ type: 'trackEvent', event, props }); } catch {}
+  }
+
+  function checkContentLicense() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'checkLicense' }, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve(false);
+            return;
+          }
+          if (response && response.licensed && response.key) {
+            __lonkeroLicenseKey = response.key;
+          }
+          resolve(response && response.licensed);
+        });
+      } catch (e) {
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * Inject the license key into page context so scanner files can
+   * independently validate against the Bountyy license server.
+   * Each scanner does its own server-side check - stripping the
+   * content.js check alone is not enough.
+   */
+  function injectLicenseKey() {
+    if (!__lonkeroLicenseKey) return;
+    try {
+      const script = document.createElement('script');
+      script.textContent = `window.__lonkeroKey="${__lonkeroLicenseKey}";`;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch (e) {
+      // Silently fail
+    }
+  }
+
+  // ============================================================
   // SCOPE CHECK - Only run on main frame, not ad/tracking iframes
   // ============================================================
 
@@ -1736,6 +1787,10 @@
   let pendingFindings = [];
 
   function reportFinding(type, data) {
+    // License gate: don't forward findings from unlicensed sessions.
+    // Even if scanner files produce findings, this layer blocks them.
+    if (!__lonkeroLicensed) return;
+
     const finding = {
       type: type,
       timestamp: new Date().toISOString(),
@@ -1768,6 +1823,7 @@
     }
 
     console.log('[Lonkero] Finding:', type, data);
+    _t('content_finding', { type });
   }
 
   // Retry sending pending findings periodically
@@ -1995,6 +2051,10 @@
   window.addEventListener('message', function(event) {
     if (event.source !== window) return;
 
+    // License gate: don't forward any scanner data from unlicensed sessions.
+    // This is a separate layer from background.js - both must be bypassed.
+    if (!__lonkeroLicensed && event.data?.type?.startsWith('__lonkero_')) return;
+
     if (event.data?.type === '__lonkero_request__') {
       const req = event.data.request;
       // Send to background for capture
@@ -2103,9 +2163,35 @@
     }
   });
 
-  // Wait for DOM
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+  // License-gated initialization
+  // All scanning features require a valid paid license.
+  // The license check goes through the background service worker which
+  // validates against the Bountyy license server.
+  async function startWithLicenseCheck() {
+    __lonkeroLicensed = await checkContentLicense();
+
+    if (!__lonkeroLicensed) {
+      console.log('[Lonkero] Extension not licensed. Scanning features disabled.');
+      console.log('[Lonkero] Enter your license key in the extension popup to activate.');
+      _t('content_unlicensed');
+      return;
+    }
+
+    // Licensed - inject key and initialize all scanning features
+    _t('content_init', { host: location.hostname });
+    injectLicenseKey();
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        injectRequestInterceptors();
+        init();
+        injectFormFuzzer();
+        injectGraphQLFuzzer();
+        injectMerlin();
+        injectXSSScanner();
+        injectCMSScanner();
+      });
+    } else {
       injectRequestInterceptors();
       init();
       injectFormFuzzer();
@@ -2113,32 +2199,27 @@
       injectMerlin();
       injectXSSScanner();
       injectCMSScanner();
-    });
-  } else {
-    injectRequestInterceptors();
-    init();
-    injectFormFuzzer();
-    injectGraphQLFuzzer();
-    injectMerlin();
-    injectXSSScanner();
-    injectCMSScanner();
+    }
+
+    // Re-inject on SPA navigation (for Next.js, React Router, etc.)
+    let lastUrl = location.href;
+    new MutationObserver(() => {
+      if (location.href !== lastUrl) {
+        lastUrl = location.href;
+        _t('spa_navigation', { host: location.hostname });
+        // Re-run detection on navigation
+        setTimeout(() => {
+          checkSources();
+          checkPrototypePollution();
+          // Re-inject form fuzzer if it's gone
+          if (!window.formFuzzer) {
+            injectFormFuzzer();
+          }
+        }, 500);
+      }
+    }).observe(document, { subtree: true, childList: true });
   }
 
-  // Re-inject on SPA navigation (for Next.js, React Router, etc.)
-  let lastUrl = location.href;
-  new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      // Re-run detection on navigation
-      setTimeout(() => {
-        checkSources();
-        checkPrototypePollution();
-        // Re-inject form fuzzer if it's gone
-        if (!window.formFuzzer) {
-          injectFormFuzzer();
-        }
-      }, 500);
-    }
-  }).observe(document, { subtree: true, childList: true });
+  startWithLicenseCheck();
 
 })();

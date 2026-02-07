@@ -310,8 +310,37 @@
     </div>
   </div>
 
+  <!-- License Gate - blocks all features until valid license -->
+  <div id="licenseGate" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.97); z-index: 9998; padding: 30px 20px; text-align: center; overflow-y: auto;">
+    <div style="max-width: 400px; margin: 0 auto;">
+      <img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero" style="height: 50px; margin-bottom: 16px;">
+      <h2 style="color: #39ff14; font-size: 15px; margin-bottom: 12px;">License Required</h2>
+      <p style="color: #888; font-size: 11px; line-height: 1.6; margin-bottom: 16px;">
+        Lonkero Browser Extension requires a paid license (Personal or higher) to use.
+        Enter your license key below to activate.
+      </p>
+      <div style="margin-bottom: 12px;">
+        <input type="text" id="licenseKeyInput" placeholder="Enter your license key" style="width: 100%; padding: 10px 12px; background: #111; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-size: 12px; text-align: center;">
+      </div>
+      <div id="licenseError" style="color: #ff3939; font-size: 10px; margin-bottom: 10px; display: none;"></div>
+      <div id="licenseSuccess" style="color: #39ff14; font-size: 10px; margin-bottom: 10px; display: none;"></div>
+      <button id="activateLicenseBtn" class="btn btn-primary" style="width: 200px; margin: 0 auto 10px auto;">
+        <i data-lucide="key"></i> Activate License
+      </button>
+      <p style="color: #555; font-size: 10px; margin-top: 16px;">
+        Don't have a license? <a href="https://bountyy.fi" target="_blank" style="color: #39ff14;">Get one at bountyy.fi</a>
+      </p>
+      <p style="color: #444; font-size: 9px; margin-top: 8px;">
+        License is validated against lonkero.bountyy.fi
+      </p>
+    </div>
+  </div>
+
   <div class="header">
     <img src="https://cdn.bountyy.fi/lonkero.png" alt="Lonkero" class="logo-img">
+    <div id="licenseIndicator" style="margin-left: auto; font-size: 9px; display: none;">
+      <span id="licenseIndicatorText" style="color: #39ff14;"></span>
+    </div>
   </div>
 
   <div class="content">

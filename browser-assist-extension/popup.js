@@ -8,6 +8,92 @@
 
 let currentState = null;
 let capturedRequests = [];
+let isExtensionLicensed = false;
+
+function _t(event, props) {
+  try { chrome.runtime.sendMessage({ type: 'trackEvent', event, props }); } catch {}
+}
+
+// ============================================================
+// LICENSE GATE
+// ============================================================
+
+function showLicenseGate() {
+  const gate = document.getElementById('licenseGate');
+  if (gate) {
+    gate.style.display = 'block';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+}
+
+function hideLicenseGate() {
+  const gate = document.getElementById('licenseGate');
+  if (gate) gate.style.display = 'none';
+}
+
+function updateLicenseIndicator(licenseType, licensee) {
+  const indicator = document.getElementById('licenseIndicator');
+  const text = document.getElementById('licenseIndicatorText');
+  if (indicator && text && licenseType) {
+    text.textContent = licenseType + (licensee ? ' - ' + licensee : '');
+    indicator.style.display = 'block';
+  }
+}
+
+function checkLicenseState() {
+  chrome.runtime.sendMessage({ type: 'getLicenseState' }, (response) => {
+    if (response && response.valid) {
+      isExtensionLicensed = true;
+      hideLicenseGate();
+      updateLicenseIndicator(response.licenseType, response.licensee);
+    } else {
+      isExtensionLicensed = false;
+      showLicenseGate();
+    }
+  });
+}
+
+// Activate license button handler
+document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
+  const input = document.getElementById('licenseKeyInput');
+  const errorEl = document.getElementById('licenseError');
+  const successEl = document.getElementById('licenseSuccess');
+  const key = input?.value?.trim();
+
+  errorEl.style.display = 'none';
+  successEl.style.display = 'none';
+
+  if (!key) {
+    errorEl.textContent = 'Please enter a license key.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  // Show loading state
+  const btn = document.getElementById('activateLicenseBtn');
+  btn.disabled = true;
+  btn.textContent = 'Validating...';
+
+  chrome.runtime.sendMessage({ type: 'setLicenseKey', key }, (response) => {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="key"></i> Activate License';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    if (response && response.valid) {
+      isExtensionLicensed = true;
+      successEl.textContent = 'License activated! ' + (response.licenseType || '') + ' - ' + (response.licensee || '');
+      successEl.style.display = 'block';
+      updateLicenseIndicator(response.licenseType, response.licensee);
+      _t('popup_license_ok', { type: response.licenseType });
+      // Hide gate after a brief delay
+      setTimeout(() => hideLicenseGate(), 800);
+    } else {
+      errorEl.textContent = 'Invalid license key. Please check and try again.';
+      errorEl.style.display = 'block';
+      _t('popup_license_fail');
+    }
+  });
+});
 
 // ============================================================
 // CONSENT MANAGEMENT
@@ -45,13 +131,14 @@ function hideConsentModal() {
 function acceptConsent() {
   localStorage.setItem(CONSENT_KEY, 'accepted');
   hideConsentModal();
+  _t('consent_accepted');
   trackUsage(); // Track now that consent is given
 }
 
 function declineConsent() {
   localStorage.setItem(CONSENT_KEY, 'declined');
   hideConsentModal();
-  // No tracking - user declined
+  _t('consent_declined');
 }
 
 // Setup consent button handlers
@@ -65,6 +152,7 @@ document.getElementById('declineConsentBtn')?.addEventListener('click', declineC
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     const tabName = tab.dataset.tab;
+    _t('tab_switch', { tab: tabName });
 
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
@@ -86,6 +174,15 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 function updateUI(state) {
   currentState = state;
+
+  // Sync license state from background
+  if (state.licensed !== undefined) {
+    if (state.licensed && !isExtensionLicensed) {
+      isExtensionLicensed = true;
+      hideLicenseGate();
+      updateLicenseIndicator(state.licenseType, state.licensee);
+    }
+  }
 
   const statusBar = document.getElementById('statusBar');
   const statusDot = document.getElementById('statusDot');
@@ -669,17 +766,32 @@ window.loadRequestToEditor = loadRequestToEditor;
 // BUTTON HANDLERS
 // ============================================================
 
+/**
+ * Guard function - checks license before allowing scan actions.
+ * Returns true if licensed, false if not (and shows gate).
+ */
+function requireLicense() {
+  if (isExtensionLicensed) return true;
+  showLicenseGate();
+  return false;
+}
+
 // Start/Stop Monitoring
 document.getElementById('startBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   if (currentState?.monitoring) {
+    _t('btn_stop_monitoring');
     chrome.runtime.sendMessage({ type: 'stopMonitoring' }, () => setTimeout(refreshState, 100));
   } else {
+    _t('btn_start_monitoring');
     chrome.runtime.sendMessage({ type: 'startMonitoring' }, () => setTimeout(refreshState, 100));
   }
 });
 
 // Deep Scan
 document.getElementById('deepScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_deep_scan');
   chrome.runtime.sendMessage({ type: 'triggerDeepScan' }, (response) => {
     if (response?.error) {
       alert('Error: ' + response.error);
@@ -691,6 +803,8 @@ document.getElementById('deepScanBtn')?.addEventListener('click', () => {
 
 // Fuzz Forms
 document.getElementById('fuzzFormsBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_fuzz_forms');
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -726,6 +840,8 @@ document.getElementById('fuzzFormsBtn')?.addEventListener('click', () => {
 
 // Fuzz GraphQL
 document.getElementById('fuzzGraphqlBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_fuzz_graphql');
   // First get discovered endpoints to find GraphQL
   chrome.runtime.sendMessage({ type: 'getEndpoints' }, (endpoints) => {
     const graphqlEndpoints = (endpoints || []).filter(e => e.isGraphQL);
@@ -772,6 +888,8 @@ document.getElementById('fuzzGraphqlBtn')?.addEventListener('click', () => {
 
 // XSS Scan
 document.getElementById('xssScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_xss_scan');
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -810,6 +928,8 @@ document.getElementById('xssScanBtn')?.addEventListener('click', () => {
 
 // Deep XSS Scan (Crawl + Test ALL endpoints)
 document.getElementById('deepXssScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_deep_xss_scan');
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -850,6 +970,8 @@ document.getElementById('deepXssScanBtn')?.addEventListener('click', () => {
 
 // SQLi Scan
 document.getElementById('sqliScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_sqli_scan');
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -889,6 +1011,8 @@ document.getElementById('sqliScanBtn')?.addEventListener('click', () => {
 
 // Deep SQLi Scan (includes time-based)
 document.getElementById('deepSqliScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_deep_sqli_scan');
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -926,6 +1050,8 @@ document.getElementById('deepSqliScanBtn')?.addEventListener('click', () => {
 
 // CMS/Framework Scan
 document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_cms_scan');
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -993,8 +1119,10 @@ document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
 // Pause/Resume
 document.getElementById('pauseBtn')?.addEventListener('click', () => {
   if (currentState?.paused) {
+    _t('btn_resume');
     chrome.runtime.sendMessage({ type: 'resume' }, () => setTimeout(refreshState, 100));
   } else {
+    _t('btn_pause');
     chrome.runtime.sendMessage({ type: 'pause' }, () => setTimeout(refreshState, 100));
   }
 });
@@ -1002,6 +1130,7 @@ document.getElementById('pauseBtn')?.addEventListener('click', () => {
 // Clear Data
 document.getElementById('clearBtn')?.addEventListener('click', () => {
   if (confirm('Clear all findings, endpoints, and captured data?')) {
+    _t('btn_clear_data');
     chrome.runtime.sendMessage({ type: 'clearData' }, () => {
       loadFindings();
       loadSecrets();
@@ -1014,6 +1143,7 @@ document.getElementById('clearBtn')?.addEventListener('click', () => {
 
 // Export buttons
 document.getElementById('exportFindingsBtn')?.addEventListener('click', () => {
+  _t('btn_export', { type: 'findings' });
   chrome.runtime.sendMessage({ type: 'exportFindings' }, (response) => {
     if (response) {
       downloadFile(JSON.stringify(response, null, 2), `lonkero-findings-${getDateStr()}.json`, 'application/json');
@@ -1022,6 +1152,7 @@ document.getElementById('exportFindingsBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('exportSecretsBtn')?.addEventListener('click', () => {
+  _t('btn_export', { type: 'secrets' });
   chrome.runtime.sendMessage({ type: 'getSecrets' }, (secrets) => {
     if (secrets) {
       downloadFile(JSON.stringify(secrets, null, 2), `lonkero-secrets-${getDateStr()}.json`, 'application/json');
@@ -1030,6 +1161,7 @@ document.getElementById('exportSecretsBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('exportEndpointsBtn')?.addEventListener('click', () => {
+  _t('btn_export', { type: 'endpoints' });
   chrome.runtime.sendMessage({ type: 'getEndpoints' }, (endpoints) => {
     if (endpoints) {
       downloadFile(JSON.stringify(endpoints, null, 2), `lonkero-endpoints-${getDateStr()}.json`, 'application/json');
@@ -1038,6 +1170,7 @@ document.getElementById('exportEndpointsBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('exportRequestsBtn')?.addEventListener('click', () => {
+  _t('btn_export', { type: 'requests' });
   chrome.runtime.sendMessage({ type: 'getCapturedRequests' }, (requests) => {
     if (requests) {
       downloadFile(JSON.stringify(requests, null, 2), `lonkero-requests-${getDateStr()}.json`, 'application/json');
@@ -1059,6 +1192,8 @@ document.getElementById('closeEditorBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('sendRequestBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_send_request');
   const method = document.getElementById('editorMethod').value;
   const url = document.getElementById('editorUrl').value;
   let headers = {};
@@ -1206,11 +1341,16 @@ if (!checkConsentAnswered()) {
 }
 // If declined, we just continue without tracking
 
+// Check license first, then load state
+checkLicenseState();
 refreshState();
 loadFindings();
 loadTechnologies();
+_t('popup_opened');
 
 setInterval(() => {
   refreshState();
   loadTechnologies();
+  // Periodically re-check license (picks up CLI-validated or newly entered keys)
+  if (!isExtensionLicensed) checkLicenseState();
 }, 1000);

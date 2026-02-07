@@ -1077,6 +1077,15 @@ async fn run_scan(
     let mut _browser_launcher: Option<lonkero_scanner::browser_assist::BrowserLauncher> = None;
 
     if browser_assist {
+        // License check: Browser-Assist requires any paid license (Personal+)
+        if !license::has_feature("browser_extension") {
+            error!("Browser-Assist Mode requires a paid license (Personal or higher).");
+            error!("Visit https://bountyy.fi to subscribe.");
+            return Err(anyhow::anyhow!(
+                "Browser-Assist Mode requires a paid license (Personal or higher). Visit https://bountyy.fi"
+            ));
+        }
+
         info!("============================================================");
         info!("  BROWSER-ASSIST MODE ENABLED");
         info!("============================================================");
