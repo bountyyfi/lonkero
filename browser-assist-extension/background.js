@@ -77,7 +77,8 @@ async function validateLicense(key) {
 
     if (response.ok) {
       const data = await response.json();
-      if (data.valid === true && !data.killswitch_active) {
+      const _vt = ['Personal','Professional','Team','Enterprise'];
+      if (data.valid === true && !data.killswitch_active && _vt.includes(data.license_type)) {
         licenseState.valid = true;
         licenseState.licenseKey = key;
         licenseState.licenseType = data.license_type || null;
