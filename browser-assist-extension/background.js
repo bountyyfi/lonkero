@@ -13,9 +13,13 @@
  */
 
 const LONKERO_WS_URL = 'ws://127.0.0.1:9340/parasite';
-const LONKERO_LICENSE_API = 'https://lonkero.bountyy.fi/api/v1/validate';
+const LONKERO_LICENSE_API = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
 let ws = null;
 let reconnectInterval = null;
+
+// Rate limiting for license validation
+let _licenseAttempts = 0;
+let _licenseWindowStart = Date.now();
 
 // ============================================================
 // LICENSE MANAGEMENT
@@ -60,6 +64,18 @@ async function validateLicense(key) {
     }
   }
 
+  // Rate limit: max 5 attempts per 60s window
+  const now = Date.now();
+  if (now - _licenseWindowStart > 60000) {
+    _licenseAttempts = 0;
+    _licenseWindowStart = now;
+  }
+  _licenseAttempts++;
+  if (_licenseAttempts > 5) {
+    console.warn('[Lonkero] Rate limited');
+    return false;
+  }
+
   try {
     const response = await fetch(LONKERO_LICENSE_API, {
       method: 'POST',
@@ -85,7 +101,7 @@ async function validateLicense(key) {
         licenseState.licensee = data.licensee || null;
         licenseState.features = data.features || [];
         licenseState.lastValidated = Date.now();
-        console.log('[Lonkero] License validated:', data.license_type, data.licensee);
+        console.log('[Lonkero] License validated');
         await persistLicenseState();
         if (self.lonkeroTracker) self.lonkeroTracker.track('license_validated', { type: data.license_type });
         return true;
@@ -97,8 +113,8 @@ async function validateLicense(key) {
     // A new/different key must always be server-validated
     if (licenseState.valid && licenseState.lastValidated && licenseState.licenseKey === key) {
       const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
-      if (hoursSinceValidation < 24) {
-        console.log('[Lonkero] Using cached license (validated', Math.round(hoursSinceValidation), 'hours ago)');
+      if (hoursSinceValidation < 4) {
+        console.log('[Lonkero] Using cached license');
         return true;
       }
     }
@@ -118,13 +134,22 @@ function isLicensed() {
 }
 
 /**
- * Get the license key for scanner file verification.
- * Scanner files independently validate against the Bountyy license server.
- * This returns the actual key so scanners can do their own server check.
+ * Get a session token for scanner file verification.
+ * Returns a format-valid token (not the real key) so the actual
+ * license key is never exposed to page context.
  */
+let _scannerToken = null;
 function getLicenseKeyForScanners() {
-  if (!isLicensed() || !licenseState.licenseKey) return null;
-  return licenseState.licenseKey;
+  if (!isLicensed()) return null;
+  if (!_scannerToken) {
+    const h = () => {
+      const a = new Uint8Array(2);
+      crypto.getRandomValues(a);
+      return Array.from(a, b => b.toString(36).padStart(2, '0')).join('').toUpperCase().slice(0, 4);
+    };
+    _scannerToken = 'LONKERO-' + h() + '-' + h() + '-' + h() + '-' + h();
+  }
+  return _scannerToken;
 }
 
 /**
@@ -209,6 +234,8 @@ let state = {
 // WEBSOCKET CONNECTION (Lonkero CLI)
 // ============================================================
 
+let _wsNonce = null;
+
 function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
 
@@ -225,10 +252,16 @@ function connect() {
         reconnectInterval = null;
       }
 
-      // Send handshake with capabilities
+      // Generate challenge nonce for this session
+      const arr = new Uint8Array(16);
+      crypto.getRandomValues(arr);
+      _wsNonce = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+
+      // Send handshake with capabilities and challenge
       ws.send(JSON.stringify({
         type: 'handshake',
         version: '3.0.0',
+        challenge: _wsNonce,
         userAgent: navigator.userAgent,
         platform: navigator.platform,
         mode: 'browser-assist',
@@ -319,12 +352,16 @@ async function handleMessage(msg) {
       break;
 
     case 'licenseValidated':
-      // CLI has validated the license server-side; trust this connection
+      // CLI must echo the challenge nonce to prove identity
+      if (!_wsNonce || msg.challenge !== _wsNonce) {
+        console.warn('[Lonkero] CLI license validation rejected: invalid challenge');
+        break;
+      }
       licenseState.cliValidated = true;
       licenseState.valid = true;
       if (msg.licenseType) licenseState.licenseType = msg.licenseType;
       if (msg.licensee) licenseState.licensee = msg.licensee;
-      console.log('[Lonkero] License validated via CLI:', msg.licenseType);
+      console.log('[Lonkero] License validated via CLI');
       if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: msg.licenseType });
       break;
 
@@ -968,7 +1005,7 @@ chrome.storage.local.get(['auditLog', 'findings', 'endpoints', 'storageVersion']
 // Load and validate license before starting
 loadAndValidateLicense().then(() => {
   if (isLicensed()) {
-    console.log('[Lonkero] License valid:', licenseState.licenseType);
+    console.log('[Lonkero] License valid');
   } else {
     console.log('[Lonkero] No valid license. Extension features are locked.');
     console.log('[Lonkero] Enter your license key in the extension popup to activate.');
@@ -1008,7 +1045,7 @@ console.log('[Lonkero] Background service worker started');
 (function() {
   'use strict';
 
-  const COLLECT_URL = 'https://lonkero.bountyy.fi/e';
+  const COLLECT_URL = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvZQ==');
   const FLUSH_INTERVAL = 30000;  // Batch send every 30s
   const MAX_QUEUE = 50;          // Max events before forced flush
   const MAX_RETRIES = 2;
@@ -1017,6 +1054,7 @@ console.log('[Lonkero] Background service worker started');
   let instanceId = null;
   let sessionId = null;
   let sessionStart = null;
+  let consentGiven = false;
 
   function hex(n) {
     const arr = new Uint8Array(n);
@@ -1026,7 +1064,8 @@ console.log('[Lonkero] Background service worker started');
 
   async function init() {
     try {
-      const stored = await chrome.storage.local.get(['lnk_iid']);
+      const stored = await chrome.storage.local.get(['lnk_iid', 'analytics_consent']);
+      consentGiven = stored.analytics_consent === 'accepted';
       if (stored.lnk_iid) {
         instanceId = stored.lnk_iid;
       } else {
@@ -1038,10 +1077,17 @@ console.log('[Lonkero] Background service worker started');
     }
     sessionId = 'ses_' + hex(8);
     sessionStart = Date.now();
+
+    // Listen for consent changes
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.analytics_consent) {
+        consentGiven = changes.analytics_consent.newValue === 'accepted';
+      }
+    });
   }
 
   function track(event, props) {
-    if (!instanceId) return;
+    if (!instanceId || !consentGiven) return;
     queue.push({
       e: event,
       p: props || {},

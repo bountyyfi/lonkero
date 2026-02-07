@@ -17,8 +17,8 @@
   'use strict';
 
   // Avoid double injection
-  if (window.__lonkeroInjected) return;
-  window.__lonkeroInjected = true;
+  if (window.__lkI) return;
+  window.__lkI = true;
 
   // ============================================================
   // LICENSE CHECK - Block scanning features for unlicensed users
@@ -59,13 +59,21 @@
    * Each scanner does its own server-side check - stripping the
    * content.js check alone is not enough.
    */
+  let __msgNonce = null;
+
   function injectLicenseKey() {
     if (!__lonkeroLicenseKey) return;
     try {
+      // Generate per-session nonce for message authentication
+      const arr = new Uint8Array(8);
+      crypto.getRandomValues(arr);
+      __msgNonce = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+
       const el = document.createElement('div');
       el.id = '__lk_c';
       el.style.display = 'none';
       el.dataset.v = __lonkeroLicenseKey;
+      el.dataset.n = __msgNonce;
       (document.head || document.documentElement).appendChild(el);
     } catch (e) {
       // Silently fail
@@ -1966,7 +1974,7 @@
   }
 
   // Expose scan functions globally for popup to call
-  window.__lonkeroScans = {
+  window.__lkS = {
     fullScan: runFullScan,
     headersScan: runHeadersScan,
     sourceMapsScan: runSourceMapsScan,
@@ -2056,8 +2064,10 @@
     if (event.source !== window) return;
 
     // License gate: don't forward any scanner data from unlicensed sessions.
-    // This is a separate layer from background.js - both must be bypassed.
     if (!__lonkeroLicensed && event.data?.type?.startsWith('__lonkero_')) return;
+
+    // Nonce validation: scanner messages must include the session nonce
+    if (event.data?.type?.startsWith('__lonkero_') && __msgNonce && event.data._n !== __msgNonce) return;
 
     if (event.data?.type === '__lonkero_request__') {
       const req = event.data.request;
@@ -2162,6 +2172,7 @@
           type: '__lonkero_endpoints_response__',
           requestId: requestId,
           endpoints: allEndpoints,
+          _n: __msgNonce,
         }, '*');
       });
     }

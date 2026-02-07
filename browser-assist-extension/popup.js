@@ -137,6 +137,7 @@ function hideConsentModal() {
 
 function acceptConsent() {
   localStorage.setItem(CONSENT_KEY, 'accepted');
+  chrome.storage.local.set({ analytics_consent: 'accepted' });
   hideConsentModal();
   _t('consent_accepted');
   trackUsage(); // Track now that consent is given
@@ -144,8 +145,8 @@ function acceptConsent() {
 
 function declineConsent() {
   localStorage.setItem(CONSENT_KEY, 'declined');
+  chrome.storage.local.set({ analytics_consent: 'declined' });
   hideConsentModal();
-  _t('consent_declined');
 }
 
 // Setup consent button handlers

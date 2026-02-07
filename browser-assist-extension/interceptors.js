@@ -15,23 +15,27 @@
   const _hr = document.getElementById('__lk_c');
   const _hc = (_hr && _hr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_hc || _hc.charCodeAt(0) !== 76 || _hc.split('-').length !== 5) { return; }
+  const _hn = _hr ? _hr.dataset.n : null;
   let _hookOk = true;
 
-  if (window.__lonkeroInterceptorsInjected) return;
-  window.__lonkeroInterceptorsInjected = true;
+  if (window.__lkIC) return;
+  window.__lkIC = true;
 
-  // Gated message relay
-  function _hkPost(data) { if (_hookOk && _hc) window.postMessage(data, '*'); }
+  // Gated message relay (includes session nonce)
+  function _hkPost(data) { if (_hookOk && _hc) { data._n = _hn; window.postMessage(data, '*'); } }
 
   // Internal domains to never capture
   const _skipHost = atob('bG9ua2Vyby5ib3VudHl5LmZp');
+  function _isInternal(u) {
+    try { return new URL(u, location.origin).hostname === _skipHost; } catch { return false; }
+  }
 
   // Intercept fetch
   const originalFetch = window.fetch;
   window.fetch = function(input, init) {
     const url = typeof input === 'string' ? input : (input.url || String(input));
     // Skip internal API traffic
-    if (url.indexOf(_skipHost) !== -1) return originalFetch.apply(this, arguments);
+    if (_isInternal(url)) return originalFetch.apply(this, arguments);
     const method = init?.method || (input?.method) || 'GET';
     const startTime = performance.now();
     const reqHeaders = init?.headers || input?.headers || {};
@@ -117,7 +121,7 @@
 
     xhr.addEventListener('loadend', function() {
       // Skip internal API traffic
-      if (xhr.__lonkeroUrl && xhr.__lonkeroUrl.indexOf(_skipHost) !== -1) return;
+      if (xhr.__lonkeroUrl && _isInternal(xhr.__lonkeroUrl)) return;
       // Capture response headers
       let responseHeaders = {};
       try {

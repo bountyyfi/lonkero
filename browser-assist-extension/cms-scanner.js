@@ -25,6 +25,7 @@
   // Scan environment setup
   const _sr = document.getElementById('__lk_c');
   const _sc = (_sr && _sr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
+  const _sn = _sr ? _sr.dataset.n : null;
   if (!_sc || _sc.charCodeAt(0) !== 76 || _sc.split('-').length !== 5) {
     window.cmsScanner = { scan: () => Promise.reject(new Error('Not available')) };
     return;
@@ -176,6 +177,7 @@
     if (!_initOk || !_sc) return;
     window.postMessage({
       type: '__lonkero_finding__',
+      _n: _sn,
       finding: {
         type: type,
         ...data,

@@ -26,6 +26,7 @@
   // Schema configuration
   const _gr = document.getElementById('__lk_c');
   const _gc = (_gr && _gr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
+  const _gn = _gr ? _gr.dataset.n : null;
   if (!_gc || _gc.charCodeAt(0) !== 76 || _gc.split('-').length !== 5) {
     window.gqlFuzz = { fuzz: () => Promise.reject(new Error('Not available')), getReport: () => ({error: 'Not available'}) };
     return;
@@ -166,7 +167,7 @@
         window.addEventListener('message', handler);
 
         // Request endpoints from content script
-        window.postMessage({ type: '__lonkero_get_endpoints__', requestId }, '*');
+        window.postMessage({ type: '__lonkero_get_endpoints__', _n: _gn, requestId }, '*');
 
         // Timeout after 2 seconds
         setTimeout(() => {
