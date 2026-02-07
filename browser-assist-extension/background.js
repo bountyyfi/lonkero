@@ -13,8 +13,150 @@
  */
 
 const LONKERO_WS_URL = 'ws://127.0.0.1:9340/parasite';
+const LONKERO_LICENSE_API = 'https://lonkero.bountyy.fi/api/v1/validate';
 let ws = null;
 let reconnectInterval = null;
+
+// ============================================================
+// LICENSE MANAGEMENT
+// ============================================================
+
+let licenseState = {
+  valid: false,
+  licenseKey: null,
+  licenseType: null,
+  licensee: null,
+  features: [],
+  lastValidated: null,
+  // When CLI connects and confirms license, trust that
+  cliValidated: false,
+};
+
+/**
+ * Validate license key against Bountyy license server.
+ * Uses the existing /api/v1/validate endpoint (no new APIs).
+ */
+async function validateLicense(key) {
+  if (!key) {
+    licenseState.valid = false;
+    licenseState.licenseType = null;
+    licenseState.licensee = null;
+    licenseState.features = [];
+    await persistLicenseState();
+    return false;
+  }
+
+  try {
+    const response = await fetch(LONKERO_LICENSE_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Product': 'lonkero-extension',
+        'X-Version': chrome.runtime.getManifest().version,
+      },
+      body: JSON.stringify({
+        license_key: key,
+        product: 'lonkero',
+        version: chrome.runtime.getManifest().version,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.valid && !data.killswitch_active) {
+        licenseState.valid = true;
+        licenseState.licenseKey = key;
+        licenseState.licenseType = data.license_type || null;
+        licenseState.licensee = data.licensee || null;
+        licenseState.features = data.features || [];
+        licenseState.lastValidated = Date.now();
+        console.log('[Lonkero] License validated:', data.license_type, data.licensee);
+        await persistLicenseState();
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn('[Lonkero] License validation failed:', e.message);
+    // If we had a previously valid license and just can't reach the server,
+    // allow continued use for up to 24 hours (fail-open for network issues)
+    if (licenseState.valid && licenseState.lastValidated) {
+      const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
+      if (hoursSinceValidation < 24) {
+        console.log('[Lonkero] Using cached license (validated', Math.round(hoursSinceValidation), 'hours ago)');
+        return true;
+      }
+    }
+  }
+
+  licenseState.valid = false;
+  await persistLicenseState();
+  return false;
+}
+
+/**
+ * Check if the extension is licensed (any paid tier).
+ */
+function isLicensed() {
+  return licenseState.valid || licenseState.cliValidated;
+}
+
+/**
+ * Generate a license session token for scanner file verification.
+ * This is injected into the page context so scanner files can verify
+ * they were loaded by a licensed extension instance.
+ *
+ * NOTE: This is defense-in-depth. Client-side checks can always be bypassed
+ * by a determined actor. The real enforcement is server-side + legal.
+ */
+function generateLicenseToken() {
+  if (!isLicensed()) return null;
+  // Simple HMAC-like token: combines license type + timestamp + extension ID
+  const payload = `${licenseState.licenseType}:${chrome.runtime.id}:${Math.floor(Date.now() / 3600000)}`;
+  // Simple hash for verification (not cryptographically secure, but sufficient for tamper-detection)
+  let hash = 0;
+  for (let i = 0; i < payload.length; i++) {
+    const char = payload.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit int
+  }
+  return `lkr_${Math.abs(hash).toString(36)}_${licenseState.licenseType || 'unk'}`;
+}
+
+/**
+ * Persist license state to chrome.storage.
+ */
+async function persistLicenseState() {
+  await chrome.storage.local.set({
+    licenseKey: licenseState.licenseKey,
+    licenseValid: licenseState.valid,
+    licenseType: licenseState.licenseType,
+    licensee: licenseState.licensee,
+    licenseFeatures: licenseState.features,
+    licenseLastValidated: licenseState.lastValidated,
+  });
+}
+
+/**
+ * Load license state from chrome.storage and re-validate.
+ */
+async function loadAndValidateLicense() {
+  const stored = await chrome.storage.local.get([
+    'licenseKey', 'licenseValid', 'licenseType', 'licensee',
+    'licenseFeatures', 'licenseLastValidated',
+  ]);
+
+  if (stored.licenseKey) {
+    licenseState.licenseKey = stored.licenseKey;
+    licenseState.valid = stored.licenseValid || false;
+    licenseState.licenseType = stored.licenseType || null;
+    licenseState.licensee = stored.licensee || null;
+    licenseState.features = stored.licenseFeatures || [];
+    licenseState.lastValidated = stored.licenseLastValidated || null;
+
+    // Re-validate with server
+    await validateLicense(stored.licenseKey);
+  }
+}
 
 // ============================================================
 // STATE MANAGEMENT
@@ -157,6 +299,15 @@ async function handleMessage(msg) {
     case 'stop':
       state.stopped = true;
       audit('STOPPED', '', '', 'Scanning stopped');
+      break;
+
+    case 'licenseValidated':
+      // CLI has validated the license server-side; trust this connection
+      licenseState.cliValidated = true;
+      licenseState.valid = true;
+      if (msg.licenseType) licenseState.licenseType = msg.licenseType;
+      if (msg.licensee) licenseState.licensee = msg.licensee;
+      console.log('[Lonkero] License validated via CLI:', msg.licenseType);
       break;
 
     case 'getFindings':
@@ -328,11 +479,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         findingsCount: state.findings.length,
         endpointsCount: state.endpoints.length,
         secretsCount: state.secrets.length,
+        // License info
+        licensed: isLicensed(),
+        licenseType: licenseState.licenseType,
+        licensee: licenseState.licensee,
+      });
+      break;
+
+    // License management
+    case 'getLicenseState':
+      sendResponse({
+        valid: isLicensed(),
+        licenseType: licenseState.licenseType,
+        licensee: licenseState.licensee,
+        licenseKey: licenseState.licenseKey ? '****' + licenseState.licenseKey.slice(-4) : null,
+        lastValidated: licenseState.lastValidated,
+      });
+      break;
+
+    case 'setLicenseKey':
+      validateLicense(message.key).then((valid) => {
+        sendResponse({ valid, licenseType: licenseState.licenseType, licensee: licenseState.licensee });
+      });
+      return true; // Async response
+
+    case 'removeLicenseKey':
+      licenseState.valid = false;
+      licenseState.licenseKey = null;
+      licenseState.licenseType = null;
+      licenseState.licensee = null;
+      licenseState.features = [];
+      licenseState.lastValidated = null;
+      licenseState.cliValidated = false;
+      persistLicenseState();
+      sendResponse({ ok: true });
+      break;
+
+    case 'checkLicense':
+      // Content scripts can check if licensed (includes token for scanner files)
+      sendResponse({
+        licensed: isLicensed(),
+        token: isLicensed() ? generateLicenseToken() : null,
       });
       break;
 
     // Control commands
     case 'startMonitoring':
+      if (!isLicensed()) {
+        sendResponse({ ok: false, error: 'license_required' });
+        break;
+      }
       state.monitoring = true;
       sendResponse({ ok: true });
       break;
@@ -582,6 +778,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Deep scan trigger
     case 'triggerDeepScan':
+      if (!isLicensed()) {
+        sendResponse({ error: 'License required. Enter your license key in the extension popup.' });
+        return false;
+      }
       triggerDeepScan().then(sendResponse);
       return true;
 
@@ -715,8 +915,18 @@ chrome.storage.local.get(['auditLog', 'findings', 'endpoints', 'storageVersion']
   }
 });
 
-// Start connection
-connect();
+// Load and validate license before starting
+loadAndValidateLicense().then(() => {
+  if (isLicensed()) {
+    console.log('[Lonkero] License valid:', licenseState.licenseType);
+  } else {
+    console.log('[Lonkero] No valid license. Extension features are locked.');
+    console.log('[Lonkero] Enter your license key in the extension popup to activate.');
+  }
+
+  // Start WebSocket connection (always connect - CLI validates its own license)
+  connect();
+});
 
 // Heartbeat
 setInterval(() => {
@@ -732,5 +942,12 @@ setInterval(() => {
     endpoints: state.endpoints,
   });
 }, 30000);
+
+// Re-validate license periodically (every 6 hours)
+setInterval(() => {
+  if (licenseState.licenseKey) {
+    validateLicense(licenseState.licenseKey);
+  }
+}, 6 * 60 * 60 * 1000);
 
 console.log('[Lonkero] Background service worker started');

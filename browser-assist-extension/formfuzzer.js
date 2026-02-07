@@ -17,6 +17,13 @@
 (function() {
   'use strict';
 
+  // License check - requires valid Lonkero license token
+  if (!window.__lonkeroLicenseToken || !window.__lonkeroLicenseToken.startsWith('lkr_')) {
+    console.warn('[Lonkero] Form Fuzzer requires a valid license. Visit https://bountyy.fi');
+    window.formFuzzer = { scan: () => Promise.reject(new Error('License required')), discoverAndFuzzForms: () => Promise.reject(new Error('License required')), getReport: () => ({error: 'License required'}) };
+    return;
+  }
+
   const PAYLOADS = {
     xss: [
       '<script>alert(1)</script>',

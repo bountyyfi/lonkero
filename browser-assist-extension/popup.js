@@ -8,6 +8,86 @@
 
 let currentState = null;
 let capturedRequests = [];
+let isExtensionLicensed = false;
+
+// ============================================================
+// LICENSE GATE
+// ============================================================
+
+function showLicenseGate() {
+  const gate = document.getElementById('licenseGate');
+  if (gate) {
+    gate.style.display = 'block';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+}
+
+function hideLicenseGate() {
+  const gate = document.getElementById('licenseGate');
+  if (gate) gate.style.display = 'none';
+}
+
+function updateLicenseIndicator(licenseType, licensee) {
+  const indicator = document.getElementById('licenseIndicator');
+  const text = document.getElementById('licenseIndicatorText');
+  if (indicator && text && licenseType) {
+    text.textContent = licenseType + (licensee ? ' - ' + licensee : '');
+    indicator.style.display = 'block';
+  }
+}
+
+function checkLicenseState() {
+  chrome.runtime.sendMessage({ type: 'getLicenseState' }, (response) => {
+    if (response && response.valid) {
+      isExtensionLicensed = true;
+      hideLicenseGate();
+      updateLicenseIndicator(response.licenseType, response.licensee);
+    } else {
+      isExtensionLicensed = false;
+      showLicenseGate();
+    }
+  });
+}
+
+// Activate license button handler
+document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
+  const input = document.getElementById('licenseKeyInput');
+  const errorEl = document.getElementById('licenseError');
+  const successEl = document.getElementById('licenseSuccess');
+  const key = input?.value?.trim();
+
+  errorEl.style.display = 'none';
+  successEl.style.display = 'none';
+
+  if (!key) {
+    errorEl.textContent = 'Please enter a license key.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  // Show loading state
+  const btn = document.getElementById('activateLicenseBtn');
+  btn.disabled = true;
+  btn.textContent = 'Validating...';
+
+  chrome.runtime.sendMessage({ type: 'setLicenseKey', key }, (response) => {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="key"></i> Activate License';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    if (response && response.valid) {
+      isExtensionLicensed = true;
+      successEl.textContent = 'License activated! ' + (response.licenseType || '') + ' - ' + (response.licensee || '');
+      successEl.style.display = 'block';
+      updateLicenseIndicator(response.licenseType, response.licensee);
+      // Hide gate after a brief delay
+      setTimeout(() => hideLicenseGate(), 800);
+    } else {
+      errorEl.textContent = 'Invalid license key. Please check and try again.';
+      errorEl.style.display = 'block';
+    }
+  });
+});
 
 // ============================================================
 // CONSENT MANAGEMENT
@@ -86,6 +166,15 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 function updateUI(state) {
   currentState = state;
+
+  // Sync license state from background
+  if (state.licensed !== undefined) {
+    if (state.licensed && !isExtensionLicensed) {
+      isExtensionLicensed = true;
+      hideLicenseGate();
+      updateLicenseIndicator(state.licenseType, state.licensee);
+    }
+  }
 
   const statusBar = document.getElementById('statusBar');
   const statusDot = document.getElementById('statusDot');
@@ -669,8 +758,19 @@ window.loadRequestToEditor = loadRequestToEditor;
 // BUTTON HANDLERS
 // ============================================================
 
+/**
+ * Guard function - checks license before allowing scan actions.
+ * Returns true if licensed, false if not (and shows gate).
+ */
+function requireLicense() {
+  if (isExtensionLicensed) return true;
+  showLicenseGate();
+  return false;
+}
+
 // Start/Stop Monitoring
 document.getElementById('startBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   if (currentState?.monitoring) {
     chrome.runtime.sendMessage({ type: 'stopMonitoring' }, () => setTimeout(refreshState, 100));
   } else {
@@ -680,6 +780,7 @@ document.getElementById('startBtn')?.addEventListener('click', () => {
 
 // Deep Scan
 document.getElementById('deepScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   chrome.runtime.sendMessage({ type: 'triggerDeepScan' }, (response) => {
     if (response?.error) {
       alert('Error: ' + response.error);
@@ -691,6 +792,7 @@ document.getElementById('deepScanBtn')?.addEventListener('click', () => {
 
 // Fuzz Forms
 document.getElementById('fuzzFormsBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -726,6 +828,7 @@ document.getElementById('fuzzFormsBtn')?.addEventListener('click', () => {
 
 // Fuzz GraphQL
 document.getElementById('fuzzGraphqlBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   // First get discovered endpoints to find GraphQL
   chrome.runtime.sendMessage({ type: 'getEndpoints' }, (endpoints) => {
     const graphqlEndpoints = (endpoints || []).filter(e => e.isGraphQL);
@@ -772,6 +875,7 @@ document.getElementById('fuzzGraphqlBtn')?.addEventListener('click', () => {
 
 // XSS Scan
 document.getElementById('xssScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -810,6 +914,7 @@ document.getElementById('xssScanBtn')?.addEventListener('click', () => {
 
 // Deep XSS Scan (Crawl + Test ALL endpoints)
 document.getElementById('deepXssScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -850,6 +955,7 @@ document.getElementById('deepXssScanBtn')?.addEventListener('click', () => {
 
 // SQLi Scan
 document.getElementById('sqliScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -889,6 +995,7 @@ document.getElementById('sqliScanBtn')?.addEventListener('click', () => {
 
 // Deep SQLi Scan (includes time-based)
 document.getElementById('deepSqliScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -926,6 +1033,7 @@ document.getElementById('deepSqliScanBtn')?.addEventListener('click', () => {
 
 // CMS/Framework Scan
 document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
@@ -1059,6 +1167,7 @@ document.getElementById('closeEditorBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('sendRequestBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
   const method = document.getElementById('editorMethod').value;
   const url = document.getElementById('editorUrl').value;
   let headers = {};
@@ -1206,6 +1315,8 @@ if (!checkConsentAnswered()) {
 }
 // If declined, we just continue without tracking
 
+// Check license first, then load state
+checkLicenseState();
 refreshState();
 loadFindings();
 loadTechnologies();
@@ -1213,4 +1324,6 @@ loadTechnologies();
 setInterval(() => {
   refreshState();
   loadTechnologies();
+  // Periodically re-check license (picks up CLI-validated or newly entered keys)
+  if (!isExtensionLicensed) checkLicenseState();
 }, 1000);

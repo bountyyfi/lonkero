@@ -52,7 +52,9 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
+
+use crate::license;
 
 // Re-export core types from parasite module for backward compatibility
 pub use crate::parasite::{
@@ -369,11 +371,23 @@ pub struct BrowserAssistClient {
 
 impl BrowserAssistClient {
     /// Create new Browser-Assist client with scope authorization
+    ///
+    /// Requires a valid paid license (Personal or higher).
+    /// Free/unlicensed users cannot use Browser-Assist mode.
     pub async fn new(
         port: u16,
         scope: ScopeAuthorization,
         audit_path: Option<PathBuf>,
     ) -> Result<Arc<Self>> {
+        // License check: Browser-Assist requires any paid license (Personal+)
+        if !license::has_feature("browser_extension") {
+            error!("Browser-Assist Mode blocked: requires paid license");
+            return Err(anyhow!(
+                "Browser-Assist Mode requires a paid license (Personal or higher). \
+                 Visit https://bountyy.fi to subscribe."
+            ));
+        }
+
         let inner = ParasiteClient::new(port).await?;
         let audit = Arc::new(AuditTrail::new(audit_path));
 
@@ -1006,6 +1020,14 @@ pub async fn launch_browser_and_wait(
     extension_path: Option<PathBuf>,
     timeout_secs: u64,
 ) -> Result<BrowserLauncher> {
+    // License check: Browser-Assist requires any paid license (Personal+)
+    if !license::has_feature("browser_extension") {
+        return Err(anyhow!(
+            "Browser-Assist Mode requires a paid license (Personal or higher). \
+             Visit https://bountyy.fi to subscribe."
+        ));
+    }
+
     let mut launcher = BrowserLauncher::new(extension_path)?;
 
     // Launch the browser

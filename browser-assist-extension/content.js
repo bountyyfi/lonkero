@@ -21,6 +21,53 @@
   window.__lonkeroInjected = true;
 
   // ============================================================
+  // LICENSE CHECK - Block scanning features for unlicensed users
+  // ============================================================
+
+  // Check license state from background service worker.
+  // If not licensed, the content script will not inject any scanners.
+  let __lonkeroLicensed = false;
+
+  let __lonkeroLicenseToken = null;
+
+  function checkContentLicense() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'checkLicense' }, (response) => {
+          if (chrome.runtime.lastError) {
+            // Extension context invalidated or not available
+            resolve(false);
+            return;
+          }
+          if (response && response.licensed && response.token) {
+            __lonkeroLicenseToken = response.token;
+          }
+          resolve(response && response.licensed);
+        });
+      } catch (e) {
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * Inject the license session token into page context.
+   * Scanner files (which run in MAIN world) check for this token.
+   * This is defense-in-depth against trivial JS stripping.
+   */
+  function injectLicenseToken() {
+    if (!__lonkeroLicenseToken) return;
+    try {
+      const script = document.createElement('script');
+      script.textContent = `window.__lonkeroLicenseToken="${__lonkeroLicenseToken}";`;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch (e) {
+      // Silently fail
+    }
+  }
+
+  // ============================================================
   // SCOPE CHECK - Only run on main frame, not ad/tracking iframes
   // ============================================================
 
@@ -2103,9 +2150,33 @@
     }
   });
 
-  // Wait for DOM
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+  // License-gated initialization
+  // All scanning features require a valid paid license.
+  // The license check goes through the background service worker which
+  // validates against the Bountyy license server.
+  async function startWithLicenseCheck() {
+    __lonkeroLicensed = await checkContentLicense();
+
+    if (!__lonkeroLicensed) {
+      console.log('[Lonkero] Extension not licensed. Scanning features disabled.');
+      console.log('[Lonkero] Enter your license key in the extension popup to activate.');
+      return;
+    }
+
+    // Licensed - inject token and initialize all scanning features
+    injectLicenseToken();
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        injectRequestInterceptors();
+        init();
+        injectFormFuzzer();
+        injectGraphQLFuzzer();
+        injectMerlin();
+        injectXSSScanner();
+        injectCMSScanner();
+      });
+    } else {
       injectRequestInterceptors();
       init();
       injectFormFuzzer();
@@ -2113,32 +2184,26 @@
       injectMerlin();
       injectXSSScanner();
       injectCMSScanner();
-    });
-  } else {
-    injectRequestInterceptors();
-    init();
-    injectFormFuzzer();
-    injectGraphQLFuzzer();
-    injectMerlin();
-    injectXSSScanner();
-    injectCMSScanner();
+    }
+
+    // Re-inject on SPA navigation (for Next.js, React Router, etc.)
+    let lastUrl = location.href;
+    new MutationObserver(() => {
+      if (location.href !== lastUrl) {
+        lastUrl = location.href;
+        // Re-run detection on navigation
+        setTimeout(() => {
+          checkSources();
+          checkPrototypePollution();
+          // Re-inject form fuzzer if it's gone
+          if (!window.formFuzzer) {
+            injectFormFuzzer();
+          }
+        }, 500);
+      }
+    }).observe(document, { subtree: true, childList: true });
   }
 
-  // Re-inject on SPA navigation (for Next.js, React Router, etc.)
-  let lastUrl = location.href;
-  new MutationObserver(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      // Re-run detection on navigation
-      setTimeout(() => {
-        checkSources();
-        checkPrototypePollution();
-        // Re-inject form fuzzer if it's gone
-        if (!window.formFuzzer) {
-          injectFormFuzzer();
-        }
-      }, 500);
-    }
-  }).observe(document, { subtree: true, childList: true });
+  startWithLicenseCheck();
 
 })();

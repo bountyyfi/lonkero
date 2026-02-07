@@ -14,6 +14,13 @@
 (function() {
   'use strict';
 
+  // License check - requires valid Lonkero license token
+  if (!window.__lonkeroLicenseToken || !window.__lonkeroLicenseToken.startsWith('lkr_')) {
+    console.warn('[Lonkero] Framework Scanner requires a valid license. Visit https://bountyy.fi');
+    window.frameworkScanner = { scan: () => Promise.reject(new Error('License required')) };
+    return;
+  }
+
   if (window.__lonkeroFrameworkScanner) return;
   window.__lonkeroFrameworkScanner = true;
 

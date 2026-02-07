@@ -9,6 +9,12 @@
 (function() {
   'use strict';
 
+  // License check - requires valid Lonkero license token
+  if (!window.__lonkeroLicenseToken || !window.__lonkeroLicenseToken.startsWith('lkr_')) {
+    console.warn('[Lonkero] Merlin scanner requires a valid license. Visit https://bountyy.fi');
+    return;
+  }
+
   if (window.__merlinInjected) return;
   window.__merlinInjected = true;
 
