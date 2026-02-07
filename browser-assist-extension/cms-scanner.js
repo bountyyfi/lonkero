@@ -23,19 +23,13 @@
   'use strict';
 
   // Scan environment setup
-  const _sp = atob('X19sb25rZXJvS2V5');
-  const _se = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
   const _sr = document.getElementById('__lk_c');
-  const _sc = (_sr && _sr.dataset.v) || window[_sp];
+  const _sc = (_sr && _sr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_sc || _sc.charCodeAt(0) !== 76 || _sc.split('-').length !== 5) {
     window.cmsScanner = { scan: () => Promise.reject(new Error('Not available')) };
     return;
   }
   let _initOk = true;
-  fetch(_se, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({[atob('bGljZW5zZV9rZXk=')]: _sc, product: atob('bG9ua2Vybw=='), version: '3.6.0'})
-  }).then(r => r.json()).then(d => { if (!d.valid || d[atob('a2lsbHN3aXRjaF9hY3RpdmU=')]) _initOk = false; }).catch(() => {});
 
   // ============================================================
   // VULNERABLE PLUGINS/MODULES DATABASE

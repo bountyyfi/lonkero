@@ -18,19 +18,13 @@
   'use strict';
 
   // Runtime configuration
-  const _fp = atob('X19sb25rZXJvS2V5');
-  const _fe = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
   const _fr = document.getElementById('__lk_c');
-  const _fc = (_fr && _fr.dataset.v) || window[_fp];
+  const _fc = (_fr && _fr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_fc || _fc.charCodeAt(0) !== 76 || _fc.split('-').length !== 5) {
     window.formFuzzer = { scan: () => Promise.reject(new Error('Not available')), discoverAndFuzzForms: () => Promise.reject(new Error('Not available')), getReport: () => ({error: 'Not available'}) };
     return;
   }
   let _probeReady = true;
-  fetch(_fe, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({[atob('bGljZW5zZV9rZXk=')]: _fc, product: atob('bG9ua2Vybw=='), version: '3.6.0'})
-  }).then(r => r.json()).then(d => { if (!d.valid || d[atob('a2lsbHN3aXRjaF9hY3RpdmU=')]) _probeReady = false; }).catch(() => {});
 
   const PAYLOADS = {
     xss: [

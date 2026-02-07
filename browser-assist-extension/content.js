@@ -731,6 +731,9 @@
       const pathname = parsed.pathname;
       const hostname = parsed.hostname;
 
+      // Skip internal Lonkero API traffic
+      if (hostname === atob('bG9ua2Vyby5ib3VudHl5LmZp')) return;
+
       // Skip static files by extension
       if (STATIC_EXTENSIONS.test(pathname)) return;
 
