@@ -896,6 +896,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Handle replay request from CLI
 async function handleReplayRequest(msg) {
   const { id, url, method, headers, body } = msg;
+
+  // Scope enforcement — prevent SSRF via replay
+  if (!isInScope(url)) {
+    audit('BLOCKED', url, method || 'GET', 'Replay out of scope');
+    ws.send(JSON.stringify({
+      type: 'error', id, error: 'out_of_scope',
+      message: `Replay blocked — not in scope: ${state.scope.join(', ')}`
+    }));
+    return;
+  }
+
   try {
     const fetchOpts = {
       method: method || 'GET',
@@ -932,6 +943,11 @@ async function handleReplayRequest(msg) {
 
 // Handle replay request from popup
 async function handleReplayFromPopup(request) {
+  // Scope enforcement — prevent SSRF via popup replay
+  if (!isInScope(request.url)) {
+    return { error: `Replay blocked — not in scope: ${(state.scope || []).join(', ')}` };
+  }
+
   try {
     const fetchOpts = {
       method: request.method || 'GET',
