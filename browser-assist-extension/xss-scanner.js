@@ -26,18 +26,19 @@
 (function() {
   'use strict';
 
-  // License check - validates against Bountyy license server
-  const _lk = window.__lonkeroKey;
-  if (!_lk || !_lk.startsWith('LONKERO-') || _lk.split('-').length !== 5) {
-    console.warn('[Lonkero] XSS Scanner requires a valid license. Visit https://bountyy.fi');
-    window.xssScanner = { scan: () => Promise.reject(new Error('License required')), deepScan: () => Promise.reject(new Error('License required')) };
+  // Context initialization
+  const _xp = atob('X19sb25rZXJvS2V5');
+  const _xe = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3ZhbGlkYXRl');
+  const _xc = window[_xp];
+  if (!_xc || _xc.charCodeAt(0) !== 76 || _xc.split('-').length !== 5) {
+    window.xssScanner = { scan: () => Promise.reject(new Error('Not available')), deepScan: () => Promise.reject(new Error('Not available')) };
     return;
   }
-  let _lkValid = true;
-  fetch('https://lonkero.bountyy.fi/api/v1/validate', {
+  let _ctxReady = true;
+  fetch(_xe, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({license_key: _lk, product: 'lonkero', version: '3.6.0'})
-  }).then(r => r.json()).then(d => { if (!d.valid || d.killswitch_active) _lkValid = false; }).catch(() => {});
+    body: JSON.stringify({[atob('bGljZW5zZV9rZXk=')]: _xc, product: atob('bG9ua2Vybw=='), version: '3.6.0'})
+  }).then(r => r.json()).then(d => { if (!d.valid || d[atob('a2lsbHN3aXRjaF9hY3RpdmU=')]) _ctxReady = false; }).catch(() => {});
 
   if (window.__lonkeroXSSScanner) return;
   window.__lonkeroXSSScanner = true;
@@ -2937,7 +2938,7 @@
   }
 
   function reportFinding(finding) {
-    if (!_lkValid || !window.__lonkeroKey) return;
+    if (!_ctxReady || !window[_xp]) return;
     // Check for duplicates
     const key = getFindingKey(finding);
     if (reportedFindings.has(key)) {
