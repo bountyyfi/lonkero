@@ -46,19 +46,14 @@ async function validateLicense(key) {
     return false;
   }
 
-  // Format validation: LONKERO-XXXX-XXXX-XXXX-XXXX
-  // Must be 5 dash-separated segments, first segment is LONKERO,
-  // remaining 4 segments are 4 alphanumeric characters each
-  const parts = key.split('-');
-  if (parts.length !== 5 || parts[0] !== 'LONKERO') {
-    console.warn('[Lonkero] Invalid key format');
+  const _p = key.split('-');
+  if (_p.length !== 5 || _p[0].charCodeAt(0) !== 76 || _p[0].length !== 7) {
     licenseState.valid = false;
     await persistLicenseState();
     return false;
   }
   for (let i = 1; i < 5; i++) {
-    if (!/^[A-Z0-9]{4}$/.test(parts[i])) {
-      console.warn('[Lonkero] Invalid key segment:', i);
+    if (_p[i].length !== 4 || !/^[A-Z0-9]+$/.test(_p[i])) {
       licenseState.valid = false;
       await persistLicenseState();
       return false;
@@ -155,10 +150,8 @@ async function loadAndValidateLicense() {
   ]);
 
   if (stored.licenseKey && typeof stored.licenseKey === 'string') {
-    // Validate stored key format before trusting it
     const sp = stored.licenseKey.split('-');
-    if (sp.length !== 5 || sp[0] !== 'LONKERO' || !sp.slice(1).every(s => /^[A-Z0-9]{4}$/.test(s))) {
-      // Corrupted or tampered storage - wipe it
+    if (sp.length !== 5 || sp[0].charCodeAt(0) !== 76 || sp[0].length !== 7 || !sp.slice(1).every(s => s.length === 4 && /^[A-Z0-9]+$/.test(s))) {
       licenseState.valid = false;
       await persistLicenseState();
       return;
