@@ -46,6 +46,20 @@ async function validateLicense(key) {
     return false;
   }
 
+  const _p = key.split('-');
+  if (_p.length !== 5 || _p[0].charCodeAt(0) !== 76 || _p[0].length !== 7) {
+    licenseState.valid = false;
+    await persistLicenseState();
+    return false;
+  }
+  for (let i = 1; i < 5; i++) {
+    if (_p[i].length !== 4 || !/^[A-Z0-9]+$/.test(_p[i])) {
+      licenseState.valid = false;
+      await persistLicenseState();
+      return false;
+    }
+  }
+
   try {
     const response = await fetch(LONKERO_LICENSE_API, {
       method: 'POST',
@@ -63,7 +77,8 @@ async function validateLicense(key) {
 
     if (response.ok) {
       const data = await response.json();
-      if (data.valid && !data.killswitch_active) {
+      const _vt = ['Personal','Professional','Team','Enterprise'];
+      if (data.valid === true && !data.killswitch_active && _vt.includes(data.license_type)) {
         licenseState.valid = true;
         licenseState.licenseKey = key;
         licenseState.licenseType = data.license_type || null;
@@ -78,9 +93,9 @@ async function validateLicense(key) {
     }
   } catch (e) {
     console.warn('[Lonkero] License validation failed:', e.message);
-    // If we had a previously valid license and just can't reach the server,
-    // allow continued use for up to 24 hours (fail-open for network issues)
-    if (licenseState.valid && licenseState.lastValidated) {
+    // Offline grace: only if re-validating the SAME key that was previously valid
+    // A new/different key must always be server-validated
+    if (licenseState.valid && licenseState.lastValidated && licenseState.licenseKey === key) {
       const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
       if (hoursSinceValidation < 24) {
         console.log('[Lonkero] Using cached license (validated', Math.round(hoursSinceValidation), 'hours ago)');
@@ -135,7 +150,13 @@ async function loadAndValidateLicense() {
     'licenseFeatures', 'licenseLastValidated',
   ]);
 
-  if (stored.licenseKey) {
+  if (stored.licenseKey && typeof stored.licenseKey === 'string') {
+    const sp = stored.licenseKey.split('-');
+    if (sp.length !== 5 || sp[0].charCodeAt(0) !== 76 || sp[0].length !== 7 || !sp.slice(1).every(s => s.length === 4 && /^[A-Z0-9]+$/.test(s))) {
+      licenseState.valid = false;
+      await persistLicenseState();
+      return;
+    }
     licenseState.licenseKey = stored.licenseKey;
     licenseState.valid = stored.licenseValid || false;
     licenseState.licenseType = stored.licenseType || null;
@@ -236,11 +257,14 @@ function connect() {
     };
 
     ws.onclose = () => {
+      const wasConnected = state.connected;
       console.log('[Lonkero] Disconnected');
       state.connected = false;
       ws = null;
-      audit('DISCONNECTED', '', '', 'Session ended');
-      if (self.lonkeroTracker) self.lonkeroTracker.track('cli_disconnected');
+      if (wasConnected) {
+        audit('DISCONNECTED', '', '', 'Session ended');
+        if (self.lonkeroTracker) self.lonkeroTracker.track('cli_disconnected');
+      }
 
       if (!state.stopped && !reconnectInterval) {
         reconnectInterval = setInterval(() => connect(), 3000);

@@ -69,6 +69,13 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
     return;
   }
 
+  const _kp = key.split('-');
+  if (_kp.length !== 5 || _kp[0].charCodeAt(0) !== 76 || _kp[0].length !== 7 || !_kp.slice(1).every(p => p.length === 4 && /^[A-Z0-9]+$/.test(p))) {
+    errorEl.textContent = 'Invalid key.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
   // Show loading state
   const btn = document.getElementById('activateLicenseBtn');
   btn.disabled = true;
