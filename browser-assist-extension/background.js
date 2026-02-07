@@ -257,11 +257,14 @@ function connect() {
     };
 
     ws.onclose = () => {
+      const wasConnected = state.connected;
       console.log('[Lonkero] Disconnected');
       state.connected = false;
       ws = null;
-      audit('DISCONNECTED', '', '', 'Session ended');
-      if (self.lonkeroTracker) self.lonkeroTracker.track('cli_disconnected');
+      if (wasConnected) {
+        audit('DISCONNECTED', '', '', 'Session ended');
+        if (self.lonkeroTracker) self.lonkeroTracker.track('cli_disconnected');
+      }
 
       if (!state.stopped && !reconnectInterval) {
         reconnectInterval = setInterval(() => connect(), 3000);
