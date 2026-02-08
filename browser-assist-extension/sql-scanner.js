@@ -17,11 +17,10 @@
   }
   let _dbReady = true;
 
-  // Prevent double-injection
-  if (window.sqlScanner) {
-    console.log('[SQLi Scanner] Already loaded');
-    return;
-  }
+  // Prevent double-injection (Symbol guard — not spoofable by page)
+  const _sqlGuard = Symbol.for('__lkSQ_' + (_dn || ''));
+  if (window[_sqlGuard]) return;
+  window[_sqlGuard] = true;
 
   const findings = [];
   const testedParams = new Set();

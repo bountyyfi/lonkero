@@ -26,15 +26,19 @@
 
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, RwLock};
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::{accept_async_with_config, tungstenite::protocol::WebSocketConfig, tungstenite::Message};
 use tracing::{debug, error, info, warn};
+
+type HmacSha256 = Hmac<Sha256>;
 
 /// Default WebSocket port for Parasite Mode
 pub const DEFAULT_PARASITE_PORT: u16 = 9340;
@@ -97,6 +101,8 @@ struct HandshakeAck {
     #[serde(rename = "type")]
     msg_type: String,
     challenge: String,
+    #[serde(rename = "challengeResponse", skip_serializing_if = "Option::is_none")]
+    challenge_response: Option<String>,
     #[serde(rename = "licenseKey", skip_serializing_if = "Option::is_none")]
     license_key: Option<String>,
 }
@@ -359,7 +365,10 @@ async fn handle_connection(
     _stats: Arc<ParasiteStats>,
     license_key: Option<String>,
 ) -> Result<()> {
-    let ws_stream = accept_async(stream).await?;
+    let mut ws_config = WebSocketConfig::default();
+    ws_config.max_message_size = Some(4 * 1024 * 1024);  // 4 MB max (was 64 MB default)
+    ws_config.max_frame_size = Some(2 * 1024 * 1024);    // 2 MB max frame
+    let ws_stream = accept_async_with_config(stream, Some(ws_config)).await?;
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
     // Wait for handshake
@@ -389,12 +398,20 @@ async fn handle_connection(
             extension_version: handshake.version,
         });
 
-        // Send handshakeAck echoing the challenge to authenticate
-        // Include license key so extension can independently verify with server
-        if let Some(challenge) = handshake.challenge {
+        // Send handshakeAck with HMAC challenge-response + challenge echo
+        // HMAC uses license key as shared secret so only the real CLI can authenticate
+        if let Some(ref challenge) = handshake.challenge {
+            let challenge_response = license_key.as_ref().map(|key| {
+                let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+                    .expect("HMAC key length");
+                mac.update(challenge.as_bytes());
+                hex::encode(mac.finalize().into_bytes())
+            });
+
             let ack = HandshakeAck {
                 msg_type: "handshakeAck".to_string(),
-                challenge,
+                challenge: challenge.clone(),
+                challenge_response,
                 license_key: license_key.clone(),
             };
             let ack_json = serde_json::to_string(&ack)?;
