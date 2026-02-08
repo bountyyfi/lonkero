@@ -401,6 +401,7 @@ impl WordPressSecurityScanner {
                               3. Or use .htaccess rules to block author queries"
                     .to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -482,6 +483,7 @@ impl WordPressSecurityScanner {
                                       \n\
                                       2. Or use a security plugin like Wordfence or iThemes Security".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                     break;
@@ -596,6 +598,7 @@ impl WordPressSecurityScanner {
                                       return $methods;\n\
                                   });".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -671,6 +674,7 @@ impl WordPressSecurityScanner {
                                           4. Move wp-config.php one directory up\n\
                                           5. Ensure backup files are not in web root".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break; // Found critical issue, stop testing config files
@@ -748,7 +752,8 @@ impl WordPressSecurityScanner {
                                           </Files>"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                         break;
                     }
@@ -838,6 +843,7 @@ impl WordPressSecurityScanner {
                               add_filter('the_generator', '__return_empty_string');\n\
                               4. Keep WordPress updated to latest version".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -913,7 +919,8 @@ impl WordPressSecurityScanner {
                                             plugin_slug, plugin_slug
                                         ),
                                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                                     });
                                 }
                             }
@@ -995,7 +1002,8 @@ impl WordPressSecurityScanner {
                                           6. Use secure off-site backup storage"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                         break;
                     } else if is_directory {
@@ -1019,6 +1027,7 @@ impl WordPressSecurityScanner {
                                           2. Disable directory listing\n\
                                           3. Add .htaccess to deny access".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1073,7 +1082,8 @@ impl WordPressSecurityScanner {
                                       </Files>"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                 }
             }
@@ -1131,7 +1141,8 @@ impl WordPressSecurityScanner {
                                           <?php // Silence is golden"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -1198,6 +1209,7 @@ impl WordPressSecurityScanner {
                                         theme
                                     ),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                 });
                             }
@@ -1247,6 +1259,7 @@ impl WordPressSecurityScanner {
                                   Allow from 127.0.0.1\n\
                                   </Files>".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }

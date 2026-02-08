@@ -1010,6 +1010,7 @@ impl BrokenFunctionAuthScanner {
                             false_positive: false,
                             remediation: self.get_bfla_remediation(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1149,6 +1150,7 @@ impl BrokenFunctionAuthScanner {
                                 false_positive: false,
                                 remediation: self.get_bfla_remediation(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             }));
                         }
@@ -1238,7 +1240,8 @@ impl BrokenFunctionAuthScanner {
                                 false_positive: false,
                                 remediation: self.get_bfla_remediation(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                                ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                             });
                         }
                     }
@@ -1354,6 +1357,7 @@ impl BrokenFunctionAuthScanner {
                                 false_positive: false,
                                 remediation: self.get_graphql_bfla_remediation(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                         }
@@ -1488,6 +1492,7 @@ impl BrokenFunctionAuthScanner {
                                 false_positive: false,
                                 remediation: self.get_bfla_remediation(),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                             });
                         }
@@ -1634,7 +1639,8 @@ impl BrokenFunctionAuthScanner {
             false_positive: false,
             remediation: self.get_bfla_remediation(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 

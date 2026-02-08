@@ -155,6 +155,7 @@ impl SessionAnalyzer {
                 false_positive: false,
                 remediation: "Use cryptographically secure random number generator with at least 128 bits of entropy for session ID generation.".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -178,6 +179,7 @@ impl SessionAnalyzer {
                 false_positive: false,
                 remediation: "Use truly random session IDs without sequential components. Never use timestamps, counters, or predictable values.".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             });
         }
@@ -240,6 +242,7 @@ impl SessionAnalyzer {
                 false_positive: false,
                 remediation: "Regenerate session ID after successful authentication and privilege level changes. Invalidate the old session completely.".to_string(),
                 discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
             }]));
         }
@@ -330,6 +333,7 @@ impl SessionAnalyzer {
                     false_positive: false,
                     remediation: "Invalidate session server-side on logout. Don't rely only on cookie deletion. Implement proper session termination.".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 }]));
             }
@@ -419,6 +423,7 @@ impl SessionAnalyzer {
                             false_positive: false,
                             remediation: "Implement shorter session timeouts (4-8 hours for sensitive apps). Use sliding sessions with absolute maximums.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }

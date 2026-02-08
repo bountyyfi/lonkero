@@ -14,8 +14,19 @@ pub fn extract_xss_features(ctx: &ProbeContext, features: &mut HashMap<String, f
     let reflected = body.contains(probe);
     let reflected_lower = body_lower.contains(&probe.to_lowercase());
 
-    if !reflected && !reflected_lower {
-        return; // No reflection, no XSS features to extract
+    // Check for HTML-encoded reflection (FP suppressor) before early return
+    let encoded_probe = probe
+        .to_lowercase()
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    let has_encoded_reflection =
+        !reflected && body_lower.contains(&encoded_probe) && !encoded_probe.is_empty();
+    if has_encoded_reflection {
+        features.insert("xss:reflection_is_url_encoded".into(), 1.0);
+    }
+
+    if !reflected && !reflected_lower && !has_encoded_reflection {
+        return; // No reflection at all, no XSS features to extract
     }
 
     // xss:reflection_unencoded - exact payload reflected
@@ -104,6 +115,24 @@ pub fn extract_xss_features(ctx: &ProbeContext, features: &mut HashMap<String, f
         if cookie.to_lowercase().contains("httponly") {
             features.insert("xss:httponly_cookie_set".into(), 1.0);
         }
+    }
+
+    // FP suppressor: xss:reflection_in_json_string - response is JSON, not renderable HTML
+    if let Some(ct) = ctx.response.headers.get("content-type") {
+        if ct.contains("json") {
+            features.insert("xss:reflection_in_json_string".into(), 1.0);
+        }
+    }
+
+    // FP suppressor: xss:x_content_type_nosniff - prevents MIME sniffing
+    if ctx
+        .response
+        .headers
+        .get("x-content-type-options")
+        .map(|v| v.contains("nosniff"))
+        .unwrap_or(false)
+    {
+        features.insert("xss:x_content_type_nosniff".into(), 1.0);
     }
 }
 

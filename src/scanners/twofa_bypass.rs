@@ -1486,7 +1486,8 @@ impl TwoFaBypassScanner {
             false_positive: false,
             remediation: self.get_remediation(title),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 
@@ -1870,6 +1871,8 @@ mod tests {
                 false_positive: false,
                 remediation: String::new(),
                 discovered_at: String::new(),
+                ml_confidence: None,
+                ml_data: None,
             },
             Vulnerability {
                 id: "2".to_string(),
@@ -1888,6 +1891,8 @@ mod tests {
                 false_positive: false,
                 remediation: String::new(),
                 discovered_at: String::new(),
+                ml_confidence: None,
+                ml_data: None,
             },
         ];
 

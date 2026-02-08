@@ -1747,7 +1747,8 @@ impl TimingAttackScanner {
             false_positive: false,
             remediation: remediation.to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 }

@@ -382,6 +382,7 @@ impl NextJsSecurityScanner {
                                       3. Implement defense in depth - validate auth at API route level\n\
                                       4. Use next.config.js to block x-middleware-subrequest header from external requests".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                 }
@@ -439,7 +440,8 @@ impl NextJsSecurityScanner {
                                 "Upgrade Next.js and implement server-side auth validation."
                                     .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                         break;
                     }
@@ -565,6 +567,7 @@ impl NextJsSecurityScanner {
                                           4. Use authentication checks in getServerSideProps\n\
                                           5. Consider using API routes for sensitive data access".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -661,6 +664,7 @@ impl NextJsSecurityScanner {
                                           3. Implement role-based access control\n\
                                           4. Remove debug/internal endpoints in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -717,6 +721,7 @@ impl NextJsSecurityScanner {
                                                   - Don't use wildcard with credentials\n\
                                                   - Validate Origin header server-side".to_string(),
                                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                                 });
                             }
@@ -827,7 +832,8 @@ impl NextJsSecurityScanner {
                                   5. Use server-side API routes to access sensitive data"
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }
@@ -907,7 +913,8 @@ impl NextJsSecurityScanner {
                                       5. Block internal IP ranges at network level"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                     break;
                 }
@@ -981,6 +988,7 @@ impl NextJsSecurityScanner {
                                           3. Use environment variable for draft secret\n\
                                           4. Add rate limiting to draft endpoints".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                         break;
@@ -1044,6 +1052,7 @@ impl NextJsSecurityScanner {
                                       3. Implement rate limiting\n\
                                       4. Use on-demand revalidation with proper auth".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                     break;
@@ -1105,6 +1114,7 @@ impl NextJsSecurityScanner {
                                       2. Remove .map files from production build\n\
                                       3. Use hideSourceMaps: true if using next-compose-plugins".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                     });
                     break;
@@ -1183,6 +1193,7 @@ impl NextJsSecurityScanner {
                                           3. Add to .gitignore and deploy excludes\n\
                                           4. Use next.config.js headers to block access".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }
@@ -1253,6 +1264,7 @@ impl NextJsSecurityScanner {
                                   2. Validate Host header in middleware\n\
                                   3. Use allowlist for redirect targets".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -1385,6 +1397,7 @@ impl NextJsSecurityScanner {
                         cve.cve_id
                     ),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 });
             }
@@ -1500,6 +1513,7 @@ impl NextJsSecurityScanner {
                                           2. Implement server-side authentication that doesn't rely on middleware alone\n\
                                           3. Add x-middleware-subrequest to blocked headers in production".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                         });
                     }

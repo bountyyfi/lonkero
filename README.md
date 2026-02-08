@@ -1138,34 +1138,37 @@ High-value features for critical infrastructure:
 
 ## Machine Learning Features
 
-Lonkero includes an integrated ML system that automatically learns from scan results and downloads a server-trained detection model for improved vulnerability scoring.
+Lonkero includes an integrated ML system with a server-trained detection model that scores vulnerability findings in real time. Model scoring is **strictly one-way** (server→client) - no scan data, URLs, or responses ever leave your machine.
 
 ### Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
+│  Detection Model (Server-Trained, One-Way Download)              │
+│  • 627 weighted features across 37 vulnerability categories      │
+│  • Downloaded from Bountyy servers (requires valid license)      │
+│  • ONE-WAY: model weights flow server→client only                │
+│  • No scan data, URLs, or responses are ever uploaded            │
+│  • Cached locally at ~/.lonkero/federated/ for offline use       │
+├─────────────────────────────────────────────────────────────────┤
+│  Feature Extraction & Scoring Pipeline                           │
+│  • Probes sent to target → response analyzed vs baseline         │
+│  • Features extracted per category (SQLi, XSS, SSTI, etc.)      │
+│  • v3 extractors: combo:*, tech:*, severity:* features           │
+│  • Model weights applied → confidence score per vulnerability    │
+│  • Negative-weight features suppress false positives             │
+│  • combo:* features detect correlated signals across categories  │
+├─────────────────────────────────────────────────────────────────┤
 │  Local Auto-Learning                                             │
 │  • Learns from every scan automatically                          │
 │  • No user verification required                                 │
 │  • Reduces false positives based on response patterns            │
 ├─────────────────────────────────────────────────────────────────┤
-│  Detection Model (Server-Trained)                                │
-│  • 509 weighted features across 28 vulnerability categories      │
-│  • Downloaded from Bountyy servers (requires valid license)      │
-│  • No data is uploaded from your machine                         │
-│  • Cached locally for offline use                                │
-├─────────────────────────────────────────────────────────────────┤
-│  Feature Extraction & Scoring Pipeline                           │
-│  • Probes sent to target → response analyzed vs baseline         │
-│  • Features extracted per category (SQLi, XSS, SSTI, etc.)      │
-│  • Model weights applied → confidence score per vulnerability    │
-│  • Negative-weight features suppress false positives             │
-├─────────────────────────────────────────────────────────────────┤
 │  GDPR Compliant                                                  │
-│  • Explicit consent required                                     │
-│  • Right to erasure (delete all data)                            │
+│  • Model scoring requires NO consent (one-way, no data sent)     │
+│  • Auto-learning data stored locally only                        │
+│  • Right to erasure (delete all local data)                      │
 │  • Right to access (export your data)                            │
-│  • All data stored locally                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1231,29 +1234,40 @@ Detection Model:
   Contributors:      1,247
 ```
 
-### Privacy & Consent
+### Privacy & Data Flow
 
-ML features require explicit user consent:
+Model scoring is **one-way** and requires no user consent because no data leaves your machine:
 
-- All training data stays on your machine
-- Detection model is downloaded from server (one-way, no uploads)
-- Model is cached locally for offline use
-- No URLs, payloads, or raw responses are ever sent to the server
+```
+Bountyy Server ──────► Your Machine
+  (model weights)     (scoring happens locally)
+
+  NO data flows in the other direction.
+  No URLs, payloads, responses, or features are ever uploaded.
+```
+
+- **Model download**: One-way. Weights are fetched from `lonkero.bountyy.fi` and cached locally
+- **Model scoring**: 100% local. Features are extracted and scored on your machine
+- **Auto-learning** (optional): All training data stays on your machine
+- **Disable ML scoring**: Use `--no-ml` flag to skip model scoring entirely
 
 **Data stored locally** (in `~/.lonkero/`):
-- Training examples with extracted features
-- Cached detection model weights
+- Cached detection model weights (`~/.lonkero/federated/global_model.json`)
+- Training examples with extracted features (local auto-learning only)
 - Endpoint patterns learned
 - Verification history
 
 ### GDPR Compliance
+
+Model scoring does not require GDPR consent because it is strictly one-way (no personal data is processed server-side). Auto-learning features store data locally only.
 
 | Right | Command | Description |
 |-------|---------|-------------|
 | Right to be informed | `lonkero ml stats` | View what data is collected |
 | Right of access | `lonkero ml export` | Export all your ML data |
 | Right to erasure | `lonkero ml delete-data` | Permanently delete all ML data |
-| Right to withdraw consent | `lonkero ml disable` | Stop ML processing |
+| Right to withdraw consent | `lonkero ml disable` | Stop ML auto-learning |
+| Disable scoring | `--no-ml` flag | Skip model scoring entirely |
 
 ---
 

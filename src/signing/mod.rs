@@ -940,6 +940,8 @@ mod tests {
                 false_positive: false,
                 remediation: "Sanitize input".to_string(),
                 discovered_at: "2024-01-01T00:00:00Z".to_string(),
+                ml_confidence: None,
+                ml_data: None,
             },
             Vulnerability {
                 id: "2".to_string(),
@@ -958,6 +960,8 @@ mod tests {
                 false_positive: false,
                 remediation: "Use parameterized queries".to_string(),
                 discovered_at: "2024-01-01T00:00:00Z".to_string(),
+                ml_confidence: None,
+                ml_data: None,
             },
             Vulnerability {
                 id: "3".to_string(),
@@ -976,6 +980,8 @@ mod tests {
                 false_positive: false,
                 remediation: "Sanitize".to_string(),
                 discovered_at: "2024-01-01T00:00:00Z".to_string(),
+                ml_confidence: None,
+                ml_data: None,
             },
         ];
 
@@ -1053,6 +1059,8 @@ mod tests {
                 false_positive: false,
                 remediation: "fix".to_string(),
                 discovered_at: "2024-01-01T00:00:00Z".to_string(),
+                ml_confidence: None,
+                ml_data: None,
             },
             Vulnerability {
                 id: "2".to_string(),
@@ -1071,6 +1079,8 @@ mod tests {
                 false_positive: false,
                 remediation: "fix".to_string(),
                 discovered_at: "2024-01-01T00:00:00Z".to_string(),
+                ml_confidence: None,
+                ml_data: None,
             },
             Vulnerability {
                 id: "3".to_string(),
@@ -1089,6 +1099,8 @@ mod tests {
                 false_positive: false,
                 remediation: "fix".to_string(),
                 discovered_at: "2024-01-01T00:00:00Z".to_string(),
+                ml_confidence: None,
+                ml_data: None,
             },
         ];
 

@@ -228,7 +228,8 @@ impl JoomlaScanner {
                             false_positive: false,
                             remediation: "Upgrade to Joomla 4.2.8 or later".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -256,7 +257,8 @@ impl JoomlaScanner {
                     false_positive: false,
                     remediation: "Upgrade to Joomla 3.7.1 or later".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }
@@ -290,7 +292,8 @@ impl JoomlaScanner {
                         "Restrict access to administrator panel using .htaccess or firewall"
                             .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }
@@ -339,7 +342,8 @@ impl JoomlaScanner {
                             "Remove backup configuration files from web-accessible directories"
                                 .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     });
                 }
             }
@@ -386,7 +390,8 @@ impl JoomlaScanner {
                                 "Restrict API access and upgrade to patched Joomla version"
                                     .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     } else if endpoint.contains("users") && response.body.contains("email") {
                         vulnerabilities.push(Vulnerability {
@@ -407,7 +412,8 @@ impl JoomlaScanner {
                             remediation: "Restrict API access with proper authentication"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         });
                     }
                 }
@@ -457,7 +463,8 @@ impl JoomlaScanner {
                                 false_positive: false,
                                 remediation: format!("Update {} to the latest version", ext_name),
                                 discovered_at: chrono::Utc::now().to_rfc3339(),
-                                ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                             });
                         }
                     }
@@ -494,7 +501,8 @@ impl JoomlaScanner {
                     false_positive: false,
                     remediation: "Remove the installation directory after setup".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 });
             }
         }

@@ -1180,7 +1180,8 @@ impl EnhancedSqliScanner {
                               6. Monitor database queries"
                         .to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
-                    ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                 }
                 .with_ml_data(
                     true_response,
@@ -1410,7 +1411,8 @@ impl EnhancedSqliScanner {
                                       5. Use WAF rules"
                                 .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         }
                         .with_ml_data(
                             &response,
@@ -1518,7 +1520,8 @@ impl EnhancedSqliScanner {
                                           3. Apply least privilege\n\
                                           4. Timeout protection".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
-                            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                         }.with_ml_data(&response, None, Some(payload));
 
                         if self.is_new_vulnerability(&vuln) {
@@ -2206,7 +2209,8 @@ impl EnhancedSqliScanner {
                                       5. Implement rate limiting\n\
                                       6. Use WAF with blind SQLi detection".to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     }.with_ml_data(&true_response, Some(baseline), Some(true_payload));
 
                     if self.is_new_vulnerability(&vuln) {
@@ -2572,6 +2576,7 @@ impl EnhancedSqliScanner {
                                   5. Use WAF with time-based SQLi detection\n\
                                   6. Implement rate limiting".to_string(),
                     discovered_at: chrono::Utc::now().to_rfc3339(),
+                ml_confidence: None,
                 ml_data: None,
                 };
 
@@ -2783,7 +2788,8 @@ impl EnhancedSqliScanner {
                                       6. Monitor for unusual JSON queries"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     }
                     .with_ml_data(&response, Some(&baseline), Some(&payload));
 
@@ -2939,7 +2945,8 @@ impl EnhancedSqliScanner {
                                       7. Use WAF with error-based SQLi detection"
                             .to_string(),
                         discovered_at: chrono::Utc::now().to_rfc3339(),
-                        ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
                     }
                     .with_ml_data(&response, Some(&baseline), Some(&payload));
 
@@ -3886,7 +3893,8 @@ impl EnhancedSqliScanner {
             false_positive: false,
             remediation: "Use parameterized queries or prepared statements. Never concatenate user input into SQL queries.".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 
@@ -4375,7 +4383,8 @@ impl EnhancedSqliScanner {
                           5. Enable WAF rules for SQL injection detection\n\
                           6. Monitor and log database queries for anomalies".to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }.with_ml_data(baseline, None, None)
     }
 

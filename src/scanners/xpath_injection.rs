@@ -527,7 +527,8 @@ impl XPathInjectionScanner {
                          10. Consider using alternative query methods (e.g., DOM navigation)"
                 .to_string(),
             discovered_at: chrono::Utc::now().to_rfc3339(),
-            ml_data: None,
+                ml_confidence: None,
+                ml_data: None,
         }
     }
 }
