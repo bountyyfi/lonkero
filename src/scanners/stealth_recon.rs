@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 //! Stealth Reconnaissance Scanner
 //!
 //! Probes target to identify WAF/CDN protections and recommends

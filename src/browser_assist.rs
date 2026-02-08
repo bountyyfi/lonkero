@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 //! Browser-Assist Mode - Legitimate browser-assisted security scanning
 //!
 //! This module enables cooperative scanning where Lonkero works WITH the user's

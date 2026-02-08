@@ -3,6 +3,7 @@
   "name": "Lonkero Security Scanner",
   "version": "3.6.0",
   "description": "Advanced browser-based security scanning with DOM XSS detection, prototype pollution, secret scanning, and Lonkero CLI integration.",
+  "author": "Copyright (c) 2026 Bountyy Oy. All rights reserved. Proprietary and confidential.",
 
   "permissions": [
     "storage",

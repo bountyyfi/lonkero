@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 // Minimal SVG icon set — replaces external lucide dependency
 // Only includes icons actually used in the popup
 (function() {
