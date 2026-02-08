@@ -9,6 +9,8 @@
   // Database driver init
   const _dr = document.getElementById('__lk_c');
   const _dc = (_dr && _dr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
+  const _dn = _dr ? _dr.dataset.n : null;
+  const _de = _dr ? _dr.dataset.e : null;
   if (!_dc || _dc.charCodeAt(0) !== 76 || _dc.split('-').length !== 5) {
     window.sqlScanner = { scan: () => Promise.reject(new Error('Not available')), deepScan: () => Promise.reject(new Error('Not available')) };
     return;
@@ -556,6 +558,7 @@
     try {
       window.postMessage({
         type: '__lonkero_sqli_finding__',
+        _n: _dn, _ch: _de,
         finding,
       }, '*');
     } catch (e) {
@@ -713,18 +716,14 @@
   // EXPOSE API
   // ============================================================
 
-  window.sqlScanner = {
+  Object.defineProperty(window, 'sqlScanner', { value: {
     quickScan,
     scan,
     deepScan,
     testParameter,
     getFindings: () => findings,
     clearFindings: () => { findings.length = 0; testedParams.clear(); },
-
-    // Expose payloads for manual testing
-    payloads: PAYLOADS,
-    errorSignatures: DB_ERROR_SIGNATURES,
-  };
+  }, configurable: false, enumerable: false });
 
   // Listen for scan requests from content script
   window.addEventListener('message', (event) => {
@@ -734,6 +733,7 @@
       scan().then(results => {
         window.postMessage({
           type: '__lonkero_sqli_scan_complete__',
+          _n: _dn, _ch: _de,
           results,
         }, '*');
       });
@@ -743,6 +743,7 @@
       quickScan().then(results => {
         window.postMessage({
           type: '__lonkero_sqli_scan_complete__',
+          _n: _dn, _ch: _de,
           results,
         }, '*');
       });
@@ -752,6 +753,7 @@
       deepScan().then(results => {
         window.postMessage({
           type: '__lonkero_sqli_scan_complete__',
+          _n: _dn, _ch: _de,
           results,
         }, '*');
       });

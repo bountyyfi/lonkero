@@ -17,8 +17,8 @@
   'use strict';
 
   // Avoid double injection
-  if (window.__lonkeroInjected) return;
-  window.__lonkeroInjected = true;
+  if (window.__lkI) return;
+  window.__lkI = true;
 
   // ============================================================
   // LICENSE CHECK - Block scanning features for unlicensed users
@@ -59,13 +59,29 @@
    * Each scanner does its own server-side check - stripping the
    * content.js check alone is not enough.
    */
+  let __msgNonce = null;
+
+  let __evtChannel = null; // Per-session random event channel name
+
   function injectLicenseKey() {
     if (!__lonkeroLicenseKey) return;
     try {
+      // Generate per-session nonce for message authentication
+      const arr = new Uint8Array(8);
+      crypto.getRandomValues(arr);
+      __msgNonce = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+
+      // Generate per-session random channel name for postMessage
+      const ch = new Uint8Array(6);
+      crypto.getRandomValues(ch);
+      __evtChannel = '_e' + Array.from(ch, b => b.toString(36).padStart(2, '0')).join('').slice(0, 10);
+
       const el = document.createElement('div');
       el.id = '__lk_c';
       el.style.display = 'none';
       el.dataset.v = __lonkeroLicenseKey;
+      el.dataset.n = __msgNonce;
+      el.dataset.e = __evtChannel;
       (document.head || document.documentElement).appendChild(el);
     } catch (e) {
       // Silently fail
@@ -1965,14 +1981,7 @@
     return { success: true };
   }
 
-  // Expose scan functions globally for popup to call
-  window.__lonkeroScans = {
-    fullScan: runFullScan,
-    headersScan: runHeadersScan,
-    sourceMapsScan: runSourceMapsScan,
-    sensitivePathsScan: runSensitivePathsScan,
-    secretsScan: runSecretsScan,
-  };
+  // Scan functions are called internally — no need to expose on window
 
   // Inject Form Fuzzer into page context
   function injectFormFuzzer() {
@@ -2055,9 +2064,15 @@
   window.addEventListener('message', function(event) {
     if (event.source !== window) return;
 
+    // Only accept messages on our per-session channel
+    const msgCh = event.data?._ch;
+    if (!msgCh || msgCh !== __evtChannel) return;
+
     // License gate: don't forward any scanner data from unlicensed sessions.
-    // This is a separate layer from background.js - both must be bypassed.
-    if (!__lonkeroLicensed && event.data?.type?.startsWith('__lonkero_')) return;
+    if (!__lonkeroLicensed) return;
+
+    // Nonce validation: scanner messages must include the session nonce
+    if (__msgNonce && event.data._n !== __msgNonce) return;
 
     if (event.data?.type === '__lonkero_request__') {
       const req = event.data.request;
@@ -2162,6 +2177,7 @@
           type: '__lonkero_endpoints_response__',
           requestId: requestId,
           endpoints: allEndpoints,
+          _n: __msgNonce,
         }, '*');
       });
     }

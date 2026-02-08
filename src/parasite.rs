@@ -87,6 +87,16 @@ struct HandshakeMessage {
     #[serde(rename = "userAgent")]
     user_agent: String,
     platform: String,
+    #[serde(default)]
+    challenge: Option<String>,
+}
+
+/// Handshake acknowledgment sent back to extension
+#[derive(Debug, Serialize)]
+struct HandshakeAck {
+    #[serde(rename = "type")]
+    msg_type: String,
+    challenge: String,
 }
 
 /// Generic incoming message
@@ -370,6 +380,17 @@ async fn handle_connection(
             platform: handshake.platform,
             extension_version: handshake.version,
         });
+
+        // Send handshakeAck echoing the challenge to authenticate
+        if let Some(challenge) = handshake.challenge {
+            let ack = HandshakeAck {
+                msg_type: "handshakeAck".to_string(),
+                challenge,
+            };
+            let ack_json = serde_json::to_string(&ack)?;
+            ws_sender.send(Message::Text(ack_json.into())).await?;
+            info!("Sent handshakeAck to authenticate with extension");
+        }
 
         is_connected.store(true, Ordering::SeqCst);
     } else {

@@ -26,6 +26,8 @@
   // Schema configuration
   const _gr = document.getElementById('__lk_c');
   const _gc = (_gr && _gr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
+  const _gn = _gr ? _gr.dataset.n : null;
+  const _ge = _gr ? _gr.dataset.e : null;
   if (!_gc || _gc.charCodeAt(0) !== 76 || _gc.split('-').length !== 5) {
     window.gqlFuzz = { fuzz: () => Promise.reject(new Error('Not available')), getReport: () => ({error: 'Not available'}) };
     return;
@@ -166,7 +168,7 @@
         window.addEventListener('message', handler);
 
         // Request endpoints from content script
-        window.postMessage({ type: '__lonkero_get_endpoints__', requestId }, '*');
+        window.postMessage({ type: '__lonkero_get_endpoints__', _n: _gn, _ch: _ge, requestId }, '*');
 
         // Timeout after 2 seconds
         setTimeout(() => {
@@ -1553,6 +1555,7 @@
       if (typeof window !== 'undefined') {
         const msg = {
           type: '__lonkero_finding__',
+          _n: _gn, _ch: _ge,
           finding: {
             type: `GRAPHQL_${type}`,
             severity: severity.toLowerCase(),
@@ -1747,8 +1750,8 @@
     }
   }
 
-  // Expose
-  window.gqlFuzz = new SmartGraphQLFuzzer();
+  // Expose (non-enumerable to avoid fingerprinting)
+  Object.defineProperty(window, 'gqlFuzz', { value: new SmartGraphQLFuzzer(), configurable: false, enumerable: false });
 
   console.log('[Lonkero] Smart GraphQL Fuzzer v3.1 loaded (ported from Rust scanner)');
   console.log('');
