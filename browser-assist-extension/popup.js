@@ -317,8 +317,8 @@ function loadTechnologies() {
 
     container.innerHTML = allTechs.map(t => {
       const category = t.category || 'framework';
-      const version = t.version && t.version !== 'unknown' ? ` ${t.version}` : '';
-      return `<span class="tech-tag ${category}" title="${t.evidence || ''}">${escapeHtml(t.name)}${version}</span>`;
+      const version = t.version && t.version !== 'unknown' ? ` ${escapeHtml(t.version)}` : '';
+      return `<span class="tech-tag ${escapeHtml(category)}" title="${escapeHtml(t.evidence || '')}">${escapeHtml(t.name)}${version}</span>`;
     }).join('');
   });
 }
@@ -680,11 +680,11 @@ function loadRequests() {
     container.innerHTML = capturedRequests.slice(-50).reverse().map((r, i) => `
       <div class="item request-item" data-index="${capturedRequests.length - 1 - i}">
         <div class="item-header">
-          <span class="item-badge ${r.method?.toLowerCase()}">${r.method || 'GET'}</span>
-          <span class="item-type">${r.status || 'Pending'}</span>
+          <span class="item-badge ${escapeHtml(r.method?.toLowerCase() || 'get')}">${escapeHtml(r.method || 'GET')}</span>
+          <span class="item-type">${escapeHtml(String(r.status || 'Pending'))}</span>
         </div>
         <div class="item-url">${escapeHtml(r.url)}</div>
-        <div class="item-detail">${r.duration ? r.duration + 'ms' : ''}</div>
+        <div class="item-detail">${r.duration ? escapeHtml(String(r.duration)) + 'ms' : ''}</div>
       </div>
     `).join('');
 
