@@ -21,6 +21,7 @@
   const _fr = document.getElementById('__lk_c');
   const _fc = (_fr && _fr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   const _fn = _fr ? _fr.dataset.n : null;
+  const _fe = _fr ? _fr.dataset.e : null;
   if (!_fc || _fc.charCodeAt(0) !== 76 || _fc.split('-').length !== 5) {
     window.formFuzzer = { scan: () => Promise.reject(new Error('Not available')), discoverAndFuzzForms: () => Promise.reject(new Error('Not available')), getReport: () => ({error: 'Not available'}) };
     return;
@@ -467,7 +468,7 @@
 
       window.postMessage({
         type: '__lonkero_finding__',
-        _n: _fn,
+        _n: _fn, _ch: _fe,
         finding: {
           type: 'SERVER_DISCLOSURE',
           server: info.name,
@@ -737,7 +738,7 @@
       if (!_probeReady || !_fc) return;
       window.postMessage({
         type: '__lonkero_finding__',
-        _n: _fn,
+        _n: _fn, _ch: _fe,
         finding: {
           type: result.vulnType === 'XSS' ? 'XSS' : result.vulnType === 'SQLi' ? 'SQLi' : 'FORM_VULNERABILITY',
           severity: result.vulnType === 'SQLi' || result.vulnType === 'Command Injection' ? 'critical' : 'high',
@@ -879,8 +880,8 @@
     }
   }
 
-  // Expose to window
-  window.formFuzzer = new SmartFormFuzzer();
+  // Expose to window (non-enumerable to avoid fingerprinting)
+  Object.defineProperty(window, 'formFuzzer', { value: new SmartFormFuzzer(), configurable: false, enumerable: false });
 
   console.log('[Lonkero] Smart Form Fuzzer v2.1 loaded');
   console.log('');

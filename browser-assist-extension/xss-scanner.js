@@ -30,6 +30,7 @@
   const _xr = document.getElementById('__lk_c');
   const _xc = (_xr && _xr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   const _xn = _xr ? _xr.dataset.n : null;
+  const _xe = _xr ? _xr.dataset.e : null;
   if (!_xc || _xc.charCodeAt(0) !== 76 || _xc.split('-').length !== 5) {
     window.xssScanner = { scan: () => Promise.reject(new Error('Not available')), deepScan: () => Promise.reject(new Error('Not available')) };
     return;
@@ -1644,7 +1645,7 @@
       type: '__lonkero_xss_scan_complete__',
       findings: results,
       tested: [...testedParams],
-      _n: _xn,
+      _n: _xn, _ch: _xe,
     }, '*');
 
     return results;
@@ -2561,7 +2562,7 @@
       };
 
       window.addEventListener('message', handler);
-      window.postMessage({ type: '__lonkero_get_endpoints__', requestId, _n: _xn }, '*');
+      window.postMessage({ type: '__lonkero_get_endpoints__', requestId, _n: _xn, _ch: _xe }, '*');
     });
   }
 
@@ -2817,7 +2818,7 @@
       endpointsIntercepted: interceptedCount,
       totalEndpoints: discovered.size,
       paramsTestedCount: testedParams.size,
-      _n: _xn,
+      _n: _xn, _ch: _xe,
     }, '*');
 
     return {
@@ -2948,7 +2949,7 @@
     window.postMessage({
       type: '__lonkero_xss_finding__',
       finding: finding,
-      _n: _xn,
+      _n: _xn, _ch: _xe,
     }, '*');
 
     findings.push(finding);
@@ -2961,7 +2962,7 @@
   // PUBLIC API
   // ============================================
 
-  window.xssScanner = {
+  Object.defineProperty(window, 'xssScanner', { value: {
     // Full comprehensive scan (current page)
     scan: comprehensiveScan,
 
@@ -3063,7 +3064,7 @@
     analyzeContext,
     analyzeEscaping,
     parseDomStructure,
-  };
+  }, configurable: false, enumerable: false });
 
   // ============================================
   // AUTO-RUN & EVENT LISTENERS

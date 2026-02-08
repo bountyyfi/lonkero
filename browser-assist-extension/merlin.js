@@ -13,6 +13,7 @@
   const _vr = document.getElementById('__lk_c');
   const _vc = (_vr && _vr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   const _vn = _vr ? _vr.dataset.n : null;
+  const _ve = _vr ? _vr.dataset.e : null;
   if (!_vc || _vc.charCodeAt(0) !== 76 || _vc.split('-').length !== 5) { return; }
   let _dbLoaded = true;
 
@@ -603,7 +604,7 @@
     if (!_dbLoaded || !_vc) return;
     window.postMessage({
       type: '__lonkero_merlin_finding__',
-      _n: _vn,
+      _n: _vn, _ch: _ve,
       finding: {
         type: 'VULNERABLE_LIBRARY',
         library: vuln.library,
@@ -684,7 +685,7 @@
     // Report detected libraries (even non-vulnerable ones for visibility)
     window.postMessage({
       type: '__lonkero_merlin_scan_complete__',
-      _n: _vn,
+      _n: _vn, _ch: _ve,
       libraries: Array.from(detectedLibraries.entries()).map(([name, version]) => ({
         name,
         version,

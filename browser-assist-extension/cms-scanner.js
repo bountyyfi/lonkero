@@ -26,6 +26,7 @@
   const _sr = document.getElementById('__lk_c');
   const _sc = (_sr && _sr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   const _sn = _sr ? _sr.dataset.n : null;
+  const _se = _sr ? _sr.dataset.e : null;
   if (!_sc || _sc.charCodeAt(0) !== 76 || _sc.split('-').length !== 5) {
     window.cmsScanner = { scan: () => Promise.reject(new Error('Not available')) };
     return;
@@ -177,7 +178,7 @@
     if (!_initOk || !_sc) return;
     window.postMessage({
       type: '__lonkero_finding__',
-      _n: _sn,
+      _n: _sn, _ch: _se,
       finding: {
         type: type,
         ...data,
@@ -2514,8 +2515,8 @@
     }
   }
 
-  // Expose to window
-  window.cmsScanner = new CMSScanner();
+  // Expose to window (non-enumerable to avoid fingerprinting)
+  Object.defineProperty(window, 'cmsScanner', { value: new CMSScanner(), configurable: false, enumerable: false });
 
   console.log('[Lonkero] CMS & Framework Scanner v2.0 loaded');
   console.log('');

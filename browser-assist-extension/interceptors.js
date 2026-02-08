@@ -16,13 +16,14 @@
   const _hc = (_hr && _hr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   if (!_hc || _hc.charCodeAt(0) !== 76 || _hc.split('-').length !== 5) { return; }
   const _hn = _hr ? _hr.dataset.n : null;
+  const _he = _hr ? _hr.dataset.e : null; // Per-session channel
   let _hookOk = true;
 
   if (window.__lkIC) return;
   window.__lkIC = true;
 
-  // Gated message relay (includes session nonce)
-  function _hkPost(data) { if (_hookOk && _hc) { data._n = _hn; window.postMessage(data, '*'); } }
+  // Gated message relay (includes session nonce + channel)
+  function _hkPost(data) { if (_hookOk && _hc && _he) { data._n = _hn; data._ch = _he; window.postMessage(data, '*'); } }
 
   // Internal domains to never capture
   const _skipHost = atob('bG9ua2Vyby5ib3VudHl5LmZp');

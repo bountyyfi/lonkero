@@ -18,6 +18,7 @@
   const _wr = document.getElementById('__lk_c');
   const _wc = (_wr && _wr.dataset.v) || window[atob('X19sb25rZXJvS2V5')];
   const _wn = _wr ? _wr.dataset.n : null;
+  const _we = _wr ? _wr.dataset.e : null;
   if (!_wc || _wc.charCodeAt(0) !== 76 || _wc.split('-').length !== 5) {
     window.frameworkScanner = { scan: () => Promise.reject(new Error('Not available')) };
     return;
@@ -618,7 +619,7 @@
 
     window.postMessage({
       type: '__lonkero_framework_scan_complete__',
-      _n: _wn,
+      _n: _wn, _ch: _we,
       ...report,
     }, '*');
 
@@ -634,7 +635,7 @@
     if (!_fwReady || !_wc) return;
     window.postMessage({
       type: '__lonkero_framework_finding__',
-      _n: _wn,
+      _n: _wn, _ch: _we,
       finding,
     }, '*');
     findings.push(finding);
@@ -647,16 +648,13 @@
   // PUBLIC API
   // ============================================
 
-  window.frameworkScanner = {
+  Object.defineProperty(window, 'frameworkScanner', { value: {
     scan,
     quickScan,
     detectFrameworks,
-    scanASPNET,
-    scanSpring,
-    scanNextJS,
     getFindings: () => findings,
     clearFindings: () => { findings.length = 0; },
-  };
+  }, configurable: false, enumerable: false });
 
   // Listen for scan requests
   window.addEventListener('message', (event) => {
