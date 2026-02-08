@@ -40,6 +40,36 @@ let licenseState = {
 };
 
 /**
+ * Generate a stable hardware ID from extension install + platform.
+ * Used for per-machine license binding.
+ */
+async function getHardwareId() {
+  let stored = await chrome.storage.local.get('_hwid');
+  if (stored._hwid) return stored._hwid;
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  const raw = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('') +
+    navigator.userAgent + navigator.platform;
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  const hwid = Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
+  await chrome.storage.local.set({ _hwid: hwid });
+  return hwid;
+}
+
+/**
+ * Sign a validation timestamp to prevent DevTools tampering.
+ */
+async function signTimestamp(ts) {
+  const data = new TextEncoder().encode(chrome.runtime.id + ':' + ts);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyTimestamp(ts, sig) {
+  return sig === await signTimestamp(ts);
+}
+
+/**
  * Validate license key against Bountyy license server.
  * Uses the existing /api/v1/validate endpoint (no new APIs).
  */
@@ -89,6 +119,7 @@ async function validateLicense(key) {
       },
       body: JSON.stringify({
         license_key: key,
+        hardware_id: await getHardwareId(),
         product: 'lonkero',
         version: chrome.runtime.getManifest().version,
       }),
@@ -116,7 +147,7 @@ async function validateLicense(key) {
     // A new/different key must always be server-validated
     if (licenseState.valid && licenseState.lastValidated && licenseState.licenseKey === key) {
       const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
-      if (hoursSinceValidation < 4) {
+      if (hoursSinceValidation < 1) {
         console.log('[Lonkero] Using cached license');
         return true;
       }
@@ -159,13 +190,16 @@ function getLicenseKeyForScanners() {
  * Persist license state to chrome.storage.
  */
 async function persistLicenseState() {
+  const ts = licenseState.lastValidated;
+  const tsSig = ts ? await signTimestamp(ts) : null;
   await chrome.storage.local.set({
     licenseKey: licenseState.licenseKey,
     licenseValid: licenseState.valid,
     licenseType: licenseState.licenseType,
     licensee: licenseState.licensee,
     licenseFeatures: licenseState.features,
-    licenseLastValidated: licenseState.lastValidated,
+    licenseLastValidated: ts,
+    _lvSig: tsSig,
   });
 }
 
@@ -175,7 +209,7 @@ async function persistLicenseState() {
 async function loadAndValidateLicense() {
   const stored = await chrome.storage.local.get([
     'licenseKey', 'licenseValid', 'licenseType', 'licensee',
-    'licenseFeatures', 'licenseLastValidated',
+    'licenseFeatures', 'licenseLastValidated', '_lvSig',
   ]);
 
   if (stored.licenseKey && typeof stored.licenseKey === 'string') {
@@ -190,7 +224,14 @@ async function loadAndValidateLicense() {
     licenseState.licenseType = stored.licenseType || null;
     licenseState.licensee = stored.licensee || null;
     licenseState.features = stored.licenseFeatures || [];
-    licenseState.lastValidated = stored.licenseLastValidated || null;
+
+    // Verify timestamp signature to prevent DevTools tampering
+    if (stored.licenseLastValidated && stored._lvSig &&
+        await verifyTimestamp(stored.licenseLastValidated, stored._lvSig)) {
+      licenseState.lastValidated = stored.licenseLastValidated;
+    } else {
+      licenseState.lastValidated = null; // Tampered or missing — force re-validation
+    }
 
     // Re-validate with server
     await validateLicense(stored.licenseKey);

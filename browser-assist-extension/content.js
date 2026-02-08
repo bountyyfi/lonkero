@@ -256,62 +256,8 @@
     }
   }
 
-  // Monitor innerHTML assignments
-  const originalInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-  Object.defineProperty(Element.prototype, 'innerHTML', {
-    set: function(value) {
-      // Check if this value came from a tainted source
-      const valueStr = String(value);
-      for (const [taintedValue, source] of taintedValues) {
-        if (valueStr.includes(taintedValue)) {
-          reportFinding('DOM_XSS_SINK', {
-            sink: 'innerHTML',
-            source: source,
-            element: this.tagName,
-            valuePreview: valueStr.substring(0, 200),
-            url: location.href,
-          });
-        }
-      }
-
-      // Check for direct XSS patterns
-      if (/<script|javascript:|on\w+=/i.test(valueStr)) {
-        reportFinding('DOM_XSS_POTENTIAL', {
-          sink: 'innerHTML',
-          element: this.tagName,
-          valuePreview: valueStr.substring(0, 200),
-          url: location.href,
-        });
-      }
-
-      return originalInnerHTML.set.call(this, value);
-    },
-    get: originalInnerHTML.get,
-  });
-
-  // Monitor document.write
-  const originalWrite = document.write;
-  document.write = function(content) {
-    const contentStr = String(content);
-    if (/<script|javascript:|on\w+=/i.test(contentStr)) {
-      reportFinding('DOM_XSS_SINK', {
-        sink: 'document.write',
-        valuePreview: contentStr.substring(0, 200),
-        url: location.href,
-      });
-    }
-    return originalWrite.apply(this, arguments);
-  };
-
-  // Monitor eval
-  const originalEval = window.eval;
-  window.eval = function(code) {
-    reportFinding('DANGEROUS_EVAL', {
-      codePreview: String(code).substring(0, 200),
-      url: location.href,
-    });
-    return originalEval.apply(this, arguments);
-  };
+  // DOM XSS sink monitoring moved to dom-hooks.js (MAIN world)
+  // to actually intercept page-side calls to innerHTML, document.write, eval
 
   // ============================================================
   // PROTOTYPE POLLUTION DETECTION
@@ -2060,6 +2006,18 @@
     }
   }
 
+  // Inject DOM hooks (innerHTML/eval/document.write monitoring) into MAIN world
+  function injectDOMHooks() {
+    try {
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('dom-hooks.js');
+      script.onload = () => script.remove();
+      (document.head || document.documentElement).appendChild(script);
+    } catch (e) {
+      console.warn('[Lonkero] Failed to inject DOM hooks:', e);
+    }
+  }
+
   // Listen for messages from injected script
   window.addEventListener('message', function(event) {
     if (event.source !== window) return;
@@ -2204,6 +2162,7 @@
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
         injectRequestInterceptors();
+        injectDOMHooks();
         init();
         injectFormFuzzer();
         injectGraphQLFuzzer();
@@ -2213,6 +2172,7 @@
       });
     } else {
       injectRequestInterceptors();
+      injectDOMHooks();
       init();
       injectFormFuzzer();
       injectGraphQLFuzzer();
