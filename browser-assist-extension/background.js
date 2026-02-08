@@ -17,6 +17,9 @@ const LONKERO_LICENSE_API = atob('aHR0cHM6Ly9sb25rZXJvLmJvdW50eXkuZmkvYXBpL3YxL3
 let ws = null;
 let reconnectInterval = null;
 
+// WebSocket authentication state
+let _wsAuthenticated = false;
+
 // Rate limiting for license validation
 let _licenseAttempts = 0;
 let _licenseWindowStart = Date.now();
@@ -246,6 +249,7 @@ function connect() {
       console.log('[Lonkero] Connected to scanner');
       state.connected = true;
       state.sessionStart = new Date().toISOString();
+      _wsAuthenticated = false; // Not authenticated until handshakeAck received
 
       if (reconnectInterval) {
         clearInterval(reconnectInterval);
@@ -282,6 +286,27 @@ function connect() {
     ws.onmessage = async (event) => {
       try {
         const msg = JSON.parse(event.data);
+
+        // First message must be handshakeAck with correct challenge
+        if (!_wsAuthenticated) {
+          if (msg.type === 'handshakeAck' && msg.challenge === _wsNonce) {
+            _wsAuthenticated = true;
+            console.log('[Lonkero] CLI authenticated');
+            // Process licenseValidated if included in ack
+            if (msg.licenseType) {
+              licenseState.cliValidated = true;
+              licenseState.valid = true;
+              licenseState.licenseType = msg.licenseType;
+              if (msg.licensee) licenseState.licensee = msg.licensee;
+              if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: msg.licenseType });
+            }
+          } else {
+            console.warn('[Lonkero] Unauthenticated message rejected:', msg.type);
+            ws.close(4001, 'Authentication required');
+          }
+          return;
+        }
+
         await handleMessage(msg);
       } catch (e) {
         console.error('[Lonkero] Message parse error:', e);
@@ -293,6 +318,8 @@ function connect() {
       const wasConnected = state.connected;
       console.log('[Lonkero] Disconnected');
       state.connected = false;
+      _wsAuthenticated = false;
+      _wsNonce = null;
       ws = null;
       if (wasConnected) {
         audit('DISCONNECTED', '', '', 'Session ended');
@@ -349,20 +376,6 @@ async function handleMessage(msg) {
     case 'stop':
       state.stopped = true;
       audit('STOPPED', '', '', 'Scanning stopped');
-      break;
-
-    case 'licenseValidated':
-      // CLI must echo the challenge nonce to prove identity
-      if (!_wsNonce || msg.challenge !== _wsNonce) {
-        console.warn('[Lonkero] CLI license validation rejected: invalid challenge');
-        break;
-      }
-      licenseState.cliValidated = true;
-      licenseState.valid = true;
-      if (msg.licenseType) licenseState.licenseType = msg.licenseType;
-      if (msg.licensee) licenseState.licensee = msg.licensee;
-      console.log('[Lonkero] License validated via CLI');
-      if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: msg.licenseType });
       break;
 
     case 'getFindings':
