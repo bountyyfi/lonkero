@@ -725,9 +725,10 @@
     clearFindings: () => { findings.length = 0; testedParams.clear(); },
   }, configurable: false, enumerable: false });
 
-  // Listen for scan requests from content script
+  // Listen for scan requests from content script (nonce+channel validated)
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
+    if (!_de || event.data?._ch !== _de || event.data?._n !== _dn) return;
 
     if (event.data?.type === '__lonkero_run_sqli_scan__') {
       scan().then(results => {

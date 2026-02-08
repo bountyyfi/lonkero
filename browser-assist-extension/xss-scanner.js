@@ -3070,9 +3070,10 @@
   // AUTO-RUN & EVENT LISTENERS
   // ============================================
 
-  // Listen for scan requests from content script
+  // Listen for scan requests from content script (nonce+channel validated)
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
+    if (!_xe || event.data?._ch !== _xe || event.data?._n !== _xn) return;
 
     if (event.data?.type === '__lonkero_run_xss_scan__') {
       comprehensiveScan();
@@ -3082,7 +3083,9 @@
     }
     if (event.data?.type === '__lonkero_run_xss_deep_scan__') {
       const options = event.data.options || {};
-      xssScanner.deepScan(options);
+      const maxDepth = Math.min(Number(options.maxDepth) || 2, 5);
+      const maxPages = Math.min(Number(options.maxPages) || 50, 200);
+      xssScanner.deepScan({ maxDepth, maxPages });
     }
   });
 

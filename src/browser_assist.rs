@@ -378,6 +378,7 @@ impl BrowserAssistClient {
         port: u16,
         scope: ScopeAuthorization,
         audit_path: Option<PathBuf>,
+        license_key: Option<String>,
     ) -> Result<Arc<Self>> {
         // License check: Browser-Assist requires any paid license (Personal+)
         if !license::has_feature("browser_extension") {
@@ -388,7 +389,7 @@ impl BrowserAssistClient {
             ));
         }
 
-        let inner = ParasiteClient::new(port).await?;
+        let inner = ParasiteClient::new(port, license_key).await?;
         let audit = Arc::new(AuditTrail::new(audit_path));
 
         // Log scan start

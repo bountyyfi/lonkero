@@ -704,9 +704,10 @@
     window.addEventListener('load', () => setTimeout(scan, 1000));
   }
 
-  // Also run on demand via message
+  // Also run on demand via message (nonce+channel validated)
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
+    if (!_ve || event.data?._ch !== _ve || event.data?._n !== _vn) return;
     if (event.data?.type === '__lonkero_run_merlin__') {
       scan();
     }

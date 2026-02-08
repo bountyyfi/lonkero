@@ -97,6 +97,8 @@ struct HandshakeAck {
     #[serde(rename = "type")]
     msg_type: String,
     challenge: String,
+    #[serde(rename = "licenseKey", skip_serializing_if = "Option::is_none")]
+    license_key: Option<String>,
 }
 
 /// Generic incoming message
@@ -116,6 +118,7 @@ pub struct ParasiteClient {
     pending_requests: Arc<RwLock<HashMap<u64, oneshot::Sender<ParasiteResponse>>>>,
     browser_info: Arc<RwLock<Option<BrowserInfo>>>,
     stats: Arc<ParasiteStats>,
+    license_key: Option<String>,
 }
 
 /// Connected browser information
@@ -137,7 +140,7 @@ pub struct ParasiteStats {
 
 impl ParasiteClient {
     /// Create new Parasite client and start WebSocket server
-    pub async fn new(port: u16) -> Result<Arc<Self>> {
+    pub async fn new(port: u16, license_key: Option<String>) -> Result<Arc<Self>> {
         let (request_tx, request_rx) = mpsc::channel::<ParasiteRequest>(1000);
         let pending_requests = Arc::new(RwLock::new(HashMap::new()));
         let is_connected = Arc::new(AtomicBool::new(false));
@@ -151,6 +154,7 @@ impl ParasiteClient {
             pending_requests: pending_requests.clone(),
             browser_info: browser_info.clone(),
             stats: stats.clone(),
+            license_key: license_key.clone(),
         });
 
         // Start WebSocket server in background
@@ -167,6 +171,7 @@ impl ParasiteClient {
                 connected_clone,
                 browser_clone,
                 stats_clone,
+                license_key,
             )
             .await
             {
@@ -285,6 +290,7 @@ async fn run_server(
     is_connected: Arc<AtomicBool>,
     browser_info: Arc<RwLock<Option<BrowserInfo>>>,
     stats: Arc<ParasiteStats>,
+    license_key: Option<String>,
 ) -> Result<()> {
     let addr = format!("127.0.0.1:{}", port);
 
@@ -325,6 +331,7 @@ async fn run_server(
                     connected,
                     browser,
                     stats,
+                    license_key.clone(),
                 )
                 .await
                 {
@@ -350,6 +357,7 @@ async fn handle_connection(
     is_connected: Arc<AtomicBool>,
     browser_info: Arc<RwLock<Option<BrowserInfo>>>,
     _stats: Arc<ParasiteStats>,
+    license_key: Option<String>,
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await?;
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
@@ -382,10 +390,12 @@ async fn handle_connection(
         });
 
         // Send handshakeAck echoing the challenge to authenticate
+        // Include license key so extension can independently verify with server
         if let Some(challenge) = handshake.challenge {
             let ack = HandshakeAck {
                 msg_type: "handshakeAck".to_string(),
                 challenge,
+                license_key: license_key.clone(),
             };
             let ack_json = serde_json::to_string(&ack)?;
             ws_sender.send(Message::Text(ack_json.into())).await?;
