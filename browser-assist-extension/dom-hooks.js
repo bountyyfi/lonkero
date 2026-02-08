@@ -15,8 +15,9 @@
   const _hn = _hr ? _hr.dataset.n : null;
   const _he = _hr ? _hr.dataset.e : null;
 
-  if (window.__lkDH) return;
-  window.__lkDH = true;
+  const _guardKey = Symbol.for('__lkDH_' + (_hn || ''));
+  if (window[_guardKey]) return;
+  window[_guardKey] = true;
 
   function _post(type, data) {
     if (!_he) return;
@@ -44,13 +45,13 @@
         return origInnerHTML.set.call(this, value);
       },
       get: origInnerHTML.get,
-      configurable: true,
+      configurable: false,
     });
   }
 
   // Monitor document.write
   const origWrite = document.write;
-  document.write = function(content) {
+  Object.defineProperty(document, 'write', { value: function(content) {
     const v = String(content);
     if (/<script|javascript:|on\w+=/i.test(v)) {
       _post('DOM_XSS_SINK', {
@@ -60,7 +61,7 @@
       });
     }
     return origWrite.apply(this, arguments);
-  };
+  }, configurable: false, writable: false });
 
   // Monitor eval
   const origEval = window.eval;

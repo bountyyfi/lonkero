@@ -656,9 +656,10 @@
     clearFindings: () => { findings.length = 0; },
   }, configurable: false, enumerable: false });
 
-  // Listen for scan requests
+  // Listen for scan requests (nonce+channel validated)
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
+    if (!_we || event.data?._ch !== _we || event.data?._n !== _wn) return;
     if (event.data?.type === '__lonkero_run_framework_scan__') {
       scan();
     }

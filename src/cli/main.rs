@@ -572,6 +572,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 auth_type.into(),
                 scope,
                 audit_log,
+                cli.license_key.clone(),
             )
             .await
         }
@@ -1026,6 +1027,7 @@ async fn run_scan(
     browser_assist_auth_type: lonkero_scanner::browser_assist::AuthorizationType,
     browser_assist_scope: Vec<String>,
     browser_assist_audit_log: Option<PathBuf>,
+    license_key: Option<String>,
 ) -> Result<()> {
     // Check if killswitch is active
     if license_status.killswitch_active {
@@ -1133,6 +1135,7 @@ async fn run_scan(
             lonkero_scanner::browser_assist::DEFAULT_BROWSER_ASSIST_PORT,
             scope,
             browser_assist_audit_log.clone(),
+            license_key.clone(),
         ).await {
             Ok(client) => {
                 info!("[Browser-Assist] WebSocket server started on port 9339");

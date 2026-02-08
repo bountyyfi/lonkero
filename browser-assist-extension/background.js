@@ -57,10 +57,26 @@ async function getHardwareId() {
 }
 
 /**
+ * Get or generate a random signing key (stored in chrome.storage.local).
+ * Used for HMAC-signing timestamps — NOT derivable from public extension ID.
+ */
+async function getSigningKey() {
+  const stored = await chrome.storage.local.get('_sk');
+  if (stored._sk) return stored._sk;
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  const sk = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+  await chrome.storage.local.set({ _sk: sk });
+  return sk;
+}
+
+/**
  * Sign a validation timestamp to prevent DevTools tampering.
+ * Uses a per-install random secret key, not the public extension ID.
  */
 async function signTimestamp(ts) {
-  const data = new TextEncoder().encode(chrome.runtime.id + ':' + ts);
+  const sk = await getSigningKey();
+  const data = new TextEncoder().encode(sk + ':' + ts);
   const hash = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -164,7 +180,7 @@ async function validateLicense(key) {
  * Check if the extension is licensed (any paid tier).
  */
 function isLicensed() {
-  return licenseState.valid || licenseState.cliValidated;
+  return licenseState.valid;
 }
 
 /**
@@ -333,13 +349,15 @@ function connect() {
           if (msg.type === 'handshakeAck' && msg.challenge === _wsNonce) {
             _wsAuthenticated = true;
             console.log('[Lonkero] CLI authenticated');
-            // Process licenseValidated if included in ack
-            if (msg.licenseType) {
-              licenseState.cliValidated = true;
-              licenseState.valid = true;
-              licenseState.licenseType = msg.licenseType;
-              if (msg.licensee) licenseState.licensee = msg.licensee;
-              if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: msg.licenseType });
+            // CLI claims a license — verify it server-side, never trust the claim
+            if (msg.licenseKey && typeof msg.licenseKey === 'string') {
+              const serverValid = await validateLicense(msg.licenseKey);
+              if (serverValid) {
+                licenseState.cliValidated = true;
+                if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: licenseState.licenseType });
+              } else {
+                console.warn('[Lonkero] CLI license key failed server validation');
+              }
             }
           } else {
             console.warn('[Lonkero] Unauthenticated message rejected:', msg.type);
