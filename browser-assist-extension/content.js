@@ -83,6 +83,9 @@
       el.dataset.n = __msgNonce;
       el.dataset.e = __evtChannel;
       (document.head || document.documentElement).appendChild(el);
+
+      // Remove the element after scanners have read it (reduce exposure window)
+      setTimeout(() => { try { el.remove(); } catch {} }, 2000);
     } catch (e) {
       // Silently fail
     }
@@ -2089,27 +2092,41 @@
     }
 
     // Handle generic findings from injected scripts (formfuzzer, graphql-fuzzer, etc.)
+    // Whitelist fields to prevent untrusted page data from polluting extension state
     if (event.data?.type === '__lonkero_finding__') {
-      console.log('[Lonkero Content] Received __lonkero_finding__:', event.data);
       const finding = event.data.finding;
       if (finding && finding.type) {
-        console.log('[Lonkero Content] Calling reportFinding for:', finding.type);
-        reportFinding(finding.type, {
-          ...finding,
-          url: finding.url || location.href,
+        reportFinding(String(finding.type).slice(0, 100), {
+          url: finding.url ? String(finding.url).slice(0, 2000) : location.href,
+          severity: finding.severity ? String(finding.severity).slice(0, 20) : undefined,
+          evidence: finding.evidence ? String(finding.evidence).slice(0, 500) : undefined,
+          parameter: finding.parameter ? String(finding.parameter).slice(0, 200) : undefined,
+          context: finding.context ? String(finding.context).slice(0, 500) : undefined,
+          sink: finding.sink ? String(finding.sink).slice(0, 100) : undefined,
+          source: finding.source ? String(finding.source).slice(0, 200) : undefined,
+          element: finding.element ? String(finding.element).slice(0, 100) : undefined,
+          value: finding.value ? String(finding.value).slice(0, 500) : undefined,
+          valuePreview: finding.valuePreview ? String(finding.valuePreview).slice(0, 200) : undefined,
+          codePreview: finding.codePreview ? String(finding.codePreview).slice(0, 200) : undefined,
+          version: finding.version ? String(finding.version).slice(0, 50) : undefined,
+          library: finding.library ? String(finding.library).slice(0, 100) : undefined,
+          description: finding.description ? String(finding.description).slice(0, 500) : undefined,
+          category: finding.category ? String(finding.category).slice(0, 100) : undefined,
+          proof: finding.proof ? String(finding.proof).slice(0, 500) : undefined,
         });
       }
     }
 
     // Handle framework scanner findings
     if (event.data?.type === '__lonkero_framework_finding__') {
-      console.log('[Lonkero Content] Received framework finding:', event.data);
       const finding = event.data.finding;
       if (finding && finding.type) {
-        console.log('[Lonkero Content] Calling reportFinding for framework:', finding.type);
-        reportFinding(finding.type, {
-          ...finding,
-          url: finding.url || location.href,
+        reportFinding(String(finding.type).slice(0, 100), {
+          url: finding.url ? String(finding.url).slice(0, 2000) : location.href,
+          severity: finding.severity ? String(finding.severity).slice(0, 20) : undefined,
+          evidence: finding.evidence ? String(finding.evidence).slice(0, 500) : undefined,
+          version: finding.version ? String(finding.version).slice(0, 50) : undefined,
+          description: finding.description ? String(finding.description).slice(0, 500) : undefined,
           scanner: 'framework-scanner',
         });
       }

@@ -37,8 +37,9 @@
   }
   let _ctxReady = true;
 
-  if (window.__lkXS) return;
-  window.__lkXS = true;
+  const _xsGuard = Symbol.for('__lkXS_' + (_xn || ''));
+  if (window[_xsGuard]) return;
+  window[_xsGuard] = true;
 
   // ============================================
   // REFLECTION CONTEXTS

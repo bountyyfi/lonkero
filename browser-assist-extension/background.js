@@ -296,6 +296,19 @@ let state = {
 
 let _wsNonce = null;
 
+/**
+ * Compute HMAC-SHA256 for WS challenge-response auth.
+ * Uses the license key as shared secret.
+ */
+async function computeChallengeResponse(key, challenge) {
+  const enc = new TextEncoder();
+  const keyData = await crypto.subtle.importKey(
+    'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', keyData, enc.encode(challenge));
+  return Array.from(new Uint8Array(sig), b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
 
@@ -344,20 +357,42 @@ function connect() {
       try {
         const msg = JSON.parse(event.data);
 
-        // First message must be handshakeAck with correct challenge
+        // First message must be handshakeAck with correct challenge-response
         if (!_wsAuthenticated) {
-          if (msg.type === 'handshakeAck' && msg.challenge === _wsNonce) {
-            _wsAuthenticated = true;
-            console.log('[Lonkero] CLI authenticated');
-            // CLI claims a license — verify it server-side, never trust the claim
-            if (msg.licenseKey && typeof msg.licenseKey === 'string') {
-              const serverValid = await validateLicense(msg.licenseKey);
-              if (serverValid) {
-                licenseState.cliValidated = true;
-                if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: licenseState.licenseType });
-              } else {
-                console.warn('[Lonkero] CLI license key failed server validation');
+          if (msg.type === 'handshakeAck') {
+            let authed = false;
+
+            // Preferred: HMAC challenge-response using license key as shared secret
+            if (msg.challengeResponse && licenseState.licenseKey) {
+              const expected = await computeChallengeResponse(licenseState.licenseKey, _wsNonce);
+              if (msg.challengeResponse === expected) {
+                authed = true;
+                console.log('[Lonkero] CLI authenticated via HMAC');
               }
+            }
+
+            // Fallback: if extension has no stored key yet, accept challenge-echo
+            // but ONLY if CLI provides a key for server validation
+            if (!authed && msg.challenge === _wsNonce && msg.licenseKey && !licenseState.licenseKey) {
+              authed = true;
+              console.log('[Lonkero] CLI authenticated via challenge-echo (first pairing)');
+            }
+
+            if (authed) {
+              _wsAuthenticated = true;
+              // Server-validate CLI license key (never trust the claim)
+              if (msg.licenseKey && typeof msg.licenseKey === 'string') {
+                const serverValid = await validateLicense(msg.licenseKey);
+                if (serverValid) {
+                  licenseState.cliValidated = true;
+                  if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: licenseState.licenseType });
+                } else {
+                  console.warn('[Lonkero] CLI license key failed server validation');
+                }
+              }
+            } else {
+              console.warn('[Lonkero] HMAC challenge-response mismatch');
+              ws.close(4001, 'Authentication failed');
             }
           } else {
             console.warn('[Lonkero] Unauthenticated message rejected:', msg.type);
@@ -552,12 +587,37 @@ async function handleProxyRequest(msg) {
 // SCOPE CHECKING
 // ============================================================
 
+/**
+ * Block requests to private/internal IPs regardless of scope.
+ * Prevents SSRF to cloud metadata, internal networks, etc.
+ */
+function isPrivateOrInternal(hostname) {
+  if (hostname === 'localhost' || hostname === '::1') return true;
+  if (hostname.startsWith('127.')) return true;
+  if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') return true;
+  const parts = hostname.split('.');
+  if (parts.length === 4 && parts.every(p => /^\d+$/.test(p))) {
+    const a = parseInt(parts[0]), b = parseInt(parts[1]);
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 0) return true;
+  }
+  const lower = hostname.toLowerCase();
+  if (lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80')) return true;
+  return false;
+}
+
 function isInScope(url) {
   if (!state.scope || state.scope.length === 0) return false;
 
   try {
     const parsed = new URL(url);
     const host = parsed.hostname;
+
+    // Always block private/internal targets regardless of scope
+    if (isPrivateOrInternal(host)) return false;
 
     for (const pattern of state.scope) {
       if (pattern.startsWith('*.')) {
@@ -906,6 +966,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // Request replay
     case 'replayRequest':
+      if (!isLicensed()) {
+        sendResponse({ error: 'License required' });
+        return false;
+      }
       if (self.lonkeroTracker) self.lonkeroTracker.track('request_replay', { method: message.request?.method });
       handleReplayFromPopup(message.request).then(sendResponse);
       return true; // Async response
@@ -1015,6 +1079,12 @@ async function handleReplayRequest(msg) {
 
 // Handle replay request from popup
 async function handleReplayFromPopup(request) {
+  // Always block private/internal IPs even in extension-only mode
+  try {
+    const h = new URL(request.url).hostname;
+    if (isPrivateOrInternal(h)) return { error: 'Replay blocked — private/internal target' };
+  } catch (e) { return { error: 'Invalid URL' }; }
+
   // Scope enforcement — when CLI has set a scope, enforce it.
   // In extension-only mode (no scope set), user drives replay manually so allow it.
   if (state.scope && state.scope.length > 0 && !isInScope(request.url)) {

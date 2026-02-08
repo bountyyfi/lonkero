@@ -19,8 +19,9 @@
   const _he = _hr ? _hr.dataset.e : null; // Per-session channel
   let _hookOk = true;
 
-  if (window.__lkIC) return;
-  window.__lkIC = true;
+  const _icGuard = Symbol.for('__lkIC_' + (_hn || ''));
+  if (window[_icGuard]) return;
+  window[_icGuard] = true;
 
   // Gated message relay (includes session nonce + channel)
   function _hkPost(data) { if (_hookOk && _hc && _he) { data._n = _hn; data._ch = _he; window.postMessage(data, '*'); } }

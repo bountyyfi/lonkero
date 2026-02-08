@@ -25,8 +25,9 @@
   }
   let _fwReady = true;
 
-  if (window.__lkFW) return;
-  window.__lkFW = true;
+  const _fwGuard = Symbol.for('__lkFW_' + (_wn || ''));
+  if (window[_fwGuard]) return;
+  window[_fwGuard] = true;
 
   const findings = [];
 

@@ -17,8 +17,9 @@
   if (!_vc || _vc.charCodeAt(0) !== 76 || _vc.split('-').length !== 5) { return; }
   let _dbLoaded = true;
 
-  if (window.__lkML) return;
-  window.__lkML = true;
+  const _mlGuard = Symbol.for('__lkML_' + (_vn || ''));
+  if (window[_mlGuard]) return;
+  window[_mlGuard] = true;
 
   // Vulnerability database - CVE data for JS libraries
   const VULN_DATABASE = {
