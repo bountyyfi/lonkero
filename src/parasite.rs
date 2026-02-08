@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 //! Parasite Mode - Route requests through real browser TLS
 //!
 //! This module enables "Parasite Mode" where Lonkero routes HTTP requests

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 /// Smart parameter filtering to avoid testing framework internals
 /// and focus on actual user input fields
 use tracing::debug;

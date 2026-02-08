@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Bountyy Oy. All rights reserved.
+// This software is proprietary and confidential.
+
 // ============================================================
 // LONKERO SQL INJECTION SCANNER v1.0
 // Manual-trigger only - no auto-scanning
