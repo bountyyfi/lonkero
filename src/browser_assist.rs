@@ -672,7 +672,9 @@ pub struct BrowserLauncher {
     browser_path: PathBuf,
     /// Path to extension directory
     extension_path: PathBuf,
-    /// User data directory for isolated profile
+    /// Secure temporary user data directory (auto-cleaned on drop)
+    _temp_dir: tempfile::TempDir,
+    /// Path to the user data directory (derived from _temp_dir)
     user_data_dir: PathBuf,
 }
 
@@ -782,8 +784,8 @@ impl BrowserLauncher {
 
     /// Find the Browser-Assist extension directory
     pub fn find_extension_dir() -> Option<PathBuf> {
-        // Check relative to executable
-        if let Ok(exe_path) = std::env::current_exe() {
+        // Check relative to executable (canonicalize to resolve symlinks)
+        if let Ok(exe_path) = std::env::current_exe().and_then(|p| p.canonicalize()) {
             if let Some(exe_dir) = exe_path.parent() {
                 // Check various locations relative to the executable
                 let candidates = [
@@ -847,9 +849,12 @@ impl BrowserLauncher {
             .or_else(Self::find_extension_dir)
             .ok_or_else(|| anyhow!("Could not find browser-assist-extension directory. Make sure it exists in the project root."))?;
 
-        // Create temporary user data directory for isolated profile
-        let temp_dir = std::env::temp_dir();
-        let user_data_dir = temp_dir.join(format!("lonkero-browser-assist-{}", std::process::id()));
+        // Create secure temporary user data directory for isolated profile
+        let temp_dir = tempfile::Builder::new()
+            .prefix("lonkero-browser-assist-")
+            .tempdir()
+            .map_err(|e| anyhow!("Failed to create secure temp directory: {}", e))?;
+        let user_data_dir = temp_dir.path().to_path_buf();
 
         info!("Browser launcher initialized:");
         info!("  Browser: {}", browser_path.display());
@@ -859,6 +864,7 @@ impl BrowserLauncher {
             process: None,
             browser_path,
             extension_path,
+            _temp_dir: temp_dir,
             user_data_dir,
         })
     }
@@ -876,13 +882,17 @@ impl BrowserLauncher {
             return Err(anyhow!("Extension manifest not found at: {}", extension_path.display()));
         }
 
-        let temp_dir = std::env::temp_dir();
-        let user_data_dir = temp_dir.join(format!("lonkero-browser-assist-{}", std::process::id()));
+        let temp_dir = tempfile::Builder::new()
+            .prefix("lonkero-browser-assist-")
+            .tempdir()
+            .map_err(|e| anyhow!("Failed to create secure temp directory: {}", e))?;
+        let user_data_dir = temp_dir.path().to_path_buf();
 
         Ok(Self {
             process: None,
             browser_path,
             extension_path,
+            _temp_dir: temp_dir,
             user_data_dir,
         })
     }
@@ -893,8 +903,7 @@ impl BrowserLauncher {
             return Ok(()); // Already running
         }
 
-        // Create user data directory
-        std::fs::create_dir_all(&self.user_data_dir)?;
+        // user_data_dir already created securely by tempfile::TempDir
 
         let mut cmd = Command::new(&self.browser_path);
 
@@ -977,10 +986,7 @@ impl BrowserLauncher {
             let _ = process.wait();
         }
 
-        // Clean up user data directory
-        if self.user_data_dir.exists() {
-            let _ = std::fs::remove_dir_all(&self.user_data_dir);
-        }
+        // user_data_dir is cleaned up automatically when _temp_dir is dropped
 
         Ok(())
     }

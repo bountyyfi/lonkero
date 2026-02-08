@@ -153,6 +153,9 @@ dirs = "6.0"
 keyring = "3.6.3"
 socket2 = "0.6.2"
 
+# Secure temporary directory creation
+tempfile = "3.15"
+
 [profile.release]
 opt-level = 3
 lto = true
@@ -165,4 +168,3 @@ strip = false
 debug = true
 
 [dev-dependencies]
-tempfile = "3.15"
