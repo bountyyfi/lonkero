@@ -419,7 +419,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="overview"><i data-lucide="layout-dashboard"></i> Overview</div>
       <div class="tab" data-tab="findings"><i data-lucide="alert-triangle"></i> Findings<span id="findingsBadge" class="badge" style="display:none">0</span></div>
-      <div class="tab" data-tab="secrets"><i data-lucide="key"></i> Secrets</div>
+      <div class="tab" data-tab="secrets"><i data-lucide="key"></i> Secrets<span id="secretsBadge" class="badge" style="display:none; background:#ffaa00;">0</span></div>
       <div class="tab" data-tab="endpoints"><i data-lucide="globe"></i> Endpoints</div>
       <div class="tab" data-tab="requests"><i data-lucide="radio"></i> Requests</div>
     </div>
@@ -479,11 +479,6 @@
         <button id="fuzzGraphqlBtn" class="btn btn-purple"><i data-lucide="zap"></i> Fuzz GraphQL</button>
       </div>
 
-      <div class="btn-row" style="margin-bottom: 6px;">
-        <button id="viewSourceBtn" class="btn btn-secondary"><i data-lucide="code-2"></i> View Source</button>
-        <button id="viewResponseBtn" class="btn btn-secondary"><i data-lucide="file-text"></i> View Response</button>
-      </div>
-
       <div class="btn-row">
         <button id="pauseBtn" class="btn btn-secondary"><i data-lucide="pause"></i> Pause</button>
         <button id="clearBtn" class="btn btn-secondary"><i data-lucide="trash-2"></i> Clear</button>
@@ -518,9 +513,49 @@
       <button id="exportFindingsBtn" class="btn btn-secondary"><i data-lucide="download"></i> Export Findings</button>
     </div>
 
+    <!-- Security Headers Detail (shown when clicking grade box) -->
+    <div id="headersDetail" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); z-index:8000; padding:16px; overflow-y:auto;">
+      <div style="max-width:660px; margin:0 auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span id="headersDetailGrade" style="font-size:28px; font-weight:700;"></span>
+            <div>
+              <div style="color:#39ff14; font-size:12px; font-weight:600;">Security Headers</div>
+              <div id="headersDetailScore" style="color:#888; font-size:10px;"></div>
+            </div>
+          </div>
+          <button id="closeHeadersBtn" class="btn btn-secondary btn-sm" style="width:auto;"><i data-lucide="x"></i> Close</button>
+        </div>
+        <div id="headersChecksList" style="display:flex; flex-direction:column; gap:4px;"></div>
+      </div>
+    </div>
+
     <!-- Secrets Tab -->
     <div id="tab-secrets" class="tab-content">
       <div class="section-title"><i data-lucide="key-round"></i> Exposed Secrets & Credentials</div>
+      <!-- Secret Detail View -->
+      <div id="secretDetail" class="request-editor" style="display: none;">
+        <div class="editor-row">
+          <div class="editor-label">Type</div>
+          <div id="secretDetailType" style="color: #ff3939; font-weight: 600;"></div>
+        </div>
+        <div class="editor-row">
+          <div class="editor-label">Value</div>
+          <div id="secretDetailValue" style="color: #ffaa00; word-break: break-all; font-size: 10px; user-select: all;"></div>
+        </div>
+        <div class="editor-row">
+          <div class="editor-label">Source</div>
+          <div id="secretDetailSource" style="color: #00aaff; word-break: break-all; font-size: 10px;"></div>
+        </div>
+        <div class="editor-row">
+          <div class="editor-label">Details</div>
+          <textarea id="secretDetailData" class="editor-textarea" readonly style="min-height: 120px; color: #39ff14; background: #050505;"></textarea>
+        </div>
+        <div class="btn-row">
+          <button id="copySecretBtn" class="btn btn-secondary btn-sm"><i data-lucide="copy"></i> Copy</button>
+          <button id="closeSecretBtn" class="btn btn-secondary btn-sm"><i data-lucide="x"></i> Close</button>
+        </div>
+      </div>
       <div id="secretsList" class="list-container">
         <div class="empty-state">No secrets found. Browse the site to scan JavaScript for credentials.</div>
       </div>
@@ -586,9 +621,13 @@
       <div id="requestsList" class="list-container">
         <div class="empty-state">No requests captured yet. Browse the site to capture traffic.</div>
       </div>
-      <div class="btn-row">
+      <div class="btn-row" style="margin-bottom: 6px;">
         <button id="newRequestBtn" class="btn btn-secondary"><i data-lucide="plus"></i> New Request</button>
         <button id="exportRequestsBtn" class="btn btn-secondary"><i data-lucide="download"></i> Export</button>
+      </div>
+      <div class="btn-row">
+        <button id="viewSourceBtn" class="btn btn-secondary"><i data-lucide="code-2"></i> View Source</button>
+        <button id="viewResponseBtn" class="btn btn-secondary"><i data-lucide="file-text"></i> View Response</button>
       </div>
     </div>
   </div>
