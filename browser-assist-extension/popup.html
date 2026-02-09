@@ -227,6 +227,8 @@
     .tech-tag.analytics { background: rgba(255, 170, 0, 0.1); border-color: #ffaa00; color: #ffaa00; }
     .tech-tag.css { background: rgba(57, 255, 20, 0.1); border-color: #39ff14; color: #39ff14; }
     .tech-tag.cdn { background: rgba(100, 100, 100, 0.1); border-color: #888; color: #888; }
+    .tech-tag.server { background: rgba(255, 140, 0, 0.1); border-color: #ff8c00; color: #ff8c00; }
+    .tech-tag.cache { background: rgba(0, 200, 150, 0.1); border-color: #00c896; color: #00c896; }
     .tech-tag.build { background: rgba(100, 150, 255, 0.1); border-color: #6496ff; color: #6496ff; }
 
     /* Request Editor */
@@ -479,6 +481,10 @@
         <button id="fuzzGraphqlBtn" class="btn btn-purple"><i data-lucide="zap"></i> Fuzz GraphQL</button>
       </div>
 
+      <div class="btn-row" style="margin-bottom: 6px;">
+        <button id="probeRoutesBtn" class="btn btn-orange"><i data-lucide="route"></i> Probe Routes</button>
+      </div>
+
       <div class="btn-row">
         <button id="pauseBtn" class="btn btn-secondary"><i data-lucide="pause"></i> Pause</button>
         <button id="clearBtn" class="btn btn-secondary"><i data-lucide="trash-2"></i> Clear</button>
@@ -615,19 +621,29 @@
           </div>
           <div id="responseHeadersView" style="font-size: 9px; color: #666; margin: 6px 0; max-height: 60px; overflow-y: auto;"></div>
           <textarea id="responseBody" class="editor-textarea" readonly style="min-height: 200px; color: #39ff14; background: #050505;"></textarea>
+          <div class="btn-row" style="margin-top: 6px;">
+            <button id="viewSourceBtn" class="btn btn-secondary btn-sm"><i data-lucide="code-2"></i> View Source</button>
+            <button id="viewResponseBtn" class="btn btn-secondary btn-sm"><i data-lucide="file-text"></i> View Response</button>
+          </div>
         </div>
       </div>
 
+      <div style="display:flex; gap:4px; margin-bottom:6px;">
+        <input type="text" id="requestFilter" class="editor-input" placeholder="Filter: status, method, URL..." style="flex:1; padding:5px 8px; font-size:10px;">
+        <select id="requestStatusFilter" class="editor-input" style="width:70px; padding:5px 4px; font-size:10px;">
+          <option value="">All</option>
+          <option value="2xx">2xx</option>
+          <option value="3xx">3xx</option>
+          <option value="4xx">4xx</option>
+          <option value="5xx">5xx</option>
+        </select>
+      </div>
       <div id="requestsList" class="list-container">
         <div class="empty-state">No requests captured yet. Browse the site to capture traffic.</div>
       </div>
       <div class="btn-row" style="margin-bottom: 6px;">
         <button id="newRequestBtn" class="btn btn-secondary"><i data-lucide="plus"></i> New Request</button>
         <button id="exportRequestsBtn" class="btn btn-secondary"><i data-lucide="download"></i> Export</button>
-      </div>
-      <div class="btn-row">
-        <button id="viewSourceBtn" class="btn btn-secondary"><i data-lucide="code-2"></i> View Source</button>
-        <button id="viewResponseBtn" class="btn btn-secondary"><i data-lucide="file-text"></i> View Response</button>
       </div>
     </div>
   </div>
