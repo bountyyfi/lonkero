@@ -277,6 +277,9 @@ let state = {
   secrets: [],
   sessions: new Map(), // Per-origin session data
 
+  // Security header score
+  securityScore: null,
+
   // Request capture
   capturedRequests: [],
   maxCapturedRequests: 500,
@@ -666,6 +669,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         findingsCount: state.findings.length,
         endpointsCount: state.endpoints.length,
         secretsCount: state.secrets.length,
+        securityScore: state.securityScore,
         // License info
         licensed: isLicensed(),
         licenseType: licenseState.licenseType,
@@ -792,14 +796,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Types that should dedupe by type+url only (not by value)
       const dedupeByTypeAndUrlOnly = [
         'Finnish Y-tunnus', 'Finnish HETU', 'IBAN', 'Credit Card',
-        'Mapbox Public Token', 'KEY_DETECTED', 'AUTH_COOKIE', 'AUTH_LOCALSTORAGE',
+        'Mapbox Public Token', 'reCAPTCHA Site Key', 'KEY_DETECTED', 'AUTH_COOKIE', 'AUTH_LOCALSTORAGE',
         'CLOUD_STORAGE', 'DOM_XSS_SOURCE', 'DOM_XSS_POTENTIAL',
         // Security headers (one per type per URL)
         'MISSING_SECURITY_HEADER', 'WEAK_CSP', 'PERMISSIVE_CORS', 'SERVER_DISCLOSURE',
         // Cookies & JWT
         'INSECURE_COOKIE', 'JWT_INFO', 'JWT_EXPIRED', 'JWT_NO_EXPIRY',
         // Other security checks
-        'SOURCE_MAP_EXPOSED', 'MIXED_CONTENT', 'OPEN_REDIRECT_PARAM',
+        'SOURCE_MAP_EXPOSED', 'MIXED_CONTENT', 'OPEN_REDIRECT_PARAM', 'SUSPICIOUS_COMMENTS',
+        'POSTMESSAGE_LISTENER', 'POSTMESSAGE_WILDCARD', 'POSTMESSAGE_SENT',
         // GraphQL findings (one per type per endpoint)
         'GRAPHQL_INTROSPECTION_ENABLED', 'GRAPHQL_NO_DEPTH_LIMIT', 'GRAPHQL_BATCHING_ENABLED',
         'GRAPHQL_NO_ALIAS_LIMIT', 'GRAPHQL_DEBUG_MODE', 'GRAPHQL_FIELD_SUGGESTIONS',
@@ -870,9 +875,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return existingKey === findingKey;
       });
 
+      // Secret-type findings go to state.secrets only, not state.findings
+      const secretTypes = ['SECRET_EXPOSED', 'KEY_DETECTED',
+        'AWS Access Key', 'AWS Secret Key', 'Google API Key', 'Google OAuth Secret',
+        'GitHub Token', 'Stripe Secret Key', 'Stripe Publishable Key', 'Stripe Test Key',
+        'Mapbox Secret', 'Mapbox Public Token', 'Slack Token', 'Firebase URL',
+        'Twilio API Key', 'Twilio Account SID', 'SendGrid API Key', 'Mailchimp API Key',
+        'Heroku API Key', 'npm Token', 'Discord Token', 'Discord Webhook',
+        'Shopify Token', 'Shopify Shared Secret', 'Square Access Token', 'Square OAuth Secret',
+        'Algolia API Key', 'OpenAI API Key', 'Private Key', 'Bearer Token',
+        'Authorization Header', 'API Key (Generic)', 'JWT Token',
+        'reCAPTCHA Secret', 'reCAPTCHA Site Key'];
+      const isSecret = secretTypes.includes(finding.type);
+
       if (!isDuplicate) {
-        state.findings.push(finding);
-        console.log('[Background] Finding stored:', finding.type, '| Total findings:', state.findings.length);
+        if (isSecret) {
+          state.secrets.push(finding);
+        } else {
+          state.findings.push(finding);
+        }
+
+        console.log('[Background] Finding stored:', finding.type, isSecret ? '(secret)' : '', '| Total:', state.findings.length, 'findings,', state.secrets.length, 'secrets');
         if (self.lonkeroTracker) self.lonkeroTracker.track('finding', { type: finding.type, total: state.findings.length });
 
         // Forward to CLI if connected
@@ -930,6 +953,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (e) {}
 
       sendResponse({ ok: true });
+      break;
+
+    // Security score from header analysis
+    case 'securityScore':
+      state.securityScore = {
+        score: message.score,
+        grade: message.grade,
+        checks: message.checks,
+        url: message.url,
+      };
+      sendResponse({ ok: true });
+      break;
+
+    // Cookie audit request - use cookies API for full attribute access
+    case 'auditCookiesRequest':
+      try {
+        const url = message.url;
+        chrome.cookies.getAll({ url }, (cookies) => {
+          sendResponse(cookies || []);
+        });
+        return true; // Keep message channel open for async response
+      } catch (e) {
+        sendResponse([]);
+      }
       break;
 
     // Get discoveries

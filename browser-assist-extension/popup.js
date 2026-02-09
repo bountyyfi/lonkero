@@ -234,6 +234,19 @@ function updateUI(state) {
   document.getElementById('endpointsCount').textContent = state.endpointsCount || 0;
   document.getElementById('requestsCount').textContent = state.requestsProxied || 0;
 
+  // Update security grade
+  if (state.securityScore) {
+    const gradeEl = document.getElementById('securityGrade');
+    const gradeBox = document.getElementById('gradeBox');
+    const grade = state.securityScore.grade;
+    gradeEl.textContent = grade;
+    const gradeColors = { 'A+': '#39ff14', 'A': '#39ff14', 'B': '#00aaff', 'C': '#ffaa00', 'D': '#ff6600', 'F': '#ff3939' };
+    gradeEl.style.color = gradeColors[grade] || '#ff3939';
+    gradeEl.style.textShadow = `0 0 10px ${gradeColors[grade] || '#ff3939'}40`;
+    gradeBox.title = `Security Headers: ${state.securityScore.score}/100\n` +
+      (state.securityScore.checks || []).map(c => `${c.header}: ${c.status}`).join('\n');
+  }
+
   // Update findings badge
   const badge = document.getElementById('findingsBadge');
   if (badge) {
@@ -455,6 +468,11 @@ function getSeverity(type) {
     'Credit Card': 'critical',
     // Info level
     'Mapbox Public Token': 'info',
+    'reCAPTCHA Site Key': 'info',
+    'SUSPICIOUS_COMMENTS': 'info',
+    'POSTMESSAGE_LISTENER': 'medium',
+    'POSTMESSAGE_WILDCARD': 'medium',
+    'POSTMESSAGE_SENT': 'info',
     // GraphQL findings
     'GRAPHQL_INTROSPECTION_ENABLED': 'medium',
     'GRAPHQL_SQL_INJECTION': 'critical',
@@ -1273,6 +1291,104 @@ document.getElementById('copyResponseBtn')?.addEventListener('click', () => {
     const btn = document.getElementById('copyResponseBtn');
     btn.textContent = 'Copied!';
     setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+});
+
+// ============================================================
+// HTML VIEWER (View Source / View Response)
+// ============================================================
+
+let htmlViewerContent = '';
+
+function openHtmlViewer(html, url, mode) {
+  htmlViewerContent = html;
+  const overlay = document.getElementById('htmlViewerOverlay');
+  const rawEl = document.getElementById('htmlViewRaw');
+  const renderedEl = document.getElementById('htmlViewRendered');
+  const urlEl = document.getElementById('htmlViewUrl');
+  const sizeEl = document.getElementById('htmlViewSize');
+
+  urlEl.textContent = url || '';
+  sizeEl.textContent = `${(html.length / 1024).toFixed(1)} KB`;
+
+  // Default to raw view
+  showHtmlRaw();
+  overlay.classList.add('active');
+  lucide.createIcons();
+
+  function showHtmlRaw() {
+    rawEl.textContent = html;
+    rawEl.style.display = 'block';
+    renderedEl.style.display = 'none';
+    document.getElementById('htmlViewRawBtn').classList.add('active');
+    document.getElementById('htmlViewRenderBtn').classList.remove('active');
+  }
+
+  function showHtmlRendered() {
+    // Safe: sandbox="" blocks scripts, forms, popups, same-origin
+    renderedEl.srcdoc = html;
+    renderedEl.style.display = 'block';
+    rawEl.style.display = 'none';
+    document.getElementById('htmlViewRenderBtn').classList.add('active');
+    document.getElementById('htmlViewRawBtn').classList.remove('active');
+  }
+
+  document.getElementById('htmlViewRawBtn').onclick = showHtmlRaw;
+  document.getElementById('htmlViewRenderBtn').onclick = showHtmlRendered;
+}
+
+function closeHtmlViewer() {
+  const overlay = document.getElementById('htmlViewerOverlay');
+  const renderedEl = document.getElementById('htmlViewRendered');
+  overlay.classList.remove('active');
+  renderedEl.srcdoc = '';
+  htmlViewerContent = '';
+}
+
+document.getElementById('htmlViewCloseBtn')?.addEventListener('click', closeHtmlViewer);
+document.getElementById('htmlViewCopyBtn')?.addEventListener('click', () => {
+  navigator.clipboard.writeText(htmlViewerContent).then(() => {
+    const btn = document.getElementById('htmlViewCopyBtn');
+    const orig = btn.innerHTML;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.innerHTML = orig; lucide.createIcons(); }, 1500);
+  });
+});
+
+// View Source - gets the live DOM HTML
+document.getElementById('viewSourceBtn')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs[0]) return;
+    chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      func: () => document.documentElement.outerHTML,
+    }).then((results) => {
+      if (results && results[0]?.result) {
+        openHtmlViewer('<!DOCTYPE html>\n' + results[0].result, tabs[0].url, 'source');
+      }
+    }).catch(err => {
+      console.error('[Lonkero] View source error:', err);
+    });
+  });
+});
+
+// View Response - fetches the raw server response (before JS execution)
+document.getElementById('viewResponseBtn')?.addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs[0]?.url) return;
+    const url = tabs[0].url;
+    // Fetch raw response from the server
+    fetch(url, {
+      credentials: 'omit',
+      headers: { 'Accept': 'text/html' },
+    })
+      .then(r => r.text())
+      .then(html => {
+        openHtmlViewer(html, url, 'response');
+      })
+      .catch(err => {
+        console.error('[Lonkero] View response error:', err);
+      });
   });
 });
 

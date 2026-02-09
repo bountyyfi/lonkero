@@ -269,6 +269,71 @@
       cursor: pointer;
     }
 
+    /* HTML Viewer Modal */
+    .html-viewer-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.97);
+      z-index: 9000;
+      flex-direction: column;
+    }
+    .html-viewer-overlay.active { display: flex; }
+    .html-viewer-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #39ff14;
+      flex-shrink: 0;
+    }
+    .html-viewer-header .title { font-size: 12px; color: #39ff14; }
+    .html-viewer-tabs {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+    }
+    .html-viewer-tabs button {
+      background: transparent;
+      border: 1px solid #333;
+      color: #666;
+      padding: 3px 10px;
+      font-size: 10px;
+      font-family: inherit;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .html-viewer-tabs button.active { border-color: #39ff14; color: #39ff14; }
+    .html-viewer-tabs button:hover { border-color: #39ff14; color: #39ff14; }
+    .html-viewer-body { flex: 1; overflow: hidden; position: relative; }
+    .html-viewer-body pre {
+      margin: 0;
+      padding: 12px;
+      height: 100%;
+      overflow: auto;
+      font-size: 10px;
+      color: #39ff14;
+      background: #050505;
+      white-space: pre-wrap;
+      word-break: break-all;
+      tab-size: 2;
+    }
+    .html-viewer-body iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #fff;
+    }
+    .html-viewer-status {
+      padding: 4px 12px;
+      border-top: 1px solid #222;
+      font-size: 9px;
+      color: #555;
+      flex-shrink: 0;
+      display: flex;
+      justify-content: space-between;
+    }
+
     .footer {
       padding: 8px 12px;
       border-top: 1px solid #222;
@@ -361,7 +426,7 @@
 
     <!-- Overview Tab -->
     <div id="tab-overview" class="tab-content active">
-      <div class="stats-grid">
+      <div class="stats-grid" style="grid-template-columns: repeat(5, 1fr);">
         <div class="stat-box critical">
           <div id="findingsCount" class="stat-value">0</div>
           <div class="stat-label">Findings</div>
@@ -377,6 +442,10 @@
         <div class="stat-box success">
           <div id="requestsCount" class="stat-value">0</div>
           <div class="stat-label">Requests</div>
+        </div>
+        <div id="gradeBox" class="stat-box" style="cursor:pointer;" title="Security Header Grade">
+          <div id="securityGrade" class="stat-value" style="color:#555;">-</div>
+          <div class="stat-label">Headers</div>
         </div>
       </div>
 
@@ -408,6 +477,11 @@
       <div class="btn-row" style="margin-bottom: 6px;">
         <button id="fuzzFormsBtn" class="btn btn-orange"><i data-lucide="target"></i> Fuzz Forms</button>
         <button id="fuzzGraphqlBtn" class="btn btn-purple"><i data-lucide="zap"></i> Fuzz GraphQL</button>
+      </div>
+
+      <div class="btn-row" style="margin-bottom: 6px;">
+        <button id="viewSourceBtn" class="btn btn-secondary"><i data-lucide="code-2"></i> View Source</button>
+        <button id="viewResponseBtn" class="btn btn-secondary"><i data-lucide="file-text"></i> View Response</button>
       </div>
 
       <div class="btn-row">
@@ -519,9 +593,30 @@
     </div>
   </div>
 
+  <!-- HTML Viewer Modal -->
+  <div id="htmlViewerOverlay" class="html-viewer-overlay">
+    <div class="html-viewer-header">
+      <i data-lucide="code-2" style="width:14px;height:14px;color:#39ff14;"></i>
+      <span class="title">Page Source</span>
+      <div class="html-viewer-tabs">
+        <button id="htmlViewRawBtn" class="active">Raw</button>
+        <button id="htmlViewRenderBtn">Rendered</button>
+      </div>
+      <button id="htmlViewCopyBtn" class="btn btn-secondary btn-sm" style="width:auto;margin:0;padding:3px 8px;"><i data-lucide="copy"></i></button>
+      <button id="htmlViewCloseBtn" class="btn btn-secondary btn-sm" style="width:auto;margin:0;padding:3px 8px;"><i data-lucide="x"></i></button>
+    </div>
+    <div class="html-viewer-body">
+      <pre id="htmlViewRaw"></pre>
+      <iframe id="htmlViewRendered" sandbox="" style="display:none;"></iframe>
+    </div>
+    <div class="html-viewer-status">
+      <span id="htmlViewUrl"></span>
+      <span id="htmlViewSize"></span>
+    </div>
+  </div>
+
   <div class="footer">
     <a href="https://lonkero.se" target="_blank">lonkero.se</a>
-    <br>Real TLS Fingerprints - Authenticated Scanning - Zero Config
   </div>
 
   <script src="popup.js"></script>

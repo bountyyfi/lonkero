@@ -35,12 +35,15 @@
       set: function(value) {
         const v = String(value);
         if (/<script|javascript:|on\w+=/i.test(v)) {
-          _post('DOM_XSS_POTENTIAL', {
-            sink: 'innerHTML',
-            element: this.tagName,
-            valuePreview: v.substring(0, 200),
-            severity: 'high',
-          });
+          // Skip known-benign: GTM injects scripts via innerHTML with type="text/gtmscript"
+          if (!/text\/gtmscript|google_tag_manager|googletag|gtag/.test(v)) {
+            _post('DOM_XSS_POTENTIAL', {
+              sink: 'innerHTML',
+              element: this.tagName,
+              valuePreview: v.substring(0, 200),
+              severity: 'high',
+            });
+          }
         }
         return origInnerHTML.set.call(this, value);
       },
@@ -63,13 +66,83 @@
     return origWrite.apply(this, arguments);
   }, configurable: false, writable: false });
 
-  // Monitor eval
+  // Monitor eval (filter known-benign callers like GTM, ad tags, analytics)
   const origEval = window.eval;
   Object.defineProperty(window, 'eval', { value: function(code) {
-    _post('DANGEROUS_EVAL', {
-      codePreview: String(code).substring(0, 200),
-      severity: 'high',
-    });
+    const s = String(code);
+    const preview = s.substring(0, 300);
+    // Skip known-benign: Google Tag Manager, Google Publisher Tags, Google Ads
+    if (!/google_tag_manager|googletag\.|googleads|google_ad|gtag|adsbygoogle/.test(preview)) {
+      _post('DANGEROUS_EVAL', {
+        codePreview: preview.substring(0, 200),
+        severity: 'high',
+      });
+    }
     return origEval.apply(this, arguments);
   }, configurable: false, enumerable: false });
+
+  // ============================================================
+  // postMessage Enumeration
+  // ============================================================
+
+  const messageListeners = [];
+  const seenOrigins = new Set();
+
+  // Hook addEventListener to detect pages listening for 'message' events
+  const origAddEventListener = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function(type, listener, options) {
+    if (type === 'message' && (this === window || this === self)) {
+      const stack = new Error().stack || '';
+      const fnStr = typeof listener === 'function' ? listener.toString().substring(0, 300) : String(listener);
+      // Check if handler validates origin
+      const checksOrigin = /\.origin\b|event\.source|e\.origin/.test(fnStr);
+
+      messageListeners.push({
+        hasOriginCheck: checksOrigin,
+        handlerPreview: fnStr.substring(0, 200),
+        stack: stack.split('\n').slice(1, 4).join(' | ').substring(0, 300),
+      });
+
+      _post('POSTMESSAGE_LISTENER', {
+        severity: checksOrigin ? 'info' : 'medium',
+        description: checksOrigin
+          ? 'postMessage listener registered (origin validated)'
+          : 'postMessage listener WITHOUT origin check — potential XSS vector',
+        handlerPreview: fnStr.substring(0, 200),
+        checksOrigin,
+      });
+    }
+    return origAddEventListener.apply(this, arguments);
+  };
+
+  // Hook postMessage to log outgoing messages and detect wildcard targetOrigin
+  const origPostMessage = window.postMessage;
+  window.postMessage = function(message, targetOrigin, transfer) {
+    // Skip our own findings channel
+    if (message && message.type === '__lonkero_finding__') {
+      return origPostMessage.apply(this, arguments);
+    }
+
+    const origin = String(targetOrigin || '*');
+    if (!seenOrigins.has(origin)) {
+      seenOrigins.add(origin);
+
+      if (origin === '*') {
+        _post('POSTMESSAGE_WILDCARD', {
+          severity: 'medium',
+          description: 'postMessage sent with wildcard (*) targetOrigin — data exposed to any window',
+          messagePreview: JSON.stringify(message).substring(0, 200),
+          targetOrigin: origin,
+        });
+      } else {
+        _post('POSTMESSAGE_SENT', {
+          severity: 'info',
+          description: `postMessage sent to ${origin}`,
+          targetOrigin: origin,
+        });
+      }
+    }
+
+    return origPostMessage.apply(this, arguments);
+  };
 })();

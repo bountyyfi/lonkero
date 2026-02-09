@@ -12,7 +12,7 @@ Companion Chrome/Edge extension for the Lonkero security scanner. Works standalo
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](../LICENSE)
 [![Version](https://img.shields.io/badge/version-3.6.0-green.svg)](https://github.com/bountyyfi/lonkero)
 
-**8 Scanners** | **Real-Time Detection** | **CLI Integration** | **License-Gated** | **Hardened**
+**9 Scanners** | **Real-Time Detection** | **CLI Integration** | **License-Gated** | **Hardened**
 
 **[Main Project](../README.md)** | [Features](#features) · [Security](#security-hardening) · [Installation](#installation) · [Usage](#usage) · [CLI Integration](#cli-integration-parasite-mode) · [Architecture](#architecture)
 
@@ -40,18 +40,47 @@ Companion Chrome/Edge extension for the Lonkero security scanner. Works standalo
 │    SQLite, MariaDB)                                             │
 │  • Deep scan mode with configurable depth/page limits           │
 ├─────────────────────────────────────────────────────────────────┤
-│  Security Headers & Misconfig Analysis                           │
-│  • CSP Analysis (unsafe-inline, unsafe-eval, wildcards)         │
+│  Security Headers & Misconfig Analysis (A-F Grading)              │
+│  • CSP Analysis with CDN bypass detection (jsdelivr, unpkg,     │
+│    cdnjs, raw.githubusercontent.com + 10 more bypass domains)   │
+│  • Directive-by-directive CSP parsing (unsafe-inline, unsafe-   │
+│    eval, data: URI, wildcard, missing object-src/base-uri)      │
 │  • CORS Misconfiguration (Access-Control-Allow-Origin: *)       │
-│  • Missing HSTS, X-Frame-Options, X-Content-Type-Options        │
-│  • Cookie Security (HttpOnly, Secure, SameSite flags)           │
-│  • JWT Decoder (alg:none, expired, sensitive data exposure)     │
+│  • Security header scoring: 8 categories, 100-point scale       │
+│    (CSP 30, HSTS 20, X-CTO 10, Clickjack 10, Referrer 10,     │
+│    Permissions 10, COOP 5, CORP 5) → A+ through F grade        │
+│  • Info-leak headers (X-Debug-Token, X-Backend-Server,          │
+│    X-ChromeLogger-Data, Server version disclosure)              │
+├─────────────────────────────────────────────────────────────────┤
+│  Cookie Security Audit                                           │
+│  • Full attribute analysis via chrome.cookies API               │
+│  • SameSite, Secure, HttpOnly, Domain scope validation          │
+│  • __Host- and __Secure- prefix compliance checking             │
+│  • JWT detection in cookie values                                │
+├─────────────────────────────────────────────────────────────────┤
+│  JWT Decoder & Analyzer                                          │
+│  • Auto-scan localStorage/sessionStorage for JWTs               │
+│  • Algorithm analysis (alg:none, weak HMAC)                     │
+│  • Expiration checking, sensitive field detection                │
 ├─────────────────────────────────────────────────────────────────┤
 │  Technology Detection — Wappalyzer-Style Fingerprinting          │
 │  • CMS: WordPress, Drupal, Shopify, Magento, Ghost              │
 │  • Frameworks: Next.js, Nuxt.js, React, Vue, Angular, Svelte    │
 │  • Cloud: AWS, Azure, GCP, Cloudflare, Vercel, Netlify          │
 │  • Analytics: Google Analytics, GTM, Hotjar, Segment            │
+├─────────────────────────────────────────────────────────────────┤
+│  postMessage Enumeration                                         │
+│  • Hooks addEventListener('message') on all windows             │
+│  • Detects listeners WITHOUT origin validation (XSS vector)     │
+│  • Logs outgoing postMessage calls and target origins            │
+│  • Flags wildcard (*) targetOrigin as data exposure risk         │
+├─────────────────────────────────────────────────────────────────┤
+│  Suspicious Comments Scanner                                     │
+│  • Scans HTML comments and inline JS comments                   │
+│  • 18 keywords: TODO, FIXME, HACK, BUG, XXX, password,         │
+│    credential, secret, api_key, token, debug, admin, root,      │
+│    hardcoded, temporary, workaround, insecure, vulnerability    │
+│  • Filters GTM/analytics/IE conditional comments                │
 ├─────────────────────────────────────────────────────────────────┤
 │  Additional Tools                                                │
 │  • Form Fuzzer — Context-aware payload injection                │
@@ -62,6 +91,11 @@ Companion Chrome/Edge extension for the Lonkero security scanner. Works standalo
 │  • Sensitive Paths — /.git, /.env, /admin discovery             │
 │  • Mixed Content Detection — HTTP on HTTPS                      │
 │  • Open Redirect Detection — URL parameter analysis             │
+│  • Dynamic Script Scanning — MutationObserver catches lazy-     │
+│    loaded chunks (Next.js, Nuxt, SPA code splitting)            │
+│  • View Source / View Response — Raw and rendered HTML viewer    │
+│  • Secret Detection — Mapbox, reCAPTCHA, AWS, GCP, Stripe,     │
+│    Slack, GitHub tokens + Finnish HETU, Y-tunnus, IBAN, CC      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,7 +137,7 @@ The extension has undergone multiple rounds of security review and hardening. Al
 
 | Layer | Protection |
 |-------|-----------|
-| **DOM hooks (MAIN world)** | `innerHTML`, `eval`, `document.write` monitored via `Object.defineProperty` with `configurable: false` |
+| **DOM hooks (MAIN world)** | `innerHTML`, `eval`, `document.write`, `addEventListener('message')`, `postMessage` monitored via `Object.defineProperty` with `configurable: false` |
 | **Finding field whitelist** | Findings from scanners are extracted with explicit field names + truncation — no `...spread` from untrusted data |
 | **DOM element cleanup** | License key delivery element (`#__lk_c`) removed after 2 seconds |
 | **Per-install signing key** | Timestamps signed with a random 256-bit key stored in `chrome.storage.local` (not the public `chrome.runtime.id`) |
@@ -137,8 +171,10 @@ The extension has undergone multiple rounds of security review and hardening. Al
 
 Click the Lonkero icon in your browser toolbar to open the popup:
 
-- **Findings tab** — View all detected vulnerabilities
-- **Forms tab** — See detected forms and run form fuzzing
+- **Overview tab** — Security grade, tech detection, scan buttons, View Source/Response
+- **Findings tab** — View all detected vulnerabilities with severity filtering
+- **Secrets tab** — Exposed keys, tokens, credentials (separate from findings)
+- **Endpoints tab** — Discovered API endpoints, GraphQL, cloud storage
 - **Requests tab** — View intercepted requests, edit and replay
 - **Settings tab** — Configure scanning options and license key
 
@@ -186,6 +222,12 @@ sqlScanner.deepScan()               // Deep scan with crawling
 | **SQL Scanner** | Blind SQLi in `id` param | Time-based: SLEEP correlation r > 0.95 |
 | **Tech Detection** | WordPress 6.4 | `/wp-content/`, `/wp-includes/` |
 | **CMS Scanner** | WP user enumeration | `/wp-json/wp/v2/users` exposed |
+| **Header Scoring** | Grade D (42/100) | Missing CSP, weak HSTS, no Permissions-Policy |
+| **CSP Analysis** | CDN bypass via jsdelivr | `script-src` includes `cdn.jsdelivr.net` |
+| **Cookie Audit** | Session cookie insecure | Missing SameSite, no __Host- prefix |
+| **postMessage** | No origin validation | Listener accepts messages from any origin |
+| **Comments** | Debug credentials in HTML | `<!-- TODO: remove admin/pass123 -->` |
+| **Secrets** | Mapbox token in lazy chunk | `pk.eyJ...` in dynamically loaded JS |
 
 ---
 
@@ -247,6 +289,11 @@ When connected:
 │  • Per-session channel ID + nonce for message auth              │
 │  • Finding field whitelist with truncation                      │
 │  • Injects scanner scripts into MAIN world                      │
+│  • Passive auto-scans: headers, cookies, JWTs, comments,        │
+│    open redirects                                                │
+│  • Dynamic script scanning via MutationObserver                  │
+│  • CSP analysis with CDN bypass detection                        │
+│  • Security header scoring (A-F grade)                           │
 ├─────────────────────────────────────────────────────────────────┤
 │  MAIN World Scripts (injected into page context)                 │
 │  ┌────────────────────────────────────────────────────────┐     │
@@ -258,11 +305,13 @@ When connected:
 │  │ cms-scanner.js     — CMS/framework vulnerability checks  │     │
 │  │ framework-scanner.js — Technology fingerprinting          │     │
 │  │ interceptors.js    — Request/response capture             │     │
-│  │ dom-hooks.js       — innerHTML/eval/write monitoring      │     │
+│  │ dom-hooks.js       — DOM sink monitoring + postMessage enum │     │
 │  └────────────────────────────────────────────────────────┘     │
 ├─────────────────────────────────────────────────────────────────┤
 │  Popup (popup.html + popup.js + icons.js)                        │
 │  • Findings viewer with severity filtering                      │
+│  • Security header grade display (A+ through F)                  │
+│  • View Source / View Response with raw + rendered modes         │
 │  • Request editor and replay                                    │
 │  • Settings and license key management                          │
 └─────────────────────────────────────────────────────────────────┘
@@ -271,6 +320,18 @@ When connected:
 ---
 
 ## Version History
+
+### v3.7.0 — Passive Security Analysis
+- **CSP analysis with CDN bypass detection** — 15+ known bypass domains (jsdelivr, unpkg, cdnjs, raw.githubusercontent.com, etc.), directive-by-directive parsing
+- **Security header scoring (A-F grade)** — 8 categories, 100-point scale with weighted scoring displayed in popup stats grid
+- **Enhanced cookie security audit** — Full attribute analysis via chrome.cookies API, SameSite/Secure/Domain/HttpOnly checks, `__Host-`/`__Secure-` prefix validation, JWT-in-cookie detection
+- **postMessage enumeration** — Hooks addEventListener('message') to detect listeners without origin validation, logs outgoing messages, flags wildcard targetOrigin
+- **Suspicious comments scanner** — Scans HTML comments and inline JS for 18 keywords (TODO, FIXME, HACK, password, secret, debug, admin, etc.), filters GTM/analytics noise
+- **Dynamic script scanning** — MutationObserver catches lazy-loaded JS chunks (Next.js, Nuxt code splitting) for secret/endpoint detection
+- **View Source / View Response** — Raw and sandboxed rendered HTML viewer in popup
+- **reCAPTCHA key detection** — Site key and secret key pattern matching
+- **Info-leak header detection** — X-Debug-Token, X-Backend-Server, X-ChromeLogger-Data
+- **Auto-passive scanning** — Security headers, cookies, JWTs, open redirects, and comments scan automatically on page load
 
 ### v3.6.1 — Security Hardening
 - **HMAC-SHA256 WebSocket authentication** — CLI proves identity via signed challenge-response
