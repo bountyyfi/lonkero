@@ -423,8 +423,9 @@ document.getElementById('copyFindingBtn')?.addEventListener('click', () => {
   const data = document.getElementById('findingDetailData').value;
   navigator.clipboard.writeText(data).then(() => {
     const btn = document.getElementById('copyFindingBtn');
+    const orig = btn.innerHTML;
     btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = '📋 Copy', 1500);
+    setTimeout(() => { btn.innerHTML = orig; if (typeof lucide !== 'undefined') lucide.createIcons(); }, 1500);
   });
 });
 
@@ -720,8 +721,9 @@ document.getElementById('copySecretBtn')?.addEventListener('click', () => {
   const data = document.getElementById('secretDetailData').value;
   navigator.clipboard.writeText(data).then(() => {
     const btn = document.getElementById('copySecretBtn');
+    const orig = btn.innerHTML;
     btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 1500);
+    setTimeout(() => { btn.innerHTML = orig; if (typeof lucide !== 'undefined') lucide.createIcons(); }, 1500);
   });
 });
 
@@ -1556,8 +1558,9 @@ document.getElementById('copyResponseBtn')?.addEventListener('click', () => {
   const responseBody = document.getElementById('responseBody');
   navigator.clipboard.writeText(responseBody.value).then(() => {
     const btn = document.getElementById('copyResponseBtn');
+    const orig = btn.innerHTML;
     btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 1500);
+    setTimeout(() => { btn.innerHTML = orig; if (typeof lucide !== 'undefined') lucide.createIcons(); }, 1500);
   });
 });
 
