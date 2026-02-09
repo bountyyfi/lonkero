@@ -258,6 +258,23 @@ function updateUI(state) {
     }
   }
 
+  // Update secrets badge
+  const secretsBadge = document.getElementById('secretsBadge');
+  if (secretsBadge) {
+    if (state.secretsCount > 0) {
+      secretsBadge.textContent = state.secretsCount;
+      secretsBadge.style.display = 'inline';
+    } else {
+      secretsBadge.style.display = 'none';
+    }
+  }
+
+  // Update headers detail data for click handler
+  if (state.securityScore) {
+    const gradeBox = document.getElementById('gradeBox');
+    gradeBox._securityData = state.securityScore;
+  }
+
   // Update button states
   const startBtn = document.getElementById('startBtn');
   const pauseBtn = document.getElementById('pauseBtn');
@@ -624,27 +641,82 @@ function getSeverity(type) {
 // SECRETS TAB
 // ============================================================
 
+let currentSecrets = [];
+
+// Known public/client-side token types that are not real secrets
+const publicTokenTypes = ['Mapbox Public Token', 'reCAPTCHA Site Key', 'Google Analytics ID', 'Google Tag Manager ID', 'Facebook Pixel ID', 'Clerk Publishable Key', 'Supabase Anon Key', 'Sentry DSN'];
+
+function getSecretSeverity(type) {
+  if (publicTokenTypes.includes(type)) return 'info';
+  if (/JWT|Bearer|Auth|Session|Private|Secret|Password|API.Key/i.test(type)) return 'critical';
+  return 'high';
+}
+
 function loadSecrets() {
   chrome.runtime.sendMessage({ type: 'getSecrets' }, (secrets) => {
     const container = document.getElementById('secretsList');
     if (!container) return;
 
-    if (!secrets || secrets.length === 0) {
+    // Filter out known public tokens
+    currentSecrets = (secrets || []).filter(s => !publicTokenTypes.includes(s.type));
+
+    if (currentSecrets.length === 0) {
       container.innerHTML = '<div class="empty-state">No secrets found. Browse the site to scan JavaScript for credentials.</div>';
       return;
     }
 
-    container.innerHTML = secrets.map(s => `
-      <div class="item critical">
+    container.innerHTML = currentSecrets.map((s, i) => {
+      const severity = getSecretSeverity(s.type);
+      return `
+      <div class="item ${severity} secret-item" data-index="${i}">
         <div class="item-header">
           <span class="item-type">${escapeHtml(s.type || 'Secret')}</span>
+          <span class="item-badge" style="background: transparent; border: 1px solid ${severity === 'critical' ? '#ff3939' : severity === 'high' ? '#ff6600' : '#ffaa00'}; color: ${severity === 'critical' ? '#ff3939' : severity === 'high' ? '#ff6600' : '#ffaa00'}; font-size: 8px;">${severity.toUpperCase()}</span>
         </div>
-        <div class="item-url">${escapeHtml(s.value ? s.value.substring(0, 50) + '...' : 'Hidden')}</div>
+        <div class="item-url">${escapeHtml(s.value ? s.value.substring(0, 60) + (s.value.length > 60 ? '...' : '') : 'Hidden')}</div>
         <div class="item-detail">Source: ${escapeHtml(s.source || 'Unknown')}</div>
       </div>
-    `).join('');
+      `;
+    }).join('');
+
+    // Add click handlers
+    container.querySelectorAll('.secret-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const index = parseInt(item.dataset.index, 10);
+        showSecretDetail(index);
+      });
+    });
   });
 }
+
+function showSecretDetail(index) {
+  const secret = currentSecrets[index];
+  if (!secret) return;
+
+  const detailView = document.getElementById('secretDetail');
+  document.getElementById('secretDetailType').textContent = secret.type || 'Secret';
+  document.getElementById('secretDetailValue').textContent = secret.value || 'Hidden';
+  document.getElementById('secretDetailSource').textContent = secret.source || 'Unknown';
+
+  const details = { ...secret };
+  document.getElementById('secretDetailData').value = JSON.stringify(details, null, 2);
+
+  detailView.style.display = 'block';
+}
+
+// Secret detail buttons
+document.getElementById('closeSecretBtn')?.addEventListener('click', () => {
+  document.getElementById('secretDetail').style.display = 'none';
+});
+
+document.getElementById('copySecretBtn')?.addEventListener('click', () => {
+  const data = document.getElementById('secretDetailData').value;
+  navigator.clipboard.writeText(data).then(() => {
+    const btn = document.getElementById('copySecretBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+});
 
 // ============================================================
 // ENDPOINTS TAB
@@ -1140,6 +1212,49 @@ document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
       alert('Failed to inject scanner: ' + err.message);
     });
   });
+});
+
+// Security Headers Grade - click to show details
+document.getElementById('gradeBox')?.addEventListener('click', () => {
+  const gradeBox = document.getElementById('gradeBox');
+  const data = gradeBox._securityData;
+  if (!data) return;
+
+  const detailView = document.getElementById('headersDetail');
+  const gradeEl = document.getElementById('headersDetailGrade');
+  const scoreEl = document.getElementById('headersDetailScore');
+  const listEl = document.getElementById('headersChecksList');
+
+  const grade = data.grade;
+  const gradeColors = { 'A+': '#39ff14', 'A': '#39ff14', 'B': '#00aaff', 'C': '#ffaa00', 'D': '#ff6600', 'F': '#ff3939' };
+  gradeEl.textContent = grade;
+  gradeEl.style.color = gradeColors[grade] || '#ff3939';
+  gradeEl.style.textShadow = `0 0 15px ${gradeColors[grade] || '#ff3939'}60`;
+  scoreEl.textContent = `Score: ${data.score}/100`;
+
+  const checks = data.checks || [];
+  listEl.innerHTML = checks.map(c => {
+    const present = c.status === 'present' || c.status === 'set';
+    const color = present ? '#39ff14' : '#ff3939';
+    const icon = present ? 'check' : 'x';
+    const value = c.value ? ` — ${escapeHtml(String(c.value).substring(0, 80))}` : '';
+    return `
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#0a0a0a; border:1px solid #222; border-radius:4px; border-left:3px solid ${color};">
+        <i data-lucide="${icon}" style="width:14px; height:14px; color:${color}; flex-shrink:0;"></i>
+        <div>
+          <div style="color:#e0e0e0; font-size:11px; font-weight:600;">${escapeHtml(c.header)}</div>
+          <div style="color:#666; font-size:9px;">${present ? 'Present' : 'Missing'}${value}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  detailView.style.display = 'block';
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+});
+
+document.getElementById('closeHeadersBtn')?.addEventListener('click', () => {
+  document.getElementById('headersDetail').style.display = 'none';
 });
 
 // Pause/Resume

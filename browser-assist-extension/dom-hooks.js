@@ -71,8 +71,11 @@
   Object.defineProperty(window, 'eval', { value: function(code) {
     const s = String(code);
     const preview = s.substring(0, 300);
-    // Skip known-benign: Google Tag Manager, Google Publisher Tags, Google Ads
-    if (!/google_tag_manager|googletag\.|googleads|google_ad|gtag|adsbygoogle/.test(preview)) {
+    // Skip known-benign: third-party analytics, marketing, and tag managers
+    const benignSDK = /google_tag_manager|googletag\.|googleads|google_ad|gtag|adsbygoogle|exponea|bloomreach|hotjar|_hj|clarity\.|mouseflow|tealium|segment\.|optimizely|abtasty|kameleoon|cookiebot|onetrust|didomi|quantcast|facebook\.net|fbq|fbevents|connect\.facebook|twitter\.com\/oct|snap\.licdn|pinterest\.com\/tag|tiktok\.com\/i18n/.test(preview);
+    // Skip simple property checks like (function(){return window.X?!0:!1})()
+    const benignPattern = /^\(function\(\)\{return\s+window\.\w+\?/.test(preview.replace(/\s/g, ''));
+    if (!benignSDK && !benignPattern) {
       _post('DANGEROUS_EVAL', {
         codePreview: preview.substring(0, 200),
         severity: 'high',
@@ -128,12 +131,21 @@
       seenOrigins.add(origin);
 
       if (origin === '*') {
+        // Skip wildcard postMessages from known analytics/tracking contexts
+        const pageUrl = location.href;
+        const msgStr = JSON.stringify(message).substring(0, 300);
+        const benignPM = /collector\.|analytics\.|exponea\.|bloomreach\.|hotjar\.|clarity\.|mouseflow\.|tealium\.|segment\.|google-analytics|googletagmanager|doubleclick|facebook\.com\/tr|snap\.licdn|bat\.bing/.test(pageUrl)
+          || /^{"tp":"|gtm\.|ga_debug|_hjSettings|exponea|bloomreach|clarity|hotjar|fbq|_ga|optimizely/.test(msgStr);
+        if (benignPM) {
+          // Silently skip — known third-party analytics noise
+        } else {
         _post('POSTMESSAGE_WILDCARD', {
           severity: 'medium',
           description: 'postMessage sent with wildcard (*) targetOrigin — data exposed to any window',
-          messagePreview: JSON.stringify(message).substring(0, 200),
+          messagePreview: msgStr.substring(0, 200),
           targetOrigin: origin,
         });
+        }
       } else {
         _post('POSTMESSAGE_SENT', {
           severity: 'info',

@@ -309,6 +309,16 @@
     { name: 'Bearer Token', pattern: /[Bb]earer\s+[a-zA-Z0-9_-]{20,}/g },
     { name: 'Authorization Header', pattern: /[Aa]uthorization["'\s:=]+["']?Bearer\s+[a-zA-Z0-9_.-]{20,}/g },
 
+    // Basic Auth - base64 encoded credentials (user:pass)
+    { name: 'Basic Auth Header', pattern: /[Aa]uthorization["'\s:=]+["']?Basic\s+[A-Za-z0-9+/=]{8,}/g },
+    // btoa() with credential-like content
+    { name: 'Base64 Credentials', pattern: /btoa\(["'`][^"'`]*:[^"'`]*["'`]\)/g },
+    // Hardcoded base64 strings assigned to auth/token/key variables
+    { name: 'Base64 Auth Token', pattern: /(?:auth|token|key|credential|password|secret|apiKey)["'\s:=]+["']?[A-Za-z0-9+/]{40,}={0,2}["']?/gi },
+    // X-API-Key and custom auth headers
+    { name: 'X-API-Key Header', pattern: /[Xx]-[Aa][Pp][Ii]-[Kk]ey["'\s:=]+["']?[a-zA-Z0-9_.-]{16,}/g },
+    { name: 'Custom Auth Header', pattern: /[Xx]-[Aa]uth[-_][Tt]oken["'\s:=]+["']?[a-zA-Z0-9_.-]{16,}/g },
+
     // Google - specific prefixes
     { name: 'Google API Key', pattern: /AIza[0-9A-Za-z_-]{35}/g },
     // Note: Google OAuth client IDs are PUBLIC (not secrets) - only flag client secrets
@@ -374,6 +384,139 @@
 
     // OpenAI
     { name: 'OpenAI API Key', pattern: /sk-[a-zA-Z0-9]{48}/g },
+    { name: 'OpenAI Project Key', pattern: /sk-proj-[a-zA-Z0-9_-]{80,}/g },
+
+    // Anthropic
+    { name: 'Anthropic API Key', pattern: /sk-ant-[a-zA-Z0-9_-]{40,}/g },
+
+    // Azure
+    { name: 'Azure Subscription Key', pattern: /[a-f0-9]{32}(?=.*(?:azure|cognitive|ocp-apim))/gi },
+    { name: 'Azure Storage Key', pattern: /DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{86,88};/g },
+    { name: 'Azure SAS Token', pattern: /[?&]sig=[A-Za-z0-9%+/=]{43,}/g },
+    { name: 'Azure AD Client Secret', pattern: /(?:client_secret|clientSecret)["'\s:=]+["']?([a-zA-Z0-9~._-]{34,})/gi },
+
+    // Cloudflare
+    { name: 'Cloudflare API Key', pattern: /(?:cf_api_key|cloudflare)["'\s:=]+["']?([a-f0-9]{37})/gi },
+    { name: 'Cloudflare API Token', pattern: /[a-zA-Z0-9_-]{40}(?=.*cloudflare)/gi },
+
+    // Supabase
+    { name: 'Supabase Service Key', pattern: /eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6/g },
+    { name: 'Supabase Anon Key', pattern: /(?:supabase.*(?:anon|key))["'\s:=]+["']?(eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)/gi, severity: 'info', note: 'Anon key is public by design but reveals Supabase usage' },
+
+    // Vercel
+    { name: 'Vercel Token', pattern: /(?:vercel_token|VERCEL_TOKEN)["'\s:=]+["']?([a-zA-Z0-9]{24})/gi },
+
+    // DigitalOcean
+    { name: 'DigitalOcean Token', pattern: /dop_v1_[a-f0-9]{64}/g },
+    { name: 'DigitalOcean Spaces Key', pattern: /(?:SPACES_KEY|do_spaces)["'\s:=]+["']?([A-Z0-9]{20})/gi },
+
+    // Datadog
+    { name: 'Datadog API Key', pattern: /(?:dd_api_key|datadog.*api.*key)["'\s:=]+["']?([a-f0-9]{32})/gi },
+    { name: 'Datadog App Key', pattern: /(?:dd_app_key|datadog.*app.*key)["'\s:=]+["']?([a-f0-9]{40})/gi },
+
+    // Sentry
+    { name: 'Sentry DSN', pattern: /https:\/\/[a-f0-9]{32}@[a-z0-9.-]+\.sentry\.io\/\d+/g },
+    { name: 'Sentry Auth Token', pattern: /sntrys_[a-zA-Z0-9_]{60,}/g },
+
+    // PlanetScale
+    { name: 'PlanetScale Password', pattern: /pscale_pw_[a-zA-Z0-9_-]{43}/g },
+    { name: 'PlanetScale Token', pattern: /pscale_tkn_[a-zA-Z0-9_-]{43}/g },
+
+    // Linear
+    { name: 'Linear API Key', pattern: /lin_api_[a-zA-Z0-9]{40}/g },
+
+    // Notion
+    { name: 'Notion Integration Token', pattern: /(?:ntn_|secret_)[a-zA-Z0-9]{43}/g },
+
+    // Airtable
+    { name: 'Airtable API Key', pattern: /pat[a-zA-Z0-9]{14}\.[a-f0-9]{64}/g },
+
+    // Contentful
+    { name: 'Contentful Delivery Token', pattern: /(?:contentful|CONTENTFUL).*["'\s:=]+["']?([a-zA-Z0-9_-]{43})/gi },
+
+    // Postmark
+    { name: 'Postmark Server Token', pattern: /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?=.*postmark)/gi },
+
+    // Resend
+    { name: 'Resend API Key', pattern: /re_[a-zA-Z0-9]{30,}/g },
+
+    // Clerk
+    { name: 'Clerk Secret Key', pattern: /sk_live_[a-zA-Z0-9]{27,}/g },
+    { name: 'Clerk Publishable Key', pattern: /pk_live_[a-zA-Z0-9]{27,}/g, severity: 'info', note: 'Public key - not a secret' },
+
+    // Auth0
+    { name: 'Auth0 Client Secret', pattern: /(?:auth0.*(?:client_secret|clientSecret))["'\s:=]+["']?([a-zA-Z0-9_-]{32,})/gi },
+
+    // MongoDB
+    { name: 'MongoDB Connection', pattern: /mongodb(?:\+srv)?:\/\/[^\s"'<>{}`]+/g },
+
+    // PostgreSQL / MySQL connection strings
+    { name: 'Database Connection', pattern: /(?:postgres|mysql|mariadb):\/\/[^\s"'<>{}`]+/g },
+
+    // Redis
+    { name: 'Redis Connection', pattern: /redis(?:s)?:\/\/[^\s"'<>{}`]+/g },
+
+    // Grafana
+    { name: 'Grafana API Key', pattern: /eyJrIjoi[a-zA-Z0-9_-]{30,}/g },
+    { name: 'Grafana Service Token', pattern: /glsa_[a-zA-Z0-9_]{32,}/g },
+
+    // HashiCorp Vault / Terraform
+    { name: 'Vault Token', pattern: /hvs\.[a-zA-Z0-9_-]{24,}/g },
+    { name: 'Terraform Cloud Token', pattern: /(?:atlas_token|TFE_TOKEN)["'\s:=]+["']?([a-zA-Z0-9.]{14,})/gi },
+
+    // Doppler
+    { name: 'Doppler Token', pattern: /dp\.(?:st|ct|sa|scrt)\.[a-zA-Z0-9_-]{40,}/g },
+
+    // LaunchDarkly
+    { name: 'LaunchDarkly SDK Key', pattern: /sdk-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/g },
+
+    // Intercom
+    { name: 'Intercom Access Token', pattern: /dG9rOi[a-zA-Z0-9_-]{30,}/g },
+
+    // HubSpot
+    { name: 'HubSpot API Key', pattern: /(?:hapikey|hubspot.*api.*key)["'\s:=]+["']?([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/gi },
+    { name: 'HubSpot Private App Token', pattern: /pat-(?:na1|eu1)-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/g },
+
+    // Jira / Atlassian
+    { name: 'Atlassian API Token', pattern: /(?:atlassian|jira|confluence).*(?:token|api_key)["'\s:=]+["']?([a-zA-Z0-9]{24,})/gi },
+
+    // GitLab
+    { name: 'GitLab Token', pattern: /glpat-[a-zA-Z0-9_-]{20}/g },
+    { name: 'GitLab CI Token', pattern: /glcbt-[a-zA-Z0-9_-]{20,}/g },
+
+    // Bitbucket
+    { name: 'Bitbucket App Password', pattern: /(?:bitbucket.*(?:password|token|secret))["'\s:=]+["']?([a-zA-Z0-9]{18,})/gi },
+
+    // Telegram
+    { name: 'Telegram Bot Token', pattern: /\d{8,10}:[A-Za-z0-9_-]{35}/g },
+
+    // Coinbase
+    { name: 'Coinbase API Key', pattern: /(?:coinbase).*["'\s:=]+["']?([a-zA-Z0-9]{16,})/gi },
+
+    // Plaid
+    { name: 'Plaid Client ID', pattern: /(?:plaid.*client.id)["'\s:=]+["']?([a-f0-9]{24})/gi },
+    { name: 'Plaid Secret', pattern: /(?:plaid.*secret)["'\s:=]+["']?([a-f0-9]{30})/gi },
+
+    // Pinecone
+    { name: 'Pinecone API Key', pattern: /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?=.*pinecone)/gi },
+
+    // Pusher
+    { name: 'Pusher App Secret', pattern: /(?:pusher.*secret)["'\s:=]+["']?([a-f0-9]{20})/gi },
+
+    // Mixpanel
+    { name: 'Mixpanel Secret', pattern: /(?:mixpanel.*secret)["'\s:=]+["']?([a-f0-9]{32})/gi },
+
+    // Amplitude
+    { name: 'Amplitude API Key', pattern: /(?:amplitude.*(?:api_key|apiKey))["'\s:=]+["']?([a-f0-9]{32})/gi },
+
+    // Segment Write Key
+    { name: 'Segment Write Key', pattern: /(?:segment.*write.*key)["'\s:=]+["']?([a-zA-Z0-9]{22,})/gi },
+
+    // Mailgun
+    { name: 'Mailgun API Key', pattern: /key-[a-f0-9]{32}/g },
+
+    // Braintree
+    { name: 'Braintree Access Token', pattern: /access_token\$(?:production|sandbox)\$[a-z0-9]{16}\$[a-f0-9]{32}/g },
 
     // Finnish HETU (henkilötunnus / personal identity code)
     // Format: DDMMYY[-+A]XXXC where C is check char from 0-9 or ABCDEFHJKLMNPRSTUVWXY
@@ -1445,11 +1588,22 @@
                            'goto', 'target', 'destination', 'redir', 'redirect_uri',
                            'continue', 'callback', 'forward', 'out', 'link'];
 
+    // Skip known third-party service domains where URL params are contextual, not redirects
+    const benignHosts = /giosg\.com|intercom\.io|zendesk\.com|livechat|tawk\.to|crisp\.chat|drift\.com|hubspot\.com|freshdesk\.com|olark\.com|smartsupp\.com|tidio\.co/;
+    if (benignHosts.test(location.hostname)) return;
+
     for (const param of redirectParams) {
       const value = params.get(param);
       if (value) {
         // Check if it looks like a URL
         if (value.startsWith('http') || value.startsWith('//') || value.startsWith('/')) {
+          // Skip if the URL param just points back to the current site's main domain
+          try {
+            const decoded = decodeURIComponent(decodeURIComponent(value));
+            const tabHost = (document.referrer && new URL(document.referrer).hostname) || '';
+            const valHost = decoded.startsWith('http') ? new URL(decoded).hostname : '';
+            if (valHost && tabHost && (valHost === tabHost || valHost.endsWith('.' + tabHost) || tabHost.endsWith('.' + valHost))) continue;
+          } catch (e) { /* proceed with report */ }
           reportFinding('OPEN_REDIRECT_PARAM', {
             parameter: param,
             value: value,
@@ -2060,6 +2214,10 @@
       let m;
       while ((m = commentRegex.exec(src)) !== null) {
         const comment = m[0];
+        // Skip protocol-relative URLs falsely matched as // comments
+        if (/^\/\/[\w.-]+\.(com|net|org|io|fi|de|uk|se|no|eu|co)\b/.test(comment)) continue;
+        // Skip URLs embedded in JSON strings matched as // comments
+        if (/^\/\/[a-z][\w.-]*\//.test(comment) && !/\s/.test(comment.substring(0, 40))) continue;
         for (const { pattern, label } of suspiciousPatterns) {
           if (pattern.test(comment)) {
             found.push({
