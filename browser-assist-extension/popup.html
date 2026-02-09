@@ -426,7 +426,7 @@
 
     <!-- Overview Tab -->
     <div id="tab-overview" class="tab-content active">
-      <div class="stats-grid">
+      <div class="stats-grid" style="grid-template-columns: repeat(5, 1fr);">
         <div class="stat-box critical">
           <div id="findingsCount" class="stat-value">0</div>
           <div class="stat-label">Findings</div>
@@ -442,6 +442,10 @@
         <div class="stat-box success">
           <div id="requestsCount" class="stat-value">0</div>
           <div class="stat-label">Requests</div>
+        </div>
+        <div id="gradeBox" class="stat-box" style="cursor:pointer;" title="Security Header Grade">
+          <div id="securityGrade" class="stat-value" style="color:#555;">-</div>
+          <div class="stat-label">Headers</div>
         </div>
       </div>
 
@@ -613,7 +617,6 @@
 
   <div class="footer">
     <a href="https://lonkero.se" target="_blank">lonkero.se</a>
-    <br>Real TLS Fingerprints - Authenticated Scanning - Zero Config
   </div>
 
   <script src="popup.js"></script>

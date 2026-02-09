@@ -277,6 +277,9 @@ let state = {
   secrets: [],
   sessions: new Map(), // Per-origin session data
 
+  // Security header score
+  securityScore: null,
+
   // Request capture
   capturedRequests: [],
   maxCapturedRequests: 500,
@@ -666,6 +669,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         findingsCount: state.findings.length,
         endpointsCount: state.endpoints.length,
         secretsCount: state.secrets.length,
+        securityScore: state.securityScore,
         // License info
         licensed: isLicensed(),
         licenseType: licenseState.licenseType,
@@ -799,7 +803,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Cookies & JWT
         'INSECURE_COOKIE', 'JWT_INFO', 'JWT_EXPIRED', 'JWT_NO_EXPIRY',
         // Other security checks
-        'SOURCE_MAP_EXPOSED', 'MIXED_CONTENT', 'OPEN_REDIRECT_PARAM',
+        'SOURCE_MAP_EXPOSED', 'MIXED_CONTENT', 'OPEN_REDIRECT_PARAM', 'SUSPICIOUS_COMMENTS',
+        'POSTMESSAGE_LISTENER', 'POSTMESSAGE_WILDCARD', 'POSTMESSAGE_SENT',
         // GraphQL findings (one per type per endpoint)
         'GRAPHQL_INTROSPECTION_ENABLED', 'GRAPHQL_NO_DEPTH_LIMIT', 'GRAPHQL_BATCHING_ENABLED',
         'GRAPHQL_NO_ALIAS_LIMIT', 'GRAPHQL_DEBUG_MODE', 'GRAPHQL_FIELD_SUGGESTIONS',
@@ -948,6 +953,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (e) {}
 
       sendResponse({ ok: true });
+      break;
+
+    // Security score from header analysis
+    case 'securityScore':
+      state.securityScore = {
+        score: message.score,
+        grade: message.grade,
+        checks: message.checks,
+        url: message.url,
+      };
+      sendResponse({ ok: true });
+      break;
+
+    // Cookie audit request - use cookies API for full attribute access
+    case 'auditCookiesRequest':
+      try {
+        const url = message.url;
+        chrome.cookies.getAll({ url }, (cookies) => {
+          sendResponse(cookies || []);
+        });
+        return true; // Keep message channel open for async response
+      } catch (e) {
+        sendResponse([]);
+      }
       break;
 
     // Get discoveries

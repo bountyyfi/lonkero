@@ -80,4 +80,69 @@
     }
     return origEval.apply(this, arguments);
   }, configurable: false, enumerable: false });
+
+  // ============================================================
+  // postMessage Enumeration
+  // ============================================================
+
+  const messageListeners = [];
+  const seenOrigins = new Set();
+
+  // Hook addEventListener to detect pages listening for 'message' events
+  const origAddEventListener = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function(type, listener, options) {
+    if (type === 'message' && (this === window || this === self)) {
+      const stack = new Error().stack || '';
+      const fnStr = typeof listener === 'function' ? listener.toString().substring(0, 300) : String(listener);
+      // Check if handler validates origin
+      const checksOrigin = /\.origin\b|event\.source|e\.origin/.test(fnStr);
+
+      messageListeners.push({
+        hasOriginCheck: checksOrigin,
+        handlerPreview: fnStr.substring(0, 200),
+        stack: stack.split('\n').slice(1, 4).join(' | ').substring(0, 300),
+      });
+
+      _post('POSTMESSAGE_LISTENER', {
+        severity: checksOrigin ? 'info' : 'medium',
+        description: checksOrigin
+          ? 'postMessage listener registered (origin validated)'
+          : 'postMessage listener WITHOUT origin check — potential XSS vector',
+        handlerPreview: fnStr.substring(0, 200),
+        checksOrigin,
+      });
+    }
+    return origAddEventListener.apply(this, arguments);
+  };
+
+  // Hook postMessage to log outgoing messages and detect wildcard targetOrigin
+  const origPostMessage = window.postMessage;
+  window.postMessage = function(message, targetOrigin, transfer) {
+    // Skip our own findings channel
+    if (message && message.type === '__lonkero_finding__') {
+      return origPostMessage.apply(this, arguments);
+    }
+
+    const origin = String(targetOrigin || '*');
+    if (!seenOrigins.has(origin)) {
+      seenOrigins.add(origin);
+
+      if (origin === '*') {
+        _post('POSTMESSAGE_WILDCARD', {
+          severity: 'medium',
+          description: 'postMessage sent with wildcard (*) targetOrigin — data exposed to any window',
+          messagePreview: JSON.stringify(message).substring(0, 200),
+          targetOrigin: origin,
+        });
+      } else {
+        _post('POSTMESSAGE_SENT', {
+          severity: 'info',
+          description: `postMessage sent to ${origin}`,
+          targetOrigin: origin,
+        });
+      }
+    }
+
+    return origPostMessage.apply(this, arguments);
+  };
 })();

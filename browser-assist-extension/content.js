@@ -942,6 +942,162 @@
   // SECURITY HEADERS ANALYSIS
   // ============================================================
 
+  // CDN domains known to allow user-controlled content (CSP bypasses)
+  const CSP_BYPASS_DOMAINS = [
+    'cdn.jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com',
+    'raw.githubusercontent.com', 'gist.githubusercontent.com',
+    'ajax.googleapis.com', 'accounts.google.com',
+    '*.googleapis.com', '*.gstatic.com', '*.google.com',
+    'cdn.firebase.com', 'firebaseapp.com',
+    'storage.googleapis.com', 's3.amazonaws.com',
+    'docs.google.com', 'translate.googleapis.com',
+  ];
+
+  function parseCSP(cspString) {
+    const directives = {};
+    cspString.split(';').forEach(part => {
+      const trimmed = part.trim();
+      if (!trimmed) return;
+      const [name, ...values] = trimmed.split(/\s+/);
+      directives[name.toLowerCase()] = values;
+    });
+    return directives;
+  }
+
+  function analyzeCSP(csp) {
+    const findings = [];
+    const directives = parseCSP(csp);
+    const scriptSrc = directives['script-src'] || directives['default-src'] || [];
+    const objectSrc = directives['object-src'];
+    const baseSrc = directives['base-uri'];
+    const frameAnc = directives['frame-ancestors'];
+
+    // unsafe-inline in script-src
+    if (scriptSrc.includes("'unsafe-inline'") && !scriptSrc.some(v => v.startsWith("'nonce-") || v.startsWith("'sha"))) {
+      findings.push({ issue: "unsafe-inline in script-src (no nonce/hash)", severity: 'high',
+        description: 'Allows inline <script> and event handlers, defeating XSS protection' });
+    }
+    // unsafe-eval
+    if (scriptSrc.includes("'unsafe-eval'")) {
+      findings.push({ issue: "unsafe-eval in script-src", severity: 'high',
+        description: 'Allows eval(), Function(), setTimeout(string) - enables code injection' });
+    }
+    // data: URI in script-src
+    if (scriptSrc.includes('data:')) {
+      findings.push({ issue: "data: URI in script-src", severity: 'high',
+        description: 'Allows <script src="data:text/javascript,alert(1)"> - trivial XSS bypass' });
+    }
+    // Wildcard * in script-src
+    if (scriptSrc.includes('*')) {
+      findings.push({ issue: "Wildcard * in script-src", severity: 'critical',
+        description: 'Allows loading scripts from ANY origin' });
+    }
+    // CDN bypass domains
+    for (const src of scriptSrc) {
+      const srcLower = src.toLowerCase().replace(/^https?:\/\//, '');
+      for (const bypass of CSP_BYPASS_DOMAINS) {
+        if (bypass.startsWith('*.')) {
+          if (srcLower.endsWith(bypass.slice(1)) || srcLower === bypass.slice(2)) {
+            findings.push({ issue: `CDN bypass: ${src}`, severity: 'high',
+              description: `${src} may host user-controlled content usable for CSP bypass` });
+            break;
+          }
+        } else if (srcLower === bypass || srcLower.endsWith('/' + bypass)) {
+          findings.push({ issue: `CDN bypass: ${src}`, severity: 'high',
+            description: `${src} may host user-controlled content usable for CSP bypass` });
+          break;
+        }
+      }
+    }
+    // Missing object-src
+    if (!objectSrc && !directives['default-src']) {
+      findings.push({ issue: "Missing object-src", severity: 'medium',
+        description: 'No object-src restriction - Flash/plugin-based XSS possible' });
+    }
+    // Missing base-uri
+    if (!baseSrc) {
+      findings.push({ issue: "Missing base-uri", severity: 'medium',
+        description: 'No base-uri restriction - <base> tag injection can redirect relative URLs' });
+    }
+    // Missing frame-ancestors
+    if (!frameAnc) {
+      findings.push({ issue: "Missing frame-ancestors", severity: 'medium',
+        description: 'No frame-ancestors - clickjacking not prevented by CSP' });
+    }
+    // Missing default-src
+    if (!directives['default-src']) {
+      findings.push({ issue: "Missing default-src", severity: 'low',
+        description: 'No default-src fallback for uncovered directives' });
+    }
+    return findings;
+  }
+
+  function scoreSecurityHeaders(headers) {
+    let score = 0;
+    const checks = [];
+    const csp = headers['content-security-policy'];
+    const hsts = headers['strict-transport-security'];
+    const xcto = headers['x-content-type-options'];
+    const xfo = headers['x-frame-options'];
+    const refp = headers['referrer-policy'];
+    const permp = headers['permissions-policy'] || headers['feature-policy'];
+    const coop = headers['cross-origin-opener-policy'];
+    const corp = headers['cross-origin-resource-policy'];
+
+    // CSP (max 30)
+    if (csp) {
+      const cspIssues = analyzeCSP(csp);
+      const critical = cspIssues.filter(f => f.severity === 'critical').length;
+      const high = cspIssues.filter(f => f.severity === 'high').length;
+      if (critical === 0 && high === 0) { score += 30; checks.push({ header: 'CSP', score: 30, max: 30, status: 'good' }); }
+      else if (critical === 0) { score += 15; checks.push({ header: 'CSP', score: 15, max: 30, status: 'weak' }); }
+      else { score += 5; checks.push({ header: 'CSP', score: 5, max: 30, status: 'bad' }); }
+    } else {
+      checks.push({ header: 'CSP', score: 0, max: 30, status: 'missing' });
+    }
+    // HSTS (max 20)
+    if (hsts && location.protocol === 'https:') {
+      let hstsScore = 10;
+      if (/includeSubdomains/i.test(hsts)) hstsScore += 5;
+      if (/preload/i.test(hsts)) hstsScore += 5;
+      score += hstsScore;
+      checks.push({ header: 'HSTS', score: hstsScore, max: 20, status: hstsScore >= 15 ? 'good' : 'weak' });
+    } else if (location.protocol === 'https:') {
+      checks.push({ header: 'HSTS', score: 0, max: 20, status: 'missing' });
+    } else {
+      score += 20; // N/A for HTTP
+      checks.push({ header: 'HSTS', score: 20, max: 20, status: 'na' });
+    }
+    // X-Content-Type-Options (max 10)
+    if (xcto?.toLowerCase() === 'nosniff') { score += 10; checks.push({ header: 'X-Content-Type-Options', score: 10, max: 10, status: 'good' }); }
+    else { checks.push({ header: 'X-Content-Type-Options', score: 0, max: 10, status: 'missing' }); }
+    // X-Frame-Options or CSP frame-ancestors (max 10)
+    if (xfo || csp?.includes('frame-ancestors')) { score += 10; checks.push({ header: 'Clickjacking Protection', score: 10, max: 10, status: 'good' }); }
+    else { checks.push({ header: 'Clickjacking Protection', score: 0, max: 10, status: 'missing' }); }
+    // Referrer-Policy (max 10)
+    if (refp) { score += 10; checks.push({ header: 'Referrer-Policy', score: 10, max: 10, status: 'good' }); }
+    else { checks.push({ header: 'Referrer-Policy', score: 0, max: 10, status: 'missing' }); }
+    // Permissions-Policy (max 10)
+    if (permp) { score += 10; checks.push({ header: 'Permissions-Policy', score: 10, max: 10, status: 'good' }); }
+    else { checks.push({ header: 'Permissions-Policy', score: 0, max: 10, status: 'missing' }); }
+    // COOP (max 5)
+    if (coop) { score += 5; checks.push({ header: 'COOP', score: 5, max: 5, status: 'good' }); }
+    else { checks.push({ header: 'COOP', score: 0, max: 5, status: 'missing' }); }
+    // CORP (max 5)
+    if (corp) { score += 5; checks.push({ header: 'CORP', score: 5, max: 5, status: 'good' }); }
+    else { checks.push({ header: 'CORP', score: 0, max: 5, status: 'missing' }); }
+
+    let grade;
+    if (score >= 90) grade = 'A+';
+    else if (score >= 80) grade = 'A';
+    else if (score >= 65) grade = 'B';
+    else if (score >= 50) grade = 'C';
+    else if (score >= 35) grade = 'D';
+    else grade = 'F';
+
+    return { score, grade, checks };
+  }
+
   async function analyzeSecurityHeaders() {
     // SCOPE CHECK: Only run on main frame, skip third-party iframes
     if (!isMainFrame || shouldSkipDomain(location.hostname)) {
@@ -956,7 +1112,7 @@
         headers[key.toLowerCase()] = value;
       });
 
-      // Check CSP
+      // === CSP Analysis ===
       const csp = headers['content-security-policy'];
       if (!csp) {
         reportFinding('MISSING_SECURITY_HEADER', {
@@ -966,52 +1122,37 @@
           url: location.href,
         });
       } else {
-        // Check for weak CSP directives
-        if (csp.includes("'unsafe-inline'")) {
+        const cspIssues = analyzeCSP(csp);
+        for (const issue of cspIssues) {
           reportFinding('WEAK_CSP', {
             header: 'Content-Security-Policy',
-            issue: "unsafe-inline allowed",
-            severity: 'medium',
-            description: 'CSP allows inline scripts, reducing XSS protection',
+            issue: issue.issue,
+            severity: issue.severity,
+            description: issue.description,
             url: location.href,
-            value: csp,
-          });
-        }
-        if (csp.includes("'unsafe-eval'")) {
-          reportFinding('WEAK_CSP', {
-            header: 'Content-Security-Policy',
-            issue: "unsafe-eval allowed",
-            severity: 'medium',
-            description: 'CSP allows eval(), enabling code injection',
-            url: location.href,
-            value: csp,
-          });
-        }
-        if (csp.includes('*') && !csp.includes('*.')) {
-          reportFinding('WEAK_CSP', {
-            header: 'Content-Security-Policy',
-            issue: "Wildcard source",
-            severity: 'high',
-            description: 'CSP allows any source with wildcard',
-            url: location.href,
-            value: csp,
+            value: csp.substring(0, 500),
           });
         }
       }
 
-      // Check CORS
+      // === CORS ===
       const cors = headers['access-control-allow-origin'];
+      const corsCredentials = headers['access-control-allow-credentials'];
       if (cors === '*') {
+        const severity = corsCredentials === 'true' ? 'critical' : 'medium';
         reportFinding('PERMISSIVE_CORS', {
           header: 'Access-Control-Allow-Origin',
-          value: '*',
-          severity: 'medium',
-          description: 'CORS allows any origin - may leak sensitive data',
+          value: cors,
+          credentials: corsCredentials,
+          severity: severity,
+          description: corsCredentials === 'true'
+            ? 'CORS allows any origin WITH credentials - full data theft possible'
+            : 'CORS allows any origin - may leak sensitive data',
           url: location.href,
         });
       }
 
-      // Check X-Frame-Options
+      // === Clickjacking ===
       const xfo = headers['x-frame-options'];
       if (!xfo && !csp?.includes('frame-ancestors')) {
         reportFinding('MISSING_SECURITY_HEADER', {
@@ -1022,7 +1163,7 @@
         });
       }
 
-      // Check HSTS
+      // === HSTS ===
       const hsts = headers['strict-transport-security'];
       if (!hsts && location.protocol === 'https:') {
         reportFinding('MISSING_SECURITY_HEADER', {
@@ -1033,7 +1174,7 @@
         });
       }
 
-      // Check X-Content-Type-Options
+      // === X-Content-Type-Options ===
       if (!headers['x-content-type-options']) {
         reportFinding('MISSING_SECURITY_HEADER', {
           header: 'X-Content-Type-Options',
@@ -1043,27 +1184,63 @@
         });
       }
 
-      // Server disclosure
+      // === Referrer-Policy ===
+      if (!headers['referrer-policy']) {
+        reportFinding('MISSING_SECURITY_HEADER', {
+          header: 'Referrer-Policy',
+          severity: 'low',
+          description: 'No Referrer-Policy - full URL may leak in Referer header',
+          url: location.href,
+        });
+      }
+
+      // === Permissions-Policy ===
+      if (!headers['permissions-policy'] && !headers['feature-policy']) {
+        reportFinding('MISSING_SECURITY_HEADER', {
+          header: 'Permissions-Policy',
+          severity: 'info',
+          description: 'No Permissions-Policy - browser features not restricted',
+          url: location.href,
+        });
+      }
+
+      // === Info leak headers ===
       const server = headers['server'];
       const poweredBy = headers['x-powered-by'];
+      const debugToken = headers['x-debug-token'] || headers['x-debug-token-link'];
+      const backendServer = headers['x-backend-server'];
+      const chromeLogger = headers['x-chromelogger-data'] || headers['x-chromephp-data'];
+
       if (server && /\d/.test(server)) {
-        reportFinding('SERVER_DISCLOSURE', {
-          header: 'Server',
-          value: server,
-          severity: 'info',
-          description: 'Server version disclosed',
-          url: location.href,
-        });
+        reportFinding('SERVER_DISCLOSURE', { header: 'Server', value: server, severity: 'info',
+          description: 'Server version disclosed', url: location.href });
       }
       if (poweredBy) {
-        reportFinding('SERVER_DISCLOSURE', {
-          header: 'X-Powered-By',
-          value: poweredBy,
-          severity: 'info',
-          description: 'Technology stack disclosed',
-          url: location.href,
-        });
+        reportFinding('SERVER_DISCLOSURE', { header: 'X-Powered-By', value: poweredBy, severity: 'info',
+          description: 'Technology stack disclosed', url: location.href });
       }
+      if (debugToken) {
+        reportFinding('SERVER_DISCLOSURE', { header: 'X-Debug-Token', value: debugToken, severity: 'high',
+          description: 'Symfony debug profiler token exposed - may reveal sensitive debug data', url: location.href });
+      }
+      if (backendServer) {
+        reportFinding('SERVER_DISCLOSURE', { header: 'X-Backend-Server', value: backendServer, severity: 'medium',
+          description: 'Internal backend server hostname disclosed', url: location.href });
+      }
+      if (chromeLogger) {
+        reportFinding('SERVER_DISCLOSURE', { header: 'X-ChromeLogger-Data', value: '(base64 data)', severity: 'high',
+          description: 'ChromeLogger debug data exposed - may contain SQL queries, variables', url: location.href });
+      }
+
+      // === Security Score ===
+      const headerScore = scoreSecurityHeaders(headers);
+      safeSendMessage({
+        type: 'securityScore',
+        score: headerScore.score,
+        grade: headerScore.grade,
+        checks: headerScore.checks,
+        url: location.href,
+      });
 
     } catch (e) {
       // Silent fail - CORS might block this
@@ -1150,40 +1327,112 @@
   function auditCookies() {
     const cookies = document.cookie.split(';').map(c => c.trim()).filter(c => c);
 
+    const sensitivePatterns = [
+      /session/i, /token/i, /auth/i, /jwt/i, /api.?key/i,
+      /csrf/i, /xsrf/i, /login/i, /user/i, /admin/i
+    ];
+
     for (const cookie of cookies) {
-      const [name] = cookie.split('=');
+      const [name, ...valueParts] = cookie.split('=');
       if (!name) continue;
+      const value = valueParts.join('=');
+      const isSensitive = sensitivePatterns.some(p => p.test(name));
 
-      // Check for sensitive cookie names without HttpOnly (we can read them = not HttpOnly)
-      const sensitivePatterns = [
-        /session/i, /token/i, /auth/i, /jwt/i, /api.?key/i,
-        /csrf/i, /xsrf/i, /login/i, /user/i, /admin/i
-      ];
+      // If we can read it via JS, it's not HttpOnly
+      if (isSensitive) {
+        reportFinding('INSECURE_COOKIE', {
+          cookie: name.trim(),
+          issue: 'Missing HttpOnly flag',
+          severity: 'medium',
+          description: `Sensitive cookie "${name.trim()}" readable by JS - vulnerable to XSS theft`,
+          url: location.href,
+        });
+      }
 
-      for (const pattern of sensitivePatterns) {
-        if (pattern.test(name)) {
+      // __Host- prefix validation: must have Secure, no Domain, Path=/
+      const trimName = name.trim();
+      if (trimName.startsWith('__Host-')) {
+        // If we can read it, it's not HttpOnly (already flagged above if sensitive)
+        // __Host- cookies must be set with Secure - if site is HTTP, it's wrong
+        if (location.protocol === 'http:') {
           reportFinding('INSECURE_COOKIE', {
-            cookie: name,
-            issue: 'Accessible via JavaScript (no HttpOnly)',
-            severity: 'medium',
-            description: `Sensitive cookie "${name}" readable by JS - vulnerable to XSS theft`,
+            cookie: trimName,
+            issue: '__Host- prefix on HTTP',
+            severity: 'high',
+            description: `__Host- cookie "${trimName}" on HTTP violates prefix requirements (must be Secure)`,
             url: location.href,
           });
-          break;
         }
+      }
+
+      // __Secure- prefix validation
+      if (trimName.startsWith('__Secure-') && location.protocol === 'http:') {
+        reportFinding('INSECURE_COOKIE', {
+          cookie: trimName,
+          issue: '__Secure- prefix on HTTP',
+          severity: 'high',
+          description: `__Secure- cookie "${trimName}" on HTTP violates prefix requirements`,
+          url: location.href,
+        });
+      }
+
+      // Detect JWTs in cookie values (passive JWT detection)
+      if (value && isJWT(value)) {
+        analyzeJWT(value, `cookie[${trimName}]`);
       }
     }
 
-    // Check for cookies on HTTP
+    // Cookies over HTTP
     if (location.protocol === 'http:' && cookies.length > 0) {
       reportFinding('INSECURE_COOKIE', {
         issue: 'Cookies over HTTP',
         severity: 'high',
-        description: 'Cookies transmitted over unencrypted HTTP',
+        description: 'All cookies transmitted over unencrypted HTTP - session hijacking trivial',
         url: location.href,
         cookieCount: cookies.length,
       });
     }
+
+    // Enhanced: use cookies API via background for SameSite/Secure/Domain analysis
+    safeSendMessage({ type: 'auditCookiesRequest', url: location.href }, (cookieDetails) => {
+      if (!cookieDetails || !Array.isArray(cookieDetails)) return;
+      for (const c of cookieDetails) {
+        const isSens = sensitivePatterns.some(p => p.test(c.name));
+        // Missing Secure flag on HTTPS
+        if (!c.secure && location.protocol === 'https:' && isSens) {
+          reportFinding('INSECURE_COOKIE', {
+            cookie: c.name,
+            issue: 'Missing Secure flag',
+            severity: 'medium',
+            description: `Sensitive cookie "${c.name}" can be sent over HTTP (no Secure flag)`,
+            url: location.href,
+          });
+        }
+        // Missing or weak SameSite
+        if (isSens && (!c.sameSite || c.sameSite === 'no_restriction')) {
+          reportFinding('INSECURE_COOKIE', {
+            cookie: c.name,
+            issue: `SameSite=${c.sameSite || 'not set'}`,
+            severity: 'medium',
+            description: `Sensitive cookie "${c.name}" has no SameSite restriction - CSRF possible`,
+            url: location.href,
+          });
+        }
+        // Overly broad domain
+        if (c.domain && c.domain.startsWith('.') && isSens) {
+          const dotCount = c.domain.split('.').length - 1;
+          if (dotCount <= 2) { // e.g., .example.com covers all subdomains
+            reportFinding('INSECURE_COOKIE', {
+              cookie: c.name,
+              issue: `Broad domain scope: ${c.domain}`,
+              severity: 'low',
+              description: `Sensitive cookie "${c.name}" scoped to ${c.domain} - readable by all subdomains`,
+              url: location.href,
+            });
+          }
+        }
+      }
+    });
   }
 
   // ============================================================
@@ -1752,6 +2001,91 @@
   }
 
   // ============================================================
+  // SUSPICIOUS COMMENTS SCANNER
+  // ============================================================
+
+  function scanSuspiciousComments() {
+    const suspiciousPatterns = [
+      { pattern: /\bTODO\b/i, label: 'TODO' },
+      { pattern: /\bFIXME\b/i, label: 'FIXME' },
+      { pattern: /\bHACK\b/i, label: 'HACK' },
+      { pattern: /\bBUG\b/i, label: 'BUG' },
+      { pattern: /\bXXX\b/i, label: 'XXX' },
+      { pattern: /\bpassword/i, label: 'password reference' },
+      { pattern: /\bcredential/i, label: 'credential reference' },
+      { pattern: /\bsecret/i, label: 'secret reference' },
+      { pattern: /\bapi[_-]?key/i, label: 'API key reference' },
+      { pattern: /\btoken/i, label: 'token reference' },
+      { pattern: /\bdebug/i, label: 'debug reference' },
+      { pattern: /\badmin/i, label: 'admin reference' },
+      { pattern: /\broot\b/i, label: 'root reference' },
+      { pattern: /\bhardcoded/i, label: 'hardcoded reference' },
+      { pattern: /\btemporary\b/i, label: 'temporary reference' },
+      { pattern: /\bworkaround\b/i, label: 'workaround reference' },
+      { pattern: /\binsecure\b/i, label: 'insecure reference' },
+      { pattern: /\bvulnerab/i, label: 'vulnerability reference' },
+    ];
+
+    const found = [];
+
+    // 1. Scan HTML comments (<!-- ... -->)
+    const walker = document.createTreeWalker(document, NodeFilter.SHOW_COMMENT, null, false);
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent.trim();
+      if (!text || text.length < 4) continue;
+      // Skip conditional comments (IE), common CMS/GTM markers
+      if (/^\[if |^google|^gtm|^fb-|^ko /.test(text)) continue;
+      for (const { pattern, label } of suspiciousPatterns) {
+        if (pattern.test(text)) {
+          found.push({
+            context: 'HTML comment',
+            keyword: label,
+            preview: text.substring(0, 200),
+            parent: node.parentElement ? node.parentElement.tagName : 'unknown',
+          });
+          break; // one finding per comment
+        }
+      }
+    }
+
+    // 2. Scan inline <script> comments (// and /* */)
+    const scripts = document.querySelectorAll('script:not([src])');
+    const commentRegex = /\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
+    for (const script of scripts) {
+      const src = script.textContent || '';
+      if (src.length < 10) continue;
+      // Skip GTM/analytics inline scripts
+      if (/google_tag_manager|googletagmanager|gtag\(|fbq\(|_gaq/.test(src.substring(0, 500))) continue;
+      let m;
+      while ((m = commentRegex.exec(src)) !== null) {
+        const comment = m[0];
+        for (const { pattern, label } of suspiciousPatterns) {
+          if (pattern.test(comment)) {
+            found.push({
+              context: 'JS comment',
+              keyword: label,
+              preview: comment.substring(0, 200),
+              parent: 'SCRIPT',
+            });
+            break;
+          }
+        }
+      }
+    }
+
+    // Report grouped findings
+    if (found.length > 0) {
+      reportFinding('SUSPICIOUS_COMMENTS', {
+        severity: 'info',
+        description: `Found ${found.length} suspicious comment(s) with sensitive keywords`,
+        url: location.href,
+        comments: found.slice(0, 50), // cap at 50
+      });
+    }
+  }
+
+  // ============================================================
   // REPORTING
   // ============================================================
 
@@ -1852,16 +2186,19 @@
           }
         });
 
-        // NOTE: These active scans are now DISABLED by default to avoid WAF detection
+        // Passive scans that don't generate suspicious traffic:
+        analyzeSecurityHeaders();  // One HEAD request - minimal WAF risk, high value
+        auditCookies();            // No network requests - reads document.cookie + cookies API
+        analyzeJWTs();             // No network requests - reads localStorage/sessionStorage
+        checkOpenRedirect();       // No network requests - reads URL params
+        scanSuspiciousComments();  // No network requests - reads DOM comments
+
+        // NOTE: These active scans remain DISABLED by default to avoid WAF detection
         // They can be triggered manually via popup buttons:
-        // - analyzeSecurityHeaders()  -> "Headers Scan" button
         // - detectSourceMaps()        -> "Source Maps" button
         // - checkSensitivePaths()     -> "Sensitive Paths" button
         // - scanExternalScripts()     -> "Secrets Scan" button
         // - detectMixedContent()      -> Part of "Full Scan"
-        // - checkOpenRedirect()       -> Part of "Full Scan"
-        // - auditCookies()            -> Part of "Full Scan"
-        // - analyzeJWTs()             -> Part of "Full Scan"
       }, 1000);
     }, 500);
 
