@@ -455,6 +455,7 @@ function getSeverity(type) {
     'Credit Card': 'critical',
     // Info level
     'Mapbox Public Token': 'info',
+    'reCAPTCHA Site Key': 'info',
     // GraphQL findings
     'GRAPHQL_INTROSPECTION_ENABLED': 'medium',
     'GRAPHQL_SQL_INJECTION': 'critical',

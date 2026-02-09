@@ -376,6 +376,21 @@ impl JsSensitiveInfoScanner {
                     cwe: "CWE-798".to_string(),
                 },
                 CompiledPattern {
+                    name: "reCAPTCHA Secret Key".to_string(),
+                    regex: Regex::new(r#"(?i)(?:secret|secret_?key|recaptcha.*secret)["'\s:=]+["']?6L[a-zA-Z0-9_-]{38}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "reCAPTCHA secret key found client-side - should only exist server-side. \
+                        Allows attackers to verify CAPTCHA responses and bypass CAPTCHA protection.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "reCAPTCHA Site Key".to_string(),
+                    regex: Regex::new(r#"(?i)(?:data-sitekey|sitekey|site_key|render|recaptcha_?key)["'\s:=]+["']?6L[a-zA-Z0-9_-]{38}"#).unwrap(),
+                    severity: Severity::Info,
+                    description: "reCAPTCHA site key found - public key that reveals CAPTCHA usage and version.".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                CompiledPattern {
                     name: "HERE API Key".to_string(),
                     regex: Regex::new(r#"(?i)here[_-]?api[_-]?key\s*[=:]\s*['\"][a-zA-Z0-9_-]{20,}['\"]"#).unwrap(),
                     severity: Severity::High,

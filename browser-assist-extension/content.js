@@ -314,8 +314,9 @@
     // Note: Google OAuth client IDs are PUBLIC (not secrets) - only flag client secrets
     { name: 'Google OAuth Secret', pattern: /(?:client_secret|clientSecret)["'\s:=]+["']?([a-zA-Z0-9_-]{24})/gi },
 
-    // reCAPTCHA - only detect SECRET keys (site keys are public, not security issues)
+    // reCAPTCHA
     { name: 'reCAPTCHA Secret', pattern: /(?:secret|secretKey|recaptcha.*secret)["'\s:=]+["']?(6L[a-zA-Z0-9_-]{38})/gi },
+    { name: 'reCAPTCHA Site Key', pattern: /(?:data-sitekey|sitekey|site_key|render|reCAPTCHA_site_key|recaptchaKey)["'\s:=]+["']?(6L[a-zA-Z0-9_-]{38})/gi, severity: 'info', note: 'Public site key - not a secret but reveals reCAPTCHA usage and version' },
 
     // Note: GTM, GA, GA4 IDs are PUBLIC tracking IDs - not security issues, skipped
 
@@ -466,22 +467,24 @@
   }
 
   // Scan loaded JS files (first-party only)
+  const scannedScriptUrls = new Set();
+
+  function scanSingleScript(src) {
+    if (!src || !src.startsWith(location.origin) || scannedScriptUrls.has(src)) return;
+    scannedScriptUrls.add(src);
+    fetch(src)
+      .then(r => r.text())
+      .then(content => {
+        scanForSecrets(content, src);
+        scanForCloudStorage(content, src);
+        scanForGraphQL(content, src);
+      })
+      .catch(() => {});
+  }
+
   function scanExternalScripts() {
     const scripts = document.querySelectorAll('script[src]');
-    scripts.forEach(script => {
-      const src = script.src;
-      // Only scan first-party scripts
-      if (src && src.startsWith(location.origin)) {
-        fetch(src)
-          .then(r => r.text())
-          .then(content => {
-            scanForSecrets(content, src);
-            scanForCloudStorage(content, src);
-            scanForGraphQL(content, src);
-          })
-          .catch(() => {});
-      }
-    });
+    scripts.forEach(script => scanSingleScript(script.src));
   }
 
   // ============================================================
@@ -2198,9 +2201,19 @@
       injectCMSScanner();
     }
 
-    // Re-inject on SPA navigation (for Next.js, React Router, etc.)
+    // Watch for dynamically added scripts (catches lazy-loaded chunks in Next.js, webpack, etc.)
+    // Also re-inject on SPA navigation
     let lastUrl = location.href;
-    new MutationObserver(() => {
+    new MutationObserver((mutations) => {
+      // Scan dynamically added first-party scripts for secrets
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeName === 'SCRIPT' && node.src) {
+            scanSingleScript(node.src);
+          }
+        }
+      }
+
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         _t('spa_navigation', { host: location.hostname });

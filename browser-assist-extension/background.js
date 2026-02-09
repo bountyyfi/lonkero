@@ -792,7 +792,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Types that should dedupe by type+url only (not by value)
       const dedupeByTypeAndUrlOnly = [
         'Finnish Y-tunnus', 'Finnish HETU', 'IBAN', 'Credit Card',
-        'Mapbox Public Token', 'KEY_DETECTED', 'AUTH_COOKIE', 'AUTH_LOCALSTORAGE',
+        'Mapbox Public Token', 'reCAPTCHA Site Key', 'KEY_DETECTED', 'AUTH_COOKIE', 'AUTH_LOCALSTORAGE',
         'CLOUD_STORAGE', 'DOM_XSS_SOURCE', 'DOM_XSS_POTENTIAL',
         // Security headers (one per type per URL)
         'MISSING_SECURITY_HEADER', 'WEAK_CSP', 'PERMISSIVE_CORS', 'SERVER_DISCLOSURE',
@@ -870,9 +870,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return existingKey === findingKey;
       });
 
+      // Secret-type findings go to state.secrets only, not state.findings
+      const secretTypes = ['SECRET_EXPOSED', 'KEY_DETECTED',
+        'AWS Access Key', 'AWS Secret Key', 'Google API Key', 'Google OAuth Secret',
+        'GitHub Token', 'Stripe Secret Key', 'Stripe Publishable Key', 'Stripe Test Key',
+        'Mapbox Secret', 'Mapbox Public Token', 'Slack Token', 'Firebase URL',
+        'Twilio API Key', 'Twilio Account SID', 'SendGrid API Key', 'Mailchimp API Key',
+        'Heroku API Key', 'npm Token', 'Discord Token', 'Discord Webhook',
+        'Shopify Token', 'Shopify Shared Secret', 'Square Access Token', 'Square OAuth Secret',
+        'Algolia API Key', 'OpenAI API Key', 'Private Key', 'Bearer Token',
+        'Authorization Header', 'API Key (Generic)', 'JWT Token',
+        'reCAPTCHA Secret', 'reCAPTCHA Site Key'];
+      const isSecret = secretTypes.includes(finding.type);
+
       if (!isDuplicate) {
-        state.findings.push(finding);
-        console.log('[Background] Finding stored:', finding.type, '| Total findings:', state.findings.length);
+        if (isSecret) {
+          state.secrets.push(finding);
+        } else {
+          state.findings.push(finding);
+        }
+
+        console.log('[Background] Finding stored:', finding.type, isSecret ? '(secret)' : '', '| Total:', state.findings.length, 'findings,', state.secrets.length, 'secrets');
         if (self.lonkeroTracker) self.lonkeroTracker.track('finding', { type: finding.type, total: state.findings.length });
 
         // Forward to CLI if connected

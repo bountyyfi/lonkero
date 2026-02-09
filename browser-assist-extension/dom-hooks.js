@@ -35,12 +35,15 @@
       set: function(value) {
         const v = String(value);
         if (/<script|javascript:|on\w+=/i.test(v)) {
-          _post('DOM_XSS_POTENTIAL', {
-            sink: 'innerHTML',
-            element: this.tagName,
-            valuePreview: v.substring(0, 200),
-            severity: 'high',
-          });
+          // Skip known-benign: GTM injects scripts via innerHTML with type="text/gtmscript"
+          if (!/text\/gtmscript|google_tag_manager|googletag|gtag/.test(v)) {
+            _post('DOM_XSS_POTENTIAL', {
+              sink: 'innerHTML',
+              element: this.tagName,
+              valuePreview: v.substring(0, 200),
+              severity: 'high',
+            });
+          }
         }
         return origInnerHTML.set.call(this, value);
       },
@@ -63,13 +66,18 @@
     return origWrite.apply(this, arguments);
   }, configurable: false, writable: false });
 
-  // Monitor eval
+  // Monitor eval (filter known-benign callers like GTM, ad tags, analytics)
   const origEval = window.eval;
   Object.defineProperty(window, 'eval', { value: function(code) {
-    _post('DANGEROUS_EVAL', {
-      codePreview: String(code).substring(0, 200),
-      severity: 'high',
-    });
+    const s = String(code);
+    const preview = s.substring(0, 300);
+    // Skip known-benign: Google Tag Manager, Google Publisher Tags, Google Ads
+    if (!/google_tag_manager|googletag\.|googleads|google_ad|gtag|adsbygoogle/.test(preview)) {
+      _post('DANGEROUS_EVAL', {
+        codePreview: preview.substring(0, 200),
+        severity: 'high',
+      });
+    }
     return origEval.apply(this, arguments);
   }, configurable: false, enumerable: false });
 })();
