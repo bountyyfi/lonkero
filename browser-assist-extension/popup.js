@@ -423,8 +423,9 @@ document.getElementById('copyFindingBtn')?.addEventListener('click', () => {
   const data = document.getElementById('findingDetailData').value;
   navigator.clipboard.writeText(data).then(() => {
     const btn = document.getElementById('copyFindingBtn');
+    const orig = btn.innerHTML;
     btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = '📋 Copy', 1500);
+    setTimeout(() => { btn.innerHTML = orig; if (typeof lucide !== 'undefined') lucide.createIcons(); }, 1500);
   });
 });
 
@@ -720,8 +721,9 @@ document.getElementById('copySecretBtn')?.addEventListener('click', () => {
   const data = document.getElementById('secretDetailData').value;
   navigator.clipboard.writeText(data).then(() => {
     const btn = document.getElementById('copySecretBtn');
+    const orig = btn.innerHTML;
     btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 1500);
+    setTimeout(() => { btn.innerHTML = orig; if (typeof lucide !== 'undefined') lucide.createIcons(); }, 1500);
   });
 });
 
@@ -915,6 +917,48 @@ function requireLicense() {
   return false;
 }
 
+/**
+ * Inject license context element into the page's MAIN world so scanner
+ * files can read it during initialization.  content.js creates this
+ * element at page load but removes it after 2 seconds, so it is gone
+ * by the time the user clicks a scan button in the popup.
+ */
+function injectLicenseContext(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: 'checkLicense' }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      if (!response || !response.licensed || !response.key) {
+        reject(new Error('License not available'));
+        return;
+      }
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        func: (key) => {
+          // Only create if not already present
+          if (document.getElementById('__lk_c')) return;
+          const el = document.createElement('div');
+          el.id = '__lk_c';
+          el.style.display = 'none';
+          el.dataset.v = key;
+          const arr = new Uint8Array(8);
+          crypto.getRandomValues(arr);
+          el.dataset.n = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+          const ch = new Uint8Array(6);
+          crypto.getRandomValues(ch);
+          el.dataset.e = '_e' + Array.from(ch, b => b.toString(36).padStart(2, '0')).join('').slice(0, 10);
+          (document.head || document.documentElement).appendChild(el);
+          setTimeout(() => { try { el.remove(); } catch {} }, 5000);
+        },
+        args: [response.key]
+      }).then(resolve).catch(reject);
+    });
+  });
+}
+
 // Start/Stop Monitoring
 document.getElementById('startBtn')?.addEventListener('click', () => {
   if (!requireLicense()) return;
@@ -947,11 +991,13 @@ document.getElementById('fuzzFormsBtn')?.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
-    // First, try to inject formfuzzer.js if not already loaded
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      world: 'MAIN',
-      files: ['formfuzzer.js']
+    // Inject license context first, then form fuzzer
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['formfuzzer.js']
+      });
     }).then(() => {
       // Now run the fuzzer
       chrome.scripting.executeScript({
@@ -988,11 +1034,13 @@ document.getElementById('fuzzGraphqlBtn')?.addEventListener('click', () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tabId = tabs[0].id;
 
-      // Inject GraphQL fuzzer
-      chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        world: 'MAIN',
-        files: ['graphql-fuzzer.js']
+      // Inject license context first, then GraphQL fuzzer
+      injectLicenseContext(tabId).then(() => {
+        return chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          world: 'MAIN',
+          files: ['graphql-fuzzer.js']
+        });
       }).then(() => {
         // Run the fuzzer with discovered endpoints
         chrome.scripting.executeScript({
@@ -1032,11 +1080,13 @@ document.getElementById('xssScanBtn')?.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
-    // Inject XSS scanner and run full scan
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      world: 'MAIN',
-      files: ['xss-scanner.js']
+    // Inject license context first, then XSS scanner
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['xss-scanner.js']
+      });
     }).then(() => {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -1074,11 +1124,13 @@ document.getElementById('deepXssScanBtn')?.addEventListener('click', () => {
 
     alert('Starting Deep XSS Scan...\nThis will crawl the site and test ALL discovered endpoints.\nThis may take a while. Check console for progress.');
 
-    // Inject XSS scanner and run deep scan
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      world: 'MAIN',
-      files: ['xss-scanner.js']
+    // Inject license context first, then XSS scanner
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['xss-scanner.js']
+      });
     }).then(() => {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -1114,11 +1166,13 @@ document.getElementById('sqliScanBtn')?.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
-    // Inject SQLi scanner and run scan
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      world: 'MAIN',
-      files: ['sql-scanner.js']
+    // Inject license context first, then SQLi scanner
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['sql-scanner.js']
+      });
     }).then(() => {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -1157,10 +1211,12 @@ document.getElementById('deepSqliScanBtn')?.addEventListener('click', () => {
 
     alert('Starting Deep SQLi Scan...\nThis includes time-based detection which is slower.\nCheck console for progress.');
 
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      world: 'MAIN',
-      files: ['sql-scanner.js']
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['sql-scanner.js']
+      });
     }).then(() => {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -1194,19 +1250,21 @@ document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0].id;
 
-    // Inject CMS scanner and framework scanner
-    Promise.all([
-      chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        world: 'MAIN',
-        files: ['cms-scanner.js']
-      }),
-      chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        world: 'MAIN',
-        files: ['framework-scanner.js']
-      })
-    ]).then(() => {
+    // Inject license context first, then CMS and framework scanners
+    injectLicenseContext(tabId).then(() => {
+      return Promise.all([
+        chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          world: 'MAIN',
+          files: ['cms-scanner.js']
+        }),
+        chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          world: 'MAIN',
+          files: ['framework-scanner.js']
+        })
+      ]);
+    }).then(() => {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
         world: 'MAIN',
@@ -1500,8 +1558,9 @@ document.getElementById('copyResponseBtn')?.addEventListener('click', () => {
   const responseBody = document.getElementById('responseBody');
   navigator.clipboard.writeText(responseBody.value).then(() => {
     const btn = document.getElementById('copyResponseBtn');
+    const orig = btn.innerHTML;
     btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 1500);
+    setTimeout(() => { btn.innerHTML = orig; if (typeof lucide !== 'undefined') lucide.createIcons(); }, 1500);
   });
 });
 
