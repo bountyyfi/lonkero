@@ -966,8 +966,37 @@
       });
     }
 
+    // SPA Baseline Fingerprinting: fetch a nonsense path to detect catch-all servers
+    // If the server returns 200 + HTML for a garbage URL, it's a SPA catch-all (S3, CloudFront, Vercel, etc.)
+    const baselineFingerprints = new Map(); // origin -> baseline body fingerprint
+    const originsToCheck = new Set([origin]);
+    for (const base of discoveredAPIBases) {
+      try { originsToCheck.add(new URL(base).origin); } catch {}
+    }
+
+    for (const checkOrigin of originsToCheck) {
+      try {
+        const baselineUrl = checkOrigin + '/__lonkero_baseline_' + Math.random().toString(36).substring(2, 8);
+        const baselineResp = await fetch(baselineUrl, {
+          method: 'GET',
+          credentials: 'omit',
+          redirect: 'manual',
+          headers: { 'Accept': 'application/json, text/html, */*' },
+        });
+        if (baselineResp.status === 200) {
+          const baselineType = baselineResp.headers.get('content-type') || '';
+          if (baselineType.includes('html')) {
+            const baselineBody = await baselineResp.text();
+            // Use first 500 chars as fingerprint — SPA shells are identical for all paths
+            baselineFingerprints.set(checkOrigin, baselineBody.substring(0, 500));
+            console.log(`[Lonkero] SPA catch-all detected on ${checkOrigin} — baseline fingerprint captured`);
+          }
+        }
+      } catch {}
+    }
+
     // Probe each URL (with rate limiting)
-    const results = { accessible: 0, authRequired: 0, errors: 0, total: urlsToProbe.size };
+    const results = { accessible: 0, authRequired: 0, errors: 0, spaFiltered: 0, total: urlsToProbe.size };
     const probed = [];
     let i = 0;
 
@@ -991,7 +1020,6 @@
 
         const status = resp.status;
         const contentType = resp.headers.get('content-type') || '';
-        const contentLength = parseInt(resp.headers.get('content-length') || '0', 10);
 
         // Read a small preview of the body
         let bodyPreview = '';
@@ -1005,9 +1033,21 @@
         const isLoginRedirect = status === 0 || (status >= 300 && status < 400);
         const isAuthRequired = status === 401 || status === 403;
 
+        // SPA catch-all check: compare response body to baseline fingerprint
+        let isSPACatchAll = false;
+        if (status >= 200 && status < 300 && contentType.includes('html')) {
+          let urlOrigin;
+          try { urlOrigin = new URL(url).origin; } catch { urlOrigin = origin; }
+          const baseline = baselineFingerprints.get(urlOrigin);
+          if (baseline && bodyPreview === baseline) {
+            isSPACatchAll = true;
+            results.spaFiltered++;
+          }
+        }
+
         if (isAuthRequired) {
           results.authRequired++;
-        } else if (status >= 200 && status < 300 && !isSoft404 && bodyPreview.length > 50) {
+        } else if (status >= 200 && status < 300 && !isSoft404 && !isSPACatchAll && bodyPreview.length > 50) {
           results.accessible++;
 
           // Determine what kind of data leaked
@@ -1053,10 +1093,12 @@
     if (results.accessible > 0) {
       reportFinding('ROUTE_PROBE_SUMMARY', {
         severity: 'high',
-        description: `Route probe: ${results.accessible} endpoints accessible without auth out of ${results.total} tested`,
+        description: `Route probe: ${results.accessible} endpoints accessible without auth out of ${results.total} tested` +
+          (results.spaFiltered > 0 ? ` (${results.spaFiltered} SPA catch-all filtered)` : ''),
         url: location.href,
         accessible: results.accessible,
         authRequired: results.authRequired,
+        spaFiltered: results.spaFiltered,
         errors: results.errors,
         total: results.total,
         accessibleEndpoints: probed,
