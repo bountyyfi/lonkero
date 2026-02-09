@@ -156,17 +156,84 @@
     }
   }
 
+  // Baseline SPA response fingerprint (fetched once to detect catch-all servers)
+  let _spaBaseline = null;
+  let _spaBaselineReady = false;
+
+  async function _fetchSpaBaseline() {
+    if (_spaBaselineReady) return;
+    _spaBaselineReady = true;
+    try {
+      // Fetch a path that definitely doesn't exist to get the SPA catch-all response
+      const resp = await fetchWithTimeout(
+        location.origin + '/__lonkero_baseline_404_' + Date.now(),
+        { method: 'GET' }
+      );
+      if (resp.status === 200) {
+        const text = await resp.text();
+        // If the 404 path returns 200 + HTML, this is a SPA catch-all server
+        if (text.length > 100 && /<!doctype\s+html|<html[\s>]/i.test(text.substring(0, 500))) {
+          // Store a hash-like fingerprint (first 200 chars + length range)
+          _spaBaseline = {
+            prefix: text.substring(0, 200),
+            lengthRange: [Math.floor(text.length * 0.8), Math.ceil(text.length * 1.2)],
+            isSPA: true,
+          };
+        }
+      }
+    } catch {
+      // Network error - no baseline
+    }
+  }
+
+  // Check if response looks like a SPA catch-all HTML page
+  function _isSPACatchAll(text, path) {
+    // Paths that legitimately return HTML
+    const htmlPaths = /\.(html?|php|asp|aspx|jsp)$/i;
+    if (htmlPaths.test(path)) return false;
+
+    const trimmed = text.substring(0, 500);
+
+    // If it looks like HTML and the path shouldn't return HTML, it's likely a catch-all
+    if (/<!doctype\s+html|<html[\s>]/i.test(trimmed)) {
+      // SPA markers: React root, Next.js, Vue, Angular, etc.
+      if (/<div\s+id="(root|app|__next|__nuxt)"/i.test(text.substring(0, 2000))) return true;
+      // Generic: if it has <head> and <body> and <script> tags, it's a full HTML page
+      if (/<head[\s>]/.test(trimmed) && /<body[\s>]/i.test(text) && /<script[\s>]/i.test(text)) return true;
+    }
+
+    // Compare against SPA baseline if available
+    if (_spaBaseline && _spaBaseline.isSPA) {
+      const len = text.length;
+      if (len >= _spaBaseline.lengthRange[0] && len <= _spaBaseline.lengthRange[1]) {
+        // Same length range and same prefix = likely same catch-all page
+        if (text.substring(0, 200) === _spaBaseline.prefix) return true;
+      }
+    }
+
+    return false;
+  }
+
   async function checkPathExists(path, validate = null) {
     try {
+      // Ensure baseline is fetched
+      await _fetchSpaBaseline();
+
       const url = location.origin + path;
       const response = await fetchWithTimeout(url, { method: 'GET' });
 
       if (response.status === 200) {
+        const text = await response.text();
+
+        // Filter out SPA catch-all responses (server returns 200 + same HTML for all paths)
+        if (_isSPACatchAll(text, path)) {
+          return { exists: false, reason: 'spa-catchall' };
+        }
+
         if (validate) {
-          const text = await response.text();
           return validate(text) ? { exists: true, content: text } : { exists: false };
         }
-        return { exists: true, content: await response.text() };
+        return { exists: true, content: text };
       }
       return { exists: false, status: response.status };
     } catch {
@@ -1157,7 +1224,8 @@
       ];
       for (const path of backupPaths) {
         const backup = await checkPathExists(path, text =>
-          CONTENT_VALIDATORS.dirListing(text) || text.length > 100
+          CONTENT_VALIDATORS.dirListing(text) || CONTENT_VALIDATORS.sql(text) ||
+          text.startsWith('PK') || text.startsWith('BZh') || text.startsWith('Rar!')
         );
         if (backup.exists && backup.status === 200) {
           results.push({
@@ -1341,7 +1409,9 @@
       const svnPaths = ['/.svn/entries', '/.svn/wc.db', '/.svn/pristine/', '/.svn/text-base/'];
       for (const path of svnPaths) {
         const svn = await checkPathExists(path, text =>
-          text.includes('svn') || text.includes('dir') || text.length > 100
+          /svn|subversion/i.test(text) || text.startsWith('8\n') || text.startsWith('9\n') ||
+          text.startsWith('10\n') || text.startsWith('12\n') || // SVN entries format versions
+          CONTENT_VALIDATORS.dirListing(text)
         );
         if (svn.exists) {
           results.push({
@@ -1358,7 +1428,11 @@
       // Mercurial exposure
       const hgPaths = ['/.hg/store/00manifest.i', '/.hg/dirstate', '/.hg/requires'];
       for (const path of hgPaths) {
-        const hg = await checkPathExists(path, text => text.length > 10);
+        const hg = await checkPathExists(path, text =>
+          text.includes('revlogv') || text.includes('fncache') || text.includes('dotencode') ||
+          text.includes('store') || text.includes('generaldelta') ||
+          /^[^\x00-\x08\x0e-\x1f]*$/.test(text.substring(0, 50)) === false // binary content
+        );
         if (hg.exists) {
           results.push({
             type: 'MERCURIAL_EXPOSED',
@@ -1373,7 +1447,9 @@
       // Bazaar exposure
       const bzrPaths = ['/.bzr/README', '/.bzr/branch-format', '/.bzr/checkout/'];
       for (const path of bzrPaths) {
-        const bzr = await checkPathExists(path, text => text.length > 10);
+        const bzr = await checkPathExists(path, text =>
+          /bazaar|bzr|branch|format/i.test(text) || CONTENT_VALIDATORS.dirListing(text)
+        );
         if (bzr.exists) {
           results.push({
             type: 'BAZAAR_EXPOSED',
@@ -1538,8 +1614,8 @@
 
       for (const path of dbPaths) {
         const db = await checkPathExists(path, text =>
-          CONTENT_VALIDATORS.sql(text) || text.length > 500 ||
-          /SQLite format|CREATE TABLE|INSERT INTO|mysqldump/i.test(text)
+          CONTENT_VALIDATORS.sql(text) ||
+          /SQLite format|CREATE TABLE|INSERT INTO|mysqldump|pg_dump|-- PostgreSQL/i.test(text)
         );
         if (db.exists) {
           results.push({
@@ -1590,9 +1666,11 @@
       for (const path of archivePaths) {
         const archive = await checkPathExists(path, text =>
           CONTENT_VALIDATORS.dirListing(text) ||
-          text.startsWith('PK') || // ZIP magic
-          text.startsWith('\x1f\x8b') || // GZIP magic
-          text.length > 1000
+          text.startsWith('PK') || // ZIP magic bytes
+          text.charCodeAt(0) === 0x1f && text.charCodeAt(1) === 0x8b || // GZIP magic
+          text.startsWith('Rar!') || // RAR magic
+          text.startsWith('7z\xBC\xAF') || // 7z magic
+          text.startsWith('BZh') // BZIP2 magic
         );
         if (archive.exists) {
           results.push({
@@ -1825,12 +1903,12 @@
         const cloud = await checkPathExists(path, text =>
           text.includes('aws_access_key') || text.includes('aws_secret') ||
           text.includes('AKIA') || // AWS key prefix
-          text.includes('client_secret') || text.includes('client_id') ||
-          text.includes('api_key') || text.includes('apikey') ||
+          text.includes('client_secret') ||
           text.includes('private_key') || text.includes('-----BEGIN') ||
-          text.includes('registry') || text.includes('credentials') ||
-          text.includes('token') || text.includes('password') ||
-          text.length > 50
+          CONTENT_VALIDATORS.env(text) || CONTENT_VALIDATORS.json(text) ||
+          CONTENT_VALIDATORS.xml(text) ||
+          /docker|kubernetes|terraform|ansible|registry|pipeline/i.test(text) &&
+            !/<!doctype|<html/i.test(text.substring(0, 200))
         );
         if (cloud.exists) {
           results.push({
@@ -1941,10 +2019,9 @@
 
       for (const path of idePaths) {
         const ide = await checkPathExists(path, text =>
-          text.includes('version') || text.includes('project') ||
-          text.includes('module') || text.includes('source') ||
           CONTENT_VALIDATORS.xml(text) || CONTENT_VALIDATORS.json(text) ||
-          text.includes('password') || text.includes('host')
+          /phpStorm|intellij|jetbrains|vscode|eclipse|netbeans|sublime/i.test(text) ||
+          /workspace|\.iml|\.classpath|\.project/i.test(text)
         );
         if (ide.exists) {
           results.push({
@@ -1981,8 +2058,8 @@
       for (const path of packagePaths) {
         const pkg = await checkPathExists(path, text =>
           CONTENT_VALIDATORS.json(text) || CONTENT_VALIDATORS.dirListing(text) ||
-          text.includes('dependencies') || text.includes('require') ||
-          text.includes('version') || text.includes('name')
+          /^(source|gem|package)\b/m.test(text) || // Gemfile, Pipfile, etc.
+          /"(dependencies|devDependencies|require|packages)"/.test(text)
         );
         if (pkg.exists) {
           results.push({
@@ -2069,7 +2146,10 @@
 
       for (const path of miscPaths) {
         const misc = await checkPathExists(path, text =>
-          text.length > 20 || CONTENT_VALIDATORS.dirListing(text)
+          CONTENT_VALIDATORS.dirListing(text) || CONTENT_VALIDATORS.log(text) ||
+          CONTENT_VALIDATORS.php(text) || CONTENT_VALIDATORS.env(text) ||
+          /root:|\/bin\/bash|\/bin\/sh|HOME=|PATH=/i.test(text) || // passwd/environ
+          text.includes('history') && /^\s*#?\d+/m.test(text) // shell history
         );
         if (misc.exists && misc.content && misc.content.length > 50) {
           results.push({
@@ -2112,7 +2192,10 @@
 
           for (const disPath of interestingPaths.slice(0, 10)) {
             if (criticalPatterns.some(p => disPath.toLowerCase().includes(p))) {
-              const check = await checkPathExists(disPath, text => text.length > 50);
+              const check = await checkPathExists(disPath, text =>
+                CONTENT_VALIDATORS.json(text) || CONTENT_VALIDATORS.dirListing(text) ||
+                CONTENT_VALIDATORS.env(text) || CONTENT_VALIDATORS.config(text)
+              );
               if (check.exists) {
                 results.push({
                   type: 'ROBOTS_HIDDEN_PATH_ACCESSIBLE',
@@ -2209,15 +2292,24 @@
           const response = await fetchWithTimeout(location.origin + testUrl, {}, 3000);
           // If we get something other than 400/403/404, might be vulnerable
           if (response.status === 200 || response.status === 500) {
-            results.push({
-              type: 'NEXTJS_IMAGE_SSRF',
-              severity: 'high',
-              path: testUrl,
-              cve: 'CVE-2022-46175',
-              evidence: 'Next.js image optimizer may allow SSRF to internal services',
-              status: response.status,
-            });
-            break;
+            const contentType = response.headers.get('content-type') || '';
+            const body = await response.text();
+            // Filter out SPA catch-all responses (HTML pages returned for all paths)
+            if (_isSPACatchAll(body, testUrl) || /text\/html/i.test(contentType) && /<!doctype|<html/i.test(body.substring(0, 200))) {
+              continue;
+            }
+            // Real SSRF would return image data or error JSON, not full HTML
+            if (contentType.includes('image/') || response.status === 500) {
+              results.push({
+                type: 'NEXTJS_IMAGE_SSRF',
+                severity: 'high',
+                path: testUrl,
+                cve: 'CVE-2022-46175',
+                evidence: 'Next.js image optimizer may allow SSRF to internal services',
+                status: response.status,
+              });
+              break;
+            }
           }
         } catch {}
       }
@@ -2233,6 +2325,9 @@
         try {
           const response = await fetchWithTimeout(location.origin + path, {}, 3000);
           if (response.status === 200 && response.url !== location.origin + path) {
+            // Verify it's not just a SPA catch-all
+            const body = await response.text();
+            if (_isSPACatchAll(body, path)) continue;
             results.push({
               type: 'NEXTJS_MIDDLEWARE_BYPASS',
               severity: 'high',
@@ -2295,7 +2390,7 @@
       for (const path of nextApiPaths) {
         const api = await checkPathExists(path, text => {
           if (path.includes('debug') || path.includes('config')) {
-            return text.length > 50;
+            return CONTENT_VALIDATORS.json(text) || /{"[^"]+":/.test(text.substring(0, 100));
           }
           if (path.includes('graphql')) {
             return text.includes('query') || text.includes('mutation') || text.includes('__schema');

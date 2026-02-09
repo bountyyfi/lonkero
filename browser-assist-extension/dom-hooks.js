@@ -130,23 +130,7 @@
     if (!seenOrigins.has(origin)) {
       seenOrigins.add(origin);
 
-      if (origin === '*') {
-        // Skip wildcard postMessages from known analytics/tracking contexts
-        const pageUrl = location.href;
-        const msgStr = JSON.stringify(message).substring(0, 300);
-        const benignPM = /collector\.|analytics\.|exponea\.|bloomreach\.|hotjar\.|clarity\.|mouseflow\.|tealium\.|segment\.|google-analytics|googletagmanager|doubleclick|facebook\.com\/tr|snap\.licdn|bat\.bing/.test(pageUrl)
-          || /^{"tp":"|gtm\.|ga_debug|_hjSettings|exponea|bloomreach|clarity|hotjar|fbq|_ga|optimizely/.test(msgStr);
-        if (benignPM) {
-          // Silently skip — known third-party analytics noise
-        } else {
-        _post('POSTMESSAGE_WILDCARD', {
-          severity: 'medium',
-          description: 'postMessage sent with wildcard (*) targetOrigin — data exposed to any window',
-          messagePreview: msgStr.substring(0, 200),
-          targetOrigin: origin,
-        });
-        }
-      } else {
+      if (origin !== '*') {
         _post('POSTMESSAGE_SENT', {
           severity: 'info',
           description: `postMessage sent to ${origin}`,

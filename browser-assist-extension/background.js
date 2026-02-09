@@ -805,6 +805,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Other security checks
         'SOURCE_MAP_EXPOSED', 'MIXED_CONTENT', 'OPEN_REDIRECT_PARAM', 'SUSPICIOUS_COMMENTS',
         'POSTMESSAGE_LISTENER', 'POSTMESSAGE_WILDCARD', 'POSTMESSAGE_SENT',
+        // Route probing
+        'UNAUTH_ENDPOINT', 'ENDPOINT_SERVER_ERROR', 'ROUTE_PROBE_SUMMARY',
+        'JS_API_BASE', 'JS_ENV_CONFIG',
         // GraphQL findings (one per type per endpoint)
         'GRAPHQL_INTROSPECTION_ENABLED', 'GRAPHQL_NO_DEPTH_LIMIT', 'GRAPHQL_BATCHING_ENABLED',
         'GRAPHQL_NO_ALIAS_LIMIT', 'GRAPHQL_DEBUG_MODE', 'GRAPHQL_FIELD_SUGGESTIONS',
@@ -954,6 +957,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       sendResponse({ ok: true });
       break;
+
+    // Server technologies detected from response headers
+    case 'serverTechnologies': {
+      const pageUrl = message.url;
+      const existing = state.pageAnalysis.get(pageUrl);
+      if (existing) {
+        // Merge server techs into existing technologies, dedupe by name
+        const existingNames = new Set((existing.technologies || []).map(t => t.name));
+        for (const tech of (message.technologies || [])) {
+          if (!existingNames.has(tech.name)) {
+            existing.technologies = existing.technologies || [];
+            existing.technologies.push(tech);
+            existingNames.add(tech.name);
+          }
+        }
+      } else {
+        // No pageAnalysis yet — create a minimal entry
+        state.pageAnalysis.set(pageUrl, {
+          url: pageUrl,
+          technologies: message.technologies || [],
+          frameworks: [],
+        });
+      }
+      sendResponse({ ok: true });
+      break;
+    }
 
     // Security score from header analysis
     case 'securityScore':

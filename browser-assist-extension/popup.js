@@ -9,6 +9,7 @@
 let currentState = null;
 let capturedRequests = [];
 let isExtensionLicensed = false;
+let currentEditorRequest = null;
 
 function _t(event, props) {
   try { chrome.runtime.sendMessage({ type: 'trackEvent', event, props }); } catch {}
@@ -490,6 +491,12 @@ function getSeverity(type) {
     'POSTMESSAGE_LISTENER': 'medium',
     'POSTMESSAGE_WILDCARD': 'medium',
     'POSTMESSAGE_SENT': 'info',
+    // Route probing
+    'UNAUTH_ENDPOINT': 'high',
+    'ENDPOINT_SERVER_ERROR': 'info',
+    'ROUTE_PROBE_SUMMARY': 'high',
+    'JS_API_BASE': 'info',
+    'JS_ENV_CONFIG': 'info',
     // GraphQL findings
     'GRAPHQL_INTROSPECTION_ENABLED': 'medium',
     'GRAPHQL_SQL_INJECTION': 'critical',
@@ -759,16 +766,44 @@ function loadEndpoints() {
 function loadRequests() {
   chrome.runtime.sendMessage({ type: 'getCapturedRequests' }, (requests) => {
     capturedRequests = requests || [];
-    const container = document.getElementById('requestsList');
-    if (!container) return;
+    renderFilteredRequests();
+  });
+}
 
-    if (capturedRequests.length === 0) {
-      container.innerHTML = '<div class="empty-state">No requests captured yet. Browse the site to capture traffic.</div>';
-      return;
-    }
+function renderFilteredRequests() {
+  const container = document.getElementById('requestsList');
+  if (!container) return;
 
-    container.innerHTML = capturedRequests.slice(-50).reverse().map((r, i) => `
-      <div class="item request-item" data-index="${capturedRequests.length - 1 - i}">
+  const textFilter = (document.getElementById('requestFilter')?.value || '').toLowerCase();
+  const statusFilter = document.getElementById('requestStatusFilter')?.value || '';
+
+  let filtered = capturedRequests;
+
+  // Apply status filter
+  if (statusFilter) {
+    const prefix = parseInt(statusFilter[0], 10);
+    filtered = filtered.filter(r => r.status && Math.floor(r.status / 100) === prefix);
+  }
+
+  // Apply text filter (match URL, method, or status)
+  if (textFilter) {
+    filtered = filtered.filter(r =>
+      (r.url && r.url.toLowerCase().includes(textFilter)) ||
+      (r.method && r.method.toLowerCase().includes(textFilter)) ||
+      (r.status && String(r.status).includes(textFilter))
+    );
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="empty-state">${capturedRequests.length === 0 ? 'No requests captured yet. Browse the site to capture traffic.' : 'No requests match filter.'}</div>`;
+    return;
+  }
+
+  // Map filtered items back to original indices
+  container.innerHTML = filtered.slice(-50).reverse().map(r => {
+    const origIndex = capturedRequests.indexOf(r);
+    return `
+      <div class="item request-item" data-index="${origIndex}">
         <div class="item-header">
           <span class="item-badge ${escapeHtml(r.method?.toLowerCase() || 'get')}">${escapeHtml(r.method || 'GET')}</span>
           <span class="item-type">${escapeHtml(String(r.status || 'Pending'))}</span>
@@ -776,17 +811,20 @@ function loadRequests() {
         <div class="item-url">${escapeHtml(r.url)}</div>
         <div class="item-detail">${r.duration ? escapeHtml(String(r.duration)) + 'ms' : ''}</div>
       </div>
-    `).join('');
+    `;
+  }).join('');
 
-    // Add click handlers via event delegation
-    container.querySelectorAll('.request-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const index = parseInt(item.dataset.index, 10);
-        loadRequestToEditor(index);
-      });
+  container.querySelectorAll('.request-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const index = parseInt(item.dataset.index, 10);
+      loadRequestToEditor(index);
     });
   });
 }
+
+// Wire up filter inputs
+document.getElementById('requestFilter')?.addEventListener('input', renderFilteredRequests);
+document.getElementById('requestStatusFilter')?.addEventListener('change', renderFilteredRequests);
 
 // Load endpoint into editor
 window.loadEndpointToEditor = function(method, url) {
@@ -821,6 +859,9 @@ function loadRequestToEditor(index) {
   document.getElementById('editorUrl').value = req.url || '';
   document.getElementById('editorHeaders').value = JSON.stringify(req.headers || {}, null, 2);
   document.getElementById('editorBody').value = req.body || '';
+
+  // Track current request for View Source/Response buttons
+  currentEditorRequest = req;
 
   // Show captured response if available
   const responseViewer = document.getElementById('responseViewer');
@@ -1214,6 +1255,57 @@ document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
   });
 });
 
+// Probe Routes — extract API bases + routes from JS, test for unauth access
+document.getElementById('probeRoutesBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_probe_routes');
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+
+    const btn = document.getElementById('probeRoutesBtn');
+    const origText = btn.innerHTML;
+    btn.innerHTML = '<i data-lucide="loader"></i> Probing...';
+    btn.disabled = true;
+    lucide.createIcons();
+
+    alert('Probing JS routes for unauthenticated access...\nThis scans all JS files for API bases + routes, then tests each endpoint.\nCheck console for progress.');
+
+    // Dispatch custom event to content script which has access to probeRoutes()
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: () => {
+        return new Promise(resolve => {
+          document.addEventListener('__lonkero_probe_results__', (e) => {
+            resolve(e.detail);
+          }, { once: true });
+          document.dispatchEvent(new CustomEvent('__lonkero_probe_routes__'));
+          // Timeout after 120s
+          setTimeout(() => resolve({ timeout: true, total: 0, accessible: 0, authRequired: 0, errors: 0 }), 120000);
+        });
+      }
+    }).then((results) => {
+      btn.innerHTML = origText;
+      btn.disabled = false;
+      lucide.createIcons();
+      const r = results?.[0]?.result;
+      if (r && !r.timeout && !r.error) {
+        alert(`Route Probe Complete!\n\n${r.total} endpoints tested:\n- ${r.accessible} accessible without auth\n- ${r.authRequired} require auth\n- ${r.errors} errors\n\nCheck Findings tab for details.`);
+      } else if (r?.error) {
+        alert('Route probe error: ' + r.error);
+      } else {
+        alert('Route probe completed. Check Findings tab for results.');
+      }
+      setTimeout(refreshState, 500);
+    }).catch(err => {
+      btn.innerHTML = origText;
+      btn.disabled = false;
+      lucide.createIcons();
+      console.error('Route probe error:', err);
+      alert('Route probe error: ' + err.message);
+    });
+  });
+});
+
 // Security Headers Grade - click to show details
 document.getElementById('gradeBox')?.addEventListener('click', () => {
   const gradeBox = document.getElementById('gradeBox');
@@ -1234,16 +1326,19 @@ document.getElementById('gradeBox')?.addEventListener('click', () => {
 
   const checks = data.checks || [];
   listEl.innerHTML = checks.map(c => {
-    const present = c.status === 'present' || c.status === 'set';
-    const color = present ? '#39ff14' : '#ff3939';
-    const icon = present ? 'check' : 'x';
+    const present = c.status === 'good' || c.status === 'present' || c.status === 'set';
+    const weak = c.status === 'weak' || c.status === 'bad';
+    const color = present ? '#39ff14' : weak ? '#ffaa00' : '#ff3939';
+    const icon = present ? 'check' : weak ? 'alert-triangle' : 'x';
+    const statusLabel = present ? 'Present' : weak ? (c.status === 'weak' ? 'Weak' : 'Bad') : 'Missing';
+    const scoreText = c.max ? ` (${c.score}/${c.max})` : '';
     const value = c.value ? ` — ${escapeHtml(String(c.value).substring(0, 80))}` : '';
     return `
       <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#0a0a0a; border:1px solid #222; border-radius:4px; border-left:3px solid ${color};">
         <i data-lucide="${icon}" style="width:14px; height:14px; color:${color}; flex-shrink:0;"></i>
         <div>
           <div style="color:#e0e0e0; font-size:11px; font-weight:600;">${escapeHtml(c.header)}</div>
-          <div style="color:#666; font-size:9px;">${present ? 'Present' : 'Missing'}${value}</div>
+          <div style="color:#666; font-size:9px;">${statusLabel}${scoreText}${value}</div>
         </div>
       </div>
     `;
@@ -1330,6 +1425,7 @@ document.getElementById('newRequestBtn')?.addEventListener('click', () => {
 
 document.getElementById('closeEditorBtn')?.addEventListener('click', () => {
   document.getElementById('requestEditor').classList.remove('active');
+  currentEditorRequest = null;
 });
 
 document.getElementById('sendRequestBtn')?.addEventListener('click', () => {
@@ -1470,41 +1566,22 @@ document.getElementById('htmlViewCopyBtn')?.addEventListener('click', () => {
   });
 });
 
-// View Source - gets the live DOM HTML
+// View Source - shows raw response body of the captured request
 document.getElementById('viewSourceBtn')?.addEventListener('click', () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (!tabs[0]) return;
-    chrome.scripting.executeScript({
-      target: { tabId: tabs[0].id },
-      func: () => document.documentElement.outerHTML,
-    }).then((results) => {
-      if (results && results[0]?.result) {
-        openHtmlViewer('<!DOCTYPE html>\n' + results[0].result, tabs[0].url, 'source');
-      }
-    }).catch(err => {
-      console.error('[Lonkero] View source error:', err);
-    });
-  });
+  if (currentEditorRequest && currentEditorRequest.responseBody) {
+    openHtmlViewer(currentEditorRequest.responseBody, currentEditorRequest.url, 'source');
+  }
 });
 
-// View Response - fetches the raw server response (before JS execution)
+// View Response - shows rendered response body of the captured request
 document.getElementById('viewResponseBtn')?.addEventListener('click', () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (!tabs[0]?.url) return;
-    const url = tabs[0].url;
-    // Fetch raw response from the server
-    fetch(url, {
-      credentials: 'omit',
-      headers: { 'Accept': 'text/html' },
-    })
-      .then(r => r.text())
-      .then(html => {
-        openHtmlViewer(html, url, 'response');
-      })
-      .catch(err => {
-        console.error('[Lonkero] View response error:', err);
-      });
-  });
+  if (currentEditorRequest && currentEditorRequest.responseBody) {
+    openHtmlViewer(currentEditorRequest.responseBody, currentEditorRequest.url, 'response');
+    // Auto-switch to rendered view
+    setTimeout(() => {
+      document.getElementById('htmlViewRenderBtn')?.click();
+    }, 50);
+  }
 });
 
 // ============================================================

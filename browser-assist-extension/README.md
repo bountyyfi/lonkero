@@ -10,7 +10,7 @@ Companion Chrome/Edge extension for the Lonkero security scanner. Works standalo
 
 [![Chrome](https://img.shields.io/badge/chrome-Manifest_V3-blue.svg)](https://developer.chrome.com/docs/extensions/mv3/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](../LICENSE)
-[![Version](https://img.shields.io/badge/version-3.6.0-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.9.0-green.svg)](https://github.com/bountyyfi/lonkero)
 
 **9 Scanners** | **Real-Time Detection** | **CLI Integration** | **License-Gated** | **Hardened**
 
@@ -67,20 +67,21 @@ Companion Chrome/Edge extension for the Lonkero security scanner. Works standalo
 │  • CMS: WordPress, Drupal, Shopify, Magento, Ghost              │
 │  • Frameworks: Next.js, Nuxt.js, React, Vue, Angular, Svelte    │
 │  • Cloud: AWS, Azure, GCP, Cloudflare, Vercel, Netlify          │
+│  • Servers: nginx, Apache, IIS, OpenResty, Caddy, Gunicorn      │
+│  • CDN: Cloudflare, Akamai, Fastly, CloudFront (from headers)   │
 │  • Analytics: Google Analytics, GTM, Hotjar, Segment            │
 ├─────────────────────────────────────────────────────────────────┤
 │  postMessage Enumeration                                         │
 │  • Hooks addEventListener('message') on all windows             │
 │  • Detects listeners WITHOUT origin validation (XSS vector)     │
 │  • Logs outgoing postMessage calls and target origins            │
-│  • Flags wildcard (*) targetOrigin as data exposure risk         │
 ├─────────────────────────────────────────────────────────────────┤
 │  Suspicious Comments Scanner                                     │
 │  • Scans HTML comments and inline JS comments                   │
 │  • 18 keywords: TODO, FIXME, HACK, BUG, XXX, password,         │
-│    credential, secret, api_key, token, debug, admin, root,      │
+│    credential, secret, api_key, token, debug, admin,            │
 │    hardcoded, temporary, workaround, insecure, vulnerability    │
-│  • Filters GTM/analytics/IE conditional comments                │
+│  • Filters GTM/analytics/IE/framework build comments            │
 ├─────────────────────────────────────────────────────────────────┤
 │  Additional Tools                                                │
 │  • Form Fuzzer — Context-aware payload injection                │
@@ -94,8 +95,14 @@ Companion Chrome/Edge extension for the Lonkero security scanner. Works standalo
 │  • Dynamic Script Scanning — MutationObserver catches lazy-     │
 │    loaded chunks (Next.js, Nuxt, SPA code splitting)            │
 │  • View Source / View Response — Raw and rendered HTML viewer    │
-│  • Secret Detection — Mapbox, reCAPTCHA, AWS, GCP, Stripe,     │
-│    Slack, GitHub tokens + Finnish HETU, Y-tunnus, IBAN, CC      │
+│  • Secret Detection — 50+ patterns: AWS, Azure, GCP, Stripe,   │
+│    Slack, GitHub, OpenAI, Anthropic, Cloudflare, Supabase,     │
+│    Vercel, DigitalOcean, Datadog, Sentry, Twilio, SendGrid,   │
+│    Mapbox, reCAPTCHA, Base64 Auth, Bearer tokens, JWTs,        │
+│    Finnish HETU, Y-tunnus, IBAN, CC                            │
+│  • SPA Catch-All Detection — Baseline fingerprinting prevents  │
+│    false positives on S3/SPA servers that return 200 for all   │
+│    paths (common with React, Next.js, Vue apps)                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -171,11 +178,11 @@ The extension has undergone multiple rounds of security review and hardening. Al
 
 Click the Lonkero icon in your browser toolbar to open the popup:
 
-- **Overview tab** — Security grade, tech detection, scan buttons, View Source/Response
-- **Findings tab** — View all detected vulnerabilities with severity filtering
-- **Secrets tab** — Exposed keys, tokens, credentials (separate from findings)
+- **Overview tab** — Security grade (clickable for header details), tech detection, scan buttons
+- **Findings tab** — Clickable vulnerabilities with severity filtering and detail view
+- **Secrets tab** — Clickable exposed keys/tokens with detail panel, severity badges, public token filtering
 - **Endpoints tab** — Discovered API endpoints, GraphQL, cloud storage
-- **Requests tab** — View intercepted requests, edit and replay
+- **Requests tab** — Captured requests with text/status filtering, edit and replay, View Source/Response
 - **Settings tab** — Configure scanning options and license key
 
 ### Console API
@@ -320,6 +327,22 @@ When connected:
 ---
 
 ## Version History
+
+### v3.9.0 — False Positive Reduction & UI Improvements
+- **SPA Catch-All Detection** — Baseline fingerprinting in `checkPathExists()` detects servers that return 200 + identical HTML for all paths (S3, CloudFront, Vercel, Netlify). Prevents mass false positives for SVN_EXPOSED, DATABASE_EXPOSED, BACKUP_ARCHIVE_EXPOSED, CLOUD_CREDENTIALS_EXPOSED, etc. on SPA/React/Next.js apps
+- **Server Technology Detection from Headers** — `Server`, `X-Powered-By`, and CDN-specific headers (CF-Ray, x-amz-*, x-vercel-*, x-served-by) now populate Detected Technologies alongside DOM-based detection. Supports nginx, Apache, IIS, Amazon S3/EC2/CloudFront, Cloudflare, Fastly, Akamai, Express.js, PHP, ASP.NET, Django, Flask, Laravel, and more
+- **50+ Secret Detection Patterns** — Added OpenAI, Anthropic, Azure (subscription, storage, SAS, AD), Cloudflare, Supabase, Vercel, DigitalOcean, Datadog, Sentry, PlanetScale, Linear, Notion, Airtable, Contentful, Postmark, Resend, Clerk, Auth0, MongoDB/PostgreSQL/Redis connections, Grafana, Vault, Terraform, Doppler, LaunchDarkly, Intercom, HubSpot, Atlassian, GitLab, Bitbucket, Telegram, Coinbase, Plaid, Pinecone, Pusher, Mixpanel, Amplitude, Segment, Mailgun, Braintree
+- **Base64 Auth Detection** — Basic Auth headers, btoa() credentials, X-API-Key, custom auth headers
+- **Clickable Secrets** — Secret items now open detail panel with Type, Value, Source, and JSON details. Public tokens (Mapbox, reCAPTCHA, GA, GTM) auto-filtered
+- **Clickable Security Headers Grade** — Grade box opens full detail panel showing each header check with score breakdown
+- **Request Filtering** — Text and status code (2xx/3xx/4xx/5xx) filters on Captured Requests tab
+- **Secrets Badge** — Yellow badge count on Secrets tab
+- **Tightened Validators** — Removed all length-only content validators (text.length > X). Replaced with content-specific patterns: magic bytes for archives, SQL syntax for databases, SVN/Mercurial/Bazaar format markers, IDE project markers, structured data formats
+- **Eval False Positive Filtering** — Third-party SDK allowlist (Exponea, Bloomreach, Hotjar, Clarity, Mouseflow, etc.) and benign property-check pattern detection
+- **Comment Scanner Improvements** — Filters protocol-relative URLs falsely matched as `//` comments, skips CRA/framework build comments (PUBLIC_URL, manifest.json), refined root keyword to only match security-relevant contexts
+- **Open Redirect False Positive Fix** — Benign host filtering (giosg, Intercom, Zendesk, etc.) and same-site URL parameter skip
+- **Removed POSTMESSAGE_WILDCARD** — Wildcard targetOrigin findings removed as too noisy (every analytics SDK triggers them)
+- **Security Headers Scoring Fix** — HTTP sites no longer get free HSTS points; corrected grade thresholds (A+ 90+, A 75+, B 60+, C 45+, D 25+, F <25)
 
 ### v3.7.0 — Passive Security Analysis
 - **CSP analysis with CDN bypass detection** — 15+ known bypass domains (jsdelivr, unpkg, cdnjs, raw.githubusercontent.com, etc.), directive-by-directive parsing

@@ -621,6 +621,7 @@
         scanForSecrets(content, src);
         scanForCloudStorage(content, src);
         scanForGraphQL(content, src);
+        extractJSRoutes(content, src);
       })
       .catch(() => {});
   }
@@ -628,6 +629,442 @@
   function scanExternalScripts() {
     const scripts = document.querySelectorAll('script[src]');
     scripts.forEach(script => scanSingleScript(script.src));
+  }
+
+  // ============================================================
+  // JS ROUTE & API ENDPOINT EXTRACTION
+  // ============================================================
+
+  const discoveredAPIBases = new Set();
+  const discoveredJSRoutes = new Set();
+  let discoveredNextBuildId = null;
+
+  function extractJSRoutes(content, source) {
+    // 1. Extract API base URLs
+    const baseUrlPatterns = [
+      /(?:apiBaseUrl|apiBase|baseURL|baseUrl|API_URL|API_BASE|API_BASE_URL|apiUrl|serverUrl|backendUrl|apiEndpoint|apiHost|serviceUrl|API_ENDPOINT|API_HOST|SERVICE_URL|BACKEND_URL|SERVER_URL|apiRoot|apiPrefix)["'\s:=]+["'](https?:\/\/[^"'\s,;]+)/gi,
+      /(?:api|backend|server|service)(?:_|-)?(?:url|base|host|endpoint|root)["'\s:=]+["'](https?:\/\/[^"'\s,;]+)/gi,
+    ];
+
+    for (const pattern of baseUrlPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        const url = match[1].replace(/\/+$/, '');
+        if (url.length > 8 && url.length < 200 && !isThirdParty(url)) {
+          discoveredAPIBases.add(url);
+        }
+      }
+    }
+
+    // 2. Extract route/path definitions — objects with string values like "/path"
+    const routePatterns = [
+      /["']?([\w]+)["']?\s*[:=]\s*["'](\/[a-zA-Z][a-zA-Z0-9/_:-]{1,80})["']/g,
+    ];
+
+    for (const pattern of routePatterns) {
+      for (const match of content.matchAll(pattern)) {
+        const key = match[1];
+        const path = match[2];
+        // Skip obvious non-route keys (HTML attributes, assets)
+        if (/^(src|href|class|style|id|type|rel|charset|lang|xmlns|content|name|alt|title|action|method|encoding|target|value|placeholder|pattern|icon|image|img|logo|font|css|svg|data|d|viewBox|fill|stroke)$/i.test(key)) continue;
+        if (/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|ico|map|json|xml|txt|html|htm)$/i.test(path)) continue;
+        // Skip webpack/node internals but KEEP _next/data and api routes
+        if (/^\/webpack|^\/node_modules/.test(path)) continue;
+        // Skip _next/static (build assets) but keep _next/data (API-like)
+        if (/^\/_next\/static/.test(path)) continue;
+        discoveredJSRoutes.add(path);
+      }
+    }
+
+    // 3. Extract fetch/axios/request URL string literals
+    const fetchPatterns = [
+      /(?:fetch|axios\.(?:get|post|put|delete|patch|head|options)|\.request|\.get|\.post|\.put|\.delete)\s*\(\s*["'`](\/[^"'`\s]{1,200})/gi,
+      /(?:fetch|axios\.(?:get|post|put|delete|patch)|\.request)\s*\(\s*["'`](https?:\/\/[^"'`\s]{1,200})/gi,
+    ];
+
+    for (const pattern of fetchPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        const url = match[1];
+        if (url.startsWith('/')) {
+          const clean = url.split('?')[0].split('#')[0];
+          if (clean.length > 1 && !/\.(js|css|png|jpg|svg|woff|ico|map)$/i.test(clean)) {
+            discoveredJSRoutes.add(clean);
+          }
+        } else if (!isThirdParty(url)) {
+          discoveredAPIBases.add(url.split('?')[0].replace(/\/+$/, ''));
+        }
+      }
+    }
+
+    // 4. Next.js specific: extract from __NEXT_DATA__ and route manifests
+    // __NEXT_DATA__ contains buildId and page routes
+    const nextDataMatch = content.match(/__NEXT_DATA__\s*=\s*(\{[\s\S]{10,5000}?\})\s*[;<]/);
+    if (nextDataMatch) {
+      try {
+        // Try to extract buildId and page routes
+        const buildIdMatch = nextDataMatch[1].match(/"buildId"\s*:\s*"([^"]+)"/);
+        if (buildIdMatch) {
+          discoveredNextBuildId = buildIdMatch[1];
+        }
+        // Extract page path
+        const pageMatch = nextDataMatch[1].match(/"page"\s*:\s*"([^"]+)"/);
+        if (pageMatch && pageMatch[1] !== '/_error') {
+          discoveredJSRoutes.add(pageMatch[1]);
+        }
+      } catch {}
+    }
+
+    // Next.js route manifest patterns
+    const nextRoutePatterns = [
+      // sortedPages / pages array
+      /(?:sortedPages|pages)\s*[:=]\s*\[([\s\S]{5,2000}?)\]/g,
+      // Route definitions in chunks: {page: "/path", ...}
+      /page\s*:\s*["'](\/[a-zA-Z][^"']{1,100})["']/g,
+      // Dynamic routes: /users/[id], /posts/[slug]
+      /["'](\/(?:[a-zA-Z][\w-]*\/)*\[[a-zA-Z]\w*\](?:\/[\w\[\]-]*)*)["']/g,
+    ];
+
+    for (const pattern of nextRoutePatterns) {
+      for (const match of content.matchAll(pattern)) {
+        if (pattern.source.includes('sortedPages|pages')) {
+          // Parse array of page paths
+          const paths = match[1].match(/["'](\/[^"']+)["']/g);
+          if (paths) {
+            for (const p of paths) {
+              const clean = p.replace(/["']/g, '');
+              if (clean !== '/_error' && clean !== '/_app' && clean !== '/_document') {
+                discoveredJSRoutes.add(clean);
+              }
+            }
+          }
+        } else {
+          const path = match[1];
+          if (path !== '/_error' && path !== '/_app' && path !== '/_document') {
+            discoveredJSRoutes.add(path);
+          }
+        }
+      }
+    }
+
+    // Next.js API routes
+    const nextApiPatterns = [
+      /["'](\/api\/[a-zA-Z][\w\/-]{0,80})["']/g,
+    ];
+    for (const pattern of nextApiPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        discoveredJSRoutes.add(match[1]);
+      }
+    }
+
+    // 5. React Router / React patterns
+    const reactRouterPatterns = [
+      // <Route path="/dashboard" ...>
+      /path\s*[:=]\s*["'](\/[a-zA-Z][\w\/-]{0,80})["']/g,
+      // createBrowserRouter([{path: "/...", ...}])
+      /(?:createBrowserRouter|createHashRouter|createMemoryRouter)\s*\(\s*\[/g,
+      // Navigate to="/..."
+      /(?:to|navigate|push|replace)\s*[:=(]\s*["'](\/[a-zA-Z][\w\/-]{0,80})["']/g,
+      // useNavigate()("/path")
+      /navigate\s*\(\s*["'](\/[a-zA-Z][\w\/-]{0,80})["']/g,
+    ];
+
+    for (const pattern of reactRouterPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        if (match[1]) {
+          const path = match[1].split('?')[0];
+          if (path.length > 1 && !/\.(js|css|png|svg)$/i.test(path)) {
+            discoveredJSRoutes.add(path);
+          }
+        }
+      }
+    }
+
+    // 6. Vue Router patterns
+    const vueRouterPatterns = [
+      // { path: '/dashboard', component: ... }
+      /path\s*:\s*["'](\/[a-zA-Z][\w\/:*-]{0,80})["']/g,
+      // router.push('/path')
+      /router\.(?:push|replace)\s*\(\s*["'](\/[a-zA-Z][\w\/-]{0,80})["']/g,
+      // $router.push({path: '/...'})
+      /path\s*:\s*["'](\/[a-zA-Z][\w\/-]{0,80})["']/g,
+    ];
+
+    for (const pattern of vueRouterPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        const path = match[1].split('?')[0];
+        // Convert Vue/Express style params to test format: /users/:id -> /users/1
+        if (path.length > 1 && !/\.(js|css|png|svg)$/i.test(path)) {
+          discoveredJSRoutes.add(path);
+          // Also add version with params replaced for testing
+          if (path.includes(':')) {
+            discoveredJSRoutes.add(path.replace(/:[a-zA-Z]\w*/g, '1'));
+          }
+        }
+      }
+    }
+
+    // 7. Angular route patterns
+    const angularPatterns = [
+      // { path: 'dashboard', component: ... } (Angular uses no leading /)
+      /path\s*:\s*["']([a-zA-Z][\w\/-]{0,80})["']\s*,\s*(?:component|loadComponent|loadChildren|redirectTo)/g,
+    ];
+
+    for (const pattern of angularPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        const path = '/' + match[1];
+        if (path.length > 1) {
+          discoveredJSRoutes.add(path);
+        }
+      }
+    }
+
+    // 8. Generic SPA patterns: href/link to internal routes
+    const hrefPatterns = [
+      // href="/admin" or href="/dashboard/users"
+      /href\s*[:=]\s*["'](\/[a-zA-Z][\w\/-]{1,80})["']/g,
+      // Link to="/path"
+      /to\s*[:=]\s*["'](\/[a-zA-Z][\w\/-]{1,80})["']/g,
+    ];
+
+    for (const pattern of hrefPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        const path = match[1];
+        if (!/\.(js|css|png|jpg|svg|woff|ico|map|json)$/i.test(path) && !/^\/webpack|^\/node_modules/.test(path)) {
+          discoveredJSRoutes.add(path);
+        }
+      }
+    }
+
+    // 9. Extract environment config objects
+    const envConfigPattern = /environment\s*[:=]\s*["'](\w+)["']/gi;
+    for (const match of content.matchAll(envConfigPattern)) {
+      const env = match[1];
+      if (/prod|staging|test|dev|qa|uat/i.test(env)) {
+        reportFinding('JS_ENV_CONFIG', {
+          severity: 'info',
+          description: `Environment configuration detected: "${env}"`,
+          source: source,
+          url: location.href,
+        });
+      }
+    }
+  }
+
+  // Probe discovered routes for unauthenticated access
+  async function probeRoutes() {
+    console.log('[Lonkero] Probing JS routes for unauthenticated access...');
+
+    // First, scan all scripts to collect routes
+    const scripts = document.querySelectorAll('script[src]');
+    const fetchPromises = [];
+    for (const script of scripts) {
+      const src = script.src;
+      if (!src || !src.startsWith(location.origin) || scannedScriptUrls.has(src)) continue;
+      scannedScriptUrls.add(src);
+      fetchPromises.push(
+        fetch(src).then(r => r.text()).then(content => {
+          scanForSecrets(content, src);
+          scanForCloudStorage(content, src);
+          scanForGraphQL(content, src);
+          extractJSRoutes(content, src);
+        }).catch(() => {})
+      );
+    }
+
+    // Also scan inline scripts
+    const inlineScripts = document.querySelectorAll('script:not([src])');
+    for (const script of inlineScripts) {
+      const content = script.textContent || '';
+      if (content.length > 20) {
+        extractJSRoutes(content, 'inline-script');
+      }
+    }
+
+    // Also scan the page HTML itself for hardcoded configs
+    extractJSRoutes(document.documentElement.outerHTML, 'page-html');
+
+    await Promise.allSettled(fetchPromises);
+
+    // Try to extract Next.js buildId from __NEXT_DATA__ if not found in JS
+    if (!discoveredNextBuildId) {
+      const nextDataEl = document.getElementById('__NEXT_DATA__');
+      if (nextDataEl) {
+        try {
+          const nd = JSON.parse(nextDataEl.textContent);
+          if (nd.buildId) discoveredNextBuildId = nd.buildId;
+          // Also extract page routes from __NEXT_DATA__
+          if (nd.page && nd.page !== '/_error') discoveredJSRoutes.add(nd.page);
+          // Extract from runtimeConfig if present
+          if (nd.runtimeConfig) {
+            const rc = JSON.stringify(nd.runtimeConfig);
+            extractJSRoutes(rc, '__NEXT_DATA__.runtimeConfig');
+          }
+        } catch {}
+      }
+    }
+
+    // Build full URLs to probe
+    const urlsToProbe = new Set();
+    const origin = location.origin;
+
+    // Routes as paths on current origin
+    for (const route of discoveredJSRoutes) {
+      // Replace dynamic params for testing: [id] -> 1, [slug] -> test, :id -> 1
+      let testPath = route
+        .replace(/\[\.\.\.[\w]+\]/g, 'test')   // [...slug] catch-all
+        .replace(/\[\[\.\.\.[\w]+\]\]/g, '')    // [[...slug]] optional catch-all
+        .replace(/\[(\w+)\]/g, '1')             // [id] -> 1
+        .replace(/:([a-zA-Z]\w*)/g, '1');       // :id -> 1
+
+      urlsToProbe.add(origin + testPath);
+
+      // Next.js _next/data routes: fetch page data as JSON
+      if (discoveredNextBuildId && !route.startsWith('/api/') && !route.startsWith('/_')) {
+        const dataPath = testPath === '/' ? '/index' : testPath;
+        urlsToProbe.add(origin + '/_next/data/' + discoveredNextBuildId + dataPath + '.json');
+      }
+    }
+
+    // Routes combined with discovered API bases
+    for (const base of discoveredAPIBases) {
+      // Add the base itself
+      urlsToProbe.add(base);
+      // Combine base + all routes (not just /api)
+      for (const route of discoveredJSRoutes) {
+        let testPath = route
+          .replace(/\[\.\.\.[\w]+\]/g, 'test')
+          .replace(/\[\[\.\.\.[\w]+\]\]/g, '')
+          .replace(/\[(\w+)\]/g, '1')
+          .replace(/:([a-zA-Z]\w*)/g, '1');
+        urlsToProbe.add(base + testPath);
+      }
+    }
+
+    // Add common API paths that might exist even without being in JS
+    const commonApiPaths = [
+      '/api', '/api/v1', '/api/v2', '/api/health', '/api/status', '/api/config',
+      '/api/user', '/api/users', '/api/me', '/api/profile', '/api/auth',
+      '/api/admin', '/api/settings', '/api/graphql',
+      '/health', '/healthz', '/status', '/version', '/info',
+      '/swagger.json', '/openapi.json', '/api-docs',
+    ];
+    for (const p of commonApiPaths) {
+      urlsToProbe.add(origin + p);
+      for (const base of discoveredAPIBases) {
+        urlsToProbe.add(base + p);
+      }
+    }
+
+    console.log(`[Lonkero] Found ${discoveredAPIBases.size} API bases, ${discoveredJSRoutes.size} routes, ${urlsToProbe.size} URLs to probe (Next.js buildId: ${discoveredNextBuildId || 'none'})`);
+
+    // Report discovered API bases
+    for (const base of discoveredAPIBases) {
+      reportFinding('JS_API_BASE', {
+        severity: 'info',
+        description: `API base URL discovered in JavaScript: ${base}`,
+        url: location.href,
+        apiBase: base,
+      });
+    }
+
+    // Probe each URL (with rate limiting)
+    const results = { accessible: 0, authRequired: 0, errors: 0, total: urlsToProbe.size };
+    const probed = [];
+    let i = 0;
+
+    for (const url of urlsToProbe) {
+      i++;
+      // Rate limit: small delay between requests
+      if (i > 1) await new Promise(r => setTimeout(r, 100));
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+
+        const resp = await fetch(url, {
+          method: 'GET',
+          credentials: 'omit', // No cookies = unauthenticated
+          redirect: 'manual',  // Don't follow redirects
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json, text/html, */*' },
+        });
+        clearTimeout(timeout);
+
+        const status = resp.status;
+        const contentType = resp.headers.get('content-type') || '';
+        const contentLength = parseInt(resp.headers.get('content-length') || '0', 10);
+
+        // Read a small preview of the body
+        let bodyPreview = '';
+        try {
+          const text = await resp.text();
+          bodyPreview = text.substring(0, 500);
+        } catch {}
+
+        // Skip obvious non-results
+        const isSoft404 = /404|not found|page not found|does not exist/i.test(bodyPreview);
+        const isLoginRedirect = status === 0 || (status >= 300 && status < 400);
+        const isAuthRequired = status === 401 || status === 403;
+
+        if (isAuthRequired) {
+          results.authRequired++;
+        } else if (status >= 200 && status < 300 && !isSoft404 && bodyPreview.length > 50) {
+          results.accessible++;
+
+          // Determine what kind of data leaked
+          const hasJSON = contentType.includes('json') || /^\s*[\[{]/.test(bodyPreview);
+          const hasHTML = contentType.includes('html') && bodyPreview.length > 200;
+          const hasData = hasJSON || hasHTML;
+
+          const severity = hasJSON ? 'high' : hasHTML ? 'medium' : 'low';
+
+          reportFinding('UNAUTH_ENDPOINT', {
+            severity,
+            description: `Endpoint accessible without authentication: ${url}`,
+            url: url,
+            status,
+            contentType,
+            bodyPreview: bodyPreview.substring(0, 300),
+            hasJSON,
+            hasData,
+            source: 'js-route-probe',
+          });
+
+          probed.push({ url, status, type: contentType, size: bodyPreview.length });
+
+          // Also register as discovered endpoint
+          discoverEndpoint(url, 'GET', 'route-probe');
+        } else if (status >= 500) {
+          // Server errors are interesting too
+          reportFinding('ENDPOINT_SERVER_ERROR', {
+            severity: 'info',
+            description: `Server error on probed endpoint: ${url} (${status})`,
+            url: url,
+            status,
+            bodyPreview: bodyPreview.substring(0, 200),
+            source: 'js-route-probe',
+          });
+        }
+      } catch {
+        results.errors++;
+      }
+    }
+
+    // Summary finding
+    if (results.accessible > 0) {
+      reportFinding('ROUTE_PROBE_SUMMARY', {
+        severity: 'high',
+        description: `Route probe: ${results.accessible} endpoints accessible without auth out of ${results.total} tested`,
+        url: location.href,
+        accessible: results.accessible,
+        authRequired: results.authRequired,
+        errors: results.errors,
+        total: results.total,
+        accessibleEndpoints: probed,
+      });
+    }
+
+    console.log(`[Lonkero] Route probe complete:`, results);
+    return results;
   }
 
   // ============================================================
@@ -1208,8 +1645,8 @@
     } else if (location.protocol === 'https:') {
       checks.push({ header: 'HSTS', score: 0, max: 20, status: 'missing' });
     } else {
-      score += 20; // N/A for HTTP
-      checks.push({ header: 'HSTS', score: 20, max: 20, status: 'na' });
+      // HTTP site — no HSTS possible, penalize for not using HTTPS
+      checks.push({ header: 'HSTS', score: 0, max: 20, status: 'missing', value: 'Site served over HTTP' });
     }
     // X-Content-Type-Options (max 10)
     if (xcto?.toLowerCase() === 'nosniff') { score += 10; checks.push({ header: 'X-Content-Type-Options', score: 10, max: 10, status: 'good' }); }
@@ -1232,10 +1669,10 @@
 
     let grade;
     if (score >= 90) grade = 'A+';
-    else if (score >= 80) grade = 'A';
-    else if (score >= 65) grade = 'B';
-    else if (score >= 50) grade = 'C';
-    else if (score >= 35) grade = 'D';
+    else if (score >= 75) grade = 'A';
+    else if (score >= 60) grade = 'B';
+    else if (score >= 45) grade = 'C';
+    else if (score >= 25) grade = 'D';
     else grade = 'F';
 
     return { score, grade, checks };
@@ -1373,6 +1810,100 @@
       if (chromeLogger) {
         reportFinding('SERVER_DISCLOSURE', { header: 'X-ChromeLogger-Data', value: '(base64 data)', severity: 'high',
           description: 'ChromeLogger debug data exposed - may contain SQL queries, variables', url: location.href });
+      }
+
+      // === Detect server/infrastructure technologies from headers ===
+      const serverTechs = [];
+      const serverHeader = (headers['server'] || '').toLowerCase();
+      const poweredByHeader = (headers['x-powered-by'] || '').toLowerCase();
+
+      // Server software
+      const serverMap = [
+        { pattern: /amazons3/i, name: 'Amazon S3', category: 'cloud' },
+        { pattern: /amazonec2/i, name: 'Amazon EC2', category: 'cloud' },
+        { pattern: /awselb/i, name: 'AWS ELB', category: 'cloud' },
+        { pattern: /cloudfront/i, name: 'Amazon CloudFront', category: 'cdn' },
+        { pattern: /nginx/i, name: 'nginx', category: 'server' },
+        { pattern: /apache/i, name: 'Apache', category: 'server' },
+        { pattern: /microsoft-iis/i, name: 'IIS', category: 'server' },
+        { pattern: /openresty/i, name: 'OpenResty', category: 'server' },
+        { pattern: /litespeed/i, name: 'LiteSpeed', category: 'server' },
+        { pattern: /caddy/i, name: 'Caddy', category: 'server' },
+        { pattern: /gunicorn/i, name: 'Gunicorn', category: 'server' },
+        { pattern: /uvicorn/i, name: 'Uvicorn', category: 'server' },
+        { pattern: /cowboy/i, name: 'Cowboy (Erlang)', category: 'server' },
+        { pattern: /tengine/i, name: 'Tengine', category: 'server' },
+        { pattern: /envoy/i, name: 'Envoy', category: 'server' },
+        { pattern: /cloudflare/i, name: 'Cloudflare', category: 'cdn' },
+        { pattern: /akamai/i, name: 'Akamai', category: 'cdn' },
+        { pattern: /fastly/i, name: 'Fastly', category: 'cdn' },
+        { pattern: /varnish/i, name: 'Varnish', category: 'cache' },
+      ];
+
+      const serverCombined = serverHeader + ' ' + poweredByHeader;
+      for (const m of serverMap) {
+        if (m.pattern.test(serverCombined)) {
+          const raw = (headers['server'] || headers['x-powered-by'] || '').trim();
+          const version = raw.match(/[\d.]+/)?.[0] || null;
+          serverTechs.push({ name: m.name, category: m.category, evidence: `Header: ${raw}`, version });
+        }
+      }
+
+      // X-Powered-By specific technologies
+      const poweredByMap = [
+        { pattern: /express/i, name: 'Express.js', category: 'framework' },
+        { pattern: /php/i, name: 'PHP', category: 'framework' },
+        { pattern: /asp\.net/i, name: 'ASP.NET', category: 'framework' },
+        { pattern: /servlet/i, name: 'Java Servlet', category: 'framework' },
+        { pattern: /django/i, name: 'Django', category: 'framework' },
+        { pattern: /flask/i, name: 'Flask', category: 'framework' },
+        { pattern: /laravel/i, name: 'Laravel', category: 'framework' },
+        { pattern: /next\.js/i, name: 'Next.js', category: 'framework' },
+        { pattern: /phusion|passenger/i, name: 'Phusion Passenger', category: 'server' },
+      ];
+
+      for (const m of poweredByMap) {
+        if (m.pattern.test(poweredByHeader)) {
+          const version = poweredByHeader.match(/[\d.]+/)?.[0] || null;
+          serverTechs.push({ name: m.name, category: m.category, evidence: `X-Powered-By: ${headers['x-powered-by']}`, version });
+        }
+      }
+
+      // CDN-specific headers
+      if (headers['cf-ray'] || headers['cf-cache-status']) {
+        if (!serverTechs.find(t => t.name === 'Cloudflare'))
+          serverTechs.push({ name: 'Cloudflare', category: 'cdn', evidence: 'CF-Ray header' });
+      }
+      if (headers['x-amz-cf-id'] || headers['x-amz-request-id']) {
+        if (!serverTechs.find(t => t.name === 'Amazon CloudFront') && !serverTechs.find(t => t.name === 'Amazon S3'))
+          serverTechs.push({ name: 'AWS', category: 'cloud', evidence: 'x-amz headers' });
+      }
+      if (headers['x-vercel-id'] || headers['x-vercel-cache']) {
+        if (!serverTechs.find(t => t.name === 'Vercel'))
+          serverTechs.push({ name: 'Vercel', category: 'cloud', evidence: 'x-vercel header' });
+      }
+      if (headers['x-served-by']?.includes('cache-')) {
+        if (!serverTechs.find(t => t.name === 'Fastly'))
+          serverTechs.push({ name: 'Fastly', category: 'cdn', evidence: 'x-served-by cache header' });
+      }
+      if (headers['x-netlify-request-id'] || headers['x-nf-request-id']) {
+        if (!serverTechs.find(t => t.name === 'Netlify'))
+          serverTechs.push({ name: 'Netlify', category: 'cloud', evidence: 'x-netlify header' });
+      }
+      if (headers['fly-request-id']) {
+        serverTechs.push({ name: 'Fly.io', category: 'cloud', evidence: 'fly-request-id header' });
+      }
+      if (headers['x-railway-request-id']) {
+        serverTechs.push({ name: 'Railway', category: 'cloud', evidence: 'x-railway header' });
+      }
+
+      // Send server technologies to merge with existing tech list
+      if (serverTechs.length > 0) {
+        safeSendMessage({
+          type: 'serverTechnologies',
+          technologies: serverTechs,
+          url: location.href,
+        });
       }
 
       // === Security Score ===
@@ -2172,7 +2703,7 @@
       { pattern: /\btoken/i, label: 'token reference' },
       { pattern: /\bdebug/i, label: 'debug reference' },
       { pattern: /\badmin/i, label: 'admin reference' },
-      { pattern: /\broot\b/i, label: 'root reference' },
+      { pattern: /\broot\s*password\b|\broot\s*access\b|\broot\s*login\b|\bsu\s+root\b/i, label: 'root access reference' },
       { pattern: /\bhardcoded/i, label: 'hardcoded reference' },
       { pattern: /\btemporary\b/i, label: 'temporary reference' },
       { pattern: /\bworkaround\b/i, label: 'workaround reference' },
@@ -2188,8 +2719,8 @@
     while ((node = walker.nextNode())) {
       const text = node.textContent.trim();
       if (!text || text.length < 4) continue;
-      // Skip conditional comments (IE), common CMS/GTM markers
-      if (/^\[if |^google|^gtm|^fb-|^ko /.test(text)) continue;
+      // Skip conditional comments (IE), CMS/GTM markers, and framework build comments
+      if (/^\[if |^google|^gtm|^fb-|^ko |public folder|PUBLIC_URL|manifest\.json|favicon/i.test(text)) continue;
       for (const { pattern, label } of suspiciousPatterns) {
         if (pattern.test(text)) {
           found.push({
@@ -2426,6 +2957,12 @@
     scanInlineScripts();
     scanExternalScripts();
     return { success: true };
+  }
+
+  async function runRouteProbe() {
+    console.log('[Lonkero] Running JS route probe...');
+    const results = await probeRoutes();
+    return results;
   }
 
   // Scan functions are called internally — no need to expose on window
@@ -2724,6 +3261,16 @@
       }
     }).observe(document, { subtree: true, childList: true });
   }
+
+  // Listen for commands from popup via custom events
+  document.addEventListener('__lonkero_probe_routes__', async () => {
+    try {
+      const results = await probeRoutes();
+      document.dispatchEvent(new CustomEvent('__lonkero_probe_results__', { detail: results }));
+    } catch (e) {
+      document.dispatchEvent(new CustomEvent('__lonkero_probe_results__', { detail: { error: e.message } }));
+    }
+  });
 
   startWithLicenseCheck();
 
