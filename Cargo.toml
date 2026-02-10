@@ -48,7 +48,7 @@ url = "2.5"
 urlencoding = "2.1"
 
 # Regex
-regex = "1.10"
+regex = "1.12"
 
 # Logging & Tracing
 tracing = "0.1"
