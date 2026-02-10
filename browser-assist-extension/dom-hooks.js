@@ -106,7 +106,14 @@
 
     // Skip simple patterns (only compute stripped if we passed SDK check)
     const stripped = preview.replace(/\s/g, '');
-    const benignPattern = /^\(function\(\)\{return\s*(window\.\w+\?|Math\.|"|\d|sessionStorage|localStorage)/.test(stripped)
+
+    // Fast path: whitespace-only evals (Google ad quality, loader stubs)
+    if (stripped.length < 10) {
+      return origEval.apply(this, arguments);
+    }
+
+    const benignPattern = /^\(function\(\)\{return\s*(window\.\w+\?|Math\.|"|\d|sessionStorage|localStorage|typeof\s)/.test(stripped)
+      || /^\(function\(\)\{return\s*typeof\s+window\.\w+/.test(stripped)
       || /^\(function\(\)\{(var\s+\w+=)?.*Math\.(random|floor|ceil|round|abs)\b/.test(stripped)
       || /classList\.contains|matchMedia|prefers-color-scheme|getComputedStyle|getBoundingClientRect/.test(stripped)
       || /sessionStorage\.getItem|localStorage\.getItem/.test(stripped)
