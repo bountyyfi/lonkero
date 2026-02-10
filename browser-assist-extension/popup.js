@@ -437,6 +437,8 @@ function getSeverity(type) {
     'XSS': 'critical',
     // Framework scanner
     'NEXTJS_MIDDLEWARE_BYPASS': 'critical',
+    'NEXTJS_SERVER_ACTION_CSRF': 'critical',
+    'NEXTJS_BOUND_ARG_FORGERY': 'critical',
     'NEXTJS_DATA_EXPOSURE': 'high',
     'NEXTJS_IMAGE_SSRF': 'high',
     'SPRING_ACTUATOR_EXPOSED': 'high',
@@ -495,6 +497,17 @@ function getSeverity(type) {
     'ROUTE_PROBE_SUMMARY': 'high',
     'JS_API_BASE': 'info',
     'JS_ENV_CONFIG': 'info',
+    // Next.js advanced bypass
+    'NEXTJS_MIDDLEWARE_BYPASS': 'critical',
+    'NEXTJS_RSC_DATA_EXPOSURE': 'high',
+    'NEXTJS_SOURCE_MAP_EXPOSED': 'high',
+    'NEXTJS_IMAGE_SSRF': 'high',
+    'NEXTJS_PATH_TRAVERSAL_BYPASS': 'critical',
+    'NEXTJS_RSC_FLIGHT_DATA': 'medium',
+    // Next.js Server Actions CSRF + Bound Arg Forgery (Bountyy Oy zero-day)
+    'NEXTJS_SERVER_ACTION_CSRF': 'critical',
+    'NEXTJS_BOUND_ARG_FORGERY': 'critical',
+    'NEXTJS_BOUND_ARGS_ENCRYPTED': 'info',
     // GraphQL findings
     'GRAPHQL_INTROSPECTION_ENABLED': 'medium',
     'GRAPHQL_SQL_INJECTION': 'critical',
@@ -605,6 +618,9 @@ function getSeverity(type) {
     'NEXTJS_SOURCEMAPS': 'medium',
     'NEXTJS_CONFIG_EXPOSED': 'high',
     'NEXTJS_CVE': 'high',
+    'NEXTJS_SERVER_ACTION_CSRF': 'critical',
+    'NEXTJS_BOUND_ARG_FORGERY': 'critical',
+    'NEXTJS_BOUND_ARGS_ENCRYPTED': 'info',
     // Other framework findings
     'REACT_DEVTOOLS_PRODUCTION': 'low',
     'REACT_DANGEROUS_INNERHTML': 'medium',
