@@ -74,14 +74,52 @@
   // HELPERS
   // ============================================
 
-  function isBlocked(status) {
-    return status === 401 || status === 403 || status === 405;
+  /**
+   * Patterns in response body that indicate a SPA "soft 403" —
+   * the server returns 200 but the body contains access-denied content.
+   * Common in React/Angular/Vue apps that handle auth client-side.
+   */
+  const SOFT_BLOCK_PATTERNS = [
+    /\b(access[_\s-]?denied|forbidden|not[_\s-]?authorized|unauthorized)\b/i,
+    /\b(permission[_\s-]?denied|insufficient[_\s-]?permissions?)\b/i,
+    /\b(login[_\s-]?required|sign[_\s-]?in[_\s-]?required|please[_\s-]?log[_\s-]?in)\b/i,
+    /\b(403|401)[_\s-]?(forbidden|unauthorized)\b/i,
+    /"(status|error)"\s*:\s*"?(403|401|forbidden|unauthorized)/i,
+    /"(code|statusCode)"\s*:\s*"?(403|401)/i,
+    /class\s*=\s*["'][^"']*\b(access-denied|unauthorized|forbidden|login-page|auth-redirect)\b/i,
+    /\bredirect.*\/(login|signin|auth)\b/i,
+  ];
+
+  function isBlocked(status, bodySnippet) {
+    if (status === 401 || status === 403 || status === 405) return true;
+    // SPA soft-block: 200 response but body signals denial
+    if (status === 200 && bodySnippet) {
+      return SOFT_BLOCK_PATTERNS.some(p => p.test(bodySnippet));
+    }
+    return false;
   }
 
-  function isBypassed(originalStatus, bypassStatus) {
-    // Bypass succeeds if we go from 401/403/405 to 200/201/204/301/302/307
-    if (!isBlocked(originalStatus)) return false;
-    return bypassStatus >= 200 && bypassStatus < 400;
+  function isBypassed(originalResp, bypassResp) {
+    // Must have been originally blocked
+    if (!originalResp._blocked) return false;
+
+    // Hard block → any 2xx/3xx with different body is a bypass
+    if (originalResp.status === 401 || originalResp.status === 403 || originalResp.status === 405) {
+      return bypassResp.status >= 200 && bypassResp.status < 400;
+    }
+
+    // Soft block (SPA) → bypass if response no longer contains denial patterns
+    if (originalResp._softBlocked && bypassResp.status === 200 && bypassResp.bodySnippet) {
+      const stillBlocked = SOFT_BLOCK_PATTERNS.some(p => p.test(bypassResp.bodySnippet));
+      if (!stillBlocked) return true;
+      // Also detect if body size changed significantly (different page content)
+      if (originalResp.bodyLength && bypassResp.bodyLength) {
+        const ratio = bypassResp.bodyLength / originalResp.bodyLength;
+        if (ratio > 1.5 || ratio < 0.5) return true;
+      }
+    }
+
+    return false;
   }
 
   function parsePath(url) {
@@ -107,16 +145,30 @@
       clearTimeout(timeout);
       const contentLength = resp.headers.get('content-length');
       const contentType = resp.headers.get('content-type') || '';
+
+      // Read a snippet of the body for soft-block detection (SPAs return 200)
+      let bodySnippet = '';
+      let bodyLength = 0;
+      try {
+        const clone = resp.clone();
+        const text = await clone.text();
+        bodyLength = text.length;
+        // Only keep first 2KB for pattern matching - enough to detect denial messages
+        bodySnippet = text.substring(0, 2048);
+      } catch {}
+
       return {
         status: resp.status,
         statusText: resp.statusText,
         contentLength: contentLength ? parseInt(contentLength, 10) : null,
         contentType,
         headers: Object.fromEntries(resp.headers.entries()),
+        bodySnippet,
+        bodyLength,
       };
     } catch (e) {
       clearTimeout(timeout);
-      return { status: 0, error: e.message };
+      return { status: 0, error: e.message, bodySnippet: '', bodyLength: 0 };
     }
   }
 
@@ -228,22 +280,30 @@
   // ============================================
 
   /**
+   * Format status for evidence strings.  Shows "200 (soft-blocked)" for SPAs.
+   */
+  function fmtStatus(resp) {
+    if (resp._softBlocked) return `${resp.status} (soft-blocked)`;
+    return String(resp.status);
+  }
+
+  /**
    * Test HTTP method switching.
    */
-  async function testMethodSwitching(url, originalStatus) {
+  async function testMethodSwitching(url, baseline) {
     const results = [];
 
     for (const method of BASIC_METHODS) {
       try {
         const resp = await tryRequest(url, { method });
-        if (isBypassed(originalStatus, resp.status)) {
+        if (isBypassed(baseline, resp)) {
           results.push({
             type: 'BYPASS_403_METHOD',
             severity: 'high',
             url,
             technique: `HTTP Method Switch: ${method}`,
-            description: `403 bypassed by switching to ${method} method`,
-            evidence: `Original: ${originalStatus} → ${method}: ${resp.status}`,
+            description: `Access control bypassed by switching to ${method} method`,
+            evidence: `Original: ${fmtStatus(baseline)} → ${method}: ${resp.status}`,
           });
         }
       } catch {}
@@ -255,7 +315,7 @@
   /**
    * Test path manipulation bypasses.
    */
-  async function testPathManipulation(url, originalStatus, advanced) {
+  async function testPathManipulation(url, baseline, advanced) {
     const results = [];
     const parsed = parsePath(url);
     if (!parsed) return results;
@@ -268,14 +328,14 @@
       try {
         const testUrl = parsed.origin + mutatedPath + parsed.search;
         const resp = await tryRequest(testUrl);
-        if (isBypassed(originalStatus, resp.status)) {
+        if (isBypassed(baseline, resp)) {
           results.push({
             type: 'BYPASS_403_PATH',
             severity: 'high',
             url: testUrl,
             technique: `Path Manipulation: ${technique}`,
-            description: `403 bypassed via path manipulation: ${technique}`,
-            evidence: `Original: ${originalStatus} → Modified path: ${resp.status} (${testUrl})`,
+            description: `Access control bypassed via path manipulation: ${technique}`,
+            evidence: `Original: ${fmtStatus(baseline)} → Modified path: ${resp.status} (${testUrl})`,
           });
         }
       } catch {}
@@ -287,7 +347,7 @@
   /**
    * Test header-based bypasses (IP spoofing, override headers).
    */
-  async function testHeaderBypasses(url, originalStatus) {
+  async function testHeaderBypasses(url, baseline) {
     const results = [];
 
     // IP spoofing headers
@@ -296,14 +356,14 @@
         const resp = await tryRequest(url, {
           headers: { [header]: value },
         });
-        if (isBypassed(originalStatus, resp.status)) {
+        if (isBypassed(baseline, resp)) {
           results.push({
             type: 'BYPASS_403_HEADER',
             severity: 'high',
             url,
             technique: `Header Bypass: ${header}: ${value}`,
-            description: `403 bypassed via ${header} header spoofing`,
-            evidence: `Original: ${originalStatus} → With ${header}: ${resp.status}`,
+            description: `Access control bypassed via ${header} header spoofing`,
+            evidence: `Original: ${fmtStatus(baseline)} → With ${header}: ${resp.status}`,
           });
         }
       } catch {}
@@ -317,14 +377,14 @@
           const resp = await tryRequest(parsed.origin + '/', {
             headers: { [header]: parsed.path },
           });
-          if (isBypassed(originalStatus, resp.status)) {
+          if (isBypassed(baseline, resp)) {
             results.push({
               type: 'BYPASS_403_HEADER',
               severity: 'critical',
               url,
               technique: `URL Override: ${header}`,
-              description: `403 bypassed via ${header} header - server routing can be overridden`,
-              evidence: `Original: ${originalStatus} → With ${header}: ${parsed.path}: ${resp.status}`,
+              description: `Access control bypassed via ${header} header - server routing can be overridden`,
+              evidence: `Original: ${fmtStatus(baseline)} → With ${header}: ${parsed.path}: ${resp.status}`,
             });
           }
         } catch {}
@@ -337,7 +397,7 @@
   /**
    * Test HTTP verb tunneling (method override headers).
    */
-  async function testVerbTunneling(url, originalStatus) {
+  async function testVerbTunneling(url, baseline) {
     const results = [];
 
     for (const overrideHeader of METHOD_OVERRIDE_HEADERS) {
@@ -350,14 +410,14 @@
               'Content-Length': '0',
             },
           });
-          if (isBypassed(originalStatus, resp.status)) {
+          if (isBypassed(baseline, resp)) {
             results.push({
               type: 'BYPASS_403_VERB_TUNNEL',
               severity: 'high',
               url,
               technique: `Verb Tunneling: POST + ${overrideHeader}: ${method}`,
-              description: `403 bypassed via HTTP method override header`,
-              evidence: `Original: ${originalStatus} → POST with ${overrideHeader}: ${method}: ${resp.status}`,
+              description: `Access control bypassed via HTTP method override header`,
+              evidence: `Original: ${fmtStatus(baseline)} → POST with ${overrideHeader}: ${method}: ${resp.status}`,
             });
           }
         } catch {}
@@ -370,7 +430,7 @@
   /**
    * Test Referer/Origin header spoofing.
    */
-  async function testRefererOriginBypass(url, originalStatus) {
+  async function testRefererOriginBypass(url, baseline) {
     const results = [];
     const parsed = parsePath(url);
     if (!parsed) return results;
@@ -388,14 +448,14 @@
         const resp = await tryRequest(url, {
           headers: { 'Referer': ref },
         });
-        if (isBypassed(originalStatus, resp.status)) {
+        if (isBypassed(baseline, resp)) {
           results.push({
             type: 'BYPASS_403_REFERER',
             severity: 'medium',
             url,
             technique: `Referer Spoofing: ${ref}`,
-            description: `403 bypassed via Referer header spoofing`,
-            evidence: `Original: ${originalStatus} → With Referer ${ref}: ${resp.status}`,
+            description: `Access control bypassed via Referer header spoofing`,
+            evidence: `Original: ${fmtStatus(baseline)} → With Referer ${ref}: ${resp.status}`,
           });
           break; // One is enough
         }
@@ -408,7 +468,7 @@
   /**
    * Test Content-Type manipulation (may bypass WAF/middleware).
    */
-  async function testContentTypeBypass(url, originalStatus) {
+  async function testContentTypeBypass(url, baseline) {
     const results = [];
 
     const contentTypes = [
@@ -426,14 +486,14 @@
           headers: { 'Content-Type': ct },
           body: '',
         });
-        if (isBypassed(originalStatus, resp.status)) {
+        if (isBypassed(baseline, resp)) {
           results.push({
             type: 'BYPASS_403_CONTENT_TYPE',
             severity: 'medium',
             url,
             technique: `Content-Type: ${ct}`,
-            description: `403 bypassed via Content-Type manipulation`,
-            evidence: `Original: ${originalStatus} → POST with Content-Type ${ct}: ${resp.status}`,
+            description: `Access control bypassed via Content-Type manipulation`,
+            evidence: `Original: ${fmtStatus(baseline)} → POST with Content-Type ${ct}: ${resp.status}`,
           });
           break;
         }
@@ -450,31 +510,40 @@
   /**
    * Basic scan - quick test with most common techniques.
    * Tests: method switching, basic path mutations, key headers.
+   *
+   * Works with both hard 403/401 responses AND SPA soft-blocks
+   * (200 responses containing access-denied content).
    */
   async function scan(targetUrl) {
     const url = targetUrl || location.href;
     console.log(`[403 Bypass Scanner] Starting basic scan on ${url}...`);
 
-    // First, confirm the URL is actually blocked
+    // First, confirm the URL is actually blocked (hard 403 or SPA soft-block)
     const baseline = await tryRequest(url);
-    if (!isBlocked(baseline.status)) {
+    const hardBlocked = baseline.status === 401 || baseline.status === 403 || baseline.status === 405;
+    const softBlocked = !hardBlocked && isBlocked(baseline.status, baseline.bodySnippet);
+    baseline._blocked = hardBlocked || softBlocked;
+    baseline._softBlocked = softBlocked;
+
+    if (!baseline._blocked) {
       console.log(`[403 Bypass Scanner] URL returns ${baseline.status}, not blocked. Skipping.`);
       return {
         findings: [],
         url,
         originalStatus: baseline.status,
-        message: `URL is not blocked (status: ${baseline.status}). 403 bypass testing requires a 401/403/405 response.`,
+        message: `URL is not blocked (status: ${baseline.status}). 403 bypass testing requires a 401/403/405 response or a SPA soft-block (200 with access-denied body).`,
       };
     }
 
-    console.log(`[403 Bypass Scanner] Confirmed ${baseline.status} response. Testing bypasses...`);
+    const blockType = softBlocked ? `${baseline.status} (SPA soft-block detected)` : String(baseline.status);
+    console.log(`[403 Bypass Scanner] Confirmed blocked: ${blockType}. Testing bypasses...`);
     const allFindings = [];
 
     // Run basic techniques
     const [methods, paths, headers] = await Promise.all([
-      testMethodSwitching(url, baseline.status),
-      testPathManipulation(url, baseline.status, false),
-      testHeaderBypasses(url, baseline.status),
+      testMethodSwitching(url, baseline),
+      testPathManipulation(url, baseline, false),
+      testHeaderBypasses(url, baseline),
     ]);
 
     allFindings.push(...methods, ...paths, ...headers);
@@ -484,7 +553,7 @@
       reportFinding(finding);
     }
 
-    const report = buildReport(url, baseline.status, allFindings);
+    const report = buildReport(url, blockType, allFindings);
     console.log(`[403 Bypass Scanner] Basic scan complete. Found ${allFindings.length} bypasses.`);
 
     window.postMessage({
@@ -500,42 +569,50 @@
    * Deep scan - comprehensive test with all techniques.
    * Tests: everything in basic + verb tunneling, referer spoofing,
    *        content-type tricks, advanced path mutations.
+   *
+   * Works with both hard 403/401 responses AND SPA soft-blocks.
    */
   async function deepScan(targetUrl) {
     const url = targetUrl || location.href;
     console.log(`[403 Bypass Scanner] Starting deep scan on ${url}...`);
 
-    // Confirm blocked
+    // Confirm blocked (hard or soft)
     const baseline = await tryRequest(url);
-    if (!isBlocked(baseline.status)) {
+    const hardBlocked = baseline.status === 401 || baseline.status === 403 || baseline.status === 405;
+    const softBlocked = !hardBlocked && isBlocked(baseline.status, baseline.bodySnippet);
+    baseline._blocked = hardBlocked || softBlocked;
+    baseline._softBlocked = softBlocked;
+
+    if (!baseline._blocked) {
       console.log(`[403 Bypass Scanner] URL returns ${baseline.status}, not blocked. Skipping.`);
       return {
         findings: [],
         url,
         originalStatus: baseline.status,
-        message: `URL is not blocked (status: ${baseline.status}). 403 bypass testing requires a 401/403/405 response.`,
+        message: `URL is not blocked (status: ${baseline.status}). 403 bypass testing requires a 401/403/405 response or a SPA soft-block (200 with access-denied body).`,
       };
     }
 
-    console.log(`[403 Bypass Scanner] Confirmed ${baseline.status} response. Running deep bypass tests...`);
+    const blockType = softBlocked ? `${baseline.status} (SPA soft-block detected)` : String(baseline.status);
+    console.log(`[403 Bypass Scanner] Confirmed blocked: ${blockType}. Running deep bypass tests...`);
     const allFindings = [];
 
     // Run all techniques (some in parallel, some sequential to avoid rate limiting)
     const [methods, paths, headers] = await Promise.all([
-      testMethodSwitching(url, baseline.status),
-      testPathManipulation(url, baseline.status, true),
-      testHeaderBypasses(url, baseline.status),
+      testMethodSwitching(url, baseline),
+      testPathManipulation(url, baseline, true),
+      testHeaderBypasses(url, baseline),
     ]);
     allFindings.push(...methods, ...paths, ...headers);
 
     // Sequential advanced techniques
-    const verbResults = await testVerbTunneling(url, baseline.status);
+    const verbResults = await testVerbTunneling(url, baseline);
     allFindings.push(...verbResults);
 
-    const refererResults = await testRefererOriginBypass(url, baseline.status);
+    const refererResults = await testRefererOriginBypass(url, baseline);
     allFindings.push(...refererResults);
 
-    const ctResults = await testContentTypeBypass(url, baseline.status);
+    const ctResults = await testContentTypeBypass(url, baseline);
     allFindings.push(...ctResults);
 
     // Report findings
@@ -543,7 +620,7 @@
       reportFinding(finding);
     }
 
-    const report = buildReport(url, baseline.status, allFindings);
+    const report = buildReport(url, blockType, allFindings);
     console.log(`[403 Bypass Scanner] Deep scan complete. Found ${allFindings.length} bypasses.`);
 
     window.postMessage({
