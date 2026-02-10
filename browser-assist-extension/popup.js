@@ -543,6 +543,13 @@ function getSeverity(type) {
     'GRAPHQL_SUBSCRIPTION_FOUND': 'info',
     'GRAPHQL_SENSITIVE_SUBSCRIPTION': 'medium',
     'GRAPHQL_WEBSOCKET_ENDPOINT': 'info',
+    // 403 Bypass findings
+    'BYPASS_403_METHOD': 'high',
+    'BYPASS_403_PATH': 'high',
+    'BYPASS_403_HEADER': 'high',
+    'BYPASS_403_VERB_TUNNEL': 'high',
+    'BYPASS_403_REFERER': 'medium',
+    'BYPASS_403_CONTENT_TYPE': 'medium',
     // Form fuzzer findings
     'FORM_VULNERABILITY': 'high',
     'FORM_SQLI': 'critical',
@@ -1384,6 +1391,98 @@ document.getElementById('probeRoutesBtn')?.addEventListener('click', () => {
       lucide.createIcons();
       console.error('Route probe error:', err);
       alert('Route probe error: ' + err.message);
+    });
+  });
+});
+
+// 403 Bypass Scan (Basic)
+document.getElementById('bypassScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_bypass_scan');
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+    const tabUrl = tabs[0].url;
+
+    // Inject license context first, then bypass scanner
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['bypass-scanner.js']
+      });
+    }).then(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        args: [tabUrl],
+        func: (targetUrl) => {
+          if (window.bypassScanner) {
+            window.bypassScanner.scan(targetUrl).then(result => {
+              console.log('[Lonkero] 403 Bypass scan complete:', result);
+              if (result.message) {
+                alert(`403 Bypass Scan\n\n${result.message}`);
+              } else {
+                const fc = result.findingCount;
+                alert(`403 Bypass Scan Complete!\n\nOriginal status: ${result.originalStatus}\n${fc} bypass${fc !== 1 ? 'es' : ''} found:\n- ${result.techniques.method} method switching\n- ${result.techniques.path} path manipulation\n- ${result.techniques.header} header bypass\n\nCheck console & Findings tab for details.`);
+              }
+            }).catch(err => {
+              alert('403 Bypass scan error: ' + err.message);
+            });
+          } else {
+            alert('Bypass scanner failed to initialize.');
+          }
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to inject bypass scanner:', err);
+      alert('Failed to inject bypass scanner: ' + err.message);
+    });
+  });
+});
+
+// 403 Deep Bypass Scan (Advanced)
+document.getElementById('deepBypassScanBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_deep_bypass_scan');
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+    const tabUrl = tabs[0].url;
+
+    alert('Starting Deep 403 Bypass Scan...\nThis tests all techniques including verb tunneling, encoding tricks, and header spoofing.\nCheck console for progress.');
+
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['bypass-scanner.js']
+      });
+    }).then(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        args: [tabUrl],
+        func: (targetUrl) => {
+          if (window.bypassScanner) {
+            window.bypassScanner.deepScan(targetUrl).then(result => {
+              console.log('[Lonkero] Deep 403 Bypass scan complete:', result);
+              if (result.message) {
+                alert(`Deep 403 Bypass Scan\n\n${result.message}`);
+              } else {
+                const fc = result.findingCount;
+                const t = result.techniques;
+                alert(`Deep 403 Bypass Scan Complete!\n\nOriginal status: ${result.originalStatus}\n${fc} bypass${fc !== 1 ? 'es' : ''} found:\n- ${t.method} method switching\n- ${t.path} path manipulation\n- ${t.header} header bypass\n- ${t.verbTunnel} verb tunneling\n- ${t.referer} referer spoofing\n- ${t.contentType} content-type tricks\n\nCheck console & Findings tab for details.`);
+              }
+            }).catch(err => {
+              alert('Deep 403 Bypass scan error: ' + err.message);
+            });
+          } else {
+            alert('Bypass scanner failed to initialize.');
+          }
+        }
+      });
+    }).catch(err => {
+      console.error('Failed to inject bypass scanner:', err);
+      alert('Failed to inject bypass scanner: ' + err.message);
     });
   });
 });
