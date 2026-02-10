@@ -1193,12 +1193,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_license_has_full_access() {
+    fn test_default_license_has_limited_access() {
         let status = LicenseStatus::default();
         assert!(status.valid);
         assert!(!status.killswitch_active);
-        assert!(status.features.contains(&"all_scanners".to_string()));
-        assert_eq!(status.max_targets, Some(100));
+        // Default offline license has only basic features (fail-closed)
+        assert!(status.features.contains(&"basic_scanners".to_string()));
+        assert!(status.features.contains(&"basic_outputs".to_string()));
+        assert!(!status.features.contains(&"all_scanners".to_string()));
+        assert_eq!(status.max_targets, Some(10));
     }
 
     #[test]

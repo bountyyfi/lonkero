@@ -1362,8 +1362,15 @@ async fn run_scan(
         if model_path.as_ref().map_or(true, |p| !p.exists()) {
             info!("[ML] Downloading detection model for first scan...");
             if let Ok(mut client) = lonkero_scanner::ml::FederatedClient::new() {
-                // Try to get license key from environment for authenticated model download
-                if let Ok(key) = std::env::var("LONKERO_LICENSE_KEY") {
+                // Resolve license key: CLI arg > env var > OS keychain > legacy config
+                let resolved_key = license_key.clone()
+                    .or_else(|| std::env::var("LONKERO_LICENSE_KEY").ok())
+                    .or_else(|| {
+                        keyring::Entry::new("lonkero", "license_key").ok()
+                            .and_then(|entry| entry.get_password().ok())
+                            .filter(|k| !k.is_empty())
+                    });
+                if let Some(key) = resolved_key {
                     client.set_license_key(key);
                 }
                 match client.fetch_and_cache_model().await {

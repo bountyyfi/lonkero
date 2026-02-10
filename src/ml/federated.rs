@@ -152,6 +152,44 @@ impl FederatedClient {
         self.license_key = Some(key);
     }
 
+    /// Load license key from all available sources: env var > OS keychain > legacy config file.
+    /// This ensures enterprise users who activated via `lonkero license activate` can download
+    /// detection models without needing to set the LONKERO_LICENSE_KEY env var.
+    pub fn load_license_key(&mut self) {
+        // 1. Environment variable (highest priority)
+        if let Ok(key) = std::env::var("LONKERO_LICENSE_KEY") {
+            if !key.is_empty() {
+                self.license_key = Some(key);
+                return;
+            }
+        }
+
+        // 2. OS keychain (secure storage, set by `lonkero license activate`)
+        if let Ok(entry) = keyring::Entry::new("lonkero", "license_key") {
+            if let Ok(key) = entry.get_password() {
+                if !key.is_empty() {
+                    debug!("ML: License key loaded from OS keychain");
+                    self.license_key = Some(key);
+                    return;
+                }
+            }
+        }
+
+        // 3. Legacy plaintext config file (fallback for migration)
+        if let Some(config_dir) = dirs::config_dir() {
+            let license_file = config_dir.join("lonkero").join("license.key");
+            if license_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&license_file) {
+                    let key = content.trim().to_string();
+                    if !key.is_empty() {
+                        debug!("ML: License key loaded from legacy config file");
+                        self.license_key = Some(key);
+                    }
+                }
+            }
+        }
+    }
+
     /// Get data directory
     fn get_data_dir() -> Result<PathBuf> {
         let home = dirs::home_dir().context("Could not determine home directory")?;
