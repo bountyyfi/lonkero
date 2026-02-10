@@ -314,7 +314,8 @@
     // btoa() with credential-like content
     { name: 'Base64 Credentials', pattern: /btoa\(["'`][^"'`]*:[^"'`]*["'`]\)/g },
     // Hardcoded base64 strings assigned to auth/token/key variables
-    { name: 'Base64 Auth Token', pattern: /(?:auth|token|key|credential|password|secret|apiKey)["'\s:=]+["']?[A-Za-z0-9+/]{40,}={0,2}["']?/gi },
+    // Note: "key" alone is too generic (matches i18n keys, React keys, etc.) — use specific variants
+    { name: 'Base64 Auth Token', pattern: /(?:auth|token|apiKey|api_key|secret_key|access_key|credential|password|secret)["'\s:=]+["']?(?=[A-Za-z0-9+/]*[0-9+/])[A-Za-z0-9+/]{40,}={0,2}["']?/gi },
     // X-API-Key and custom auth headers
     { name: 'X-API-Key Header', pattern: /[Xx]-[Aa][Pp][Ii]-[Kk]ey["'\s:=]+["']?[a-zA-Z0-9_.-]{16,}/g },
     { name: 'Custom Auth Header', pattern: /[Xx]-[Aa]uth[-_][Tt]oken["'\s:=]+["']?[a-zA-Z0-9_.-]{16,}/g },
@@ -996,8 +997,9 @@
     }
 
     // Probe each URL (with rate limiting)
+    // Two-pass approach: collect all results first, then deduplicate SPA catch-all HTML before reporting
     const results = { accessible: 0, authRequired: 0, errors: 0, spaFiltered: 0, total: urlsToProbe.size };
-    const probed = [];
+    const pendingFindings = []; // Collect findings before reporting to allow dedup
     let i = 0;
 
     for (const url of urlsToProbe) {
@@ -1033,48 +1035,20 @@
         const isLoginRedirect = status === 0 || (status >= 300 && status < 400);
         const isAuthRequired = status === 401 || status === 403;
 
-        // SPA catch-all check: compare response body to baseline fingerprint
-        let isSPACatchAll = false;
-        if (status >= 200 && status < 300 && contentType.includes('html')) {
-          let urlOrigin;
-          try { urlOrigin = new URL(url).origin; } catch { urlOrigin = origin; }
-          const baseline = baselineFingerprints.get(urlOrigin);
-          if (baseline && bodyPreview === baseline) {
-            isSPACatchAll = true;
-            results.spaFiltered++;
-          }
-        }
-
         if (isAuthRequired) {
           results.authRequired++;
-        } else if (status >= 200 && status < 300 && !isSoft404 && !isSPACatchAll && bodyPreview.length > 50) {
-          results.accessible++;
-
+        } else if (status >= 200 && status < 300 && !isSoft404 && bodyPreview.length > 50) {
           // Determine what kind of data leaked
           const hasJSON = contentType.includes('json') || /^\s*[\[{]/.test(bodyPreview);
           const hasHTML = contentType.includes('html') && bodyPreview.length > 200;
           const hasData = hasJSON || hasHTML;
-
           const severity = hasJSON ? 'high' : hasHTML ? 'medium' : 'low';
 
-          reportFinding('UNAUTH_ENDPOINT', {
-            severity,
-            description: `Endpoint accessible without authentication: ${url}`,
-            url: url,
-            status,
-            contentType,
-            bodyPreview: bodyPreview.substring(0, 300),
-            hasJSON,
-            hasData,
-            source: 'js-route-probe',
+          pendingFindings.push({
+            url, status, contentType, bodyPreview,
+            hasJSON, hasHTML, hasData, severity,
           });
-
-          probed.push({ url, status, type: contentType, size: bodyPreview.length });
-
-          // Also register as discovered endpoint
-          discoverEndpoint(url, 'GET', 'route-probe');
         } else if (status >= 500) {
-          // Server errors are interesting too
           reportFinding('ENDPOINT_SERVER_ERROR', {
             severity: 'info',
             description: `Server error on probed endpoint: ${url} (${status})`,
@@ -1089,10 +1063,66 @@
       }
     }
 
+    // SPA catch-all dedup (two-pass):
+    // 1. Baseline fingerprint: if a nonsense URL returned 200+HTML, that origin is SPA catch-all
+    // 2. Body dedup: if 3+ HTML responses have identical first 200 chars, it's a catch-all pattern
+    const htmlBodyCounts = new Map(); // body fingerprint -> count
+    for (const f of pendingFindings) {
+      if (f.hasHTML && !f.hasJSON) {
+        const fp = f.bodyPreview.substring(0, 200);
+        htmlBodyCounts.set(fp, (htmlBodyCounts.get(fp) || 0) + 1);
+      }
+    }
+    const catchAllBodies = new Set();
+    for (const [fp, count] of htmlBodyCounts) {
+      if (count >= 3) catchAllBodies.add(fp);
+    }
+
+    // Report non-catch-all findings
+    const probed = [];
+    for (const f of pendingFindings) {
+      // Check SPA catch-all: baseline fingerprint match OR body dedup match
+      let isSPACatchAll = false;
+      if (f.hasHTML && !f.hasJSON) {
+        // Check baseline fingerprint
+        let urlOrigin;
+        try { urlOrigin = new URL(f.url).origin; } catch { urlOrigin = origin; }
+        const baseline = baselineFingerprints.get(urlOrigin);
+        if (baseline && f.bodyPreview.substring(0, 200) === baseline.substring(0, 200)) {
+          isSPACatchAll = true;
+        }
+        // Check body dedup (3+ identical HTML responses = catch-all)
+        if (!isSPACatchAll && catchAllBodies.has(f.bodyPreview.substring(0, 200))) {
+          isSPACatchAll = true;
+        }
+      }
+
+      if (isSPACatchAll) {
+        results.spaFiltered++;
+        continue;
+      }
+
+      results.accessible++;
+      reportFinding('UNAUTH_ENDPOINT', {
+        severity: f.severity,
+        description: `Endpoint accessible without authentication: ${f.url}`,
+        url: f.url,
+        status: f.status,
+        contentType: f.contentType,
+        bodyPreview: f.bodyPreview.substring(0, 300),
+        hasJSON: f.hasJSON,
+        hasData: f.hasData,
+        source: 'js-route-probe',
+      });
+
+      probed.push({ url: f.url, status: f.status, type: f.contentType, size: f.bodyPreview.length });
+      discoverEndpoint(f.url, 'GET', 'route-probe');
+    }
+
     // Summary finding
-    if (results.accessible > 0) {
+    if (results.accessible > 0 || results.spaFiltered > 0) {
       reportFinding('ROUTE_PROBE_SUMMARY', {
-        severity: 'high',
+        severity: results.accessible > 0 ? 'high' : 'info',
         description: `Route probe: ${results.accessible} endpoints accessible without auth out of ${results.total} tested` +
           (results.spaFiltered > 0 ? ` (${results.spaFiltered} SPA catch-all filtered)` : ''),
         url: location.href,
@@ -1671,43 +1701,50 @@
       const cspIssues = analyzeCSP(csp);
       const critical = cspIssues.filter(f => f.severity === 'critical').length;
       const high = cspIssues.filter(f => f.severity === 'high').length;
-      if (critical === 0 && high === 0) { score += 30; checks.push({ header: 'CSP', score: 30, max: 30, status: 'good' }); }
-      else if (critical === 0) { score += 15; checks.push({ header: 'CSP', score: 15, max: 30, status: 'weak' }); }
-      else { score += 5; checks.push({ header: 'CSP', score: 5, max: 30, status: 'bad' }); }
+      const issueList = cspIssues.map(f => f.issue).slice(0, 5);
+      if (critical === 0 && high === 0) { score += 30; checks.push({ header: 'CSP', score: 30, max: 30, status: 'good', value: csp.substring(0, 120), detail: issueList.length ? issueList.join(', ') : 'No critical issues' }); }
+      else if (critical === 0) { score += 15; checks.push({ header: 'CSP', score: 15, max: 30, status: 'weak', value: csp.substring(0, 120), detail: issueList.join(', ') }); }
+      else { score += 5; checks.push({ header: 'CSP', score: 5, max: 30, status: 'bad', value: csp.substring(0, 120), detail: issueList.join(', ') }); }
     } else {
-      checks.push({ header: 'CSP', score: 0, max: 30, status: 'missing' });
+      checks.push({ header: 'CSP', score: 0, max: 30, status: 'missing', detail: 'No Content-Security-Policy header — XSS attacks easier to exploit' });
     }
     // HSTS (max 20)
     if (hsts && location.protocol === 'https:') {
       let hstsScore = 10;
-      if (/includeSubdomains/i.test(hsts)) hstsScore += 5;
-      if (/preload/i.test(hsts)) hstsScore += 5;
+      const hstsDetails = [];
+      if (/includeSubdomains/i.test(hsts)) { hstsScore += 5; } else { hstsDetails.push('Missing includeSubDomains'); }
+      if (/preload/i.test(hsts)) { hstsScore += 5; } else { hstsDetails.push('Missing preload'); }
+      const maxAge = hsts.match(/max-age=(\d+)/i);
+      if (maxAge && parseInt(maxAge[1]) < 31536000) hstsDetails.push('max-age < 1 year');
       score += hstsScore;
-      checks.push({ header: 'HSTS', score: hstsScore, max: 20, status: hstsScore >= 15 ? 'good' : 'weak' });
+      checks.push({ header: 'HSTS', score: hstsScore, max: 20, status: hstsScore >= 15 ? 'good' : 'weak', value: hsts, detail: hstsDetails.length ? hstsDetails.join(', ') : 'Fully configured' });
     } else if (location.protocol === 'https:') {
-      checks.push({ header: 'HSTS', score: 0, max: 20, status: 'missing' });
+      checks.push({ header: 'HSTS', score: 0, max: 20, status: 'missing', detail: 'No Strict-Transport-Security header — MITM downgrade attacks possible' });
     } else {
-      // HTTP site — no HSTS possible, penalize for not using HTTPS
-      checks.push({ header: 'HSTS', score: 0, max: 20, status: 'missing', value: 'Site served over HTTP' });
+      checks.push({ header: 'HSTS', score: 0, max: 20, status: 'missing', value: 'Site served over HTTP', detail: 'Not using HTTPS — HSTS cannot be applied' });
     }
     // X-Content-Type-Options (max 10)
-    if (xcto?.toLowerCase() === 'nosniff') { score += 10; checks.push({ header: 'X-Content-Type-Options', score: 10, max: 10, status: 'good' }); }
-    else { checks.push({ header: 'X-Content-Type-Options', score: 0, max: 10, status: 'missing' }); }
+    if (xcto?.toLowerCase() === 'nosniff') { score += 10; checks.push({ header: 'X-Content-Type-Options', score: 10, max: 10, status: 'good', value: xcto }); }
+    else { checks.push({ header: 'X-Content-Type-Options', score: 0, max: 10, status: 'missing', detail: 'Missing nosniff — browser may MIME-sniff responses into executable content' }); }
     // X-Frame-Options or CSP frame-ancestors (max 10)
-    if (xfo || csp?.includes('frame-ancestors')) { score += 10; checks.push({ header: 'Clickjacking Protection', score: 10, max: 10, status: 'good' }); }
-    else { checks.push({ header: 'Clickjacking Protection', score: 0, max: 10, status: 'missing' }); }
+    if (xfo || csp?.includes('frame-ancestors')) {
+      const clickVal = xfo ? `X-Frame-Options: ${xfo}` : 'CSP frame-ancestors';
+      score += 10; checks.push({ header: 'Clickjacking Protection', score: 10, max: 10, status: 'good', value: clickVal });
+    } else {
+      checks.push({ header: 'Clickjacking Protection', score: 0, max: 10, status: 'missing', detail: 'No X-Frame-Options or CSP frame-ancestors — page can be framed for clickjacking' });
+    }
     // Referrer-Policy (max 10)
-    if (refp) { score += 10; checks.push({ header: 'Referrer-Policy', score: 10, max: 10, status: 'good' }); }
-    else { checks.push({ header: 'Referrer-Policy', score: 0, max: 10, status: 'missing' }); }
+    if (refp) { score += 10; checks.push({ header: 'Referrer-Policy', score: 10, max: 10, status: 'good', value: refp }); }
+    else { checks.push({ header: 'Referrer-Policy', score: 0, max: 10, status: 'missing', detail: 'Full URL leaked in Referer header to external sites' }); }
     // Permissions-Policy (max 10)
-    if (permp) { score += 10; checks.push({ header: 'Permissions-Policy', score: 10, max: 10, status: 'good' }); }
-    else { checks.push({ header: 'Permissions-Policy', score: 0, max: 10, status: 'missing' }); }
+    if (permp) { score += 10; checks.push({ header: 'Permissions-Policy', score: 10, max: 10, status: 'good', value: permp.substring(0, 120) }); }
+    else { checks.push({ header: 'Permissions-Policy', score: 0, max: 10, status: 'missing', detail: 'Browser features (camera, mic, geolocation) not restricted' }); }
     // COOP (max 5)
-    if (coop) { score += 5; checks.push({ header: 'COOP', score: 5, max: 5, status: 'good' }); }
-    else { checks.push({ header: 'COOP', score: 0, max: 5, status: 'missing' }); }
+    if (coop) { score += 5; checks.push({ header: 'COOP', score: 5, max: 5, status: 'good', value: coop }); }
+    else { checks.push({ header: 'COOP', score: 0, max: 5, status: 'missing', detail: 'Cross-Origin-Opener-Policy not set — window references leak cross-origin' }); }
     // CORP (max 5)
-    if (corp) { score += 5; checks.push({ header: 'CORP', score: 5, max: 5, status: 'good' }); }
-    else { checks.push({ header: 'CORP', score: 0, max: 5, status: 'missing' }); }
+    if (corp) { score += 5; checks.push({ header: 'CORP', score: 5, max: 5, status: 'good', value: corp }); }
+    else { checks.push({ header: 'CORP', score: 0, max: 5, status: 'missing', detail: 'Cross-Origin-Resource-Policy not set — resources loadable cross-origin' }); }
 
     let grade;
     if (score >= 90) grade = 'A+';

@@ -1332,13 +1332,18 @@ document.getElementById('gradeBox')?.addEventListener('click', () => {
     const icon = present ? 'check' : weak ? 'alert-triangle' : 'x';
     const statusLabel = present ? 'Present' : weak ? (c.status === 'weak' ? 'Weak' : 'Bad') : 'Missing';
     const scoreText = c.max ? ` (${c.score}/${c.max})` : '';
-    const value = c.value ? ` — ${escapeHtml(String(c.value).substring(0, 80))}` : '';
+    const valueHtml = c.value ? `<div style="color:#888; font-size:9px; margin-top:2px; word-break:break-all; font-family:monospace;">${escapeHtml(String(c.value).substring(0, 120))}</div>` : '';
+    const detailHtml = c.detail ? `<div style="color:${present ? '#5a5' : weak ? '#ca5' : '#c55'}; font-size:9px; margin-top:2px;">${escapeHtml(String(c.detail).substring(0, 200))}</div>` : '';
     return `
-      <div style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#0a0a0a; border:1px solid #222; border-radius:4px; border-left:3px solid ${color};">
-        <i data-lucide="${icon}" style="width:14px; height:14px; color:${color}; flex-shrink:0;"></i>
-        <div>
-          <div style="color:#e0e0e0; font-size:11px; font-weight:600;">${escapeHtml(c.header)}</div>
-          <div style="color:#666; font-size:9px;">${statusLabel}${scoreText}${value}</div>
+      <div style="display:flex; gap:8px; padding:8px 10px; background:#0a0a0a; border:1px solid #222; border-radius:4px; border-left:3px solid ${color};">
+        <i data-lucide="${icon}" style="width:14px; height:14px; color:${color}; flex-shrink:0; margin-top:2px;"></i>
+        <div style="min-width:0; flex:1;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#e0e0e0; font-size:11px; font-weight:600;">${escapeHtml(c.header)}</span>
+            <span style="color:#666; font-size:9px; flex-shrink:0;">${statusLabel}${scoreText}</span>
+          </div>
+          ${valueHtml}
+          ${detailHtml}
         </div>
       </div>
     `;
