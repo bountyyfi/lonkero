@@ -259,16 +259,9 @@ function updateUI(state) {
     }
   }
 
-  // Update secrets badge
-  const secretsBadge = document.getElementById('secretsBadge');
-  if (secretsBadge) {
-    if (state.secretsCount > 0) {
-      secretsBadge.textContent = state.secretsCount;
-      secretsBadge.style.display = 'inline';
-    } else {
-      secretsBadge.style.display = 'none';
-    }
-  }
+  // Secrets badge is updated by loadSecrets() after filtering public tokens
+  // Trigger a secrets load to keep the badge in sync
+  loadSecrets();
 
   // Update headers detail data for click handler
   if (state.securityScore) {
@@ -311,7 +304,10 @@ function refreshState() {
 // ============================================================
 
 function loadTechnologies() {
-  chrome.runtime.sendMessage({ type: 'getTechnologies' }, (techData) => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  const tabUrl = tabs?.[0]?.url || '';
+  const tabId = tabs?.[0]?.id;
+  chrome.runtime.sendMessage({ type: 'getTechnologies', tabUrl, tabId }, (techData) => {
     const container = document.getElementById('technologiesList');
     if (!container) return;
 
@@ -352,6 +348,7 @@ function loadTechnologies() {
       return `<span class="tech-tag ${escapeHtml(category)}" title="${escapeHtml(t.evidence || '')}">${escapeHtml(t.name)}${version}</span>`;
     }).join('');
   });
+  }); // chrome.tabs.query
 }
 
 // ============================================================
@@ -666,6 +663,17 @@ function loadSecrets() {
 
     // Filter out known public tokens
     currentSecrets = (secrets || []).filter(s => !publicTokenTypes.includes(s.type));
+
+    // Update badge to match filtered count (excludes public tokens)
+    const secretsBadge = document.getElementById('secretsBadge');
+    if (secretsBadge) {
+      if (currentSecrets.length > 0) {
+        secretsBadge.textContent = currentSecrets.length;
+        secretsBadge.style.display = 'inline';
+      } else {
+        secretsBadge.style.display = 'none';
+      }
+    }
 
     if (currentSecrets.length === 0) {
       container.innerHTML = '<div class="empty-state">No secrets found. Browse the site to scan JavaScript for credentials.</div>';
@@ -1541,12 +1549,14 @@ function openHtmlViewer(html, url, mode) {
   }
 
   function showHtmlRendered() {
-    // Safe: sandbox="" blocks scripts, forms, popups, same-origin
-    renderedEl.srcdoc = html;
+    // Show iframe FIRST — browsers may not load srcdoc on hidden iframes
     renderedEl.style.display = 'block';
     rawEl.style.display = 'none';
     document.getElementById('htmlViewRenderBtn').classList.add('active');
     document.getElementById('htmlViewRawBtn').classList.remove('active');
+    // Clear then set srcdoc in next frame to force reload (re-setting same value is a no-op)
+    renderedEl.srcdoc = '';
+    requestAnimationFrame(() => { renderedEl.srcdoc = html; });
   }
 
   document.getElementById('htmlViewRawBtn').onclick = showHtmlRaw;

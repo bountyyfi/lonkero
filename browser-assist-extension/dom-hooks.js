@@ -35,8 +35,8 @@
       set: function(value) {
         const v = String(value);
         if (/<script|javascript:|on\w+=/i.test(v)) {
-          // Skip known-benign: GTM injects scripts via innerHTML with type="text/gtmscript"
-          if (!/text\/gtmscript|google_tag_manager|googletag|gtag/.test(v)) {
+          // Skip known-benign: analytics/marketing SDKs that inject scripts via innerHTML
+          if (!/text\/gtmscript|google_tag_manager|googletag|gtag|SnitchObject|Snitcher|hotjar|_hj[A-Z]|clarity\.|mouseflow|hubspot|hs-scripts|drift\.com|intercom|pendo|fullstory|heapanalytics|luckyorange|segment\.com|amplitude|cookieinformation|CookieInformation|cookie.?consent|onetrust|cookiebot|Usercentrics|didomi|quantcast/.test(v)) {
             _post('DOM_XSS_POTENTIAL', {
               sink: 'innerHTML',
               element: this.tagName,
@@ -72,9 +72,13 @@
     const s = String(code);
     const preview = s.substring(0, 300);
     // Skip known-benign: third-party analytics, marketing, and tag managers
-    const benignSDK = /google_tag_manager|googletag\.|googleads|google_ad|gtag|adsbygoogle|exponea|bloomreach|hotjar|_hj|clarity\.|mouseflow|tealium|segment\.|optimizely|abtasty|kameleoon|cookiebot|onetrust|didomi|quantcast|facebook\.net|fbq|fbevents|connect\.facebook|twitter\.com\/oct|snap\.licdn|pinterest\.com\/tag|tiktok\.com\/i18n/.test(preview);
+    const benignSDK = /google_tag_manager|googletag\.|googleads|google_ad|gtag|adsbygoogle|exponea|bloomreach|hotjar|_hj|clarity\.|mouseflow|tealium|segment\.|optimizely|abtasty|kameleoon|cookiebot|onetrust|didomi|quantcast|facebook\.net|fbq|fbevents|connect\.facebook|twitter\.com\/oct|snap\.licdn|pinterest\.com\/tag|tiktok\.com\/i18n|CookieInformation|CookieConsent|cookie_?consent|__cmp|__tcfapi|Usercentrics/.test(preview);
     // Skip simple property checks like (function(){return window.X?!0:!1})()
-    const benignPattern = /^\(function\(\)\{return\s+window\.\w+\?/.test(preview.replace(/\s/g, ''));
+    // Skip simple math/random operations like (function(){return Math.floor(1E5*Math.random())})()
+    const stripped = preview.replace(/\s/g, '');
+    const benignPattern = /^\(function\(\)\{return\s*(window\.\w+\?|Math\.|"|\d)/.test(stripped)
+      || /^\(function\(\)\{(var\s+\w+=)?.*Math\.(random|floor|ceil|round|abs)\b/.test(stripped)
+      || /classList\.contains|matchMedia|prefers-color-scheme|getComputedStyle|getBoundingClientRect/.test(stripped);
     if (!benignSDK && !benignPattern) {
       _post('DANGEROUS_EVAL', {
         codePreview: preview.substring(0, 200),

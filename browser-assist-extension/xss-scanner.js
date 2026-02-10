@@ -2963,7 +2963,7 @@
   // PUBLIC API
   // ============================================
 
-  Object.defineProperty(window, 'xssScanner', { value: {
+  if (!window.xssScanner) Object.defineProperty(window, 'xssScanner', { value: {
     // Full comprehensive scan (current page)
     scan: comprehensiveScan,
 
@@ -3065,7 +3065,7 @@
     analyzeContext,
     analyzeEscaping,
     parseDomStructure,
-  }, configurable: false, enumerable: false });
+  }, configurable: false, enumerable: false);
 
   // ============================================
   // AUTO-RUN & EVENT LISTENERS

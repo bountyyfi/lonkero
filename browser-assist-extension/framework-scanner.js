@@ -649,13 +649,13 @@
   // PUBLIC API
   // ============================================
 
-  Object.defineProperty(window, 'frameworkScanner', { value: {
+  if (!window.frameworkScanner) Object.defineProperty(window, 'frameworkScanner', { value: {
     scan,
     quickScan,
     detectFrameworks,
     getFindings: () => findings,
     clearFindings: () => { findings.length = 0; },
-  }, configurable: false, enumerable: false });
+  }, configurable: false, enumerable: false);
 
   // Listen for scan requests (nonce+channel validated)
   window.addEventListener('message', (event) => {

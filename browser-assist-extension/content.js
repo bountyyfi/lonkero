@@ -432,8 +432,9 @@
     // Airtable
     { name: 'Airtable API Key', pattern: /pat[a-zA-Z0-9]{14}\.[a-f0-9]{64}/g },
 
-    // Contentful
-    { name: 'Contentful Delivery Token', pattern: /(?:contentful|CONTENTFUL).*["'\s:=]+["']?([a-zA-Z0-9_-]{43})/gi },
+    // Contentful (CFPAT- personal access tokens, or delivery/preview tokens in tight assignment context)
+    { name: 'Contentful Access Token', pattern: /CFPAT-[a-zA-Z0-9_-]{40,}/g },
+    { name: 'Contentful Delivery Token', pattern: /(?:contentful|CONTENTFUL).{0,30}(?:token|key|secret|delivery|preview).{0,15}["'\s:=]+["']?([a-zA-Z0-9_-]{43})["']?/gi },
 
     // Postmark
     { name: 'Postmark Server Token', pattern: /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?=.*postmark)/gi },
@@ -2199,7 +2200,7 @@
                            'continue', 'callback', 'forward', 'out', 'link'];
 
     // Skip known third-party service domains where URL params are contextual, not redirects
-    const benignHosts = /giosg\.com|intercom\.io|zendesk\.com|livechat|tawk\.to|crisp\.chat|drift\.com|hubspot\.com|freshdesk\.com|olark\.com|smartsupp\.com|tidio\.co/;
+    const benignHosts = /giosg\.com|intercom\.io|zendesk\.com|livechat|tawk\.to|crisp\.chat|drift\.com|hubspot\.com|freshdesk\.com|olark\.com|smartsupp\.com|tidio\.co|stripe\.network|stripe\.com|paypal\.com|adyen\.com|klarna\.com|checkout\.com|braintreegateway\.com|recaptcha\.net|google\.com\/recaptcha|hcaptcha\.com|gstatic\.com/;
     if (benignHosts.test(location.hostname)) return;
 
     for (const param of redirectParams) {
@@ -2819,7 +2820,7 @@
     for (const script of scripts) {
       const src = script.textContent || '';
       if (src.length < 10) continue;
-      // Skip GTM/analytics inline scripts
+      // Skip GTM/analytics inline scripts and known SDK code
       if (/google_tag_manager|googletagmanager|gtag\(|fbq\(|_gaq/.test(src.substring(0, 500))) continue;
       let m;
       while ((m = commentRegex.exec(src)) !== null) {
@@ -2828,6 +2829,8 @@
         if (/^\/\/[\w.-]+\.(com|net|org|io|fi|de|uk|se|no|eu|co)\b/.test(comment)) continue;
         // Skip URLs embedded in JSON strings matched as // comments
         if (/^\/\/[a-z][\w.-]*\//.test(comment) && !/\s/.test(comment.substring(0, 40))) continue;
+        // Skip known SDK DSN/config strings (Sentry, Datadog, New Relic, etc.)
+        if (/sentry[._](?:key|secret|dsn|version)|@sentry\/|sentry\.io|dsn=https?:|datadoghq\.com|newrelic|bugsnag|rollbar/i.test(comment)) continue;
         for (const { pattern, label } of suspiciousPatterns) {
           if (pattern.test(comment)) {
             found.push({

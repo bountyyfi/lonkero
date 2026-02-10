@@ -718,14 +718,16 @@
   // EXPOSE API
   // ============================================================
 
-  Object.defineProperty(window, 'sqlScanner', { value: {
-    quickScan,
-    scan,
-    deepScan,
-    testParameter,
-    getFindings: () => findings,
-    clearFindings: () => { findings.length = 0; testedParams.clear(); },
-  }, configurable: false, enumerable: false });
+  if (!window.sqlScanner) {
+    Object.defineProperty(window, 'sqlScanner', { value: {
+      quickScan,
+      scan,
+      deepScan,
+      testParameter,
+      getFindings: () => findings,
+      clearFindings: () => { findings.length = 0; testedParams.clear(); },
+    }, configurable: false, enumerable: false });
+  }
 
   // Listen for scan requests from content script (nonce+channel validated)
   window.addEventListener('message', (event) => {
