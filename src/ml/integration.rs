@@ -53,10 +53,15 @@ impl MlPipeline {
         let privacy_manager = PrivacyManager::new()?;
         let enabled = privacy_manager.is_ml_allowed();
 
+        // Load license key into federated client so model downloads work
+        // for users who activated via `lonkero license activate` (stored in keychain)
+        let mut federated = FederatedClient::new()?;
+        federated.load_license_key();
+
         Ok(Self {
             auto_learner: Arc::new(RwLock::new(AutoLearner::new()?)),
             fp_classifier: Arc::new(RwLock::new(FalsePositiveClassifier::new()?)),
-            federated_client: Arc::new(RwLock::new(FederatedClient::new()?)),
+            federated_client: Arc::new(RwLock::new(federated)),
             privacy_manager: Arc::new(RwLock::new(privacy_manager)),
             enabled,
             findings_processed: 0,
