@@ -881,7 +881,9 @@
   }
 
   // Expose to window (non-enumerable to avoid fingerprinting)
-  Object.defineProperty(window, 'formFuzzer', { value: new SmartFormFuzzer(), configurable: false, enumerable: false });
+  if (!window.formFuzzer) {
+    Object.defineProperty(window, 'formFuzzer', { value: new SmartFormFuzzer(), configurable: false, enumerable: false });
+  }
 
   console.log('[Lonkero] Smart Form Fuzzer v2.1 loaded');
   console.log('');

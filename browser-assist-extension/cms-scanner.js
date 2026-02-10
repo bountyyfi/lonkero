@@ -2611,7 +2611,9 @@
   }
 
   // Expose to window (non-enumerable to avoid fingerprinting)
-  Object.defineProperty(window, 'cmsScanner', { value: new CMSScanner(), configurable: false, enumerable: false });
+  if (!window.cmsScanner) {
+    Object.defineProperty(window, 'cmsScanner', { value: new CMSScanner(), configurable: false, enumerable: false });
+  }
 
   console.log('[Lonkero] CMS & Framework Scanner v2.0 loaded');
   console.log('');

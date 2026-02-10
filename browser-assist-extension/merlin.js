@@ -620,8 +620,129 @@
     console.log(`[Merlin] Vulnerable library: ${vuln.library} v${vuln.version} - ${vuln.description}`);
   }
 
+  // Scan script source code for library version comments (catches bundled/webpack/Vite apps)
+  function scanScriptContent() {
+    // Version comment patterns found in bundled JS (library name -> regex)
+    const sourcePatterns = [
+      // /*! jQuery v3.6.0 */  or  /** jQuery JavaScript Library v3.6.0 */
+      { lib: 'jquery', pattern: /(?:\/\*[!*]?\s*jQuery[^*]*?v?(\d+\.\d+(?:\.\d+)?))/i },
+      // /*! jQuery UI - v1.13.2 */
+      { lib: 'jquery-ui', pattern: /jQuery UI[^*]*?v?(\d+\.\d+(?:\.\d+)?)/i },
+      // /** @license React v18.2.0 */
+      { lib: 'react', pattern: /\*\s*(?:@license\s+)?React\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // /** @license React-DOM v18.2.0 */
+      { lib: 'react', pattern: /@license React-DOM v(\d+\.\d+(?:\.\d+)?)/i },
+      // /*! lodash 4.17.21 */  or  /** @license lodash 4.17.21 */
+      { lib: 'lodash', pattern: /(?:\/\*[!*]?\s*(?:@license\s+)?lodash\s+(\d+\.\d+(?:\.\d+)?))/i },
+      // /** @license underscore.js 1.13.6 */
+      { lib: 'underscore', pattern: /underscore(?:\.js)?\s+(\d+\.\d+(?:\.\d+)?)/i },
+      // * Bootstrap v5.3.0
+      { lib: 'bootstrap', pattern: /Bootstrap\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // moment.js v2.29.4  or  //! moment.js  //! version : 2.29.4
+      { lib: 'moment', pattern: /moment(?:\.js)?\s+(?:v(?:ersion\s*:\s*)?)?(\d+\.\d+(?:\.\d+)?)/i },
+      // /*! Handlebars v4.7.8 */
+      { lib: 'handlebars', pattern: /Handlebars\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // DOMPurify v2.4.3
+      { lib: 'dompurify', pattern: /DOMPurify\s+(?:v|version\s+)?(\d+\.\d+(?:\.\d+)?)/i },
+      // AngularJS v1.8.3
+      { lib: 'angularjs', pattern: /AngularJS\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // /*! Vue.js v2.7.16 */
+      { lib: 'vue', pattern: /Vue(?:\.js)?\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // axios v1.6.0
+      { lib: 'axios', pattern: /axios\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // /*! highlight.js v11.9.0 */  or  Highlight.js 11.0.0
+      { lib: 'highlightjs', pattern: /[Hh]ighlight(?:\.js)?\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Prism v1.29.0
+      { lib: 'prismjs', pattern: /Prism(?:JS|\.js)?\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // Chart.js v3.9.1
+      { lib: 'chartjs', pattern: /Chart(?:\.js)?\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // D3.js v7.8.5  or  d3 v7.8.5
+      { lib: 'd3', pattern: /[Dd]3(?:\.js)?\s+v(\d+\.\d+(?:\.\d+)?)/i },
+      // socket.io-client v4.7.2
+      { lib: 'socketio', pattern: /socket\.io(?:-client)?\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Leaflet v1.9.4
+      { lib: 'leaflet', pattern: /Leaflet\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // TinyMCE v6.8.2
+      { lib: 'tinymce', pattern: /TinyMCE\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // CKEditor 4.22.1
+      { lib: 'ckeditor4', pattern: /CKEditor\s+(\d+\.\d+(?:\.\d+)?)/i },
+      // Video.js 7.21.3
+      { lib: 'videojs', pattern: /Video(?:\.js)?\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Highcharts v10.3.3
+      { lib: 'highcharts', pattern: /Highcharts\s+(?:JS\s+)?v?(\d+\.\d+(?:\.\d+)?)/i },
+      // SweetAlert2 v11.7.3
+      { lib: 'sweetalert2', pattern: /SweetAlert2?\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Quill v1.3.7
+      { lib: 'quill', pattern: /Quill\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // marked v4.3.0  or  marked - a markdown parser v4.3.0
+      { lib: 'marked', pattern: /marked(?:\s+-[^v]*?)?\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Dropzone v5.9.3
+      { lib: 'dropzone', pattern: /Dropzone\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Summernote v0.8.20
+      { lib: 'summernote', pattern: /Summernote\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // CodeMirror v5.65.12
+      { lib: 'codemirror', pattern: /CodeMirror\s+(?:v(?:ersion\s*:\s*)?)?(\d+\.\d+(?:\.\d+)?)/i },
+      // DataTables v1.13.4
+      { lib: 'datatables', pattern: /DataTables?\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Select2 v4.0.13
+      { lib: 'select2', pattern: /Select2\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Knockout v3.5.1
+      { lib: 'knockout', pattern: /Knockout\s+(?:JavaScript\s+library\s+)?v?(\d+\.\d+(?:\.\d+)?)/i },
+      // MathJax v3.2.2
+      { lib: 'mathjax', pattern: /MathJax\s+v?(\d+\.\d+(?:\.\d+)?)/i },
+      // Froala Editor v4.1.1
+      { lib: 'froala', pattern: /Froala\s+(?:Editor\s+)?v?(\d+\.\d+(?:\.\d+)?)/i },
+    ];
+
+    function extractFromContent(content, source) {
+      for (const { lib, pattern } of sourcePatterns) {
+        if (detectedLibraries.has(lib)) continue; // Already detected via globals
+        const match = content.match(pattern);
+        if (match && match[1]) {
+          detectedLibraries.set(lib, match[1]);
+          console.log(`[Merlin] Detected ${lib} v${match[1]} from ${source}`);
+        }
+      }
+    }
+
+    // 1. Scan inline scripts
+    const inlineScripts = document.querySelectorAll('script:not([src])');
+    inlineScripts.forEach((script, i) => {
+      const content = script.textContent || '';
+      if (content.length > 50) {
+        extractFromContent(content, `inline-script-${i}`);
+      }
+    });
+
+    // 2. Fetch and scan same-origin external scripts
+    const externalScripts = document.querySelectorAll('script[src]');
+    const origin = location.origin;
+    const fetchPromises = [];
+
+    externalScripts.forEach(script => {
+      try {
+        const url = new URL(script.src, location.href);
+        // Only fetch same-origin scripts (CORS would block cross-origin)
+        if (url.origin === origin) {
+          fetchPromises.push(
+            fetch(url.href, { credentials: 'omit' })
+              .then(r => r.ok ? r.text() : '')
+              .then(text => {
+                if (text.length > 50) {
+                  extractFromContent(text.substring(0, 10000), url.pathname);
+                }
+              })
+              .catch(() => {})
+          );
+        }
+      } catch {}
+    });
+
+    return Promise.allSettled(fetchPromises);
+  }
+
   // Main scan function
-  function scan() {
+  async function scan() {
     console.log('[Merlin] Starting vulnerability scan...');
 
     // Run all detectors
@@ -670,6 +791,9 @@
 
     // Scan script tags for CDN versions
     scanScriptsForVersions();
+
+    // Scan actual script source code for version comments (catches bundled/webpack/Vite apps)
+    try { await scanScriptContent(); } catch {}
 
     // Check detected libraries against vulnerability database
     let vulnCount = 0;

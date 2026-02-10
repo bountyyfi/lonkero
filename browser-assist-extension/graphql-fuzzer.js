@@ -1751,7 +1751,9 @@
   }
 
   // Expose (non-enumerable to avoid fingerprinting)
-  Object.defineProperty(window, 'gqlFuzz', { value: new SmartGraphQLFuzzer(), configurable: false, enumerable: false });
+  if (!window.gqlFuzz) {
+    Object.defineProperty(window, 'gqlFuzz', { value: new SmartGraphQLFuzzer(), configurable: false, enumerable: false });
+  }
 
   console.log('[Lonkero] Smart GraphQL Fuzzer v3.1 loaded (ported from Rust scanner)');
   console.log('');

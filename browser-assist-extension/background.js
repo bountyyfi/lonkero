@@ -655,6 +655,30 @@ function audit(action, url, method, details = null) {
 }
 
 // ============================================================
+// TAB NAVIGATION — Clear stale pageAnalysis when tab changes origin
+// ============================================================
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url) {
+    // Tab navigated to a new URL — remove old pageAnalysis entries for this tab
+    for (const [url, analysis] of state.pageAnalysis) {
+      if (analysis._tabId === tabId) {
+        state.pageAnalysis.delete(url);
+      }
+    }
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  // Tab closed — clean up its pageAnalysis entries
+  for (const [url, analysis] of state.pageAnalysis) {
+    if (analysis._tabId === tabId) {
+      state.pageAnalysis.delete(url);
+    }
+  }
+});
+
+// ============================================================
 // CONTENT SCRIPT MESSAGE HANDLING
 // ============================================================
 
@@ -945,9 +969,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
 
-    // Page analysis
-    case 'pageAnalysis':
-      state.pageAnalysis.set(message.data.url, message.data);
+    // Page analysis (keyed by tabId so technologies stay per-tab)
+    case 'pageAnalysis': {
+      const paTabId = sender?.tab?.id;
+      const paEntry = { ...message.data, _tabId: paTabId };
+      state.pageAnalysis.set(message.data.url, paEntry);
 
       // Store session data per origin
       try {
@@ -957,10 +983,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       sendResponse({ ok: true });
       break;
+    }
 
     // Server technologies detected from response headers
     case 'serverTechnologies': {
       const pageUrl = message.url;
+      const stTabId = sender?.tab?.id;
       const existing = state.pageAnalysis.get(pageUrl);
       if (existing) {
         // Merge server techs into existing technologies, dedupe by name
@@ -972,12 +1000,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             existingNames.add(tech.name);
           }
         }
+        if (stTabId) existing._tabId = stTabId;
       } else {
         // No pageAnalysis yet — create a minimal entry
         state.pageAnalysis.set(pageUrl, {
           url: pageUrl,
           technologies: message.technologies || [],
           frameworks: [],
+          _tabId: stTabId,
         });
       }
       sendResponse({ ok: true });
@@ -1025,11 +1055,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse(state.capturedRequests);
       break;
 
-    case 'getTechnologies':
-      // Get technologies from the most recent page analysis
+    case 'getTechnologies': {
+      // Filter technologies to current tab only (by tabId, with origin fallback)
       const techList = [];
+      const filterTabId = message.tabId;
+      let filterOrigin = null;
+      try { if (message.tabUrl) filterOrigin = new URL(message.tabUrl).origin; } catch {}
       for (const [url, analysis] of state.pageAnalysis) {
         if (analysis.technologies && analysis.technologies.length > 0) {
+          // Primary: filter by tab ID (most accurate)
+          if (filterTabId && analysis._tabId) {
+            if (analysis._tabId !== filterTabId) continue;
+          } else if (filterOrigin) {
+            // Fallback: filter by origin
+            try { if (new URL(url).origin !== filterOrigin) continue; } catch { continue; }
+          }
           techList.push({
             url: url,
             technologies: analysis.technologies,
@@ -1039,6 +1079,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       sendResponse(techList);
       break;
+    }
 
     // Request replay
     case 'replayRequest':
