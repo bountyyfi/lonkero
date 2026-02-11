@@ -371,7 +371,57 @@ function loadFindings() {
 
     container.innerHTML = findings.map((f, i) => {
       const severity = getSeverity(f.type);
-      const evidence = f.evidence || f.value || f.valuePreview || f.description || '';
+
+      // Build more informative detail string
+      let detailParts = [];
+
+      // Add vulnerable parameter if available
+      if (f.param || f.parameter) {
+        detailParts.push(`Param: ${f.param || f.parameter}`);
+      }
+
+      // Add payload if available
+      if (f.payload) {
+        const payloadPreview = String(f.payload).substring(0, 40);
+        detailParts.push(`Payload: ${payloadPreview}${String(f.payload).length > 40 ? '...' : ''}`);
+      }
+
+      // Add method if available
+      if (f.method) {
+        detailParts.push(`Method: ${f.method}`);
+      }
+
+      // Add subtype for SQL injections
+      if (f.subtype) {
+        detailParts.push(`Type: ${f.subtype.replace(/_/g, ' ')}`);
+      }
+
+      // Add route/path if available
+      if (f.route) {
+        detailParts.push(`Route: ${f.route}`);
+      }
+
+      // Add sink for XSS
+      if (f.sink) {
+        detailParts.push(`Sink: ${f.sink}`);
+      }
+
+      // Add source for DOM XSS
+      if (f.source) {
+        detailParts.push(`Source: ${f.source}`);
+      }
+
+      // Fallback to evidence/description if no specific fields
+      if (detailParts.length === 0) {
+        const evidence = f.evidence || f.value || f.valuePreview || f.description || '';
+        if (evidence) {
+          const evidenceStr = typeof evidence === 'object' ? JSON.stringify(evidence) : String(evidence);
+          detailParts.push(evidenceStr.substring(0, 100) + (evidenceStr.length > 100 ? '...' : ''));
+        }
+      }
+
+      const detailText = detailParts.join(' • ');
+
       return `
         <div class="item ${severity} finding-item" data-index="${i}">
           <div class="item-header">
@@ -379,7 +429,7 @@ function loadFindings() {
             <span class="item-badge" style="background: transparent; border: 1px solid ${severity === 'critical' ? '#ff3939' : severity === 'high' ? '#ff6600' : '#ffaa00'}; color: ${severity === 'critical' ? '#ff3939' : severity === 'high' ? '#ff6600' : '#ffaa00'}; font-size: 8px;">${severity.toUpperCase()}</span>
           </div>
           <div class="item-url">${escapeHtml(f.url || f.tabUrl || 'Unknown')}</div>
-          ${evidence ? `<div class="item-detail">${escapeHtml(evidence.substring(0, 100))}${evidence.length > 100 ? '...' : ''}</div>` : ''}
+          ${detailText ? `<div class="item-detail">${escapeHtml(detailText)}</div>` : ''}
         </div>
       `;
     }).join('');

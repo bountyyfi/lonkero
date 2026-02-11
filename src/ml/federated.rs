@@ -196,19 +196,17 @@ impl FederatedClient {
         Ok(home.join(".lonkero").join("federated"))
     }
 
-    /// Fetch latest global model from server (requires license key)
+    /// Fetch latest global model from server (publicly available to all users)
     pub async fn fetch_global_model(&mut self) -> Result<Option<AggregatedModel>> {
         info!("Fetching detection model from server...");
 
         let client = reqwest::Client::new();
-        let mut request = client
+        let request = client
             .get(format!("{}/model/latest", self.server_url))
             .timeout(std::time::Duration::from_secs(30));
 
-        // Add license key header for authentication
-        if let Some(ref key) = self.license_key {
-            request = request.header("X-License-Key", key);
-        }
+        // ML models are now publicly available - no license required
+        // This enables all users to benefit from ML-enhanced vulnerability detection
 
         let response = request.send().await;
 
@@ -231,7 +229,9 @@ impl FederatedClient {
                 Ok(Some(model))
             }
             Ok(resp) if resp.status().as_u16() == 401 => {
-                warn!("Valid license required to download detection model");
+                // This shouldn't happen since models are public, but handle it gracefully
+                warn!("Model download returned 401 - server configuration issue");
+                warn!("Please contact support at info@bountyy.fi");
                 // Try loading cached model as fallback
                 Ok(self.load_cached_global_model()?)
             }
