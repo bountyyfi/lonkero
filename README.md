@@ -11,7 +11,7 @@ Professional-grade scanner for real penetration testing. Fast. Modular. Rust.
 
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-3.6.6-green.svg)](https://github.com/bountyyfi/lonkero)
+[![Version](https://img.shields.io/badge/version-3.6.7-green.svg)](https://github.com/bountyyfi/lonkero)
 [![Release](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml/badge.svg)](https://github.com/bountyyfi/lonkero/actions/workflows/release.yml)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/bountyyfi/lonkero)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-success.svg)](https://github.com/bountyyfi/lonkero)
