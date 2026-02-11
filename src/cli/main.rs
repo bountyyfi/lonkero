@@ -874,7 +874,7 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
             println!("     - Data stored in ~/.lonkero/training_data/");
             println!();
             println!("  2. Detection model download from Bountyy servers");
-            println!("     - Latest model weights are fetched (requires valid license)");
+            println!("     - Latest model weights are fetched (free for all users)");
             println!("     - No data is uploaded from your machine");
             println!();
 
@@ -976,18 +976,70 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
         }
 
         MlAction::Sync => {
-            println!("Fetching latest detection model...");
+            use lonkero_scanner::ml::FederatedClient;
 
-            match MlPipeline::new() {
-                Ok(mut pipeline) => {
-                    pipeline.on_scan_complete().await?;
+            println!();
+            println!("========================================================");
+            println!("LONKERO ML - MODEL SYNC");
+            println!("========================================================");
+            println!();
+            println!("Downloading detection model from server...");
+            println!("(Free for all users - no license required)");
+            println!();
+
+            // Create federated client
+            let mut client = FederatedClient::new()?;
+
+            // Attempt to fetch model
+            match client.fetch_and_cache_model().await {
+                Ok(model) => {
                     println!();
-                    println!("[OK] Detection model sync complete");
+                    println!("[OK] Detection model downloaded successfully!");
+                    println!();
+                    println!("Model Details:");
+                    println!("  Version:        v{}", model.global_version);
+                    println!("  Contributors:   {}", model.contributor_count);
+                    println!("  Training examples: {}", model.total_training_examples);
+                    println!("  Features:       {}", model.weights.weights.len());
+                    println!();
+                    println!("Model cached at: ~/.lonkero/federated/global_model.json");
+                    println!();
                 }
                 Err(e) => {
-                    error!("Sync failed: {}", e);
+                    println!();
+                    println!("[ERROR] Model download failed: {}", e);
+                    println!();
+                    println!("Possible causes:");
+                    println!("  1. Network connectivity issues");
+                    println!("  2. Server temporarily unavailable");
+                    println!("  3. Firewall blocking HTTPS connections");
+                    println!();
+                    println!("Solutions:");
+                    println!("  - Check your internet connection");
+                    println!("  - Try again in a few moments");
+                    println!("  - Check firewall settings (allow lonkero.bountyy.fi)");
+                    println!("  - Contact support at: info@bountyy.fi if issue persists");
+                    println!();
+
+                    // Try to load cached model as fallback
+                    match FederatedClient::load_cached_model() {
+                        Ok(cached) => {
+                            println!("[INFO] Using cached model v{}", cached.global_version);
+                            println!("       (Downloaded on: {})",
+                                chrono::DateTime::from_timestamp(cached.weights.timestamp, 0)
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                                    .unwrap_or_else(|| "unknown".to_string()));
+                        }
+                        Err(_) => {
+                            println!("[WARN] No cached model available");
+                            println!("       ML features will not be available until model is downloaded");
+                        }
+                    }
                 }
             }
+
+            println!("========================================================");
+            println!();
         }
     }
 
@@ -1360,26 +1412,15 @@ async fn run_scan(
     if !no_ml {
         let model_path = dirs::home_dir().map(|h| h.join(".lonkero/federated/global_model.json"));
         if model_path.as_ref().map_or(true, |p| !p.exists()) {
-            info!("[ML] Downloading detection model for first scan...");
+            info!("[ML] Downloading detection model for first scan (free for all users)...");
             if let Ok(mut client) = lonkero_scanner::ml::FederatedClient::new() {
-                // Resolve license key: CLI arg > env var > OS keychain > legacy config
-                let resolved_key = license_key.clone()
-                    .or_else(|| std::env::var("LONKERO_LICENSE_KEY").ok())
-                    .or_else(|| {
-                        keyring::Entry::new("lonkero", "license_key").ok()
-                            .and_then(|entry| entry.get_password().ok())
-                            .filter(|k| !k.is_empty())
-                    });
-                if let Some(key) = resolved_key {
-                    client.set_license_key(key);
-                }
                 match client.fetch_and_cache_model().await {
                     Ok(model) => info!(
                         "[ML] Model downloaded: v{} ({} features)",
                         model.weights.version,
                         model.weights.weights.len()
                     ),
-                    Err(e) => info!("[ML] Model download skipped (scanning without ML): {}", e),
+                    Err(e) => info!("[ML] Model download failed, scanning without ML: {}", e),
                 }
             }
         }
