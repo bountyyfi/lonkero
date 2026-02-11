@@ -42,6 +42,22 @@
   window[_xsGuard] = true;
 
   // ============================================
+  // URL VALIDATION
+  // ============================================
+
+  // Helper to validate URL
+  function isValidUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+      const parsed = new URL(url);
+      // Only allow http and https protocols
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  // ============================================
   // REFLECTION CONTEXTS
   // ============================================
   const CONTEXTS = {
@@ -1575,6 +1591,12 @@
   async function comprehensiveScan() {
     console.log('[XSS Scanner] Starting comprehensive XSS scan...');
 
+    // Validate URL first
+    if (!isValidUrl(location.href)) {
+      console.error('[XSS Scanner] Cannot scan invalid URL:', location.href);
+      return [];
+    }
+
     const url = new URL(location.href);
     const existingParams = Array.from(url.searchParams.entries());
     const results = [];
@@ -1586,12 +1608,16 @@
     for (const vuln of domVulns) {
       // Build POC URL based on source type
       let pocUrl = location.href;
-      if (vuln.source === 'location.hash') {
-        pocUrl = location.origin + location.pathname + location.search + '#<img src=x onerror=alert(1)>';
-      } else if (vuln.source === 'location.search') {
-        const testUrl = new URL(location.href);
-        testUrl.searchParams.set('xss', '<img src=x onerror=alert(1)>');
-        pocUrl = testUrl.toString();
+      try {
+        if (vuln.source === 'location.hash') {
+          pocUrl = location.origin + location.pathname + location.search + '#<img src=x onerror=alert(1)>';
+        } else if (vuln.source === 'location.search') {
+          const testUrl = new URL(location.href);
+          testUrl.searchParams.set('xss', '<img src=x onerror=alert(1)>');
+          pocUrl = testUrl.toString();
+        }
+      } catch (err) {
+        console.error('[XSS Scanner] Error building POC URL:', err.message);
       }
 
       const finding = {
@@ -2976,6 +3002,13 @@
     // Quick scan (DOM XSS + existing params + quick discovery)
     quickScan: async function() {
       console.log('[XSS Scanner] Quick scan...');
+
+      // Validate URL first
+      if (!isValidUrl(location.href)) {
+        console.error('[XSS Scanner] Cannot scan invalid URL:', location.href);
+        return [];
+      }
+
       const results = [];
 
       // DOM XSS
@@ -2983,12 +3016,16 @@
       for (const v of domVulns) {
         // Build POC URL based on source type
         let pocUrl = location.href;
-        if (v.source === 'location.hash') {
-          pocUrl = location.origin + location.pathname + location.search + '#<img src=x onerror=alert(1)>';
-        } else if (v.source === 'location.search') {
-          const testUrl = new URL(location.href);
-          testUrl.searchParams.set('xss', '<img src=x onerror=alert(1)>');
-          pocUrl = testUrl.toString();
+        try {
+          if (v.source === 'location.hash') {
+            pocUrl = location.origin + location.pathname + location.search + '#<img src=x onerror=alert(1)>';
+          } else if (v.source === 'location.search') {
+            const testUrl = new URL(location.href);
+            testUrl.searchParams.set('xss', '<img src=x onerror=alert(1)>');
+            pocUrl = testUrl.toString();
+          }
+        } catch (err) {
+          console.error('[XSS Scanner] Error building POC URL:', err.message);
         }
 
         const finding = {
@@ -3004,7 +3041,13 @@
       }
 
       // Test existing params
-      const params = new URL(location.href).searchParams;
+      let params;
+      try {
+        params = new URL(location.href).searchParams;
+      } catch (err) {
+        console.error('[XSS Scanner] Error parsing URL params:', err.message);
+        return results;
+      }
       for (const [name, value] of params) {
         const vuln = await testParameterWithProof(location.href, name, value);
         if (vuln) {

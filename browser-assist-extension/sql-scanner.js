@@ -170,13 +170,31 @@
     return Math.random().toString(36).substring(2, 10);
   }
 
+  // Helper to validate URL
+  function isValidUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+      const parsed = new URL(url);
+      // Only allow http and https protocols
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
   function getParamKey(url, param, method) {
-    return `${method}:${new URL(url).pathname}:${param}`;
+    try {
+      if (!isValidUrl(url)) return `${method}:invalid:${param}`;
+      return `${method}:${new URL(url).pathname}:${param}`;
+    } catch {
+      return `${method}:error:${param}`;
+    }
   }
 
   // Extract parameters from URL
   function extractUrlParams(url) {
     try {
+      if (!isValidUrl(url)) return [];
       const urlObj = new URL(url);
       const params = [];
       urlObj.searchParams.forEach((value, key) => {
@@ -338,6 +356,13 @@
   // Test URL parameter
   async function testUrlParam(baseUrl, param, originalValue) {
     const results = [];
+
+    // Validate URL first
+    if (!isValidUrl(baseUrl)) {
+      console.log(`[SQLi Scanner] Skipping invalid URL: ${baseUrl}`);
+      return results;
+    }
+
     const paramKey = getParamKey(baseUrl, param, 'GET');
 
     if (testedParams.has(paramKey)) {
@@ -356,117 +381,28 @@
 
     // Error-based testing
     for (const { payload, name, dbTypes } of PAYLOADS.errorBased.slice(0, 8)) {
-      const testUrl = new URL(baseUrl);
-      testUrl.searchParams.set(param, originalValue + payload);
+      try {
+        const testUrl = new URL(baseUrl);
+        testUrl.searchParams.set(param, originalValue + payload);
 
-      const response = await makeRequest(testUrl.toString());
-      const errorCheck = detectSqlError(response.text, response.status);
+        const response = await makeRequest(testUrl.toString());
+        const errorCheck = detectSqlError(response.text, response.status);
 
-      if (errorCheck.hasError) {
-        const finding = {
-          id: generateId(),
-          type: 'SQL_INJECTION',
-          subtype: 'ERROR_BASED',
-          severity: 'critical',
-          url: baseUrl,
-          param,
-          method: 'GET',
-          payload: payload,
-          payloadName: name,
-          evidence: {
-            databases: errorCheck.databases,
-            serverError: errorCheck.serverError,
-            responseStatus: response.status,
-          },
-          timestamp: Date.now(),
-        };
-
-        results.push(finding);
-        findings.push(finding);
-        reportFinding(finding);
-
-        console.log(`[SQLi Scanner] FOUND: Error-based SQLi in ${param}`, errorCheck.databases);
-        break; // Found vulnerability, stop testing this param for errors
-      }
-    }
-
-    // Boolean-based testing
-    for (const { true: truePayload, false: falsePayload, name } of PAYLOADS.booleanBased.slice(0, 4)) {
-      const trueUrl = new URL(baseUrl);
-      trueUrl.searchParams.set(param, originalValue + truePayload);
-
-      const falseUrl = new URL(baseUrl);
-      falseUrl.searchParams.set(param, originalValue + falsePayload);
-
-      const [trueResp, falseResp] = await Promise.all([
-        makeRequest(trueUrl.toString()),
-        makeRequest(falseUrl.toString()),
-      ]);
-
-      // Check if true condition matches baseline and false differs
-      const trueSimilarity = calculateSimilarity(baseline.text, trueResp.text);
-      const falseSimilarity = calculateSimilarity(baseline.text, falseResp.text);
-      const tfSimilarity = calculateSimilarity(trueResp.text, falseResp.text);
-
-      // Boolean SQLi: true matches baseline, false differs significantly
-      if (trueSimilarity > 0.9 && falseSimilarity < 0.7 && tfSimilarity < 0.7) {
-        const finding = {
-          id: generateId(),
-          type: 'SQL_INJECTION',
-          subtype: 'BOOLEAN_BASED',
-          severity: 'high',
-          url: baseUrl,
-          param,
-          method: 'GET',
-          payload: `TRUE: ${truePayload} / FALSE: ${falsePayload}`,
-          payloadName: name,
-          evidence: {
-            trueSimilarity,
-            falseSimilarity,
-            tfSimilarity,
-            trueLength: trueResp.text.length,
-            falseLength: falseResp.text.length,
-          },
-          timestamp: Date.now(),
-        };
-
-        results.push(finding);
-        findings.push(finding);
-        reportFinding(finding);
-
-        console.log(`[SQLi Scanner] FOUND: Boolean-based SQLi in ${param}`);
-        break;
-      }
-    }
-
-    // Time-based testing (only test 2 to avoid slow scans)
-    for (const { payload, name, delay, dbTypes } of PAYLOADS.timeBased.slice(0, 2)) {
-      const testUrl = new URL(baseUrl);
-      testUrl.searchParams.set(param, originalValue + payload);
-
-      const response = await makeRequest(testUrl.toString());
-
-      // If response took longer than expected delay, possible time-based SQLi
-      if (response.elapsed >= delay - 500) {
-        // Verify with a second request
-        const verify = await makeRequest(testUrl.toString());
-
-        if (verify.elapsed >= delay - 500) {
+        if (errorCheck.hasError) {
           const finding = {
             id: generateId(),
             type: 'SQL_INJECTION',
-            subtype: 'TIME_BASED',
-            severity: 'high',
+            subtype: 'ERROR_BASED',
+            severity: 'critical',
             url: baseUrl,
             param,
             method: 'GET',
-            payload,
+            payload: payload,
             payloadName: name,
             evidence: {
-              expectedDelay: delay,
-              actualDelay: response.elapsed,
-              verifyDelay: verify.elapsed,
-              dbTypes,
+              databases: errorCheck.databases,
+              serverError: errorCheck.serverError,
+              responseStatus: response.status,
             },
             timestamp: Date.now(),
           };
@@ -475,9 +411,110 @@
           findings.push(finding);
           reportFinding(finding);
 
-          console.log(`[SQLi Scanner] FOUND: Time-based SQLi in ${param} (${response.elapsed}ms)`);
+          console.log(`[SQLi Scanner] FOUND: Error-based SQLi in ${param}`, errorCheck.databases);
+          break; // Found vulnerability, stop testing this param for errors
+        }
+      } catch (err) {
+        console.error(`[SQLi Scanner] Error testing payload for ${param}:`, err.message);
+      }
+    }
+
+    // Boolean-based testing
+    for (const { true: truePayload, false: falsePayload, name } of PAYLOADS.booleanBased.slice(0, 4)) {
+      try {
+        const trueUrl = new URL(baseUrl);
+        trueUrl.searchParams.set(param, originalValue + truePayload);
+
+        const falseUrl = new URL(baseUrl);
+        falseUrl.searchParams.set(param, originalValue + falsePayload);
+
+        const [trueResp, falseResp] = await Promise.all([
+          makeRequest(trueUrl.toString()),
+          makeRequest(falseUrl.toString()),
+        ]);
+
+        // Check if true condition matches baseline and false differs
+        const trueSimilarity = calculateSimilarity(baseline.text, trueResp.text);
+        const falseSimilarity = calculateSimilarity(baseline.text, falseResp.text);
+        const tfSimilarity = calculateSimilarity(trueResp.text, falseResp.text);
+
+        // Boolean SQLi: true matches baseline, false differs significantly
+        if (trueSimilarity > 0.9 && falseSimilarity < 0.7 && tfSimilarity < 0.7) {
+          const finding = {
+            id: generateId(),
+            type: 'SQL_INJECTION',
+            subtype: 'BOOLEAN_BASED',
+            severity: 'high',
+            url: baseUrl,
+            param,
+            method: 'GET',
+            payload: `TRUE: ${truePayload} / FALSE: ${falsePayload}`,
+            payloadName: name,
+            evidence: {
+              trueSimilarity,
+              falseSimilarity,
+              tfSimilarity,
+              trueLength: trueResp.text.length,
+              falseLength: falseResp.text.length,
+            },
+            timestamp: Date.now(),
+          };
+
+          results.push(finding);
+          findings.push(finding);
+          reportFinding(finding);
+
+          console.log(`[SQLi Scanner] FOUND: Boolean-based SQLi in ${param}`);
           break;
         }
+      } catch (err) {
+        console.error(`[SQLi Scanner] Error in boolean testing for ${param}:`, err.message);
+      }
+    }
+
+    // Time-based testing (only test 2 to avoid slow scans)
+    for (const { payload, name, delay, dbTypes } of PAYLOADS.timeBased.slice(0, 2)) {
+      try {
+        const testUrl = new URL(baseUrl);
+        testUrl.searchParams.set(param, originalValue + payload);
+
+        const response = await makeRequest(testUrl.toString());
+
+        // If response took longer than expected delay, possible time-based SQLi
+        if (response.elapsed >= delay - 500) {
+          // Verify with a second request
+          const verify = await makeRequest(testUrl.toString());
+
+          if (verify.elapsed >= delay - 500) {
+            const finding = {
+              id: generateId(),
+              type: 'SQL_INJECTION',
+              subtype: 'TIME_BASED',
+              severity: 'high',
+              url: baseUrl,
+              param,
+              method: 'GET',
+              payload,
+              payloadName: name,
+              evidence: {
+                expectedDelay: delay,
+                actualDelay: response.elapsed,
+                verifyDelay: verify.elapsed,
+                dbTypes,
+              },
+              timestamp: Date.now(),
+            };
+
+            results.push(finding);
+            findings.push(finding);
+            reportFinding(finding);
+
+            console.log(`[SQLi Scanner] FOUND: Time-based SQLi in ${param} (${response.elapsed}ms)`);
+            break;
+          }
+        }
+      } catch (err) {
+        console.error(`[SQLi Scanner] Error in time-based testing for ${param}:`, err.message);
       }
     }
 
@@ -632,6 +669,12 @@
   async function deepScan(options = {}) {
     console.log('[SQLi Scanner] Starting deep scan (includes time-based)...');
 
+    // Validate URL first
+    if (!isValidUrl(location.href)) {
+      console.error('[SQLi Scanner] Cannot run deep scan on invalid URL:', location.href);
+      return [];
+    }
+
     // First run full scan
     const results = await scan();
 
@@ -647,41 +690,45 @@
         console.log(`[SQLi Scanner] Time-based testing: ${key}`);
 
         for (const { payload, name, delay, dbTypes } of PAYLOADS.timeBased) {
-          const testUrl = new URL(location.href);
-          testUrl.searchParams.set(key, value + payload);
+          try {
+            const testUrl = new URL(location.href);
+            testUrl.searchParams.set(key, value + payload);
 
-          const response = await makeRequest(testUrl.toString());
+            const response = await makeRequest(testUrl.toString());
 
-          if (response.elapsed >= delay - 500) {
-            const verify = await makeRequest(testUrl.toString());
+            if (response.elapsed >= delay - 500) {
+              const verify = await makeRequest(testUrl.toString());
 
-            if (verify.elapsed >= delay - 500) {
-              const finding = {
-                id: generateId(),
-                type: 'SQL_INJECTION',
-                subtype: 'TIME_BASED',
-                severity: 'high',
-                url: location.href,
-                param: key,
-                method: 'GET',
-                payload,
-                payloadName: name,
-                evidence: {
-                  expectedDelay: delay,
-                  actualDelay: response.elapsed,
-                  verifyDelay: verify.elapsed,
-                  dbTypes,
-                },
-                timestamp: Date.now(),
-              };
+              if (verify.elapsed >= delay - 500) {
+                const finding = {
+                  id: generateId(),
+                  type: 'SQL_INJECTION',
+                  subtype: 'TIME_BASED',
+                  severity: 'high',
+                  url: location.href,
+                  param: key,
+                  method: 'GET',
+                  payload,
+                  payloadName: name,
+                  evidence: {
+                    expectedDelay: delay,
+                    actualDelay: response.elapsed,
+                    verifyDelay: verify.elapsed,
+                    dbTypes,
+                  },
+                  timestamp: Date.now(),
+                };
 
-              results.push(finding);
-              findings.push(finding);
-              reportFinding(finding);
+                results.push(finding);
+                findings.push(finding);
+                reportFinding(finding);
 
-              console.log(`[SQLi Scanner] FOUND: Time-based SQLi in ${key}`);
-              break;
+                console.log(`[SQLi Scanner] FOUND: Time-based SQLi in ${key}`);
+                break;
+              }
             }
+          } catch (err) {
+            console.error(`[SQLi Scanner] Error in deep scan time-based testing for ${key}:`, err.message);
           }
         }
       }
