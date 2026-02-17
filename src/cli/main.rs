@@ -102,7 +102,7 @@ enum Commands {
         dorks: bool,
 
         /// Enable web crawler (enabled by default to discover real parameters)
-        #[arg(long, default_value = "true")]
+        #[arg(long, default_value_t = true, num_args = 1, require_equals = false, action = clap::ArgAction::Set)]
         crawl: bool,
 
         /// Maximum crawl depth
@@ -683,7 +683,9 @@ async fn async_main(cli: Cli) -> Result<()> {
 
 /// Determine which modules to request authorization for
 ///
-/// If `only` is specified, only those modules are requested.
+/// Determine which modules to request authorization for.
+///
+/// If `only` is specified, only those modules are requested for authorization.
 /// Otherwise, all modules are requested except those in `skip`.
 ///
 /// WARNING: If the resulting list is empty, only FREE tier modules will be authorized.
@@ -691,7 +693,7 @@ fn determine_requested_modules(skip: &[String], only: &[String]) -> Vec<String> 
     let all_modules = module_ids::get_all_module_ids();
 
     let result: Vec<String> = if !only.is_empty() {
-        // Only request specific modules
+        // Only request specific modules for authorization
         let only_set: HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
         all_modules
             .into_iter()
@@ -1226,8 +1228,8 @@ async fn run_scan(
     auth_password: Option<String>,
     auth_login_url: Option<String>,
     headers: Vec<String>,
-    _skip: Vec<String>,
-    _only: Vec<String>,
+    skip: Vec<String>,
+    only: Vec<String>,
     _proxy: Option<String>,
     _insecure: bool,
     rate_limit: u32,
@@ -1667,6 +1669,8 @@ async fn run_scan(
             } else {
                 Some(custom_headers.clone())
             },
+            only_modules: only.clone(),
+            skip_modules: skip.clone(),
         };
 
         let job = Arc::new(ScanJob {
@@ -2885,12 +2889,22 @@ async fn execute_standalone_scan(
         }
     }
 
+    // --only / --skip module filtering
+    let has_only_filter = !scan_config.only_modules.is_empty();
+    if has_only_filter {
+        info!("[Filter] --only modules: {:?}", scan_config.only_modules);
+    }
+    if !scan_config.skip_modules.is_empty() {
+        info!("[Filter] --skip modules: {:?}", scan_config.skip_modules);
+    }
+
     // CVE-2025-55182 Check - CRITICAL for Next.js/React sites
     // This is a CVSS 10.0 RCE vulnerability in React Server Components
-    if is_nodejs_stack
+    if (is_nodejs_stack
         || detected_technologies
             .iter()
-            .any(|t| t.contains("next") || t.contains("react"))
+            .any(|t| t.contains("next") || t.contains("react")))
+        && (!has_only_filter || scan_config.should_run_any_module(&["cve_2025_55182", "cve_2025_55183", "cve_2025_55184", "nextjs_scanner"]))
     {
         info!("  - Checking CVE-2025-55182 (React Server Components RCE)");
         let (vulns, tests) = engine
@@ -2948,7 +2962,7 @@ async fn execute_standalone_scan(
 
     // Azure APIM Cross-Tenant Signup Bypass Check (GHSA-vcwf-73jp-r7mv)
     // Check for any target - the scanner will detect if it's an APIM portal
-    {
+    if !has_only_filter || scan_config.should_run_module("azure_apim") {
         info!("  - Checking Azure APIM Cross-Tenant Signup Bypass");
         let (vulns, tests) = engine.azure_apim_scanner.scan(target, scan_config).await?;
         if !vulns.is_empty() {
@@ -2960,13 +2974,21 @@ async fn execute_standalone_scan(
 
     // Phase 0.5: JavaScript Mining for API endpoints and parameters
     // Run this BEFORE injection tests to discover testable endpoints in SPAs
-    info!("  - Pre-scanning JavaScript for API endpoints and parameters");
-    let js_miner_results = engine
-        .js_miner_scanner
-        .scan_with_extraction(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(js_miner_results.vulnerabilities);
-    total_tests += js_miner_results.tests_run as u64;
+    // Only run if no --only filter, or if js_miner is requested, or if downstream phases need it
+    let run_js_mining = !has_only_filter || scan_config.should_run_module("js_miner");
+    let js_miner_results = if run_js_mining {
+        info!("  - Pre-scanning JavaScript for API endpoints and parameters");
+        let results = engine
+            .js_miner_scanner
+            .scan_with_extraction(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(results.vulnerabilities.clone());
+        total_tests += results.tests_run as u64;
+        results
+    } else {
+        // Return empty results when JS mining is skipped
+        lonkero_scanner::scanners::JsMinerResults::new()
+    };
 
     // Log discovered endpoints
     let js_param_count: usize = js_miner_results.parameters.values().map(|s| s.len()).sum();
@@ -3524,7 +3546,7 @@ async fn execute_standalone_scan(
         // 2. Proof-Based XSS Scanner - Mathematical proof via context + escape analysis
         // 3. Reflection XSS Scanner - Comprehensive payload testing (12,450+ payloads)
         // ==========================================================================
-        if !is_graphql_only && !is_static_site {
+        if !is_graphql_only && !is_static_site && (!has_only_filter || scan_config.should_run_any_module(&["xss_scanner", "proof_xss_scanner", "reflection_xss_scanner", "dom_xss_scanner", "postmessage_vulns", "dom_clobbering"])) {
             let xss_authorized = scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER);
             let intensity = payload_intensity_override.unwrap_or(PayloadIntensity::Standard);
 
@@ -3734,7 +3756,7 @@ async fn execute_standalone_scan(
         // Detects stored XSS, stored SQLi, and stored command injection where
         // payloads are injected in one endpoint and triggered in another
         // ==========================================================================
-        if !is_graphql_only && !is_static_site {
+        if !is_graphql_only && !is_static_site && (!has_only_filter || scan_config.should_run_module("second_order_injection")) {
             info!("  - Testing Second-Order Injection (stored XSS/SQLi/CMDi)");
             // Create a new scanner instance for this scan (needs &mut self for state tracking)
             let mut second_order_scanner = lonkero_scanner::scanners::SecondOrderInjectionScanner::new(Arc::clone(&engine.http_client));
@@ -3910,22 +3932,28 @@ async fn execute_standalone_scan(
     info!("Phase 2: Security configuration testing");
 
     // Security Headers (FREE tier)
-    info!("  - Testing Security Headers");
-    let (vulns, tests) = engine
-        .security_headers_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("security_headers") {
+        info!("  - Testing Security Headers");
+        let (vulns, tests) = engine
+            .security_headers_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // CORS (FREE tier)
-    info!("  - Testing CORS Configuration");
-    let (vulns, tests) = engine.cors_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("cors_basic") {
+        info!("  - Testing CORS Configuration");
+        let (vulns, tests) = engine.cors_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // CORS Misconfiguration (Professional+)
-    if scan_token.is_module_authorized(module_ids::advanced_scanning::CORS_MISCONFIG) {
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::CORS_MISCONFIG)
+        && (!has_only_filter || scan_config.should_run_module("cors_misconfig"))
+    {
         info!("  - Testing CORS Misconfiguration");
         let (vulns, tests) = engine
             .cors_misconfiguration_scanner
@@ -3944,13 +3972,15 @@ async fn execute_standalone_scan(
     }
 
     // Clickjacking (FREE tier)
-    info!("  - Testing Clickjacking Protection");
-    let (vulns, tests) = engine
-        .clickjacking_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("clickjacking") {
+        info!("  - Testing Clickjacking Protection");
+        let (vulns, tests) = engine
+            .clickjacking_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Phase 3: Authentication & Authorization
     info!("Phase 3: Authentication testing");
@@ -4427,23 +4457,26 @@ async fn execute_standalone_scan(
     }
 
     // Information Disclosure (Free tier - info_disclosure_basic)
-    // Note: This is free tier, no authorization check needed
-    info!("  - Testing Information Disclosure");
-    let (vulns, tests) = engine
-        .information_disclosure_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("info_disclosure_basic") {
+        info!("  - Testing Information Disclosure");
+        let (vulns, tests) = engine
+            .information_disclosure_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Sensitive Data - always run (critical for finding exposed .env, .git, credentials)
-    info!("  - Testing Sensitive Data Exposure");
-    let (vulns, tests) = engine
-        .sensitive_data_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("sensitive_data") {
+        info!("  - Testing Sensitive Data Exposure");
+        let (vulns, tests) = engine
+            .sensitive_data_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Cache Poisoning (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::CACHE_POISONING) {

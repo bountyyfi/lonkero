@@ -110,31 +110,52 @@ impl Session {
 
     /// Merge new findings from a scan result into the session.
     /// Returns the number of new findings added.
+    /// Handles both single scan result objects and arrays of scan results.
     pub fn merge_findings(&mut self, scan_json: &serde_json::Value) -> usize {
         let mut new_count = 0;
 
-        if let Some(vulns) = scan_json["vulnerabilities"].as_array() {
-            for vuln in vulns {
-                let finding: Result<Finding, _> = serde_json::from_value(vuln.clone());
-                if let Ok(f) = finding {
-                    // Deduplicate by (type, url, parameter)
-                    let already_exists = self.findings.iter().any(|existing| {
-                        existing.vuln_type == f.vuln_type
-                            && existing.url == f.url
-                            && existing.parameter == f.parameter
-                    });
-                    if !already_exists {
-                        self.findings.push(f);
-                        new_count += 1;
+        // Handle both array format [{"scanId":..., "vulnerabilities":[...]}]
+        // and single object format {"scanId":..., "vulnerabilities":[...]}
+        let scan_results: Vec<&serde_json::Value> = if let Some(arr) = scan_json.as_array() {
+            arr.iter().collect()
+        } else {
+            vec![scan_json]
+        };
+
+        for result in &scan_results {
+            if let Some(vulns) = result["vulnerabilities"].as_array() {
+                for vuln in vulns {
+                    let finding: Result<Finding, _> = serde_json::from_value(vuln.clone());
+                    if let Ok(f) = finding {
+                        // Deduplicate by (type, url, parameter)
+                        let already_exists = self.findings.iter().any(|existing| {
+                            existing.vuln_type == f.vuln_type
+                                && existing.url == f.url
+                                && existing.parameter == f.parameter
+                        });
+                        if !already_exists {
+                            self.findings.push(f);
+                            new_count += 1;
+                        }
                     }
                 }
             }
-        }
 
-        // Extract discovered endpoints
-        if let Some(target) = scan_json["target"].as_str() {
-            if !self.discovered_endpoints.contains(&target.to_string()) {
-                self.discovered_endpoints.push(target.to_string());
+            // Extract discovered endpoints
+            if let Some(target) = result["target"].as_str() {
+                if !self.discovered_endpoints.contains(&target.to_string()) {
+                    self.discovered_endpoints.push(target.to_string());
+                }
+            }
+
+            // Track tested endpoints from scan metadata
+            if let Some(tests_run) = result["testsRun"].as_u64() {
+                if let Some(target) = result["target"].as_str() {
+                    self.tested
+                        .entry(target.to_string())
+                        .or_default()
+                        .insert(format!("scan ({} tests)", tests_run));
+                }
             }
         }
 

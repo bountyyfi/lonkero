@@ -359,6 +359,8 @@ async fn execute_tool(
 }
 
 /// Execute lonkero CLI and capture JSON output.
+/// Streams stderr to the terminal in real-time so the user sees scan progress,
+/// while capturing stdout for JSON result parsing.
 async fn execute_lonkero(
     bin: &str,
     args: &[String],
@@ -378,33 +380,42 @@ async fn execute_lonkero(
 
     tracing::debug!("Executing: {} {}", bin, cmd_args.join(" "));
 
-    let output = tokio::process::Command::new(bin)
+    let mut child = tokio::process::Command::new(bin)
         .args(&cmd_args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
+        .stderr(Stdio::inherit()) // Stream stderr to terminal for real-time progress
+        .spawn()
         .context(format!("Failed to execute lonkero. Is '{}' in PATH?", bin))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    // Read stdout while the child runs
+    let stdout_handle = child.stdout.take();
+    let stdout = if let Some(stdout_pipe) = stdout_handle {
+        use tokio::io::AsyncReadExt;
+        let mut buf = Vec::new();
+        let mut reader = tokio::io::BufReader::new(stdout_pipe);
+        reader.read_to_end(&mut buf).await.unwrap_or(0);
+        String::from_utf8_lossy(&buf).to_string()
+    } else {
+        String::new()
+    };
 
-    if !output.status.success() {
-        // Include stderr in error for debugging, but still return stdout if it has JSON
-        if !stdout.is_empty() && stdout.starts_with('{') {
-            // Scan produced JSON output even though exit code was non-zero
-            // (this can happen with license warnings, etc.)
+    let status = child.wait().await
+        .context("Failed to wait for lonkero process")?;
+
+    if !status.success() {
+        // Scan produced JSON output even though exit code was non-zero
+        // (this can happen with license warnings, etc.)
+        if !stdout.is_empty() && (stdout.starts_with('{') || stdout.starts_with('[')) {
             return Ok(stdout);
         }
         anyhow::bail!(
-            "lonkero exited with {}: {}",
-            output.status,
-            if stderr.is_empty() { &stdout } else { &stderr }
+            "lonkero exited with {}",
+            status,
         );
     }
 
     if stdout.is_empty() {
-        Ok(format!("Scan completed. No JSON output. Stderr: {}", stderr))
+        Ok("Scan completed. No JSON output produced.".to_string())
     } else {
         Ok(stdout)
     }

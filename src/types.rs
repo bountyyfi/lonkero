@@ -99,6 +99,42 @@ pub struct ScanConfig {
 
     #[serde(default)]
     pub custom_headers: Option<HashMap<String, String>>,
+
+    /// Only run these specific scanner modules (empty = run all)
+    #[serde(default)]
+    pub only_modules: Vec<String>,
+
+    /// Skip these specific scanner modules
+    #[serde(default)]
+    pub skip_modules: Vec<String>,
+}
+
+impl ScanConfig {
+    /// Check if a module should run based on --only and --skip filters.
+    /// Returns true if the module is allowed to run.
+    pub fn should_run_module(&self, module_id: &str) -> bool {
+        // If --only is specified, only run modules in the list
+        if !self.only_modules.is_empty() {
+            if !self.only_modules.iter().any(|m| m == module_id) {
+                return false;
+            }
+        }
+        // If --skip is specified, skip modules in the list
+        if self.skip_modules.iter().any(|m| m == module_id) {
+            return false;
+        }
+        true
+    }
+
+    /// Check if ANY module from a list should run (for phase-level gating).
+    pub fn should_run_any_module(&self, module_ids: &[&str]) -> bool {
+        if self.only_modules.is_empty() {
+            // No filter, check skip list
+            return module_ids.iter().any(|id| !self.skip_modules.contains(&id.to_string()));
+        }
+        // Check if any of the given modules are in the only list
+        module_ids.iter().any(|id| self.should_run_module(id))
+    }
 }
 
 fn default_max_depth() -> u32 {
@@ -121,6 +157,8 @@ impl Default for ScanConfig {
             auth_token: None,
             auth_basic: None,
             custom_headers: None,
+            only_modules: Vec::new(),
+            skip_modules: Vec::new(),
         }
     }
 }
