@@ -646,8 +646,83 @@ impl PostMessageVulnsScanner {
         sinks
     }
 
+    /// Check if a postMessage handler is likely a framework internal listener
+    /// (Next.js HMR, React DevTools, webpack, etc.) and not application code.
+    /// These handlers don't need origin validation since they're framework internals.
+    fn is_framework_internal_handler(&self, handler_code: &str, source_url: &str) -> bool {
+        let code_lower = handler_code.to_lowercase();
+        let source_lower = source_url.to_lowercase();
+
+        // Next.js internal patterns
+        if code_lower.contains("hmr")
+            || code_lower.contains("hot module")
+            || code_lower.contains("__next")
+            || code_lower.contains("fast refresh")
+            || code_lower.contains("turbopack")
+            || code_lower.contains("next-route-announcer")
+        {
+            return true;
+        }
+
+        // Next.js script paths (bundled framework code)
+        if source_lower.contains("/_next/static/")
+            || source_lower.contains("/_next/webpack")
+            || source_lower.contains("/__nextjs")
+        {
+            // Only skip if no dangerous sinks in the code
+            if !code_lower.contains("eval(")
+                && !code_lower.contains("innerhtml")
+                && !code_lower.contains("document.write")
+            {
+                return true;
+            }
+        }
+
+        // Webpack HMR / dev server
+        if code_lower.contains("webpack")
+            && (code_lower.contains("hmr") || code_lower.contains("hot"))
+        {
+            return true;
+        }
+
+        // React DevTools
+        if code_lower.contains("react devtools") || code_lower.contains("__react") {
+            return true;
+        }
+
+        // Vite HMR
+        if code_lower.contains("vite") && code_lower.contains("hmr") {
+            return true;
+        }
+
+        // Type-based message routing without dangerous sinks = framework internal
+        // e.g. if (e.data.type === 'someInternalType') { ... }
+        if (code_lower.contains("data.type") || code_lower.contains("data[\"type\"]"))
+            && code_lower.contains("===")
+            && !code_lower.contains(".origin")
+            && !code_lower.contains("eval(")
+            && !code_lower.contains("innerhtml")
+            && !code_lower.contains("document.write")
+            && !code_lower.contains("location")
+        {
+            return true;
+        }
+
+        false
+    }
+
     /// Analyze a handler and generate vulnerability if applicable
     fn analyze_handler(&self, handler: &MessageHandler, url: &str) -> Option<Vulnerability> {
+        // Skip framework internal handlers (Next.js HMR, webpack, React DevTools, etc.)
+        // These don't need origin validation and produce false positives
+        if self.is_framework_internal_handler(&handler.code, &handler.source) {
+            debug!(
+                "[PostMessage] Skipping framework internal handler from {}",
+                handler.source
+            );
+            return None;
+        }
+
         let mut issues: Vec<String> = Vec::new();
         let mut severity = Severity::Medium;
         let mut cwe = "CWE-346"; // Origin Validation Error

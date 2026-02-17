@@ -678,16 +678,17 @@ fn print_session_summary(session: &Session) {
     println!("  Endpoints tested: {}", session.tested.len());
     println!("  Findings:         {}", session.findings.len());
 
-    // Breakdown by severity
-    let critical = session.findings.iter().filter(|f| f.severity == "CRITICAL").count();
-    let high = session.findings.iter().filter(|f| f.severity == "HIGH").count();
-    let medium = session.findings.iter().filter(|f| f.severity == "MEDIUM").count();
-    let low = session.findings.iter().filter(|f| f.severity == "LOW").count();
+    // Breakdown by severity (case-insensitive to handle any JSON casing)
+    let critical = session.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("CRITICAL")).count();
+    let high = session.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("HIGH")).count();
+    let medium = session.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("MEDIUM")).count();
+    let low = session.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("LOW")).count();
+    let info = session.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("INFO")).count();
 
     if !session.findings.is_empty() {
         println!(
-            "    \x1b[31mCRITICAL: {}\x1b[0m  \x1b[91mHIGH: {}\x1b[0m  \x1b[33mMEDIUM: {}\x1b[0m  LOW: {}",
-            critical, high, medium, low
+            "    \x1b[31mCRITICAL: {}\x1b[0m  \x1b[91mHIGH: {}\x1b[0m  \x1b[33mMEDIUM: {}\x1b[0m  LOW: {}  \x1b[90mINFO: {}\x1b[0m",
+            critical, high, medium, low, info
         );
     }
 
