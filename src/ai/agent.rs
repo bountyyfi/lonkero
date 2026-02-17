@@ -12,6 +12,7 @@
 //! 5. Loops until the user exits
 
 use anyhow::{Context, Result};
+use regex::Regex;
 use std::io::{self, BufRead, Write as IoWrite};
 use std::process::Stdio;
 
@@ -282,15 +283,20 @@ async fn run_agent_turn(
                         }
                     }
 
+                    // SMAC: Sanitize tool output before LLM ingestion
+                    // Removes invisible content (HTML comments, zero-width chars, etc.)
+                    // that adversarial targets could use for prompt injection
+                    let sanitized = sanitize_for_llm(output);
+
                     // Truncate very long outputs for the LLM context
-                    let truncated = if output.len() > 15000 {
+                    let truncated = if sanitized.len() > 15000 {
                         format!(
                             "{}...\n\n[Output truncated. {} total chars. Use list_findings to see all results.]",
-                            &output[..15000],
-                            output.len()
+                            &sanitized[..15000],
+                            sanitized.len()
                         )
                     } else {
-                        output.clone()
+                        sanitized
                     };
 
                     tool_results.push(ContentBlock::ToolResult {
@@ -419,6 +425,55 @@ async fn execute_lonkero(
     } else {
         Ok(stdout)
     }
+}
+
+// ---------------------------------------------------------------------------
+// SMAC: Secure Markdown/HTML for AI Consumption
+// ---------------------------------------------------------------------------
+// Sanitizes tool output before it enters the LLM context, preventing
+// prompt injection via invisible content in scanned targets.
+//
+// SMAC-1: Strip HTML comments (<!-- ... -->)
+// SMAC-2: Strip markdown reference-only links ([//]: # (...))
+// SMAC-3: Strip common prompt injection patterns
+// SMAC-4: Log discarded content for audit trail
+
+/// Sanitize scan output before passing to the LLM.
+/// Removes invisible content that could contain prompt injection payloads
+/// from adversarial targets being scanned.
+fn sanitize_for_llm(input: &str) -> String {
+    // Compile patterns once per call (cheap for the call frequency here)
+    // In a hot path, these would be lazy_static
+
+    // SMAC-1: Strip HTML comments (primary injection vector)
+    let html_comment_re = Regex::new(r"(?s)<!--.*?-->").unwrap();
+    let stripped = html_comment_re.replace_all(input, "");
+
+    // SMAC-2: Strip markdown reference-only links (invisible metadata)
+    let md_ref_re = Regex::new(r#"(?m)^\[//\]:\s*#\s*[\("](.*?)[\)"]\s*$"#).unwrap();
+    let stripped = md_ref_re.replace_all(&stripped, "");
+
+    // SMAC-3: Strip zero-width characters and Unicode tricks used for invisible text
+    let stripped = stripped
+        .replace('\u{200B}', "")  // Zero-width space
+        .replace('\u{200C}', "")  // Zero-width non-joiner
+        .replace('\u{200D}', "")  // Zero-width joiner
+        .replace('\u{FEFF}', "")  // Zero-width no-break space (BOM)
+        .replace('\u{2060}', "")  // Word joiner
+        .replace('\u{2062}', "")  // Invisible times
+        .replace('\u{2063}', "")  // Invisible separator
+        .replace('\u{2064}', ""); // Invisible plus
+
+    // SMAC-4: Log if anything was stripped (audit trail)
+    if stripped.len() < input.len() {
+        let bytes_stripped = input.len() - stripped.len();
+        tracing::info!(
+            "[SMAC] Stripped {} bytes of invisible/hidden content from tool output before LLM ingestion",
+            bytes_stripped
+        );
+    }
+
+    stripped
 }
 
 // ---------------------------------------------------------------------------
