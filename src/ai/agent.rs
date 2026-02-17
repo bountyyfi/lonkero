@@ -428,23 +428,28 @@ async fn execute_lonkero(
 }
 
 // ---------------------------------------------------------------------------
-// SMAC: Secure Markdown/HTML for AI Consumption
+// SMAC: Secure Markdown/HTML for AI Consumption + GhostCSS Defenses
 // ---------------------------------------------------------------------------
 // Sanitizes tool output before it enters the LLM context, preventing
 // prompt injection via invisible content in scanned targets.
 //
 // SMAC-1: Strip HTML comments (<!-- ... -->)
 // SMAC-2: Strip markdown reference-only links ([//]: # (...))
-// SMAC-3: Strip common prompt injection patterns
+// SMAC-3: Strip zero-width Unicode characters
 // SMAC-4: Log discarded content for audit trail
+// SMAC-5: System prompt boundary (in system_prompt.rs)
+//
+// GhostCSS defenses:
+// GCSS-1: Strip elements with inline style display:none / visibility:hidden / opacity:0
+// GCSS-2: Strip elements with sr-only / visually-hidden / screen-reader-text classes
+// GCSS-3: Strip elements with aria-hidden="true"
+// GCSS-4: Strip elements with style containing off-screen positioning, zero font-size, etc.
+// GCSS-5: Strip CSS-generated content (::before/::after content properties)
 
 /// Sanitize scan output before passing to the LLM.
 /// Removes invisible content that could contain prompt injection payloads
 /// from adversarial targets being scanned.
 fn sanitize_for_llm(input: &str) -> String {
-    // Compile patterns once per call (cheap for the call frequency here)
-    // In a hot path, these would be lazy_static
-
     // SMAC-1: Strip HTML comments (primary injection vector)
     let html_comment_re = Regex::new(r"(?s)<!--.*?-->").unwrap();
     let stripped = html_comment_re.replace_all(input, "");
@@ -452,6 +457,45 @@ fn sanitize_for_llm(input: &str) -> String {
     // SMAC-2: Strip markdown reference-only links (invisible metadata)
     let md_ref_re = Regex::new(r#"(?m)^\[//\]:\s*#\s*[\("](.*?)[\)"]\s*$"#).unwrap();
     let stripped = md_ref_re.replace_all(&stripped, "");
+
+    // GCSS-1: Strip HTML elements with inline visibility-hiding styles
+    // Matches <tag style="...display:none...">...content...</tag> and self-closing variants
+    let hidden_style_re = Regex::new(
+        r#"(?si)<(\w+)\s[^>]*style\s*=\s*"[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?(?:\s|;|"))[^"]*"[^>]*>.*?</\1>"#
+    ).unwrap();
+    let stripped = hidden_style_re.replace_all(&stripped, "");
+
+    // GCSS-1b: Self-closing hidden elements (e.g. <input style="display:none" .../>)
+    let hidden_self_closing_re = Regex::new(
+        r#"(?si)<\w+\s[^>]*style\s*=\s*"[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?(?:\s|;|"))[^"]*"[^>]*/>"#
+    ).unwrap();
+    let stripped = hidden_self_closing_re.replace_all(&stripped, "");
+
+    // GCSS-2: Strip elements with screen-reader-only / visually-hidden classes
+    let sr_only_re = Regex::new(
+        r#"(?si)<(\w+)\s[^>]*class\s*=\s*"[^"]*(?:sr-only|visually-hidden|screen-reader-text|clip-hide|a11y-hidden)[^"]*"[^>]*>.*?</\1>"#
+    ).unwrap();
+    let stripped = sr_only_re.replace_all(&stripped, "");
+
+    // GCSS-3: Strip elements with aria-hidden="true"
+    let aria_hidden_re = Regex::new(
+        r#"(?si)<(\w+)\s[^>]*aria-hidden\s*=\s*"true"[^>]*>.*?</\1>"#
+    ).unwrap();
+    let stripped = aria_hidden_re.replace_all(&stripped, "");
+
+    // GCSS-4: Strip elements with off-screen positioning and size tricks
+    // Catches: position:absolute with large negative left/top, font-size:0,
+    // height:0;overflow:hidden, text-indent:-9999px, clip:rect(0,0,0,0)
+    let offscreen_re = Regex::new(
+        r#"(?si)<(\w+)\s[^>]*style\s*=\s*"[^"]*(?:text-indent\s*:\s*-\d{4,}|font-size\s*:\s*0(?:px)?(?:\s|;|")|clip\s*:\s*rect\s*\(\s*0|clip-path\s*:\s*inset\s*\(\s*(?:50|100)%)[^"]*"[^>]*>.*?</\1>"#
+    ).unwrap();
+    let stripped = offscreen_re.replace_all(&stripped, "");
+
+    // GCSS-5: Strip CSS content property declarations (used in ::before/::after injection)
+    let css_content_re = Regex::new(
+        r#"(?si)content\s*:\s*"[^"]{20,}""#
+    ).unwrap();
+    let stripped = css_content_re.replace_all(&stripped, r#"content:"""#);
 
     // SMAC-3: Strip zero-width characters and Unicode tricks used for invisible text
     let stripped = stripped
@@ -468,7 +512,7 @@ fn sanitize_for_llm(input: &str) -> String {
     if stripped.len() < input.len() {
         let bytes_stripped = input.len() - stripped.len();
         tracing::info!(
-            "[SMAC] Stripped {} bytes of invisible/hidden content from tool output before LLM ingestion",
+            "[SMAC/GhostCSS] Stripped {} bytes of invisible/hidden content before LLM ingestion",
             bytes_stripped
         );
     }
