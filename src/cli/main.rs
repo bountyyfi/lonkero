@@ -269,6 +269,61 @@ enum Commands {
         #[command(subcommand)]
         action: MlAction,
     },
+
+    /// AI-powered interactive security testing (conversational pentesting)
+    Ai {
+        /// Target URL to test
+        #[arg(required = true)]
+        target: String,
+
+        /// LLM provider: claude (default), ollama
+        #[arg(long, default_value = "claude")]
+        provider: String,
+
+        /// Model to use (provider-specific, e.g. claude-sonnet-4-5-20250929, llama3.1:70b)
+        #[arg(long)]
+        model: Option<String>,
+
+        /// API key for Claude (or set ANTHROPIC_API_KEY env var)
+        #[arg(long, env = "ANTHROPIC_API_KEY")]
+        api_key: Option<String>,
+
+        /// Ollama server URL (default: http://localhost:11434)
+        #[arg(long)]
+        ollama_url: Option<String>,
+
+        /// Run in auto mode (AI drives the entire pentest autonomously)
+        #[arg(long)]
+        auto: bool,
+
+        /// Maximum autonomous rounds in auto mode (default: 20)
+        #[arg(long, default_value = "20")]
+        max_rounds: u32,
+
+        /// Authentication cookie to pass through to lonkero scans
+        #[arg(long)]
+        cookie: Option<String>,
+
+        /// Authentication bearer token to pass through to lonkero scans
+        #[arg(long)]
+        token: Option<String>,
+
+        /// HTTP Basic auth to pass through (user:pass)
+        #[arg(long)]
+        basic_auth: Option<String>,
+
+        /// Proxy URL to pass through to lonkero scans
+        #[arg(long)]
+        proxy: Option<String>,
+
+        /// Custom headers to pass through (format: "Header: Value")
+        #[arg(short = 'H', long)]
+        header: Vec<String>,
+
+        /// Disable TLS certificate verification
+        #[arg(long)]
+        insecure: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -590,6 +645,39 @@ async fn async_main(cli: Cli) -> Result<()> {
             handle_license_command(action, cli.license_key.as_deref()).await
         }
         Commands::Ml { action } => handle_ml_command(action).await,
+        Commands::Ai {
+            target,
+            provider,
+            model,
+            api_key,
+            ollama_url,
+            auto,
+            max_rounds,
+            cookie,
+            token,
+            basic_auth,
+            proxy,
+            header,
+            insecure,
+        } => {
+            handle_ai_command(
+                target,
+                provider,
+                model,
+                api_key,
+                ollama_url,
+                auto,
+                max_rounds,
+                cookie,
+                token,
+                basic_auth,
+                proxy,
+                header,
+                insecure,
+                cli.license_key,
+            )
+            .await
+        }
     }
 }
 
@@ -1044,6 +1132,79 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Handle the `lonkero ai` subcommand — interactive AI-powered security testing
+#[allow(clippy::too_many_arguments)]
+async fn handle_ai_command(
+    target: String,
+    provider_name: String,
+    model: Option<String>,
+    api_key: Option<String>,
+    ollama_url: Option<String>,
+    auto: bool,
+    max_rounds: u32,
+    cookie: Option<String>,
+    token: Option<String>,
+    basic_auth: Option<String>,
+    proxy: Option<String>,
+    headers: Vec<String>,
+    insecure: bool,
+    license_key: Option<String>,
+) -> Result<()> {
+    use lonkero_scanner::ai::{agent, provider};
+
+    // Parse provider type
+    let provider_type: provider::ProviderType = provider_name
+        .parse()
+        .map_err(|e: anyhow::Error| anyhow::anyhow!("{}", e))?;
+
+    // Create LLM provider
+    let llm = provider::create_provider(provider_type, model, api_key, ollama_url)?;
+
+    // Build passthrough args for lonkero scan invocations
+    let mut passthrough_args = Vec::new();
+    if let Some(ref c) = cookie {
+        passthrough_args.extend_from_slice(&["--cookie".to_string(), c.clone()]);
+    }
+    if let Some(ref t) = token {
+        passthrough_args.extend_from_slice(&["--token".to_string(), t.clone()]);
+    }
+    if let Some(ref b) = basic_auth {
+        passthrough_args.extend_from_slice(&["--basic-auth".to_string(), b.clone()]);
+    }
+    if let Some(ref p) = proxy {
+        passthrough_args.extend_from_slice(&["--proxy".to_string(), p.clone()]);
+    }
+    for h in &headers {
+        passthrough_args.extend_from_slice(&["-H".to_string(), h.clone()]);
+    }
+    if insecure {
+        passthrough_args.push("--insecure".to_string());
+    }
+
+    // Build auth info description for the system prompt
+    let auth_info = if cookie.is_some() || token.is_some() || basic_auth.is_some() {
+        Some("Authentication credentials provided — testing authenticated attack surface.".to_string())
+    } else {
+        None
+    };
+
+    // Resolve the lonkero binary path (use current executable)
+    let lonkero_bin = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "lonkero".to_string());
+
+    let config = agent::AgentConfig {
+        lonkero_bin,
+        auto_mode: auto,
+        max_rounds,
+        license_key,
+        passthrough_args,
+        auth_info,
+    };
+
+    agent::run_agent(llm, target, config).await
 }
 
 async fn run_scan(

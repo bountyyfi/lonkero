@@ -1271,6 +1271,144 @@ Model scoring does not require GDPR consent because it is strictly one-way (no p
 
 ---
 
+## AI-Powered Interactive Testing (`lonkero ai`)
+
+Lonkero v3.7 introduces an AI agent that drives the scanner through natural language conversation. Instead of running all 94+ modules at once, the AI works like a skilled pentester: recon first, identify interesting targets, then surgically test specific endpoints with specific scanners.
+
+### How It Works
+
+```
+┌──────────────────────────────────────────────┐
+│            You (natural language)             │
+│  "test the search page for XSS"              │
+│  "dig deeper into that IDOR"                 │
+│  "try to bypass the WAF"                     │
+├──────────────────────────────────────────────┤
+│            AI Agent (LLM brain)              │
+│  Understands all 94+ scanner modules         │
+│  Reasons about findings                      │
+│  Decides which module to fire next           │
+│  Chains vulnerabilities                      │
+├──────────────────────────────────────────────┤
+│            Lonkero Scanner Engine            │
+│  Executes targeted --only scans              │
+│  Returns JSON results to the AI              │
+│  All existing modules unchanged              │
+└──────────────────────────────────────────────┘
+```
+
+### Quick Start
+
+```bash
+# Interactive mode (default) — you guide the AI
+export ANTHROPIC_API_KEY=sk-ant-...
+lonkero ai https://example.com
+
+# Auto mode — AI runs a full pentest autonomously
+lonkero ai https://example.com --auto
+
+# With authentication (passed through to all scans)
+lonkero ai https://example.com --cookie "session=abc123"
+lonkero ai https://example.com --token "Bearer eyJ..."
+
+# Use a local model (Ollama) for full privacy
+lonkero ai https://example.com --provider ollama --model llama3.1:70b
+
+# Specify Claude model
+lonkero ai https://example.com --model claude-sonnet-4-5-20250929
+```
+
+### Example Session
+
+```
+$ lonkero ai https://example.com
+
+================================================================
+  Lonkero AI - Interactive Security Testing Agent
+================================================================
+  Target:   https://example.com
+  Provider: claude (claude-sonnet-4-5-20250929)
+
+[Running: recon] https://example.com
+
+  Recon complete. Here's what I see:
+  - Tech: Next.js 14, React, Node.js backend, Akamai CDN
+  - 847 endpoints found, 84 with parameters
+  - Missing CSP headers, permissive CORS on /api/*
+  - WAF detected (Akamai)
+
+  I'd recommend testing:
+  1. /haku?q= (search page — XSS candidate)
+  2. /api/v1/user/{id} (IDOR candidate)
+  3. /api/v1/auth/token (JWT/auth testing)
+
+lonkero-ai> test the search page for XSS
+
+[Running: scan_xss] https://example.com/haku?q=test (intensity: standard)
+
+  [!] 1 new vulnerability found
+
+  Confirmed: Reflected XSS on /haku?q=
+  - Reflection context: HTML attribute (value="USER_INPUT")
+  - Payload: " onfocus=alert(1) autofocus="
+  - WAF status: Akamai did NOT block this payload
+  - Confidence: HIGH (proof-based)
+
+  Next steps:
+  1. Test for DOM XSS too
+  2. Try WAF bypass with more event handlers
+  3. Move on to the IDOR on /api/v1/user/{id}
+
+lonkero-ai> check the IDOR
+
+[Running: scan_idor] https://example.com/api/v1/user/1 (intensity: standard)
+
+  [!] 1 new vulnerability found
+
+  Confirmed: BOLA on /api/v1/user/{id}
+  - Any authenticated user can read other users' profiles
+  - Write access (PUT) returns 403 — properly protected
+  ...
+```
+
+### AI Commands
+
+| Command | Description |
+|---------|-------------|
+| `lonkero ai <url>` | Start interactive AI testing session |
+| `--auto` | Autonomous mode (AI decides everything) |
+| `--provider claude` | Use Claude API (default) |
+| `--provider ollama` | Use local Ollama model |
+| `--model <model>` | Specify model ID |
+| `--api-key <key>` | Claude API key (or set `ANTHROPIC_API_KEY`) |
+| `--max-rounds <n>` | Max autonomous rounds in auto mode (default: 20) |
+
+### In-Session Commands
+
+| Command | Description |
+|---------|-------------|
+| Natural language | "test for XSS", "dig deeper", "try WAF bypass" |
+| `findings` | Show all vulnerabilities found so far |
+| `help` | Show help |
+| `exit` | End session and show summary |
+
+### Supported LLM Providers
+
+| Provider | Privacy | Cost | Best For |
+|----------|---------|------|----------|
+| **Claude API** (default) | Target URLs sent to API | ~$0.30/session | Best reasoning, tool use |
+| **Ollama** (local) | Full privacy, nothing leaves machine | Free (GPU) | Air-gapped, sensitive targets |
+
+### Key Design Decisions
+
+- **Surgical testing**: The AI fires individual scanner modules (`--only`) on specific endpoints — not full blasts
+- **Existing scanners untouched**: The AI module is purely additive; all 94+ scanners work exactly as before
+- **Session state**: The AI tracks all findings, tested endpoints, and technologies across the conversation
+- **Passthrough auth**: Cookies, tokens, proxies, and headers are forwarded to every scan the AI runs
+- **Cost tracking**: Token usage and estimated API cost shown at session end
+
+---
+
 ## Scanner Intelligence System
 
 Lonkero v3.0 introduces a sophisticated intelligence system that makes scanners work together like a coordinated security team rather than isolated tools.

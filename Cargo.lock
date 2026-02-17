@@ -2095,10 +2095,11 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lonkero"
-version = "3.6.6"
+version = "3.6.7"
 dependencies = [
  "ahash",
  "anyhow",
+ "async-trait",
  "base64",
  "blake3",
  "bytes",
