@@ -238,6 +238,21 @@ async fn run_auto_mode(
         match turn_result {
             Ok(()) => {}
             Err(e) => {
+                let err_str = e.to_string().to_lowercase();
+                let is_context_overflow = err_str.contains("too many tokens")
+                    || err_str.contains("context length")
+                    || err_str.contains("maximum")
+                    || err_str.contains("overloaded")
+                    || err_str.contains("rate limit")
+                    || err_str.contains("529")
+                    || err_str.contains("413")
+                    || err_str.contains("request too large");
+
+                if is_context_overflow && session.compact_context() {
+                    eprintln!("\x1b[33m  [Retrying with compacted context...]\x1b[0m");
+                    continue;
+                }
+
                 eprintln!("\x1b[31m[Error in round {}]: {}\x1b[0m", round, e);
                 break;
             }
@@ -628,9 +643,11 @@ async fn run_agent_turn(
                                                 "You are Lonkero AI, a security testing assistant. You are currently running a scan ({}) against {}. \
                                                  {} findings so far. Status: {}. \
                                                  The user is chatting with you while the scan runs. Respond briefly and naturally. \
-                                                 If they ask about progress, give a status update. If they chat casually, be friendly but brief. \
+                                                 If they ask about progress, give a status update with the numbers above. If they chat casually, be friendly but brief. \
+                                                 IMPORTANT: Do NOT make up or list specific vulnerability details — you only know the count ({} findings). \
+                                                 Never invent finding names, severities, or descriptions. Just say how many and that the scan is running. \
                                                  Keep responses to 1-2 sentences.",
-                                                tool_name, target, findings_count, status
+                                                tool_name, target, findings_count, status, findings_count
                                             );
                                             let chat_messages = vec![Message {
                                                 role: Role::User,

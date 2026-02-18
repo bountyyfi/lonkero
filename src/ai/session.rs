@@ -242,4 +242,87 @@ impl Session {
         self.total_input_tokens += input_tokens;
         self.total_output_tokens += output_tokens;
     }
+
+    /// Compact conversation context when it gets too large.
+    /// Keeps the first message (auto-mode instructions), the last few exchanges,
+    /// and replaces middle messages with a summary. Returns true if compaction happened.
+    pub fn compact_context(&mut self) -> bool {
+        if self.messages.len() < 6 {
+            return false;
+        }
+
+        // Estimate total context size (rough: sum of text content lengths)
+        let total_chars: usize = self.messages.iter().map(|m| {
+            m.content.iter().map(|b| match b {
+                ContentBlock::Text { text } => text.len(),
+                ContentBlock::ToolUse { input, .. } => input.to_string().len(),
+                ContentBlock::ToolResult { content, .. } => content.len(),
+                _ => 0,
+            }).sum::<usize>()
+        }).sum();
+
+        // ~4 chars per token, compact if over ~80K tokens worth
+        if total_chars < 300_000 {
+            return false;
+        }
+
+        eprintln!("\x1b[33m  [Context compaction] Trimming {} messages ({} chars) to fit context window...\x1b[0m",
+            self.messages.len(), total_chars);
+
+        // Strategy: Keep first message + last 4 messages, replace middle with summary
+        let keep_start = 1; // first message (auto-mode instructions)
+        let keep_end = 4;   // last 4 messages (recent context)
+
+        if self.messages.len() <= keep_start + keep_end {
+            return false;
+        }
+
+        let first = self.messages[..keep_start].to_vec();
+        let last = self.messages[self.messages.len() - keep_end..].to_vec();
+
+        // Build a compact summary of what happened in the middle
+        let summary = format!(
+            "[Context compacted — {} earlier messages removed to fit context window]\n\
+             Session so far: {} scans run against {}.\n\
+             {}\n\
+             Technologies detected: {}.\n\
+             Endpoints tested: {}.\n\
+             The conversation continues below with the most recent context.",
+            self.messages.len() - keep_start - keep_end,
+            self.scan_count,
+            self.target,
+            self.findings_summary(),
+            if self.technologies.is_empty() { "none yet".to_string() } else { self.technologies.join(", ") },
+            self.tested.keys().take(20).cloned().collect::<Vec<_>>().join(", "),
+        );
+
+        let mut compacted = first;
+        compacted.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: summary }],
+        });
+        // Need to add an assistant ack so the message alternation is valid
+        compacted.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text {
+                text: "Understood, continuing the assessment with the compacted context.".to_string(),
+            }],
+        });
+        compacted.extend(last);
+
+        let new_chars: usize = compacted.iter().map(|m| {
+            m.content.iter().map(|b| match b {
+                ContentBlock::Text { text } => text.len(),
+                ContentBlock::ToolUse { input, .. } => input.to_string().len(),
+                ContentBlock::ToolResult { content, .. } => content.len(),
+                _ => 0,
+            }).sum::<usize>()
+        }).sum();
+
+        eprintln!("\x1b[33m  [Context compaction] Reduced from {} to {} chars ({} messages → {})\x1b[0m",
+            total_chars, new_chars, self.messages.len(), compacted.len());
+
+        self.messages = compacted;
+        true
+    }
 }
