@@ -204,15 +204,17 @@ async fn run_auto_mode(
     println!("\x1b[90m  Type 'findings' to check progress, 'help' for commands, 'exit' to stop.\x1b[0m\n");
 
     session.add_user_message(&format!(
-        "Run a complete security assessment of {}. \
-         Start with recon, then crawl to discover endpoints, \
-         then test the most interesting endpoints with relevant scanners. \
-         Focus on high-impact vulnerabilities first. \
-         When you've covered the main attack surface, generate a summary of all findings.",
+        "Run a security assessment of {}. Follow this approach:\n\
+         1. Run recon to understand the target\n\
+         2. Crawl to discover endpoints and parameters\n\
+         3. Based on what you find, run TARGETED scans on specific endpoints:\n\
+            - Use scan_xss, scan_sqli, scan_idor etc. on individual endpoints\n\
+            - Pick scanners based on what recon/crawl reveals (e.g. forms → XSS, APIs → IDOR)\n\
+            - Do NOT use full_scan — use specific scanners on specific URLs\n\
+         4. After testing key endpoints, summarize all findings.\n\
+         Focus on high-impact vulnerabilities. Be surgical, not noisy.",
         session.target
     ));
-
-    let mut should_exit = false;
 
     // Run up to max_rounds of agent turns
     for round in 0..config.max_rounds {
@@ -233,31 +235,24 @@ async fn run_auto_mode(
                 .iter()
                 .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
             if !has_tool_calls {
-                // LLM finished with text — auto mode complete
-                // Give user a chance to continue the conversation
+                // LLM finished — auto scan complete
+                // Drop into interactive mode so user can ask follow-ups
                 println!("\n\x1b[33m[Auto scan complete]\x1b[0m Type a follow-up or 'exit' to finish.");
 
-                // Switch to interactive follow-up loop
                 loop {
                     print!("\n\x1b[36mlonkero-ai>\x1b[0m ");
                     io::stdout().flush()?;
 
                     let input = match stdin_rx.recv().await {
                         Some(UserInput::Line(line)) => line,
-                        Some(UserInput::Eof) | None => {
-                            should_exit = true;
-                            break;
-                        }
+                        Some(UserInput::Eof) | None => break,
                     };
 
                     let input = input.trim();
 
                     match input {
                         "" => continue,
-                        "exit" | "quit" | "q" => {
-                            should_exit = true;
-                            break;
-                        }
+                        "exit" | "quit" | "q" => break,
                         "findings" | "results" => {
                             println!("{}", session.findings_summary());
                             continue;
@@ -298,29 +293,12 @@ fn print_auto_help() {
 // Core agent turn: send to LLM, handle tool calls, recurse until text response
 // ---------------------------------------------------------------------------
 
-/// Spinner that runs in the background to show the user something is happening.
-/// Uses a dedicated line that doesn't interfere with user input.
-/// The spinner writes on its own line and uses ANSI escape to update in place
-/// without erasing any text the user may be typing.
-fn spawn_spinner(label: &str, running: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
-    let label = label.to_string();
-    tokio::task::spawn(async move {
-        let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-        let mut i = 0;
-        // Print initial spinner on its own line
-        eprintln!();
-        while running.load(Ordering::Relaxed) {
-            // Move up one line, clear it, write spinner, then move back down
-            // This keeps the spinner on a fixed line above where user types
-            eprint!("\x1b[A\r\x1b[2K\x1b[90m  {} {}\x1b[0m\n", frames[i % frames.len()], label);
-            let _ = io::stderr().flush();
-            i += 1;
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        // Clear the spinner line: move up, clear, move back
-        eprint!("\x1b[A\r\x1b[2K");
-        let _ = io::stderr().flush();
-    })
+/// Status line displayed during long-running operations.
+/// Instead of a spinner that uses cursor movement (which interferes with
+/// user input echo), we print a static status line and let the user type
+/// freely below it. No cursor movement, no line clearing.
+fn print_status(label: &str) {
+    eprintln!("\x1b[90m  [{}]\x1b[0m", label);
 }
 
 /// Drain queued user input from the channel.
@@ -399,19 +377,14 @@ async fn run_agent_turn(
             ));
         }
 
-        // Start a spinner while waiting for LLM (streaming will replace it)
-        let spinner_running = Arc::new(AtomicBool::new(true));
-        let spinner = spawn_spinner("Thinking...", spinner_running.clone());
+        // Show status while waiting for LLM
+        print_status("Thinking...");
 
         // Use streaming to print text as it arrives
         let started_printing = Arc::new(AtomicBool::new(false));
-        let spinner_ref = spinner_running.clone();
         let started_ref = started_printing.clone();
         let on_text: StreamCallback = Box::new(move |delta: &str| {
-            // Kill spinner on first text output
             if !started_ref.swap(true, Ordering::Relaxed) {
-                spinner_ref.store(false, Ordering::Relaxed);
-                // Small delay to let spinner clear
                 print!("\n\x1b[32m");
             }
             print!("{}", delta);
@@ -421,13 +394,7 @@ async fn run_agent_turn(
         let response = provider
             .chat_stream(system_prompt, &session.messages, tool_defs, on_text)
             .await
-            .context("LLM API call failed");
-
-        // Stop spinner if still running (e.g. tool_use only, no text)
-        spinner_running.store(false, Ordering::Relaxed);
-        let _ = spinner.await;
-
-        let response = response?;
+            .context("LLM API call failed")?;
 
         // Close the green color if we printed streaming text
         if started_printing.load(Ordering::Relaxed) {
@@ -465,17 +432,7 @@ async fn run_agent_turn(
                 format_tool_input(&tool_name, &tool_input)
             );
 
-            // Show progress spinner during tool execution
-            let tool_running = Arc::new(AtomicBool::new(true));
-            let tool_spinner = spawn_spinner(
-                &format!("Executing {}...", tool_name),
-                tool_running.clone(),
-            );
-
             let result = execute_tool(&tool_name, &tool_input, session, config).await;
-
-            tool_running.store(false, Ordering::Relaxed);
-            let _ = tool_spinner.await;
 
             match &result {
                 Ok(output) => {
@@ -598,25 +555,33 @@ async fn execute_lonkero(
     passthrough: &[String],
     license_key: &Option<String>,
 ) -> Result<String> {
-    let mut cmd_args = args.to_vec();
-
-    // Add passthrough args (cookie, token, proxy, etc.)
-    cmd_args.extend_from_slice(passthrough);
-
-    // Add license key if available (CLI arg takes priority, then env var)
+    // Build args: license key goes BEFORE the subcommand for clap global args
     let resolved_key = license_key.clone()
         .or_else(|| std::env::var("LONKERO_LICENSE_KEY").ok());
+
+    let mut cmd_args = Vec::new();
     if let Some(ref key) = resolved_key {
         cmd_args.push("--license-key".into());
         cmd_args.push(key.clone());
     }
+    // Now add the subcommand and its args (e.g. "scan", url, "--only", ...)
+    cmd_args.extend_from_slice(args);
+    // Add passthrough args (cookie, token, proxy, etc.)
+    cmd_args.extend_from_slice(passthrough);
 
     tracing::debug!("Executing: {} {}", bin, cmd_args.join(" "));
 
-    let mut child = tokio::process::Command::new(bin)
-        .args(&cmd_args)
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.args(&cmd_args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped()) // Capture stderr too for error diagnosis
+        .stderr(Stdio::piped());
+
+    // Also set the env var on the child process to ensure it's available
+    if let Some(ref key) = resolved_key {
+        cmd.env("LONKERO_LICENSE_KEY", key);
+    }
+
+    let mut child = cmd
         .spawn()
         .context(format!("Failed to execute lonkero. Is '{}' in PATH?", bin))?;
 
@@ -665,19 +630,33 @@ async fn execute_lonkero(
             return Ok(stdout);
         }
 
-        // Provide stderr context in the error message for better diagnosis
+        // Show detailed error with stderr and command for debugging
         let stderr_summary = if stderr.is_empty() {
-            String::new()
+            "  (no stderr output)".to_string()
         } else {
-            // Take last few lines for context
             let lines: Vec<&str> = stderr.lines().collect();
-            let relevant: Vec<&str> = lines.iter().rev().take(5).rev().copied().collect();
-            format!("\n  {}", relevant.join("\n  "))
+            let relevant: Vec<&str> = lines.iter().rev().take(10).rev().copied().collect();
+            format!("  {}", relevant.join("\n  "))
         };
 
+        // Mask license key in displayed command
+        let display_args: Vec<String> = cmd_args.iter().map(|a| {
+            if a.len() > 20 && cmd_args.iter().any(|prev| prev == "--license-key") {
+                // Don't expose license key in error output
+                if let Some(pos) = cmd_args.iter().position(|x| x == "--license-key") {
+                    if cmd_args.get(pos + 1) == Some(a) {
+                        return "***".to_string();
+                    }
+                }
+            }
+            a.clone()
+        }).collect();
+
         anyhow::bail!(
-            "lonkero exited with {}{}",
+            "lonkero exited with {}\n  Command: {} {}\n{}",
             status,
+            bin,
+            display_args.join(" "),
             stderr_summary,
         );
     }
