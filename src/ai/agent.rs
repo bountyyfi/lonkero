@@ -111,7 +111,7 @@ pub async fn run_agent(
 ) -> Result<()> {
     let mut session = Session::new(target.clone());
     let tool_defs = tools::get_tool_definitions();
-    let system_prompt = build_system_prompt(&target, config.auth_info.as_deref());
+    let system_prompt = build_system_prompt(&target, config.auth_info.as_deref(), config.license_type.as_deref());
 
     // Track whether a key was originally provided (before we might clear it)
     let key_was_provided = config.license_key.is_some();
@@ -253,7 +253,8 @@ async fn run_auto_mode(
                     continue;
                 }
 
-                eprintln!("\x1b[31m[Error in round {}]: {}\x1b[0m", round, e);
+                // Print the full error chain so we can see the actual API error
+                eprintln!("\x1b[31m[Error in round {}]: {:#}\x1b[0m", round, e);
                 break;
             }
         }

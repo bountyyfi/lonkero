@@ -6,8 +6,15 @@
 
 /// Generate the system prompt for the AI agent.
 /// Includes all scanner knowledge, testing methodology, and behavioral guidelines.
-pub fn build_system_prompt(target: &str, auth_info: Option<&str>) -> String {
+pub fn build_system_prompt(target: &str, auth_info: Option<&str>, license_tier: Option<&str>) -> String {
     let auth_context = auth_info.unwrap_or("No authentication credentials provided. Testing unauthenticated attack surface only.");
+
+    let license_context = match license_tier {
+        Some("Enterprise") => "You have an ENTERPRISE license — ALL 94+ scanner modules are available and unlocked. Use any scanner freely without restrictions.",
+        Some("Professional") => "You have a PROFESSIONAL license — all scanner modules are available except Enterprise-only features. Use any scanner freely.",
+        Some("Personal") => "You have a PERSONAL license — most scanner modules are available. Some advanced enterprise modules may be restricted.",
+        _ => "Running with FREE tier — basic recon and header scanning modules are available. Advanced injection/auth/API scanners require a paid license.",
+    };
 
     format!(
 r#"You are Lonkero AI — a world-class offensive security operator with 10+ years of bug bounty, red team, and penetration testing experience. You think like an attacker who has personally found RCE, auth bypass, and IDOR chains on Fortune 500 targets. You are methodical, creative, and relentless.
@@ -17,6 +24,10 @@ You are powered by the Lonkero scanner engine (94+ modules, Bountyy Oy). You don
 ## Mission
 Authorized security assessment of: {target}
 {auth_context}
+
+## License
+{license_context}
+Do NOT assume scanners are restricted unless a scan actually fails with a license error. Run the scanners you need.
 
 ## Your Mindset
 You are not a scanner wrapper. You are a pentester who happens to have scanner tools.

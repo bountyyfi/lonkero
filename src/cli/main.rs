@@ -1205,10 +1205,9 @@ async fn handle_ai_command(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "lonkero".to_string());
 
-    // Resolve license info for display in the banner
-    // Request authorization with the free-tier modules that the AI agent uses for recon.
-    // Previously used "recon" which is not a valid module ID, causing license validation
-    // to fail even with valid enterprise keys.
+    // Resolve license info for display in the banner.
+    // We only need to validate the license key and get the tier — the actual module gating
+    // happens per-subprocess when each scan calls authorize_scan with its own modules.
     let (license_type, license_holder) = if license_key.is_some() {
         let hw_id = lonkero_scanner::signing::get_hardware_id();
         match lonkero_scanner::signing::authorize_scan(
