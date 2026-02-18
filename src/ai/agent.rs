@@ -41,6 +41,9 @@ pub struct AgentConfig {
     /// License tier for display (e.g. "Personal", "Professional", "Enterprise")
     pub license_type: Option<String>,
 
+    /// License holder name (licensee or organization)
+    pub license_holder: Option<String>,
+
     /// Extra CLI args to pass through to every lonkero invocation
     /// (e.g. --cookie, --token, --proxy, etc.)
     pub passthrough_args: Vec<String>,
@@ -57,6 +60,7 @@ impl Default for AgentConfig {
             max_rounds: 20,
             license_key: None,
             license_type: None,
+            license_holder: None,
             passthrough_args: Vec::new(),
             auth_info: None,
         }
@@ -110,7 +114,7 @@ pub async fn run_agent(
     let system_prompt = build_system_prompt(&target, config.auth_info.as_deref());
 
     // Print banner
-    print_banner(&target, provider.name(), provider.model(), config.license_type.as_deref());
+    print_banner(&target, provider.name(), provider.model(), config.license_type.as_deref(), config.license_holder.as_deref());
 
     // Spawn async stdin reader — shared between interactive and auto mode
     let mut stdin_rx = spawn_stdin_reader();
@@ -1003,7 +1007,7 @@ fn generate_session_report(session: &Session, format: &str) -> String {
     }
 }
 
-fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<&str>) {
+fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<&str>, license_holder: Option<&str>) {
     println!();
     println!("\x1b[36m================================================================\x1b[0m");
     println!("\x1b[36m  Lonkero AI - Interactive Security Testing Agent\x1b[0m");
@@ -1011,11 +1015,16 @@ fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<
     println!("  Target:   {}", target);
     println!("  Provider: {} ({})", provider, model);
     match license_type {
-        Some(lt) => println!("  License:  {}", lt),
+        Some(lt) => {
+            let holder_str = license_holder
+                .map(|h| format!(" — {}", h))
+                .unwrap_or_default();
+            println!("  License:  \x1b[32m{} Edition{}\x1b[0m", lt, holder_str);
+        }
         None => {
             // Check if env var is set even if license_type wasn't resolved
             if std::env::var("LONKERO_LICENSE_KEY").is_ok() {
-                println!("  License:  \x1b[33m(from LONKERO_LICENSE_KEY env)\x1b[0m");
+                println!("  License:  \x1b[33mKey provided but validation failed (run with -v for details)\x1b[0m");
             } else {
                 println!("  License:  \x1b[33mNo license key (set LONKERO_LICENSE_KEY or use -L)\x1b[0m");
             }

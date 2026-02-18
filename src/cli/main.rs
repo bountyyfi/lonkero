@@ -1197,8 +1197,8 @@ async fn handle_ai_command(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "lonkero".to_string());
 
-    // Resolve license type for display in the banner
-    let license_type = if license_key.is_some() {
+    // Resolve license info for display in the banner
+    let (license_type, license_holder) = if license_key.is_some() {
         let hw_id = lonkero_scanner::signing::get_hardware_id();
         match lonkero_scanner::signing::authorize_scan(
             1,
@@ -1209,15 +1209,18 @@ async fn handle_ai_command(
         )
         .await
         {
-            Ok(token) => Some(token.license_type),
+            Ok(token) => {
+                let holder = token.licensee.or(token.organization);
+                (Some(token.license_type), holder)
+            }
             Err(e) => {
                 eprintln!("\x1b[33m  Warning: License validation failed: {}\x1b[0m", e);
                 eprintln!("\x1b[33m  Scans will run with license key but may have limited features.\x1b[0m");
-                None
+                (None, None)
             }
         }
     } else {
-        None
+        (None, None)
     };
 
     let config = agent::AgentConfig {
@@ -1226,6 +1229,7 @@ async fn handle_ai_command(
         max_rounds,
         license_key,
         license_type,
+        license_holder,
         passthrough_args,
         auth_info,
     };

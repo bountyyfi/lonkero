@@ -132,6 +132,10 @@ struct ScanAuthorizeResponse {
     max_targets: Option<u32>,
     /// License type (Personal, Professional, Team, Enterprise)
     license_type: Option<String>,
+    /// Licensee name (who the license is issued to)
+    licensee: Option<String>,
+    /// Organization name
+    organization: Option<String>,
     /// Modules the server authorized
     authorized_modules: Option<Vec<String>>,
     /// Modules denied with reasons
@@ -202,6 +206,10 @@ pub struct ScanToken {
     pub max_targets: u32,
     /// License type
     pub license_type: String,
+    /// Licensee name (who the license is issued to)
+    pub licensee: Option<String>,
+    /// Organization name
+    pub organization: Option<String>,
     /// Modules authorized by the server
     pub authorized_modules: Vec<String>,
 }
@@ -563,11 +571,15 @@ pub async fn authorize_scan(
         .unwrap_or_else(|| "Personal".to_string());
     let authorized_modules = auth_response.authorized_modules.unwrap_or_default();
 
+    let licensee = auth_response.licensee;
+    let organization = auth_response.organization;
+
     info!(
-        "[Auth] Authorized: {} license, max {} targets, {} modules",
+        "[Auth] Authorized: {} license, max {} targets, {} modules{}",
         license_type,
         max_targets,
-        authorized_modules.len()
+        authorized_modules.len(),
+        licensee.as_ref().map(|l| format!(", licensee: {}", l)).unwrap_or_default()
     );
 
     let token = ScanToken {
@@ -575,6 +587,8 @@ pub async fn authorize_scan(
         expires_at,
         max_targets,
         license_type: license_type.clone(),
+        licensee,
+        organization,
         authorized_modules,
     };
 
