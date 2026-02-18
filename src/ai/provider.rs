@@ -8,6 +8,7 @@
 //! - Ollama (local) — offline/privacy mode
 
 use anyhow::{Context, Result};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -67,6 +68,10 @@ pub struct Usage {
 // Provider trait
 // ---------------------------------------------------------------------------
 
+/// Callback invoked as streaming text arrives from the LLM.
+/// Receives each text delta so the agent can print it incrementally.
+pub type StreamCallback = Box<dyn Fn(&str) + Send + Sync>;
+
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Send messages to the LLM and get a response.
@@ -77,6 +82,27 @@ pub trait LlmProvider: Send + Sync {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Result<LlmResponse>;
+
+    /// Send messages to the LLM with streaming text output.
+    /// Calls `on_text` with each text delta as it arrives, so the UI
+    /// can display it in real time. Returns the full accumulated response.
+    /// Default: falls back to non-streaming `chat()`.
+    async fn chat_stream(
+        &self,
+        system: &str,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        on_text: StreamCallback,
+    ) -> Result<LlmResponse> {
+        let resp = self.chat(system, messages, tools).await?;
+        // Emit any text blocks through the callback
+        for block in &resp.content {
+            if let ContentBlock::Text { text } = block {
+                on_text(text);
+            }
+        }
+        Ok(resp)
+    }
 
     /// Provider name for display
     fn name(&self) -> &str;
@@ -179,6 +205,198 @@ impl LlmProvider for ClaudeProvider {
 
         Ok(LlmResponse {
             content,
+            stop_reason,
+            usage,
+        })
+    }
+
+    async fn chat_stream(
+        &self,
+        system: &str,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        on_text: StreamCallback,
+    ) -> Result<LlmResponse> {
+        // Build Claude API request body with stream: true
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "system": system,
+            "messages": messages,
+            "stream": true,
+        });
+
+        if !tools.is_empty() {
+            let claude_tools: Vec<serde_json::Value> = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.input_schema,
+                    })
+                })
+                .collect();
+            body["tools"] = serde_json::Value::Array(claude_tools);
+        }
+
+        let response = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to send streaming request to Claude API")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Claude API error ({}): {}", status, error_body);
+        }
+
+        // Parse SSE stream
+        let mut content_blocks: Vec<ContentBlock> = Vec::new();
+        let mut current_text = String::new();
+        let mut current_tool_id = String::new();
+        let mut current_tool_name = String::new();
+        let mut current_tool_input_json = String::new();
+        let mut in_tool_use = false;
+        let mut usage: Option<Usage> = None;
+        let mut stop_reason: Option<String> = None;
+
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Stream read error")?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            // Process complete SSE lines from buffer
+            while let Some(line_end) = buffer.find('\n') {
+                let line = buffer[..line_end].trim_end_matches('\r').to_string();
+                buffer = buffer[line_end + 1..].to_string();
+
+                if line.is_empty() || line.starts_with(':') {
+                    continue;
+                }
+
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if data == "[DONE]" {
+                        continue;
+                    }
+
+                    let event: serde_json::Value = match serde_json::from_str(data) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    match event["type"].as_str() {
+                        Some("content_block_start") => {
+                            let block = &event["content_block"];
+                            match block["type"].as_str() {
+                                Some("text") => {
+                                    current_text.clear();
+                                    in_tool_use = false;
+                                }
+                                Some("tool_use") => {
+                                    current_tool_id = block["id"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string();
+                                    current_tool_name = block["name"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string();
+                                    current_tool_input_json.clear();
+                                    in_tool_use = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                        Some("content_block_delta") => {
+                            let delta = &event["delta"];
+                            match delta["type"].as_str() {
+                                Some("text_delta") => {
+                                    if let Some(text) = delta["text"].as_str() {
+                                        current_text.push_str(text);
+                                        on_text(text);
+                                    }
+                                }
+                                Some("input_json_delta") => {
+                                    if let Some(json_chunk) =
+                                        delta["partial_json"].as_str()
+                                    {
+                                        current_tool_input_json.push_str(json_chunk);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        Some("content_block_stop") => {
+                            if in_tool_use {
+                                let input: serde_json::Value =
+                                    serde_json::from_str(&current_tool_input_json)
+                                        .unwrap_or(serde_json::json!({}));
+                                content_blocks.push(ContentBlock::ToolUse {
+                                    id: current_tool_id.clone(),
+                                    name: current_tool_name.clone(),
+                                    input,
+                                });
+                                in_tool_use = false;
+                            } else if !current_text.is_empty() {
+                                content_blocks.push(ContentBlock::Text {
+                                    text: current_text.clone(),
+                                });
+                                current_text.clear();
+                            }
+                        }
+                        Some("message_delta") => {
+                            if let Some(sr) = event["delta"]["stop_reason"].as_str() {
+                                stop_reason = Some(sr.to_string());
+                            }
+                            if let Some(u) = event.get("usage") {
+                                let output_tokens =
+                                    u["output_tokens"].as_u64().unwrap_or(0);
+                                // Merge: keep input_tokens from message_start,
+                                // add output_tokens from message_delta
+                                usage = Some(Usage {
+                                    input_tokens: usage
+                                        .as_ref()
+                                        .map(|prev| prev.input_tokens)
+                                        .unwrap_or(0),
+                                    output_tokens,
+                                });
+                            }
+                        }
+                        Some("message_start") => {
+                            if let Some(msg) = event.get("message") {
+                                if let Some(u) = msg.get("usage") {
+                                    let input_tokens =
+                                        u["input_tokens"].as_u64().unwrap_or(0);
+                                    // message_start has input_tokens, message_delta has output_tokens
+                                    // We'll merge them
+                                    usage = Some(Usage {
+                                        input_tokens,
+                                        output_tokens: 0,
+                                    });
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Merge usage from message_start (input) and message_delta (output)
+        // The message_delta usage only has output_tokens
+        // Already handled above via progressive updates
+
+        Ok(LlmResponse {
+            content: content_blocks,
             stop_reason,
             usage,
         })

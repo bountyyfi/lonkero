@@ -1197,11 +1197,31 @@ async fn handle_ai_command(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "lonkero".to_string());
 
+    // Resolve license type for display in the banner
+    let license_type = if license_key.is_some() {
+        let hw_id = lonkero_scanner::signing::get_hardware_id();
+        match lonkero_scanner::signing::authorize_scan(
+            1,
+            &hw_id,
+            license_key.as_deref(),
+            Some(env!("CARGO_PKG_VERSION")),
+            vec!["recon".to_string()],
+        )
+        .await
+        {
+            Ok(token) => Some(token.license_type),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
     let config = agent::AgentConfig {
         lonkero_bin,
         auto_mode: auto,
         max_rounds,
         license_key,
+        license_type,
         passthrough_args,
         auth_info,
     };

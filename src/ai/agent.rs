@@ -15,8 +15,10 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use std::io::{self, BufRead, Write as IoWrite};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use super::provider::{ContentBlock, LlmProvider};
+use super::provider::{ContentBlock, LlmProvider, StreamCallback};
 use super::session::Session;
 use super::system_prompt::build_system_prompt;
 use super::tools;
@@ -35,6 +37,9 @@ pub struct AgentConfig {
     /// License key to pass through to lonkero scans
     pub license_key: Option<String>,
 
+    /// License tier for display (e.g. "Personal", "Professional", "Enterprise")
+    pub license_type: Option<String>,
+
     /// Extra CLI args to pass through to every lonkero invocation
     /// (e.g. --cookie, --token, --proxy, etc.)
     pub passthrough_args: Vec<String>,
@@ -50,6 +55,7 @@ impl Default for AgentConfig {
             auto_mode: false,
             max_rounds: 20,
             license_key: None,
+            license_type: None,
             passthrough_args: Vec::new(),
             auth_info: None,
         }
@@ -67,7 +73,7 @@ pub async fn run_agent(
     let system_prompt = build_system_prompt(&target, config.auth_info.as_deref());
 
     // Print banner
-    print_banner(&target, provider.name(), provider.model());
+    print_banner(&target, provider.name(), provider.model(), config.license_type.as_deref());
 
     if config.auto_mode {
         // Auto mode: AI drives the entire pentest autonomously
@@ -199,6 +205,25 @@ async fn run_auto_mode(
 // Core agent turn: send to LLM, handle tool calls, recurse until text response
 // ---------------------------------------------------------------------------
 
+/// Spinner that runs in the background to show the user something is happening.
+/// Stops when `running` is set to false.
+fn spawn_spinner(label: &str, running: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
+    let label = label.to_string();
+    tokio::task::spawn(async move {
+        let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let mut i = 0;
+        while running.load(Ordering::Relaxed) {
+            eprint!("\r\x1b[90m  {} {}\x1b[0m", frames[i % frames.len()], label);
+            let _ = io::stderr().flush();
+            i += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        }
+        // Clear the spinner line
+        eprint!("\r\x1b[2K");
+        let _ = io::stderr().flush();
+    })
+}
+
 async fn run_agent_turn(
     provider: &Box<dyn LlmProvider>,
     session: &mut Session,
@@ -216,37 +241,51 @@ async fn run_agent_turn(
             break;
         }
 
-        // Call the LLM
+        // Start a spinner while waiting for LLM (streaming will replace it)
+        let spinner_running = Arc::new(AtomicBool::new(true));
+        let spinner = spawn_spinner("Thinking...", spinner_running.clone());
+
+        // Use streaming to print text as it arrives
+        let started_printing = Arc::new(AtomicBool::new(false));
+        let spinner_ref = spinner_running.clone();
+        let started_ref = started_printing.clone();
+        let on_text: StreamCallback = Box::new(move |delta: &str| {
+            // Kill spinner on first text output
+            if !started_ref.swap(true, Ordering::Relaxed) {
+                spinner_ref.store(false, Ordering::Relaxed);
+                // Small delay to let spinner clear
+                print!("\n\x1b[32m");
+            }
+            print!("{}", delta);
+            let _ = io::stdout().flush();
+        });
+
         let response = provider
-            .chat(system_prompt, &session.messages, tool_defs)
+            .chat_stream(system_prompt, &session.messages, tool_defs, on_text)
             .await
-            .context("LLM API call failed")?;
+            .context("LLM API call failed");
+
+        // Stop spinner if still running (e.g. tool_use only, no text)
+        spinner_running.store(false, Ordering::Relaxed);
+        let _ = spinner.await;
+
+        let response = response?;
+
+        // Close the green color if we printed streaming text
+        if started_printing.load(Ordering::Relaxed) {
+            println!("\x1b[0m");
+        }
 
         // Track usage
         if let Some(ref usage) = response.usage {
             session.track_usage(usage.input_tokens, usage.output_tokens);
         }
 
-        // Separate text blocks and tool_use blocks
-        let mut text_blocks = Vec::new();
+        // Extract tool calls from response
         let mut tool_calls = Vec::new();
-
         for block in &response.content {
-            match block {
-                ContentBlock::Text { text } => {
-                    text_blocks.push(text.clone());
-                }
-                ContentBlock::ToolUse { id, name, input } => {
-                    tool_calls.push((id.clone(), name.clone(), input.clone()));
-                }
-                _ => {}
-            }
-        }
-
-        // Print any text the LLM produced
-        for text in &text_blocks {
-            if !text.is_empty() {
-                println!("\n\x1b[32m{}\x1b[0m", text);
+            if let ContentBlock::ToolUse { id, name, input } = block {
+                tool_calls.push((id.clone(), name.clone(), input.clone()));
             }
         }
 
@@ -265,10 +304,20 @@ async fn run_agent_turn(
             println!(
                 "\n\x1b[33m[Running: {}]\x1b[0m {}",
                 tool_name,
-                format_tool_input(tool_name, tool_input)
+                format_tool_input(&tool_name, &tool_input)
             );
 
-            let result = execute_tool(tool_name, tool_input, session, config).await;
+            // Show progress spinner during tool execution
+            let tool_running = Arc::new(AtomicBool::new(true));
+            let tool_spinner = spawn_spinner(
+                &format!("Executing {}...", tool_name),
+                tool_running.clone(),
+            );
+
+            let result = execute_tool(&tool_name, &tool_input, session, config).await;
+
+            tool_running.store(false, Ordering::Relaxed);
+            let _ = tool_spinner.await;
 
             match &result {
                 Ok(output) => {
@@ -631,13 +680,17 @@ fn generate_session_report(session: &Session, format: &str) -> String {
     }
 }
 
-fn print_banner(target: &str, provider: &str, model: &str) {
+fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<&str>) {
     println!();
     println!("\x1b[36m================================================================\x1b[0m");
     println!("\x1b[36m  Lonkero AI - Interactive Security Testing Agent\x1b[0m");
     println!("\x1b[36m================================================================\x1b[0m");
     println!("  Target:   {}", target);
     println!("  Provider: {} ({})", provider, model);
+    match license_type {
+        Some(lt) => println!("  License:  {}", lt),
+        None => println!("  License:  \x1b[33mNo license key\x1b[0m"),
+    }
     println!();
     println!("  Type natural language commands to guide the assessment.");
     println!("  The AI will run targeted scans and reason about results.");
