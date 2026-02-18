@@ -142,7 +142,7 @@ async fn run_interactive_mode(
     ));
 
     // Run the initial turn
-    run_agent_turn(provider, session, tool_defs, system_prompt, config).await?;
+    run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await?;
 
     // Interactive loop — reads from channel, never blocks the event loop
     loop {
@@ -181,7 +181,7 @@ async fn run_interactive_mode(
 
         // Send to LLM
         session.add_user_message(input);
-        run_agent_turn(provider, session, tool_defs, system_prompt, config).await?;
+        run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await?;
     }
 
     Ok(())
@@ -216,64 +216,7 @@ async fn run_auto_mode(
 
     // Run up to max_rounds of agent turns
     for round in 0..config.max_rounds {
-        // Before each round, drain any queued user input
-        let mut user_messages = Vec::new();
-        loop {
-            match stdin_rx.try_recv() {
-                Ok(UserInput::Line(line)) => {
-                    let trimmed = line.trim().to_string();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    match trimmed.as_str() {
-                        "exit" | "quit" | "q" => {
-                            println!("\n\x1b[33m[Stopping auto mode...]\x1b[0m");
-                            should_exit = true;
-                            break;
-                        }
-                        "findings" | "results" => {
-                            println!("{}", session.findings_summary());
-                        }
-                        "help" => {
-                            print_auto_help();
-                        }
-                        _ => {
-                            // Queue user message to inject into the conversation
-                            user_messages.push(trimmed);
-                        }
-                    }
-                }
-                Ok(UserInput::Eof) => {
-                    should_exit = true;
-                    break;
-                }
-                Err(mpsc::error::TryRecvError::Empty) => break,
-                Err(mpsc::error::TryRecvError::Disconnected) => {
-                    should_exit = true;
-                    break;
-                }
-            }
-        }
-
-        if should_exit {
-            break;
-        }
-
-        // Inject any user messages into the conversation
-        if !user_messages.is_empty() {
-            let combined = user_messages.join("\n");
-            println!(
-                "\n\x1b[36m[User]\x1b[0m {}",
-                combined
-            );
-            session.add_user_message(&format!(
-                "[User interjection during auto scan]: {}\n\
-                 Please address this, then continue the autonomous assessment.",
-                combined
-            ));
-        }
-
-        let turn_result = run_agent_turn(provider, session, tool_defs, system_prompt, config).await;
+        let turn_result = run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await;
 
         match turn_result {
             Ok(()) => {}
@@ -325,7 +268,7 @@ async fn run_auto_mode(
                         }
                         _ => {
                             session.add_user_message(input);
-                            if let Err(e) = run_agent_turn(provider, session, tool_defs, system_prompt, config).await {
+                            if let Err(e) = run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await {
                                 eprintln!("\x1b[31m[Error]: {}\x1b[0m", e);
                             }
                         }
@@ -356,22 +299,71 @@ fn print_auto_help() {
 // ---------------------------------------------------------------------------
 
 /// Spinner that runs in the background to show the user something is happening.
-/// Stops when `running` is set to false.
+/// Uses a dedicated line that doesn't interfere with user input.
+/// The spinner writes on its own line and uses ANSI escape to update in place
+/// without erasing any text the user may be typing.
 fn spawn_spinner(label: &str, running: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
     let label = label.to_string();
     tokio::task::spawn(async move {
         let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let mut i = 0;
+        // Print initial spinner on its own line
+        eprintln!();
         while running.load(Ordering::Relaxed) {
-            eprint!("\r\x1b[90m  {} {}\x1b[0m", frames[i % frames.len()], label);
+            // Move up one line, clear it, write spinner, then move back down
+            // This keeps the spinner on a fixed line above where user types
+            eprint!("\x1b[A\r\x1b[2K\x1b[90m  {} {}\x1b[0m\n", frames[i % frames.len()], label);
             let _ = io::stderr().flush();
             i += 1;
-            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        // Clear the spinner line
-        eprint!("\r\x1b[2K");
+        // Clear the spinner line: move up, clear, move back
+        eprint!("\x1b[A\r\x1b[2K");
         let _ = io::stderr().flush();
     })
+}
+
+/// Drain queued user input from the channel.
+/// Handles built-in commands (findings, help) immediately.
+/// Returns (user_messages, should_exit).
+fn drain_user_input(
+    stdin_rx: &mut mpsc::UnboundedReceiver<UserInput>,
+    session: &Session,
+) -> (Vec<String>, bool) {
+    let mut user_messages = Vec::new();
+    loop {
+        match stdin_rx.try_recv() {
+            Ok(UserInput::Line(line)) => {
+                let trimmed = line.trim().to_string();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                match trimmed.as_str() {
+                    "exit" | "quit" | "q" => {
+                        return (user_messages, true);
+                    }
+                    "findings" | "results" => {
+                        println!("\n{}", session.findings_summary());
+                    }
+                    "help" => {
+                        print_auto_help();
+                    }
+                    _ => {
+                        println!("\x1b[90m  [Queued: \"{}\" — will send to AI after current scan]\x1b[0m", trimmed);
+                        user_messages.push(trimmed);
+                    }
+                }
+            }
+            Ok(UserInput::Eof) => {
+                return (user_messages, true);
+            }
+            Err(mpsc::error::TryRecvError::Empty) => break,
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                return (user_messages, true);
+            }
+        }
+    }
+    (user_messages, false)
 }
 
 async fn run_agent_turn(
@@ -380,6 +372,7 @@ async fn run_agent_turn(
     tool_defs: &[tools::ToolDefinition],
     system_prompt: &str,
     config: &AgentConfig,
+    stdin_rx: &mut mpsc::UnboundedReceiver<UserInput>,
 ) -> Result<()> {
     let mut rounds = 0;
     let max_tool_rounds = 10; // Max consecutive tool call rounds before forcing a response
@@ -389,6 +382,21 @@ async fn run_agent_turn(
         if rounds > max_tool_rounds {
             tracing::warn!("Max tool call rounds ({}) reached, breaking", max_tool_rounds);
             break;
+        }
+
+        // Drain any queued user input between LLM rounds
+        let (user_msgs, should_exit) = drain_user_input(stdin_rx, session);
+        if should_exit {
+            break;
+        }
+        if !user_msgs.is_empty() {
+            let combined = user_msgs.join("\n");
+            println!("\n\x1b[36m[User]\x1b[0m {}", combined);
+            session.add_user_message(&format!(
+                "[User message during scan]: {}\n\
+                 Address this and continue with the assessment.",
+                combined
+            ));
         }
 
         // Start a spinner while waiting for LLM (streaming will replace it)
@@ -513,6 +521,24 @@ async fn run_agent_turn(
                     });
                 }
             }
+
+            // Check for user input between tool executions too
+            let (inter_msgs, should_exit) = drain_user_input(stdin_rx, session);
+            if should_exit {
+                // Still need to send partial tool results before exiting
+                session.add_tool_results(tool_results);
+                return Ok(());
+            }
+            if !inter_msgs.is_empty() {
+                let combined = inter_msgs.join("\n");
+                println!("\n\x1b[36m[User]\x1b[0m {}", combined);
+                // These will be injected at the next LLM round
+                session.add_user_message(&format!(
+                    "[User message during scan]: {}\n\
+                     Address this and continue with the assessment.",
+                    combined
+                ));
+            }
         }
 
         // Send tool results back to the LLM
@@ -577,8 +603,10 @@ async fn execute_lonkero(
     // Add passthrough args (cookie, token, proxy, etc.)
     cmd_args.extend_from_slice(passthrough);
 
-    // Add license key if available
-    if let Some(ref key) = license_key {
+    // Add license key if available (CLI arg takes priority, then env var)
+    let resolved_key = license_key.clone()
+        .or_else(|| std::env::var("LONKERO_LICENSE_KEY").ok());
+    if let Some(ref key) = resolved_key {
         cmd_args.push("--license-key".into());
         cmd_args.push(key.clone());
     }
@@ -874,7 +902,14 @@ fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<
     println!("  Provider: {} ({})", provider, model);
     match license_type {
         Some(lt) => println!("  License:  {}", lt),
-        None => println!("  License:  \x1b[33mNo license key\x1b[0m"),
+        None => {
+            // Check if env var is set even if license_type wasn't resolved
+            if std::env::var("LONKERO_LICENSE_KEY").is_ok() {
+                println!("  License:  \x1b[33m(from LONKERO_LICENSE_KEY env)\x1b[0m");
+            } else {
+                println!("  License:  \x1b[33mNo license key (set LONKERO_LICENSE_KEY or use -L)\x1b[0m");
+            }
+        }
     }
     println!();
     println!("  Type natural language commands to guide the assessment.");
