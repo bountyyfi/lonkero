@@ -547,10 +547,32 @@ async fn run_agent_turn(
                     });
                 }
                 Err(e) => {
-                    eprintln!("\x1b[31m  [Error]: {}\x1b[0m", e);
+                    let err_str = format!("{}", e);
+                    eprintln!("\x1b[31m  [Error]: {}\x1b[0m", err_str);
+
+                    // Detect fatal errors that cannot be recovered by retrying or
+                    // changing scan parameters — bail immediately instead of
+                    // burning an expensive LLM round-trip.
+                    let is_fatal = err_str.contains("no stderr output")
+                        || err_str.contains("License")
+                        || err_str.contains("license")
+                        || err_str.contains("deactivated")
+                        || err_str.contains("Failed to execute lonkero")
+                        || err_str.contains("Is '") // binary not found
+                        || err_str.contains("Scanner disabled");
+
+                    if is_fatal && session.scan_count == 0 {
+                        eprintln!("\x1b[31m  [Fatal]: The scanner binary cannot run. Fix the issue above and retry.\x1b[0m");
+                        return Err(anyhow::anyhow!("Scanner setup error: {}", err_str));
+                    }
+
+                    // Non-fatal or mid-session error — tell the LLM briefly
                     tool_results.push(ContentBlock::ToolResult {
                         tool_use_id: tool_id.clone(),
-                        content: format!("Error: {}", e),
+                        content: format!(
+                            "Error: {}. Do NOT retry the same command. Try a different module or approach.",
+                            err_str
+                        ),
                         is_error: Some(true),
                     });
                 }
@@ -793,7 +815,36 @@ async fn execute_lonkero(
         // Lonkero logs look like: "2026-... ERROR message" — extract the message part
         let error_reason = extract_error_reason(&stderr);
 
-        anyhow::bail!("{}", error_reason);
+        // Build safe command string for error display (redact license key)
+        let safe_cmd = {
+            let mut safe = Vec::new();
+            let mut skip_next = false;
+            for arg in args {
+                if skip_next {
+                    safe.push("***".to_string());
+                    skip_next = false;
+                } else if arg == "--license-key" || arg == "-L" {
+                    safe.push(arg.to_string());
+                    skip_next = true;
+                } else {
+                    safe.push(arg.to_string());
+                }
+            }
+            format!("{} {}", bin, safe.join(" "))
+        };
+        let stderr_note = if stderr.is_empty() {
+            "(no stderr output)".to_string()
+        } else {
+            format!("stderr: {}", stderr.lines().take(3).collect::<Vec<_>>().join(" | "))
+        };
+
+        anyhow::bail!(
+            "lonkero exited with exit status: {}\n  Command: {}\n  {}\n  Reason: {}",
+            status.code().unwrap_or(-1),
+            safe_cmd,
+            stderr_note,
+            error_reason
+        );
     }
 
     if stdout.is_empty() {
