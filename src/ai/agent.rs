@@ -17,6 +17,7 @@ use std::io::{self, BufRead, Write as IoWrite};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 use super::provider::{ContentBlock, LlmProvider, StreamCallback};
 use super::session::Session;
@@ -62,6 +63,42 @@ impl Default for AgentConfig {
     }
 }
 
+/// User input event sent from the stdin reader task.
+enum UserInput {
+    /// A line of text from the user
+    Line(String),
+    /// EOF (Ctrl+D) — user wants to quit
+    Eof,
+}
+
+/// Spawn a background task that reads stdin lines and sends them through a channel.
+/// This allows the agent loop to remain responsive while waiting for user input.
+fn spawn_stdin_reader() -> mpsc::UnboundedReceiver<UserInput> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    // Use a blocking thread since stdin is synchronous
+    std::thread::spawn(move || {
+        let stdin = io::stdin();
+        loop {
+            let mut line = String::new();
+            match stdin.lock().read_line(&mut line) {
+                Ok(0) => {
+                    // EOF
+                    let _ = tx.send(UserInput::Eof);
+                    break;
+                }
+                Ok(_) => {
+                    let _ = tx.send(UserInput::Line(line));
+                }
+                Err(_) => {
+                    let _ = tx.send(UserInput::Eof);
+                    break;
+                }
+            }
+        }
+    });
+    rx
+}
+
 /// Run the interactive AI agent loop.
 pub async fn run_agent(
     provider: Box<dyn LlmProvider>,
@@ -75,12 +112,13 @@ pub async fn run_agent(
     // Print banner
     print_banner(&target, provider.name(), provider.model(), config.license_type.as_deref());
 
+    // Spawn async stdin reader — shared between interactive and auto mode
+    let mut stdin_rx = spawn_stdin_reader();
+
     if config.auto_mode {
-        // Auto mode: AI drives the entire pentest autonomously
-        run_auto_mode(&provider, &mut session, &tool_defs, &system_prompt, &config).await
+        run_auto_mode(&provider, &mut session, &tool_defs, &system_prompt, &config, &mut stdin_rx).await
     } else {
-        // Interactive mode: user drives via natural language
-        run_interactive_mode(&provider, &mut session, &tool_defs, &system_prompt, &config).await
+        run_interactive_mode(&provider, &mut session, &tool_defs, &system_prompt, &config, &mut stdin_rx).await
     }
 }
 
@@ -94,6 +132,7 @@ async fn run_interactive_mode(
     tool_defs: &[tools::ToolDefinition],
     system_prompt: &str,
     config: &AgentConfig,
+    stdin_rx: &mut mpsc::UnboundedReceiver<UserInput>,
 ) -> Result<()> {
     // Start with an initial recon suggestion
     session.add_user_message(&format!(
@@ -105,22 +144,20 @@ async fn run_interactive_mode(
     // Run the initial turn
     run_agent_turn(provider, session, tool_defs, system_prompt, config).await?;
 
-    // Interactive loop
-    let stdin = io::stdin();
+    // Interactive loop — reads from channel, never blocks the event loop
     loop {
-        // Prompt for user input
         print!("\n\x1b[36mlonkero-ai>\x1b[0m ");
         io::stdout().flush()?;
 
-        let mut input = String::new();
-        let bytes_read = stdin.lock().read_line(&mut input)?;
-
-        // EOF (Ctrl+D)
-        if bytes_read == 0 {
-            println!("\nSession ended.");
-            print_session_summary(session);
-            break;
-        }
+        // Wait for user input from the background reader
+        let input = match stdin_rx.recv().await {
+            Some(UserInput::Line(line)) => line,
+            Some(UserInput::Eof) | None => {
+                println!("\nSession ended.");
+                print_session_summary(session);
+                break;
+            }
+        };
 
         let input = input.trim();
 
@@ -151,7 +188,7 @@ async fn run_interactive_mode(
 }
 
 // ---------------------------------------------------------------------------
-// Auto mode
+// Auto mode — AI drives the pentest, user can chat anytime
 // ---------------------------------------------------------------------------
 
 async fn run_auto_mode(
@@ -160,8 +197,11 @@ async fn run_auto_mode(
     tool_defs: &[tools::ToolDefinition],
     system_prompt: &str,
     config: &AgentConfig,
+    stdin_rx: &mut mpsc::UnboundedReceiver<UserInput>,
 ) -> Result<()> {
-    println!("\x1b[33m[AUTO MODE]\x1b[0m Running autonomous security assessment...\n");
+    println!("\x1b[33m[AUTO MODE]\x1b[0m Running autonomous security assessment...");
+    println!("\x1b[90m  You can type commands anytime — they'll be processed between scan rounds.\x1b[0m");
+    println!("\x1b[90m  Type 'findings' to check progress, 'help' for commands, 'exit' to stop.\x1b[0m\n");
 
     session.add_user_message(&format!(
         "Run a complete security assessment of {}. \
@@ -172,8 +212,67 @@ async fn run_auto_mode(
         session.target
     ));
 
+    let mut should_exit = false;
+
     // Run up to max_rounds of agent turns
     for round in 0..config.max_rounds {
+        // Before each round, drain any queued user input
+        let mut user_messages = Vec::new();
+        loop {
+            match stdin_rx.try_recv() {
+                Ok(UserInput::Line(line)) => {
+                    let trimmed = line.trim().to_string();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    match trimmed.as_str() {
+                        "exit" | "quit" | "q" => {
+                            println!("\n\x1b[33m[Stopping auto mode...]\x1b[0m");
+                            should_exit = true;
+                            break;
+                        }
+                        "findings" | "results" => {
+                            println!("{}", session.findings_summary());
+                        }
+                        "help" => {
+                            print_auto_help();
+                        }
+                        _ => {
+                            // Queue user message to inject into the conversation
+                            user_messages.push(trimmed);
+                        }
+                    }
+                }
+                Ok(UserInput::Eof) => {
+                    should_exit = true;
+                    break;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    should_exit = true;
+                    break;
+                }
+            }
+        }
+
+        if should_exit {
+            break;
+        }
+
+        // Inject any user messages into the conversation
+        if !user_messages.is_empty() {
+            let combined = user_messages.join("\n");
+            println!(
+                "\n\x1b[36m[User]\x1b[0m {}",
+                combined
+            );
+            session.add_user_message(&format!(
+                "[User interjection during auto scan]: {}\n\
+                 Please address this, then continue the autonomous assessment.",
+                combined
+            ));
+        }
+
         let turn_result = run_agent_turn(provider, session, tool_defs, system_prompt, config).await;
 
         match turn_result {
@@ -192,6 +291,46 @@ async fn run_auto_mode(
                 .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
             if !has_tool_calls {
                 // LLM finished with text — auto mode complete
+                // Give user a chance to continue the conversation
+                println!("\n\x1b[33m[Auto scan complete]\x1b[0m Type a follow-up or 'exit' to finish.");
+
+                // Switch to interactive follow-up loop
+                loop {
+                    print!("\n\x1b[36mlonkero-ai>\x1b[0m ");
+                    io::stdout().flush()?;
+
+                    let input = match stdin_rx.recv().await {
+                        Some(UserInput::Line(line)) => line,
+                        Some(UserInput::Eof) | None => {
+                            should_exit = true;
+                            break;
+                        }
+                    };
+
+                    let input = input.trim();
+
+                    match input {
+                        "" => continue,
+                        "exit" | "quit" | "q" => {
+                            should_exit = true;
+                            break;
+                        }
+                        "findings" | "results" => {
+                            println!("{}", session.findings_summary());
+                            continue;
+                        }
+                        "help" => {
+                            print_help();
+                            continue;
+                        }
+                        _ => {
+                            session.add_user_message(input);
+                            if let Err(e) = run_agent_turn(provider, session, tool_defs, system_prompt, config).await {
+                                eprintln!("\x1b[31m[Error]: {}\x1b[0m", e);
+                            }
+                        }
+                    }
+                }
                 break;
             }
         }
@@ -199,6 +338,17 @@ async fn run_auto_mode(
 
     print_session_summary(session);
     Ok(())
+}
+
+fn print_auto_help() {
+    println!();
+    println!("\x1b[36m--- Auto Mode Commands ---\x1b[0m");
+    println!();
+    println!("  Type while scans run — commands are processed between rounds:");
+    println!("    findings  - Show all findings found so far");
+    println!("    exit      - Stop auto mode and show summary");
+    println!("    <text>    - Send a message to the AI (e.g. 'also test /admin')");
+    println!();
 }
 
 // ---------------------------------------------------------------------------
@@ -414,8 +564,8 @@ async fn execute_tool(
 }
 
 /// Execute lonkero CLI and capture JSON output.
-/// Streams stderr to the terminal in real-time so the user sees scan progress,
-/// while capturing stdout for JSON result parsing.
+/// Captures both stdout (JSON results) and stderr (progress/errors).
+/// Stderr is streamed to the terminal in real-time for progress visibility.
 async fn execute_lonkero(
     bin: &str,
     args: &[String],
@@ -438,21 +588,44 @@ async fn execute_lonkero(
     let mut child = tokio::process::Command::new(bin)
         .args(&cmd_args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit()) // Stream stderr to terminal for real-time progress
+        .stderr(Stdio::piped()) // Capture stderr too for error diagnosis
         .spawn()
         .context(format!("Failed to execute lonkero. Is '{}' in PATH?", bin))?;
 
-    // Read stdout while the child runs
+    // Read both stdout and stderr concurrently
     let stdout_handle = child.stdout.take();
-    let stdout = if let Some(stdout_pipe) = stdout_handle {
-        use tokio::io::AsyncReadExt;
-        let mut buf = Vec::new();
-        let mut reader = tokio::io::BufReader::new(stdout_pipe);
-        reader.read_to_end(&mut buf).await.unwrap_or(0);
-        String::from_utf8_lossy(&buf).to_string()
-    } else {
-        String::new()
+    let stderr_handle = child.stderr.take();
+
+    let stdout_fut = async {
+        if let Some(pipe) = stdout_handle {
+            use tokio::io::AsyncReadExt;
+            let mut buf = Vec::new();
+            let mut reader = tokio::io::BufReader::new(pipe);
+            reader.read_to_end(&mut buf).await.unwrap_or(0);
+            String::from_utf8_lossy(&buf).to_string()
+        } else {
+            String::new()
+        }
     };
+
+    let stderr_fut = async {
+        if let Some(pipe) = stderr_handle {
+            use tokio::io::AsyncReadExt;
+            let mut buf = Vec::new();
+            let mut reader = tokio::io::BufReader::new(pipe);
+            reader.read_to_end(&mut buf).await.unwrap_or(0);
+            let text = String::from_utf8_lossy(&buf).to_string();
+            // Stream stderr to terminal for real-time progress
+            if !text.is_empty() {
+                eprint!("{}", text);
+            }
+            text
+        } else {
+            String::new()
+        }
+    };
+
+    let (stdout, stderr) = tokio::join!(stdout_fut, stderr_fut);
 
     let status = child.wait().await
         .context("Failed to wait for lonkero process")?;
@@ -463,9 +636,21 @@ async fn execute_lonkero(
         if !stdout.is_empty() && (stdout.starts_with('{') || stdout.starts_with('[')) {
             return Ok(stdout);
         }
+
+        // Provide stderr context in the error message for better diagnosis
+        let stderr_summary = if stderr.is_empty() {
+            String::new()
+        } else {
+            // Take last few lines for context
+            let lines: Vec<&str> = stderr.lines().collect();
+            let relevant: Vec<&str> = lines.iter().rev().take(5).rev().copied().collect();
+            format!("\n  {}", relevant.join("\n  "))
+        };
+
         anyhow::bail!(
-            "lonkero exited with {}",
+            "lonkero exited with {}{}",
             status,
+            stderr_summary,
         );
     }
 
