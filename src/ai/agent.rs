@@ -572,6 +572,58 @@ async fn run_agent_turn(
     Ok(())
 }
 
+/// Extract a human-readable error reason from lonkero's stderr output.
+/// Lonkero logs look like: "2026-02-18T... ERROR Scanner disabled: License has been deactivated"
+/// We want to extract just: "Scanner disabled: License has been deactivated"
+fn extract_error_reason(stderr: &str) -> String {
+    if stderr.is_empty() {
+        return "Scan failed (no error output)".to_string();
+    }
+
+    // Look for ERROR lines and extract the message after "ERROR "
+    let error_messages: Vec<&str> = stderr
+        .lines()
+        .filter_map(|line| {
+            if let Some(pos) = line.find("ERROR ") {
+                let msg = line[pos + 6..].trim();
+                // Skip decorative lines (=====)
+                if msg.is_empty() || msg.chars().all(|c| c == '=') {
+                    None
+                } else {
+                    Some(msg)
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !error_messages.is_empty() {
+        // Return the most meaningful error line (usually the first non-header one)
+        // Common pattern: "LICENSE VERIFICATION FAILED" then "Scanner disabled: reason"
+        for msg in &error_messages {
+            if msg.starts_with("Scanner disabled:") || msg.contains("deactivated") || msg.contains("expired") {
+                return msg.to_string();
+            }
+        }
+        // Fall back to joining unique error messages
+        let unique: Vec<&str> = error_messages.into_iter().take(3).collect();
+        return unique.join(" — ");
+    }
+
+    // No ERROR lines found — check for "Error:" at end of output (anyhow error)
+    if let Some(last_line) = stderr.lines().last() {
+        if last_line.starts_with("Error:") {
+            return last_line.to_string();
+        }
+    }
+
+    // Fall back: last 3 lines of stderr
+    let lines: Vec<&str> = stderr.lines().collect();
+    let relevant: Vec<&str> = lines.iter().rev().take(3).rev().copied().collect();
+    relevant.join("\n")
+}
+
 /// Sanitize and truncate tool output for LLM context.
 fn sanitize_and_truncate(output: &str) -> String {
     let sanitized = sanitize_for_llm(output);
@@ -716,35 +768,11 @@ async fn execute_lonkero(
             return Ok(stdout);
         }
 
-        // Show detailed error with stderr and command for debugging
-        let stderr_summary = if stderr.is_empty() {
-            "  (no stderr output)".to_string()
-        } else {
-            let lines: Vec<&str> = stderr.lines().collect();
-            let relevant: Vec<&str> = lines.iter().rev().take(10).rev().copied().collect();
-            format!("  {}", relevant.join("\n  "))
-        };
+        // Extract human-readable error from stderr
+        // Lonkero logs look like: "2026-... ERROR message" — extract the message part
+        let error_reason = extract_error_reason(&stderr);
 
-        // Mask license key in displayed command
-        let display_args: Vec<String> = cmd_args.iter().map(|a| {
-            if a.len() > 20 && cmd_args.iter().any(|prev| prev == "--license-key") {
-                // Don't expose license key in error output
-                if let Some(pos) = cmd_args.iter().position(|x| x == "--license-key") {
-                    if cmd_args.get(pos + 1) == Some(a) {
-                        return "***".to_string();
-                    }
-                }
-            }
-            a.clone()
-        }).collect();
-
-        anyhow::bail!(
-            "lonkero exited with {}\n  Command: {} {}\n{}",
-            status,
-            bin,
-            display_args.join(" "),
-            stderr_summary,
-        );
+        anyhow::bail!("{}", error_reason);
     }
 
     if stdout.is_empty() {
