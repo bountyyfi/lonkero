@@ -116,6 +116,23 @@ pub async fn run_agent(
     // Print banner
     print_banner(&target, provider.name(), provider.model(), config.license_type.as_deref(), config.license_holder.as_deref());
 
+    // Pre-flight check: verify the scanner binary works before spending LLM tokens.
+    // If the license key was provided but validation already failed (license_type is None),
+    // do a quick dry-run to confirm the binary can actually execute scans.
+    if config.license_key.is_some() && config.license_type.is_none() {
+        eprintln!("\x1b[33m  [Preflight] License validation failed at startup. Testing scanner binary...\x1b[0m");
+        match preflight_check(&config).await {
+            Ok(()) => {
+                eprintln!("\x1b[32m  [Preflight] Scanner binary works — continuing with limited features.\x1b[0m");
+            }
+            Err(e) => {
+                eprintln!("\x1b[31m  [Preflight] Scanner binary cannot run: {}\x1b[0m", e);
+                eprintln!("\x1b[31m  Fix your license key or scanner installation and retry.\x1b[0m");
+                anyhow::bail!("Scanner preflight check failed: {}", e);
+            }
+        }
+    }
+
     // Spawn async stdin reader — shared between interactive and auto mode
     let mut stdin_rx = spawn_stdin_reader();
 
@@ -695,6 +712,42 @@ fn handle_instant_tool(
 
         _ => None, // CLI tool — needs async execution
     }
+}
+
+/// Quick preflight check — run `lonkero --help` (or a minimal scan) to confirm the binary works.
+/// This catches license/binary issues in <1 second instead of after a 10-minute LLM round-trip.
+async fn preflight_check(config: &AgentConfig) -> Result<()> {
+    use tokio::process::Command;
+
+    let mut cmd = Command::new(&config.lonkero_bin);
+
+    // Build a minimal command: just `lonkero --help` to verify the binary runs
+    let mut args: Vec<String> = Vec::new();
+    if let Some(ref key) = config.license_key {
+        args.push("--license-key".into());
+        args.push(key.clone());
+    }
+    args.push("--help".into());
+
+    cmd.args(&args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        cmd.output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Scanner binary timed out after 10s"))?
+    .context(format!("Failed to execute scanner binary '{}'", config.lonkero_bin))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let reason = extract_error_reason(&stderr);
+        anyhow::bail!("{}", reason);
+    }
+
+    Ok(())
 }
 
 /// Execute a CLI-backed tool. Does not borrow Session, so can be run
