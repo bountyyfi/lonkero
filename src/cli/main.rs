@@ -806,6 +806,10 @@ async fn verify_license_before_scan(
             error!("  info@bountyy.fi");
             error!("");
             error!("========================================================");
+            // Use eprintln as a fallback — error!() may be buffered and
+            // process::exit() skips Rust's drop/flush handlers, causing
+            // empty stderr when run as a subprocess.
+            eprintln!("Scanner disabled: Access denied - user banned: {}", reason);
             std::process::exit(1);
         }
         Err(SigningError::LicenseError(msg)) => {
@@ -816,6 +820,7 @@ async fn verify_license_before_scan(
             error!("{}", msg);
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: License error: {}", msg);
             std::process::exit(1);
         }
         Err(SigningError::ServerUnreachable(msg)) => {
@@ -830,6 +835,7 @@ async fn verify_license_before_scan(
             error!("Please check your network connection and try again.");
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: Server unreachable: {}", msg);
             std::process::exit(1);
         }
         Err(e) => {
@@ -841,6 +847,7 @@ async fn verify_license_before_scan(
             error!("{}", e);
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: Authorization failed: {}", e);
             std::process::exit(1);
         }
     };
@@ -872,9 +879,10 @@ async fn handle_license_command(action: LicenseAction, _current_key: Option<&str
                 println!("License saved. You can now run scans without specifying the key.");
             } else {
                 error!("License validation failed");
-                if let Some(msg) = status.message {
+                if let Some(msg) = &status.message {
                     error!("{}", msg);
                 }
+                eprintln!("Scanner disabled: License validation failed{}", status.message.map(|m| format!(": {}", m)).unwrap_or_default());
                 std::process::exit(1);
             }
         }
@@ -1294,6 +1302,8 @@ async fn run_scan(
         error!("  info@bountyy.fi");
         error!("");
         error!("========================================================");
+        let reason_str = license_status.killswitch_reason.as_deref().unwrap_or("no reason given");
+        eprintln!("Scanner disabled: Remotely disabled: {}", reason_str);
         std::process::exit(1);
     }
 
@@ -1314,6 +1324,7 @@ async fn run_scan(
             error!("  https://bountyy.fi");
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: License allows {} target(s), but {} specified", max_targets, targets.len());
             std::process::exit(1);
         }
     }
