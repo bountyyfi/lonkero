@@ -707,7 +707,24 @@ async fn execute_lonkero(
     // Add passthrough args (cookie, token, proxy, etc.)
     cmd_args.extend_from_slice(passthrough);
 
-    tracing::debug!("Executing: {} {}", bin, cmd_args.join(" "));
+    // Log command without leaking the license key
+    let safe_args: Vec<String> = {
+        let mut safe = Vec::new();
+        let mut skip_next = false;
+        for arg in &cmd_args {
+            if skip_next {
+                safe.push("***".to_string());
+                skip_next = false;
+            } else if arg == "--license-key" || arg == "-L" {
+                safe.push(arg.clone());
+                skip_next = true;
+            } else {
+                safe.push(arg.clone());
+            }
+        }
+        safe
+    };
+    tracing::debug!("Executing: {} {}", bin, safe_args.join(" "));
 
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(&cmd_args)
