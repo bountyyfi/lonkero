@@ -424,6 +424,7 @@ async fn run_agent_turn(
 
         // Execute tool calls and collect results
         let mut tool_results = Vec::new();
+        let mut pending_user_msgs: Vec<String> = Vec::new();
 
         for (tool_id, tool_name, tool_input) in &tool_calls {
             println!(
@@ -432,7 +433,95 @@ async fn run_agent_turn(
                 format_tool_input(&tool_name, &tool_input)
             );
 
-            let result = execute_tool(&tool_name, &tool_input, session, config).await;
+            // Handle non-CLI tools synchronously (they're instant, no need for select!)
+            if let Some(instant_result) = handle_instant_tool(&tool_name, &tool_input, session) {
+                match &instant_result {
+                    Ok(output) => {
+                        tool_results.push(ContentBlock::ToolResult {
+                            tool_use_id: tool_id.clone(),
+                            content: sanitize_and_truncate(output),
+                            is_error: None,
+                        });
+                    }
+                    Err(e) => {
+                        tool_results.push(ContentBlock::ToolResult {
+                            tool_use_id: tool_id.clone(),
+                            content: format!("Error: {}", e),
+                            is_error: Some(true),
+                        });
+                    }
+                }
+                continue;
+            }
+
+            // CLI-backed tool — run concurrently with user input monitoring.
+            // This is the key: while lonkero scan runs (which can take minutes),
+            // we simultaneously listen for user input and acknowledge it.
+            let tool_future = execute_cli_tool(&tool_name, &tool_input, config);
+            tokio::pin!(tool_future);
+
+            let result = loop {
+                tokio::select! {
+                    // Tool finished — we have the result
+                    result = &mut tool_future => {
+                        break result;
+                    }
+                    // User typed something while tool is running
+                    input = stdin_rx.recv() => {
+                        match input {
+                            Some(UserInput::Line(line)) => {
+                                let trimmed = line.trim().to_string();
+                                if trimmed.is_empty() {
+                                    continue;
+                                }
+                                match trimmed.as_str() {
+                                    "exit" | "quit" | "q" => {
+                                        println!("\n\x1b[33m[Stopping — waiting for current scan to finish...]\x1b[0m");
+                                        // Let the current tool finish, then exit
+                                        let result = tool_future.await;
+                                        // Record partial result
+                                        match &result {
+                                            Ok(output) => {
+                                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(output) {
+                                                    session.merge_findings(&json);
+                                                }
+                                                tool_results.push(ContentBlock::ToolResult {
+                                                    tool_use_id: tool_id.clone(),
+                                                    content: sanitize_and_truncate(output),
+                                                    is_error: None,
+                                                });
+                                            }
+                                            Err(e) => {
+                                                tool_results.push(ContentBlock::ToolResult {
+                                                    tool_use_id: tool_id.clone(),
+                                                    content: format!("Error: {}", e),
+                                                    is_error: Some(true),
+                                                });
+                                            }
+                                        }
+                                        session.add_tool_results(tool_results);
+                                        return Ok(());
+                                    }
+                                    "findings" | "results" => {
+                                        println!("\n{}", session.findings_summary());
+                                    }
+                                    "help" => {
+                                        print_auto_help();
+                                    }
+                                    _ => {
+                                        println!("\n\x1b[36m  [Received]\x1b[0m \"{}\" — will send to AI after this scan finishes.", trimmed);
+                                        pending_user_msgs.push(trimmed);
+                                    }
+                                }
+                            }
+                            Some(UserInput::Eof) | None => {
+                                // EOF during scan — let it finish
+                                break tool_future.await;
+                            }
+                        }
+                    }
+                }
+            };
 
             match &result {
                 Ok(output) => {
@@ -447,25 +536,9 @@ async fn run_agent_turn(
                         }
                     }
 
-                    // SMAC: Sanitize tool output before LLM ingestion
-                    // Removes invisible content (HTML comments, zero-width chars, etc.)
-                    // that adversarial targets could use for prompt injection
-                    let sanitized = sanitize_for_llm(output);
-
-                    // Truncate very long outputs for the LLM context
-                    let truncated = if sanitized.len() > 15000 {
-                        format!(
-                            "{}...\n\n[Output truncated. {} total chars. Use list_findings to see all results.]",
-                            &sanitized[..15000],
-                            sanitized.len()
-                        )
-                    } else {
-                        sanitized
-                    };
-
                     tool_results.push(ContentBlock::ToolResult {
                         tool_use_id: tool_id.clone(),
-                        content: truncated,
+                        content: sanitize_and_truncate(output),
                         is_error: None,
                     });
                 }
@@ -478,72 +551,85 @@ async fn run_agent_turn(
                     });
                 }
             }
-
-            // Check for user input between tool executions too
-            let (inter_msgs, should_exit) = drain_user_input(stdin_rx, session);
-            if should_exit {
-                // Still need to send partial tool results before exiting
-                session.add_tool_results(tool_results);
-                return Ok(());
-            }
-            if !inter_msgs.is_empty() {
-                let combined = inter_msgs.join("\n");
-                println!("\n\x1b[36m[User]\x1b[0m {}", combined);
-                // These will be injected at the next LLM round
-                session.add_user_message(&format!(
-                    "[User message during scan]: {}\n\
-                     Address this and continue with the assessment.",
-                    combined
-                ));
-            }
         }
 
         // Send tool results back to the LLM
         session.add_tool_results(tool_results);
+
+        // Inject any user messages that arrived during tool execution
+        if !pending_user_msgs.is_empty() {
+            let combined = pending_user_msgs.join("\n");
+            println!("\n\x1b[36m[User]\x1b[0m {}", combined);
+            session.add_user_message(&format!(
+                "[User message during scan]: {}\n\
+                 Address this and continue with the assessment.",
+                combined
+            ));
+            pending_user_msgs.clear();
+        }
     }
 
     Ok(())
+}
+
+/// Sanitize and truncate tool output for LLM context.
+fn sanitize_and_truncate(output: &str) -> String {
+    let sanitized = sanitize_for_llm(output);
+    if sanitized.len() > 15000 {
+        format!(
+            "{}...\n\n[Output truncated. {} total chars. Use list_findings to see all results.]",
+            &sanitized[..15000],
+            sanitized.len()
+        )
+    } else {
+        sanitized
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Tool execution
 // ---------------------------------------------------------------------------
 
-async fn execute_tool(
+/// Handle tools that are instant (no CLI execution needed).
+/// Returns Some(result) if handled, None if this is a CLI tool.
+fn handle_instant_tool(
     tool_name: &str,
     input: &serde_json::Value,
     session: &Session,
-    config: &AgentConfig,
-) -> Result<String> {
+) -> Option<Result<String>> {
     match tool_name {
-        // Non-CLI tools handled directly
-        "list_findings" => Ok(session.findings_summary()),
+        "list_findings" => Some(Ok(session.findings_summary())),
 
-        "list_modules" => {
-            // Return the module list from our knowledge
-            Ok(get_module_list())
-        }
+        "list_modules" => Some(Ok(get_module_list())),
 
         "generate_report" => {
             let format = input["format"].as_str().unwrap_or("json");
             let report = generate_session_report(session, format);
             if let Some(path) = input["output_path"].as_str() {
-                std::fs::write(path, &report)
-                    .context(format!("Failed to write report to {}", path))?;
-                Ok(format!("Report written to: {}", path))
+                match std::fs::write(path, &report) {
+                    Ok(()) => Some(Ok(format!("Report written to: {}", path))),
+                    Err(e) => Some(Err(anyhow::anyhow!("Failed to write report to {}: {}", path, e))),
+                }
             } else {
-                Ok(report)
+                Some(Ok(report))
             }
         }
 
-        // CLI-backed tools — translate to lonkero command and execute
-        _ => {
-            let cli_args = tools::tool_to_cli_args(tool_name, input)
-                .context(format!("Unknown tool: {}", tool_name))?;
-
-            execute_lonkero(&config.lonkero_bin, &cli_args, &config.passthrough_args, &config.license_key).await
-        }
+        _ => None, // CLI tool — needs async execution
     }
+}
+
+/// Execute a CLI-backed tool. Does not borrow Session, so can be run
+/// concurrently with user input handling via tokio::select!
+async fn execute_cli_tool(
+    tool_name: &str,
+    input: &serde_json::Value,
+    config: &AgentConfig,
+) -> Result<String> {
+    let cli_args = tools::tool_to_cli_args(tool_name, input)
+        .context(format!("Unknown tool: {}", tool_name))?;
+
+    execute_lonkero(&config.lonkero_bin, &cli_args, &config.passthrough_args, &config.license_key).await
 }
 
 /// Execute lonkero CLI and capture JSON output.

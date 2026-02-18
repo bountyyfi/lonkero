@@ -1210,7 +1210,11 @@ async fn handle_ai_command(
         .await
         {
             Ok(token) => Some(token.license_type),
-            Err(_) => None,
+            Err(e) => {
+                eprintln!("\x1b[33m  Warning: License validation failed: {}\x1b[0m", e);
+                eprintln!("\x1b[33m  Scans will run with license key but may have limited features.\x1b[0m");
+                None
+            }
         }
     } else {
         None
