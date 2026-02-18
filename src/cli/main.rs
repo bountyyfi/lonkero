@@ -1210,7 +1210,7 @@ async fn handle_ai_command(
         .await
         {
             Ok(token) => {
-                let holder = token.licensee.or(token.organization);
+                let holder = lonkero_scanner::signing::get_license_holder();
                 (Some(token.license_type), holder)
             }
             Err(e) => {

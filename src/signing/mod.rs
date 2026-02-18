@@ -206,10 +206,6 @@ pub struct ScanToken {
     pub max_targets: u32,
     /// License type
     pub license_type: String,
-    /// Licensee name (who the license is issued to)
-    pub licensee: Option<String>,
-    /// Organization name
-    pub organization: Option<String>,
     /// Modules authorized by the server
     pub authorized_modules: Vec<String>,
 }
@@ -587,15 +583,26 @@ pub async fn authorize_scan(
         expires_at,
         max_targets,
         license_type: license_type.clone(),
-        licensee,
-        organization,
         authorized_modules,
     };
 
     // Store token globally (only succeeds once per process)
     let _ = GLOBAL_SCAN_TOKEN.set(token.clone());
 
+    // Store licensee/org info for callers that need it
+    let _ = LICENSE_HOLDER_INFO.set((licensee, organization));
+
     Ok(token)
+}
+
+/// Get license holder info (licensee, organization) from the last authorize_scan call.
+/// Returns (None, None) if authorize_scan hasn't been called or the server didn't provide the info.
+static LICENSE_HOLDER_INFO: std::sync::OnceLock<(Option<String>, Option<String>)> = std::sync::OnceLock::new();
+
+pub fn get_license_holder() -> Option<String> {
+    LICENSE_HOLDER_INFO.get().and_then(|(licensee, org)| {
+        licensee.clone().or_else(|| org.clone())
+    })
 }
 
 /// Sign results AFTER scanning - NO OFFLINE FALLBACK
