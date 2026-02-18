@@ -1206,6 +1206,9 @@ async fn handle_ai_command(
         .unwrap_or_else(|_| "lonkero".to_string());
 
     // Resolve license info for display in the banner
+    // Request authorization with the free-tier modules that the AI agent uses for recon.
+    // Previously used "recon" which is not a valid module ID, causing license validation
+    // to fail even with valid enterprise keys.
     let (license_type, license_holder) = if license_key.is_some() {
         let hw_id = lonkero_scanner::signing::get_hardware_id();
         match lonkero_scanner::signing::authorize_scan(
@@ -1213,7 +1216,14 @@ async fn handle_ai_command(
             &hw_id,
             license_key.as_deref(),
             Some(env!("CARGO_PKG_VERSION")),
-            vec!["recon".to_string()],
+            vec![
+                "http_headers".to_string(),
+                "ssl_checker".to_string(),
+                "security_headers".to_string(),
+                "info_disclosure_basic".to_string(),
+                "cors_basic".to_string(),
+                "clickjacking".to_string(),
+            ],
         )
         .await
         {

@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use super::provider::{ContentBlock, LlmProvider, StreamCallback};
+use super::provider::{ContentBlock, LlmProvider, Message, Role, StreamCallback};
 use super::session::Session;
 use super::system_prompt::build_system_prompt;
 use super::tools;
@@ -107,31 +107,25 @@ fn spawn_stdin_reader() -> mpsc::UnboundedReceiver<UserInput> {
 pub async fn run_agent(
     provider: Box<dyn LlmProvider>,
     target: String,
-    config: AgentConfig,
+    mut config: AgentConfig,
 ) -> Result<()> {
     let mut session = Session::new(target.clone());
     let tool_defs = tools::get_tool_definitions();
     let system_prompt = build_system_prompt(&target, config.auth_info.as_deref());
 
-    // Print banner
-    print_banner(&target, provider.name(), provider.model(), config.license_type.as_deref(), config.license_holder.as_deref());
+    // Track whether a key was originally provided (before we might clear it)
+    let key_was_provided = config.license_key.is_some();
 
-    // Pre-flight check: verify the scanner binary works before spending LLM tokens.
-    // If the license key was provided but validation already failed (license_type is None),
-    // do a quick dry-run to confirm the binary can actually execute scans.
+    // Pre-flight check: if the license key was provided but validation already failed
+    // (license_type is None), the key is invalid/expired. Clear it so subprocesses
+    // run as free-tier instead of failing with "No authorized modules for your license tier".
     if config.license_key.is_some() && config.license_type.is_none() {
-        eprintln!("\x1b[33m  [Preflight] License validation failed at startup. Testing scanner binary...\x1b[0m");
-        match preflight_check(&config).await {
-            Ok(()) => {
-                eprintln!("\x1b[32m  [Preflight] Scanner binary works — continuing with limited features.\x1b[0m");
-            }
-            Err(e) => {
-                eprintln!("\x1b[31m  [Preflight] Scanner binary cannot run: {}\x1b[0m", e);
-                eprintln!("\x1b[31m  Fix your license key or scanner installation and retry.\x1b[0m");
-                anyhow::bail!("Scanner preflight check failed: {}", e);
-            }
-        }
+        eprintln!("\x1b[33m  [Preflight] License validation failed — dropping invalid key so free-tier modules can run.\x1b[0m");
+        config.license_key = None;
     }
+
+    // Print banner
+    print_banner(&target, provider.name(), provider.model(), config.license_type.as_deref(), config.license_holder.as_deref(), key_was_provided);
 
     // Spawn async stdin reader — shared between interactive and auto mode
     let mut stdin_rx = spawn_stdin_reader();
@@ -362,7 +356,7 @@ fn drain_user_input(
                         print_auto_help();
                     }
                     _ => {
-                        println!("\x1b[90m  [Queued: \"{}\" — will send to AI after current scan]\x1b[0m", trimmed);
+                        println!("\x1b[36m  [Received]\x1b[0m \"{}\" — AI will respond after current scan.", trimmed);
                         user_messages.push(trimmed);
                     }
                 }
@@ -476,7 +470,7 @@ async fn run_agent_turn(
                                     if is_status_query(&trimmed) {
                                         println!("\n\x1b[36m  [Status]\x1b[0m {} | AI is thinking...", session.status_line());
                                     } else {
-                                        println!("\n\x1b[36m  [Queued]\x1b[0m \"{}\" — will send after AI responds.", trimmed);
+                                        println!("\n\x1b[36m  [Received]\x1b[0m \"{}\" — AI will address this in its next response.", trimmed);
                                         pending_during_thinking.push(trimmed);
                                     }
                                 }
@@ -622,9 +616,43 @@ async fn run_agent_turn(
                                             println!("\n\x1b[36m  [Status]\x1b[0m {}", session.status_line());
                                             println!("  Currently running: {} on {}", tool_name, format_tool_input(&tool_name, &tool_input));
                                         } else {
-                                            println!("\n\x1b[36m  [Queued]\x1b[0m \"{}\" — will send to AI after current scan.", trimmed);
-                                            println!("  \x1b[90mCurrent: {} | {}\x1b[0m", tool_name, session.status_line());
-                                            pending_user_msgs.push(trimmed);
+                                            // Real-time chat: respond immediately via a quick side-channel LLM call
+                                            // while the scan continues running in background
+                                            let chat_msg = trimmed.clone();
+                                            let status = session.status_line();
+                                            let findings_count = session.findings.len();
+                                            let target = session.target.clone();
+
+                                            // Quick side-channel chat — minimal context, no tools, fast response
+                                            let chat_system = format!(
+                                                "You are Lonkero AI, a security testing assistant. You are currently running a scan ({}) against {}. \
+                                                 {} findings so far. Status: {}. \
+                                                 The user is chatting with you while the scan runs. Respond briefly and naturally. \
+                                                 If they ask about progress, give a status update. If they chat casually, be friendly but brief. \
+                                                 Keep responses to 1-2 sentences.",
+                                                tool_name, target, findings_count, status
+                                            );
+                                            let chat_messages = vec![Message {
+                                                role: Role::User,
+                                                content: vec![ContentBlock::Text { text: chat_msg.clone() }],
+                                            }];
+
+                                            print!("\n\x1b[32m");
+                                            match provider.chat(&chat_system, &chat_messages, &[]).await {
+                                                Ok(resp) => {
+                                                    for block in &resp.content {
+                                                        if let ContentBlock::Text { text } = block {
+                                                            println!("{}\x1b[0m", text);
+                                                        }
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    println!("(scan running — I'll respond fully when it completes)\x1b[0m");
+                                                }
+                                            }
+
+                                            // Still queue for context so the main conversation knows what was discussed
+                                            pending_user_msgs.push(chat_msg);
                                         }
                                     }
                                 }
@@ -952,10 +980,23 @@ async fn execute_lonkero(
         .context("Failed to wait for lonkero process")?;
 
     if !status.success() {
-        // Scan produced JSON output even though exit code was non-zero
-        // (this can happen with license warnings, etc.)
-        if !stdout.is_empty() && (stdout.starts_with('{') || stdout.starts_with('[')) {
-            return Ok(stdout);
+        // Scan produced JSON output even though exit code was non-zero.
+        // Exit code 1 is normal: lonkero returns 1 when vulnerabilities are found.
+        // The JSON may not be at the start of stdout because the scanner banner
+        // and info logging also go to stdout. Find the JSON portion.
+        if !stdout.is_empty() {
+            // Look for JSON array or object in stdout (scan results)
+            if let Some(json_start) = stdout.rfind("\n[").or_else(|| stdout.rfind("\n{")) {
+                let json_portion = stdout[json_start..].trim();
+                if !json_portion.is_empty() {
+                    return Ok(json_portion.to_string());
+                }
+            }
+            // Also check if stdout itself starts with JSON
+            let trimmed = stdout.trim_start();
+            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                return Ok(trimmed.to_string());
+            }
         }
 
         // Extract human-readable error from stderr
@@ -1034,8 +1075,9 @@ fn sanitize_for_llm(input: &str) -> String {
 
     // GCSS-1: Strip HTML elements with inline visibility-hiding styles
     // Matches <tag style="...display:none...">...content...</tag> and self-closing variants
+    // Note: Rust regex doesn't support backreferences (\1), so we match any closing tag
     let hidden_style_re = Regex::new(
-        r#"(?si)<(\w+)\s[^>]*style\s*=\s*"[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?(?:\s|;|"))[^"]*"[^>]*>.*?</\1>"#
+        r#"(?si)<\w+\s[^>]*style\s*=\s*"[^"]*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?:\.0+)?(?:\s|;|"))[^"]*"[^>]*>.*?</\w+>"#
     ).unwrap();
     let stripped = hidden_style_re.replace_all(&stripped, "");
 
@@ -1047,13 +1089,13 @@ fn sanitize_for_llm(input: &str) -> String {
 
     // GCSS-2: Strip elements with screen-reader-only / visually-hidden classes
     let sr_only_re = Regex::new(
-        r#"(?si)<(\w+)\s[^>]*class\s*=\s*"[^"]*(?:sr-only|visually-hidden|screen-reader-text|clip-hide|a11y-hidden)[^"]*"[^>]*>.*?</\1>"#
+        r#"(?si)<\w+\s[^>]*class\s*=\s*"[^"]*(?:sr-only|visually-hidden|screen-reader-text|clip-hide|a11y-hidden)[^"]*"[^>]*>.*?</\w+>"#
     ).unwrap();
     let stripped = sr_only_re.replace_all(&stripped, "");
 
     // GCSS-3: Strip elements with aria-hidden="true"
     let aria_hidden_re = Regex::new(
-        r#"(?si)<(\w+)\s[^>]*aria-hidden\s*=\s*"true"[^>]*>.*?</\1>"#
+        r#"(?si)<\w+\s[^>]*aria-hidden\s*=\s*"true"[^>]*>.*?</\w+>"#
     ).unwrap();
     let stripped = aria_hidden_re.replace_all(&stripped, "");
 
@@ -1061,7 +1103,7 @@ fn sanitize_for_llm(input: &str) -> String {
     // Catches: position:absolute with large negative left/top, font-size:0,
     // height:0;overflow:hidden, text-indent:-9999px, clip:rect(0,0,0,0)
     let offscreen_re = Regex::new(
-        r#"(?si)<(\w+)\s[^>]*style\s*=\s*"[^"]*(?:text-indent\s*:\s*-\d{4,}|font-size\s*:\s*0(?:px)?(?:\s|;|")|clip\s*:\s*rect\s*\(\s*0|clip-path\s*:\s*inset\s*\(\s*(?:50|100)%)[^"]*"[^>]*>.*?</\1>"#
+        r#"(?si)<\w+\s[^>]*style\s*=\s*"[^"]*(?:text-indent\s*:\s*-\d{4,}|font-size\s*:\s*0(?:px)?(?:\s|;|")|clip\s*:\s*rect\s*\(\s*0|clip-path\s*:\s*inset\s*\(\s*(?:50|100)%)[^"]*"[^>]*>.*?</\w+>"#
     ).unwrap();
     let stripped = offscreen_re.replace_all(&stripped, "");
 
@@ -1205,7 +1247,7 @@ fn generate_session_report(session: &Session, format: &str) -> String {
     }
 }
 
-fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<&str>, license_holder: Option<&str>) {
+fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<&str>, license_holder: Option<&str>, key_was_provided: bool) {
     println!();
     println!("\x1b[36m================================================================\x1b[0m");
     println!("\x1b[36m  Lonkero AI - Interactive Security Testing Agent\x1b[0m");
@@ -1220,9 +1262,9 @@ fn print_banner(target: &str, provider: &str, model: &str, license_type: Option<
             println!("  License:  \x1b[32m{} Edition{}\x1b[0m", lt, holder_str);
         }
         None => {
-            // Check if env var is set even if license_type wasn't resolved
-            if std::env::var("LONKERO_LICENSE_KEY").is_ok() {
-                println!("  License:  \x1b[33mKey provided but validation failed (run with -v for details)\x1b[0m");
+            // Check if a key was provided (via -L flag or env var)
+            if key_was_provided || std::env::var("LONKERO_LICENSE_KEY").is_ok() {
+                println!("  License:  \x1b[33mKey provided but validation failed — running free-tier modules\x1b[0m");
             } else {
                 println!("  License:  \x1b[33mNo license key (set LONKERO_LICENSE_KEY or use -L)\x1b[0m");
             }
