@@ -213,6 +213,30 @@ impl Session {
         summary
     }
 
+    /// Quick one-line status for instant user feedback.
+    pub fn status_line(&self) -> String {
+        let findings_str = if self.findings.is_empty() {
+            "no findings yet".to_string()
+        } else {
+            let crit = self.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("critical")).count();
+            let high = self.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("high")).count();
+            let med = self.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("medium")).count();
+            let low = self.findings.iter().filter(|f| f.severity.eq_ignore_ascii_case("low") || f.severity.eq_ignore_ascii_case("info")).count();
+            let mut parts = Vec::new();
+            if crit > 0 { parts.push(format!("{} critical", crit)); }
+            if high > 0 { parts.push(format!("{} high", high)); }
+            if med > 0 { parts.push(format!("{} medium", med)); }
+            if low > 0 { parts.push(format!("{} low/info", low)); }
+            format!("{} findings ({})", self.findings.len(), parts.join(", "))
+        };
+        format!(
+            "{} scans run, {} endpoints tested, {}",
+            self.scan_count,
+            self.tested.len(),
+            findings_str,
+        )
+    }
+
     /// Track token usage.
     pub fn track_usage(&mut self, input_tokens: u64, output_tokens: u64) {
         self.total_input_tokens += input_tokens;

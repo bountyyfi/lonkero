@@ -303,11 +303,25 @@ fn print_auto_help() {
     println!();
     println!("\x1b[36m--- Auto Mode Commands ---\x1b[0m");
     println!();
-    println!("  Type while scans run — commands are processed between rounds:");
+    println!("  Type while scans run — commands are processed instantly:");
+    println!("    status    - Show current progress (scans, findings, what's running)");
     println!("    findings  - Show all findings found so far");
     println!("    exit      - Stop auto mode and show summary");
-    println!("    <text>    - Send a message to the AI (e.g. 'also test /admin')");
+    println!("    <text>    - Send a message to the AI (queued until current scan finishes)");
     println!();
+}
+
+/// Check if a user message is a status/progress query that can be answered locally.
+fn is_status_query(input: &str) -> bool {
+    let lower = input.to_lowercase();
+    let patterns = [
+        "how's it going", "hows it going", "how is it going",
+        "what's happening", "whats happening",
+        "progress", "status", "what are you doing",
+        "where are you", "how far", "how long",
+        "update", "eta",
+    ];
+    patterns.iter().any(|p| lower.contains(p))
 }
 
 // ---------------------------------------------------------------------------
@@ -412,10 +426,79 @@ async fn run_agent_turn(
             let _ = io::stdout().flush();
         });
 
-        let response = provider
-            .chat_stream(system_prompt, &session.messages, tool_defs, on_text)
-            .await
-            .context("LLM API call failed")?;
+        // Run LLM stream concurrently with user input monitoring.
+        // We can't cancel/restart the stream, but we can handle
+        // status queries and built-in commands instantly.
+        // Clone messages to avoid holding an immutable borrow on session
+        // across the select! — the messages are serialized to JSON anyway.
+        let messages_snapshot = session.messages.clone();
+        let llm_future = provider
+            .chat_stream(system_prompt, &messages_snapshot, tool_defs, on_text);
+        tokio::pin!(llm_future);
+
+        let mut pending_during_thinking: Vec<String> = Vec::new();
+
+        let response = loop {
+            tokio::select! {
+                result = &mut llm_future => {
+                    break result.context("LLM API call failed")?;
+                }
+                input = stdin_rx.recv() => {
+                    match input {
+                        Some(UserInput::Line(line)) => {
+                            let trimmed = line.trim().to_string();
+                            if trimmed.is_empty() { continue; }
+                            match trimmed.as_str() {
+                                "exit" | "quit" | "q" => {
+                                    // Can't cancel the LLM stream, but we can
+                                    // let it finish and then exit
+                                    println!("\n\x1b[33m[Will exit after AI responds...]\x1b[0m");
+                                    let result = llm_future.await.context("LLM API call failed")?;
+                                    if started_printing.load(Ordering::Relaxed) {
+                                        println!("\x1b[0m");
+                                    }
+                                    if let Some(ref usage) = result.usage {
+                                        session.track_usage(usage.input_tokens, usage.output_tokens);
+                                    }
+                                    session.add_assistant_message(result.content);
+                                    return Ok(());
+                                }
+                                "findings" | "results" => {
+                                    println!("\n{}", session.findings_summary());
+                                }
+                                "status" => {
+                                    println!("\n\x1b[36m  [Status]\x1b[0m {} | AI is thinking...", session.status_line());
+                                }
+                                "help" => {
+                                    print_auto_help();
+                                }
+                                _ => {
+                                    if is_status_query(&trimmed) {
+                                        println!("\n\x1b[36m  [Status]\x1b[0m {} | AI is thinking...", session.status_line());
+                                    } else {
+                                        println!("\n\x1b[36m  [Queued]\x1b[0m \"{}\" — will send after AI responds.", trimmed);
+                                        pending_during_thinking.push(trimmed);
+                                    }
+                                }
+                            }
+                        }
+                        Some(UserInput::Eof) | None => {
+                            break llm_future.await.context("LLM API call failed")?;
+                        }
+                    }
+                }
+            }
+        };
+
+        // Inject any messages that arrived during thinking
+        if !pending_during_thinking.is_empty() {
+            let combined = pending_during_thinking.join("\n");
+            session.add_user_message(&format!(
+                "[User message during AI thinking]: {}\n\
+                 Address this and continue with the assessment.",
+                combined
+            ));
+        }
 
         // Close the green color if we printed streaming text
         if started_printing.load(Ordering::Relaxed) {
@@ -526,12 +609,23 @@ async fn run_agent_turn(
                                     "findings" | "results" => {
                                         println!("\n{}", session.findings_summary());
                                     }
+                                    "status" => {
+                                        println!("\n\x1b[36m  [Status]\x1b[0m {}", session.status_line());
+                                        println!("  Currently running: {} on {}", tool_name, format_tool_input(&tool_name, &tool_input));
+                                    }
                                     "help" => {
                                         print_auto_help();
                                     }
                                     _ => {
-                                        println!("\n\x1b[36m  [Received]\x1b[0m \"{}\" — will send to AI after this scan finishes.", trimmed);
-                                        pending_user_msgs.push(trimmed);
+                                        if is_status_query(&trimmed) {
+                                            // "how's it going", "progress?", etc.
+                                            println!("\n\x1b[36m  [Status]\x1b[0m {}", session.status_line());
+                                            println!("  Currently running: {} on {}", tool_name, format_tool_input(&tool_name, &tool_input));
+                                        } else {
+                                            println!("\n\x1b[36m  [Queued]\x1b[0m \"{}\" — will send to AI after current scan.", trimmed);
+                                            println!("  \x1b[90mCurrent: {} | {}\x1b[0m", tool_name, session.status_line());
+                                            pending_user_msgs.push(trimmed);
+                                        }
                                     }
                                 }
                             }
