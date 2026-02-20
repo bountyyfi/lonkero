@@ -975,16 +975,22 @@
           if (bid) discoveredNextBuildId = bid[1];
         }
 
-        // Report RSC data exposure as informational finding
-        // Check for sensitive data patterns in the flight payload
-        const sensitivePatterns = /\\?"(?:email|password|token|secret|apiKey|api_key|ssn|creditCard|phoneNumber|accessToken|refreshToken|sessionId)\\?"/i;
-        if (sensitivePatterns.test(rscData)) {
+        // Report RSC data exposure — only if flight data contains actual credential-like
+        // values (not just field names like "token" which appear in pagination/CSRF contexts).
+        // Require value context: field name followed by a colon/equals and a string value.
+        const rscCredentialPatterns = /\\?"(?:password|secret|apiKey|api_key|accessToken|refreshToken|privateKey|private_key)\\?"\s*:\\?\s*\\?"[^"]{8,}/i;
+        const rscPIIPatterns = /\\?"(?:ssn|creditCard|credit_card|cardNumber|card_number|cvv|socialSecurity)\\?"\s*:\\?\s*\\?"[^"]{4,}/i;
+        const hasCreds = rscCredentialPatterns.test(rscData);
+        const hasPII = rscPIIPatterns.test(rscData);
+        if (hasCreds || hasPII) {
           reportFinding('NEXTJS_RSC_FLIGHT_DATA', {
-            severity: 'medium',
-            description: `Next.js RSC flight data contains potentially sensitive fields (${rscChunks.length} chunks, ${rscData.length} chars)`,
+            severity: hasCreds ? 'high' : 'medium',
+            description: `Next.js RSC flight data contains ${hasCreds ? 'credential' : 'PII'} fields with values (${rscChunks.length} chunks, ${rscData.length} chars)`,
             url: location.href,
             chunkCount: rscChunks.length,
             dataSize: rscData.length,
+            hasCreds,
+            hasPII,
             preview: rscData.substring(0, 500),
           });
         }
@@ -1410,6 +1416,7 @@
       }
 
       // 3. SOURCE MAP DETECTION — Check if .map files are accessible for Next.js chunks
+      // Real source maps are at least 5KB; tiny responses are CDN error pages or redirect stubs
       const nextChunkScripts = document.querySelectorAll('script[src*="/_next/static/chunks/"]');
       let sourceMapCount = 0;
       for (const script of nextChunkScripts) {
@@ -1418,15 +1425,18 @@
         try {
           const mapResp = await fetch(mapUrl, { method: 'HEAD', credentials: 'omit' });
           if (mapResp.ok) {
+            const mapSize = parseInt(mapResp.headers.get('content-length') || '0');
+            const contentType = mapResp.headers.get('content-type') || '';
+            // Skip tiny responses (error pages, CDN stubs) and non-JSON content types
+            if (mapSize < 5000 && !contentType.includes('json')) continue;
             sourceMapCount++;
-            const mapSize = mapResp.headers.get('content-length');
             reportFinding('NEXTJS_SOURCE_MAP_EXPOSED', {
               severity: 'high',
               description: `Next.js source map exposed: ${mapUrl}` +
                 (mapSize ? ` (${Math.round(mapSize / 1024)}KB — full source code)` : ' — full source code accessible'),
               url: mapUrl,
               chunkUrl: script.src,
-              size: mapSize ? parseInt(mapSize) : null,
+              size: mapSize || null,
             });
           }
         } catch {}
