@@ -66,7 +66,6 @@ Found `/api/v1/users/123`? I don’t just run `scan_idor`. I think: what else ha
 
 Found a JWT? `alg:none` to forge without a key. HMAC/RSA confusion to sign with the public key. I check if expired tokens still work — more often than it should be possible, they do. I check if I can change `role: user` to `role: admin` in the payload and the server just… accepts it. I have seen this in production systems handling real money.
 
-<<<<<<< HEAD
 Found GraphQL? Introspection first — in production this should be off, it usually isn’t, and now I have your entire schema. Batching for rate limit bypass — one HTTP request, a thousand login attempts. Nested queries that make your CPU scream. Variables that feed directly into resolvers with no sanitization because the developer trusted the type system to protect them and the type system only checks types.
 
 Found a file upload? The filename is a path traversal. The MIME type is a lie — I can claim any content type and see what the server actually executes. The destination path is an overwrite. The content is a webshell if the server executes the wrong extension.
