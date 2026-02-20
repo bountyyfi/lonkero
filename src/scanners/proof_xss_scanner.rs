@@ -584,16 +584,50 @@ impl ProofXssScanner {
         Some(ReflectionContext::HtmlBody)
     }
 
-    /// Check if position is inside a <script> tag
+    /// Check if position is inside a <script> tag with executable content.
+    /// Returns false for non-executable script types like application/json
+    /// (__NEXT_DATA__, JSON-LD, import maps) where reflection is not exploitable.
     fn is_inside_script_tag(&self, before: &str) -> bool {
-        let last_script_open = before.to_lowercase().rfind("<script");
-        let last_script_close = before.to_lowercase().rfind("</script");
+        let before_lower = before.to_lowercase();
+        let last_script_open = before_lower.rfind("<script");
+        let last_script_close = before_lower.rfind("</script");
 
-        match (last_script_open, last_script_close) {
+        let inside = match (last_script_open, last_script_close) {
             (Some(open), Some(close)) => open > close,
             (Some(_), None) => true,
             _ => false,
+        };
+
+        if !inside {
+            return false;
         }
+
+        // Extract the script tag to check its type attribute
+        let script_tag_start = last_script_open.unwrap();
+        let tag_content = &before_lower[script_tag_start..];
+        if let Some(tag_end) = tag_content.find('>') {
+            let tag = &tag_content[..tag_end + 1];
+            // Non-executable script types — reflection inside these is NOT XSS
+            if tag.contains("type=") {
+                let non_executable = [
+                    "application/json",
+                    "application/ld+json",
+                    "importmap",
+                    "application/xml",
+                    "text/template",
+                    "text/html",
+                    "text/x-template",
+                    "text/x-handlebars-template",
+                ];
+                for netype in &non_executable {
+                    if tag.contains(netype) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
     }
 
     /// Check if position is inside a <style> tag

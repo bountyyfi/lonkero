@@ -83,6 +83,9 @@ pub mod modules;
 // Machine Learning module (model-based detection, GDPR-compliant)
 pub mod ml;
 
+// AI-powered interactive security testing agent
+pub mod ai;
+
 // Feature extraction layer for model-based vulnerability scoring
 pub mod features;
 

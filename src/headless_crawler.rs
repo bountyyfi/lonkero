@@ -723,6 +723,19 @@ impl HeadlessCrawler {
             (function() {
                 const results = [];
 
+                // GhostCSS defense: check if an element is actually visible
+                function isElementVisible(el) {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none') return false;
+                    if (style.visibility === 'hidden') return false;
+                    if (parseFloat(style.opacity) === 0) return false;
+                    if (el.getAttribute('aria-hidden') === 'true') return false;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 && rect.height === 0) return false;
+                    return true;
+                }
+
                 // Helper to extract input info including SELECT options
                 function extractInput(el, index) {
                     const tagName = el.tagName.toLowerCase();
@@ -1434,15 +1447,34 @@ impl HeadlessCrawler {
                 const results = [];
                 const processedContainers = new Set();
 
+                // GhostCSS defense: check if an element is actually visible
+                // Prevents extraction of CSS-hidden prompt injection payloads
+                function isElementVisible(el) {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none') return false;
+                    if (style.visibility === 'hidden') return false;
+                    if (parseFloat(style.opacity) === 0) return false;
+                    if (el.getAttribute('aria-hidden') === 'true') return false;
+                    // Check for off-screen positioning
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 && rect.height === 0) return false;
+                    return true;
+                }
+
                 function extractInput(el, index) {
                     const tagName = el.tagName.toLowerCase();
                     // Get name from multiple sources, generate fallback if none exist
                     let name = el.name || el.id || el.getAttribute('aria-label') || el.placeholder;
 
                     // For Vuetify, check parent label
+                    // GhostCSS defense: use innerText (visibility-aware) instead of textContent
                     if (!name) {
-                        const label = el.closest('.v-input')?.querySelector('.v-label')?.textContent?.trim();
-                        if (label) name = label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                        const labelEl = el.closest('.v-input')?.querySelector('.v-label');
+                        if (labelEl && isElementVisible(labelEl)) {
+                            const label = labelEl.innerText?.trim();
+                            if (label) name = label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                        }
                     }
 
                     if (!name) {
@@ -1477,12 +1509,16 @@ impl HeadlessCrawler {
                     }
 
                     // For Vuetify select/autocomplete - check for hidden input with options
+                    // GhostCSS defense: use innerText and filter hidden elements
                     const vuetifySelect = el.closest('.v-select, .v-autocomplete, .v-combobox');
                     if (vuetifySelect) {
                         info.type = 'select';
                         const menuItems = document.querySelectorAll('.v-list-item');
                         if (menuItems.length > 0) {
-                            info.options = Array.from(menuItems).map(item => item.textContent?.trim()).filter(Boolean);
+                            info.options = Array.from(menuItems)
+                                .filter(item => isElementVisible(item))
+                                .map(item => item.innerText?.trim())
+                                .filter(Boolean);
                         }
                     }
 

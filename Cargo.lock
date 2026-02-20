@@ -2098,6 +2098,7 @@ version = "3.6.7"
 dependencies = [
  "ahash",
  "anyhow",
+ "async-trait",
  "base64",
  "blake3",
  "bytes",
