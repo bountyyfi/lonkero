@@ -668,8 +668,11 @@ pub fn tool_to_cli_args(tool_name: &str, input: &serde_json::Value) -> Option<Ve
             Some(args)
         }
 
-        // Non-CLI tools handled in agent.rs
+        // Non-CLI tools handled in agent.rs or server-side
         "list_findings" | "generate_report" | "list_modules" => None,
+
+        // Server-side tool — Anthropic handles execution, not us
+        "web_search" => None,
 
         _ => None,
     }

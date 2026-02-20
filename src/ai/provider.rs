@@ -49,6 +49,20 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
+    /// Server-side tool use (e.g. web_search). Passed through verbatim.
+    #[serde(rename = "server_tool_use")]
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    /// Server-side tool result (e.g. web_search_tool_result).
+    /// Contains encrypted content that must be passed back verbatim for multi-turn.
+    #[serde(rename = "web_search_tool_result")]
+    WebSearchToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,7 +170,7 @@ impl LlmProvider for ClaudeProvider {
 
         // Only include tools if we have them
         if !tools.is_empty() {
-            let claude_tools: Vec<serde_json::Value> = tools
+            let mut claude_tools: Vec<serde_json::Value> = tools
                 .iter()
                 .map(|t| {
                     serde_json::json!({
@@ -166,6 +180,14 @@ impl LlmProvider for ClaudeProvider {
                     })
                 })
                 .collect();
+
+            // Server-side web search tool — Anthropic handles execution
+            claude_tools.push(serde_json::json!({
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 5
+            }));
+
             body["tools"] = serde_json::Value::Array(claude_tools);
         }
 
@@ -227,7 +249,7 @@ impl LlmProvider for ClaudeProvider {
         });
 
         if !tools.is_empty() {
-            let claude_tools: Vec<serde_json::Value> = tools
+            let mut claude_tools: Vec<serde_json::Value> = tools
                 .iter()
                 .map(|t| {
                     serde_json::json!({
@@ -237,6 +259,14 @@ impl LlmProvider for ClaudeProvider {
                     })
                 })
                 .collect();
+
+            // Server-side web search tool — Anthropic handles execution
+            claude_tools.push(serde_json::json!({
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 5
+            }));
+
             body["tools"] = serde_json::Value::Array(claude_tools);
         }
 
@@ -264,6 +294,7 @@ impl LlmProvider for ClaudeProvider {
         let mut current_tool_name = String::new();
         let mut current_tool_input_json = String::new();
         let mut in_tool_use = false;
+        let mut in_server_tool = false; // server_tool_use accumulates input like tool_use
         let mut usage: Option<Usage> = None;
         let mut stop_reason: Option<String> = None;
 
@@ -300,6 +331,7 @@ impl LlmProvider for ClaudeProvider {
                                 Some("text") => {
                                     current_text.clear();
                                     in_tool_use = false;
+                                    in_server_tool = false;
                                 }
                                 Some("tool_use") => {
                                     current_tool_id = block["id"]
@@ -312,6 +344,34 @@ impl LlmProvider for ClaudeProvider {
                                         .to_string();
                                     current_tool_input_json.clear();
                                     in_tool_use = true;
+                                    in_server_tool = false;
+                                }
+                                Some("server_tool_use") => {
+                                    // Server-side tool (e.g. web_search).
+                                    // Accumulates input via deltas like tool_use.
+                                    current_tool_id = block["id"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string();
+                                    current_tool_name = block["name"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string();
+                                    current_tool_input_json.clear();
+                                    in_server_tool = true;
+                                    in_tool_use = false;
+                                    on_text(&format!("\n[web search: searching...]\n"));
+                                }
+                                Some("web_search_tool_result") => {
+                                    // Complete result block — arrives fully formed
+                                    content_blocks.push(ContentBlock::WebSearchToolResult {
+                                        tool_use_id: block["tool_use_id"]
+                                            .as_str()
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        content: block["content"].clone(),
+                                    });
+                                    on_text("[web search: results received]\n");
                                 }
                                 _ => {}
                             }
@@ -326,6 +386,7 @@ impl LlmProvider for ClaudeProvider {
                                     }
                                 }
                                 Some("input_json_delta") => {
+                                    // Both tool_use and server_tool_use send input via deltas
                                     if let Some(json_chunk) =
                                         delta["partial_json"].as_str()
                                     {
@@ -346,6 +407,16 @@ impl LlmProvider for ClaudeProvider {
                                     input,
                                 });
                                 in_tool_use = false;
+                            } else if in_server_tool {
+                                let input: serde_json::Value =
+                                    serde_json::from_str(&current_tool_input_json)
+                                        .unwrap_or(serde_json::json!({}));
+                                content_blocks.push(ContentBlock::ServerToolUse {
+                                    id: current_tool_id.clone(),
+                                    name: current_tool_name.clone(),
+                                    input,
+                                });
+                                in_server_tool = false;
                             } else if !current_text.is_empty() {
                                 content_blocks.push(ContentBlock::Text {
                                     text: current_text.clone(),
@@ -431,6 +502,19 @@ fn parse_claude_content(response: &serde_json::Value) -> Result<Vec<ContentBlock
                     input: item["input"].clone(),
                 });
             }
+            Some("server_tool_use") => {
+                blocks.push(ContentBlock::ServerToolUse {
+                    id: item["id"].as_str().unwrap_or("").to_string(),
+                    name: item["name"].as_str().unwrap_or("").to_string(),
+                    input: item["input"].clone(),
+                });
+            }
+            Some("web_search_tool_result") => {
+                blocks.push(ContentBlock::WebSearchToolResult {
+                    tool_use_id: item["tool_use_id"].as_str().unwrap_or("").to_string(),
+                    content: item["content"].clone(),
+                });
+            }
             _ => {}
         }
     }
@@ -497,6 +581,12 @@ impl LlmProvider for OllamaProvider {
                     }
                     ContentBlock::ToolUse { name, input, .. } => {
                         Some(format!("[Calling tool: {} with {}]", name, input))
+                    }
+                    ContentBlock::ServerToolUse { name, input, .. } => {
+                        Some(format!("[Server tool: {} with {}]", name, input))
+                    }
+                    ContentBlock::WebSearchToolResult { .. } => {
+                        Some("[Web search results]".to_string())
                     }
                 })
                 .collect::<Vec<_>>()
