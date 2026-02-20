@@ -348,6 +348,14 @@ pub struct Session {
     pub phase: TestPhase,
     /// Token budget (0 = unlimited)
     pub token_budget: u64,
+
+    // ---- Context management ----
+    /// How many times context has been compacted in this session
+    pub compaction_count: u32,
+    /// Most recent input_tokens from the API (tracks actual context size)
+    pub last_context_tokens: u64,
+    /// Maximum context window tokens (model-dependent, default 200K for Claude)
+    pub max_context_tokens: u64,
 }
 
 /// A vulnerability finding, parsed from lonkero JSON output.
@@ -421,6 +429,10 @@ impl Session {
             // Cat 7
             phase: TestPhase::Recon,
             token_budget: 0,
+            // Context management
+            compaction_count: 0,
+            last_context_tokens: 0,
+            max_context_tokens: 200_000, // Claude default
         }
     }
 
@@ -1468,96 +1480,376 @@ impl Session {
         )
     }
 
-    /// Track token usage.
+    /// Track token usage and update context size estimate.
     pub fn track_usage(&mut self, input_tokens: u64, output_tokens: u64) {
         self.total_input_tokens += input_tokens;
         self.total_output_tokens += output_tokens;
+        // The API's input_tokens tells us how big the context was on the last call
+        self.last_context_tokens = input_tokens;
     }
 
-    /// Compact conversation context when it gets too large.
-    /// Keeps the first message (auto-mode instructions), the last few exchanges,
-    /// and replaces middle messages with a summary. Returns true if compaction happened.
-    pub fn compact_context(&mut self) -> bool {
-        if self.messages.len() < 6 {
-            return false;
-        }
+    // -----------------------------------------------------------------------
+    // Context compaction — enables unlimited session length
+    // -----------------------------------------------------------------------
 
-        // Estimate total context size (rough: sum of text content lengths)
+    /// Estimate current context size in tokens (rough: ~3.5 chars per token).
+    pub fn estimate_context_tokens(&self) -> u64 {
         let total_chars: usize = self.messages.iter().map(|m| {
             m.content.iter().map(|b| match b {
                 ContentBlock::Text { text } => text.len(),
                 ContentBlock::ToolUse { input, .. } => input.to_string().len(),
                 ContentBlock::ToolResult { content, .. } => content.len(),
-                _ => 0,
+                _ => 100, // server tool use / web search results — estimate
             }).sum::<usize>()
         }).sum();
+        // Use actual token count if we have a recent measurement, otherwise estimate
+        if self.last_context_tokens > 0 {
+            // Blend: weight recent API measurement heavily but account for new messages added since
+            let char_estimate = total_chars as u64 / 4;
+            // If our char estimate is close to the API count, use char estimate
+            // (it reflects messages added after the last API call)
+            if char_estimate > self.last_context_tokens {
+                char_estimate
+            } else {
+                self.last_context_tokens
+            }
+        } else {
+            total_chars as u64 / 4
+        }
+    }
 
-        // ~4 chars per token, compact if over ~80K tokens worth
-        if total_chars < 300_000 {
+    /// Check if context needs compaction before the next API call.
+    /// Returns true if compaction is needed. Uses a safety buffer so we
+    /// compact BEFORE hitting the limit, never after.
+    pub fn needs_compaction(&self) -> bool {
+        if self.messages.len() < 8 {
+            return false;
+        }
+        let estimated = self.estimate_context_tokens();
+        // Compact at 70% of context window to leave room for output + safety
+        let threshold = (self.max_context_tokens as f64 * 0.70) as u64;
+        estimated > threshold
+    }
+
+    /// Shrink large tool results in older messages.
+    /// Tool outputs (scan results) can be 10K+ chars each. Once findings are
+    /// extracted into session state, the raw output is redundant. This replaces
+    /// old tool results with a short summary, freeing massive amounts of context.
+    pub fn shrink_old_tool_results(&mut self) -> usize {
+        let msg_count = self.messages.len();
+        if msg_count < 6 {
+            return 0;
+        }
+
+        let mut bytes_freed = 0usize;
+        // Shrink tool results in all but the last 4 messages
+        let cutoff = msg_count.saturating_sub(4);
+        for msg in &mut self.messages[..cutoff] {
+            for block in &mut msg.content {
+                if let ContentBlock::ToolResult { content, is_error, .. } = block {
+                    if content.len() > 500 {
+                        let old_len = content.len();
+                        // Keep first 200 chars for context, note the truncation
+                        let preview = if content.len() > 200 {
+                            &content[..200]
+                        } else {
+                            content.as_str()
+                        };
+                        let is_err = is_error.unwrap_or(false);
+                        *content = format!(
+                            "[Compacted — {} chars → summary]\n{}{}",
+                            old_len,
+                            preview,
+                            if is_err { "\n(was error)" } else { "" },
+                        );
+                        bytes_freed += old_len - content.len();
+                    }
+                }
+            }
+        }
+        bytes_freed
+    }
+
+    /// Compact conversation context to fit within the model's context window.
+    /// This is the core mechanism that enables unlimited session length.
+    ///
+    /// Strategy (progressive — gets more aggressive with each round):
+    /// 1. First: shrink old tool results (keeps all messages, just slims them)
+    /// 2. If still too big: drop middle messages, keep first + last N + summary
+    /// 3. If still too big: keep even fewer messages (emergency compaction)
+    ///
+    /// Returns true if any compaction happened.
+    pub fn compact_context(&mut self) -> bool {
+        let estimated_tokens = self.estimate_context_tokens();
+        let threshold = (self.max_context_tokens as f64 * 0.70) as u64;
+
+        if estimated_tokens < threshold && self.messages.len() < 8 {
             return false;
         }
 
-        eprintln!("\x1b[33m  [Context compaction] Trimming {} messages ({} chars) to fit context window...\x1b[0m",
-            self.messages.len(), total_chars);
+        let original_msg_count = self.messages.len();
+        let original_chars = self.total_message_chars();
+        let mut did_anything = false;
 
-        // Strategy: Keep first message + last 4 messages, replace middle with summary
-        let keep_start = 1; // first message (auto-mode instructions)
-        let keep_end = 4;   // last 4 messages (recent context)
-
-        if self.messages.len() <= keep_start + keep_end {
-            return false;
+        // Phase 1: Shrink old tool results (gentle — preserves all messages)
+        let bytes_freed = self.shrink_old_tool_results();
+        if bytes_freed > 0 {
+            did_anything = true;
+            eprintln!(
+                "\x1b[33m  [Compaction phase 1] Shrunk old tool results: freed ~{} chars\x1b[0m",
+                bytes_freed
+            );
         }
 
+        // Re-estimate after phase 1
+        let estimated_after_shrink = self.estimate_context_tokens();
+        if estimated_after_shrink < threshold {
+            if did_anything {
+                self.compaction_count += 1;
+                eprintln!(
+                    "\x1b[33m  [Compaction #{} complete] {} chars → {} chars, {} messages preserved\x1b[0m",
+                    self.compaction_count, original_chars, self.total_message_chars(), self.messages.len()
+                );
+            }
+            return did_anything;
+        }
+
+        // Phase 2: Drop middle messages, keep first + last N + summary
+        if self.messages.len() >= 8 {
+            // How many recent messages to keep — decrease with each compaction round
+            // to handle sessions that keep growing
+            let keep_end = match self.compaction_count {
+                0..=2 => 6,   // First few compactions: keep more context
+                3..=5 => 4,   // Mid-session: moderate
+                _ => 2,       // Long-running: aggressive
+            };
+            let keep_start = 1; // Always keep first message (instructions)
+
+            if self.messages.len() > keep_start + keep_end + 2 {
+                self.drop_middle_messages(keep_start, keep_end);
+                did_anything = true;
+            }
+        }
+
+        if did_anything {
+            self.compaction_count += 1;
+            eprintln!(
+                "\x1b[33m  [Compaction #{} complete] {} chars → {} chars ({} messages → {})\x1b[0m",
+                self.compaction_count,
+                original_chars,
+                self.total_message_chars(),
+                original_msg_count,
+                self.messages.len()
+            );
+        }
+
+        did_anything
+    }
+
+    /// Emergency compaction — used when the API already returned a context overflow error.
+    /// More aggressive than regular compaction: keeps only the absolute minimum.
+    pub fn force_compact(&mut self) -> bool {
+        eprintln!(
+            "\x1b[33m  [Emergency compaction] Context overflow — aggressively trimming...\x1b[0m"
+        );
+
+        let original_chars = self.total_message_chars();
+
+        // Phase 1: Shrink ALL tool results, not just old ones
+        for msg in &mut self.messages {
+            for block in &mut msg.content {
+                if let ContentBlock::ToolResult { content, .. } = block {
+                    if content.len() > 300 {
+                        let preview = if content.len() > 150 {
+                            &content[..150]
+                        } else {
+                            content.as_str()
+                        };
+                        *content = format!("[Compacted] {}", preview);
+                    }
+                }
+            }
+        }
+
+        // Phase 2: Keep only first + last 2 messages
+        if self.messages.len() > 5 {
+            self.drop_middle_messages(1, 2);
+        }
+
+        self.compaction_count += 1;
+
+        let new_chars = self.total_message_chars();
+        eprintln!(
+            "\x1b[33m  [Emergency compaction #{} done] {} chars → {} chars ({} messages)\x1b[0m",
+            self.compaction_count, original_chars, new_chars, self.messages.len()
+        );
+
+        new_chars < original_chars
+    }
+
+    /// Drop middle messages, keeping first N and last N, with a summary in between.
+    fn drop_middle_messages(&mut self, keep_start: usize, keep_end: usize) {
         let first = self.messages[..keep_start].to_vec();
         let last = self.messages[self.messages.len() - keep_end..].to_vec();
+        let dropped = self.messages.len() - keep_start - keep_end;
 
-        // Build a compact summary of what happened in the middle
-        let summary = format!(
-            "[Context compacted — {} earlier messages removed to fit context window]\n\
-             Session so far: {} scans run against {}.\n\
-             {}\n\
-             Technologies detected: {}.\n\
-             Endpoints tested: {}.\n\
-             Active hypotheses: {}.\n\
-             Exploit chains: {}.\n\
-             The conversation continues below with the most recent context.",
-            self.messages.len() - keep_start - keep_end,
-            self.scan_count,
-            self.target,
-            self.findings_summary(),
-            if self.technologies.is_empty() { "none yet".to_string() } else { self.technologies.join(", ") },
-            self.tested.keys().take(20).cloned().collect::<Vec<_>>().join(", "),
-            self.hypotheses.iter().filter(|h| h.status == HypothesisStatus::Testing).count(),
-            self.exploit_chains.len(),
-        );
+        // Build rich summary from session state (not message content — that's redundant)
+        let summary = self.build_compaction_summary(dropped);
 
         let mut compacted = first;
         compacted.push(Message {
             role: Role::User,
             content: vec![ContentBlock::Text { text: summary }],
         });
-        // Need to add an assistant ack so the message alternation is valid
+        // Assistant ack to maintain valid message alternation
         compacted.push(Message {
             role: Role::Assistant,
             content: vec![ContentBlock::Text {
-                text: "Understood, continuing the assessment with the compacted context.".to_string(),
+                text: format!(
+                    "Understood. Context compacted (round {}). I have full session state: \
+                     {} findings, {} hypotheses, {} endpoints mapped, {} exploit chains. \
+                     Continuing the assessment.",
+                    self.compaction_count + 1,
+                    self.findings.len(),
+                    self.hypotheses.len(),
+                    self.knowledge_graph.len(),
+                    self.exploit_chains.len(),
+                ),
             }],
         });
         compacted.extend(last);
+        self.messages = compacted;
+    }
 
-        let new_chars: usize = compacted.iter().map(|m| {
+    /// Build a rich summary for context compaction that preserves all important state.
+    fn build_compaction_summary(&self, dropped_count: usize) -> String {
+        let mut summary = format!(
+            "[Context compacted — {} earlier messages summarized (compaction round {})]\n\n",
+            dropped_count,
+            self.compaction_count + 1,
+        );
+
+        // Core session state
+        summary.push_str(&format!(
+            "## Session State\n\
+             Target: {}\n\
+             Scans run: {}\n\
+             Phase: {}\n\n",
+            self.target,
+            self.scan_count,
+            self.phase.label(),
+        ));
+
+        // Findings (critical for the AI to know what's been found)
+        if !self.findings.is_empty() {
+            summary.push_str(&self.findings_summary());
+            summary.push_str("\n\n");
+        } else {
+            summary.push_str("No findings yet.\n\n");
+        }
+
+        // Technologies
+        if !self.technologies.is_empty() {
+            summary.push_str(&format!(
+                "Technologies detected: {}\n\n",
+                self.technologies.join(", ")
+            ));
+        }
+
+        // Endpoints tested (summarize, don't list all)
+        if !self.tested.is_empty() {
+            let tested_list: Vec<String> = self.tested.keys().take(30).cloned().collect();
+            summary.push_str(&format!(
+                "Endpoints tested ({} total): {}{}\n\n",
+                self.tested.len(),
+                tested_list.join(", "),
+                if self.tested.len() > 30 { "..." } else { "" },
+            ));
+        }
+
+        // Discovered endpoints
+        if !self.discovered_endpoints.is_empty() {
+            let eps: Vec<&str> = self.discovered_endpoints.iter().take(30).map(|s| s.as_str()).collect();
+            summary.push_str(&format!(
+                "Discovered endpoints ({} total): {}{}\n\n",
+                self.discovered_endpoints.len(),
+                eps.join(", "),
+                if self.discovered_endpoints.len() > 30 { "..." } else { "" },
+            ));
+        }
+
+        // Hypotheses (critical for reasoning continuity)
+        if !self.hypotheses.is_empty() {
+            summary.push_str(&self.hypotheses_summary());
+            summary.push_str("\n\n");
+        }
+
+        // Exploit chains
+        if !self.exploit_chains.is_empty() {
+            summary.push_str(&format!(
+                "Exploit chains ({}):\n",
+                self.exploit_chains.len()
+            ));
+            for chain in &self.exploit_chains {
+                summary.push_str(&format!(
+                    "  - {} [{}]: {}\n",
+                    chain.name, chain.overall_severity, chain.description
+                ));
+            }
+            summary.push('\n');
+        }
+
+        // Attack plan
+        if let Some(ref plan) = self.attack_plan {
+            summary.push_str(&format!(
+                "Attack plan: {} ({:?}, step {}/{})\n\n",
+                plan.goal, plan.status, plan.current_step, plan.steps.len()
+            ));
+        }
+
+        // Knowledge graph stats
+        if !self.knowledge_graph.is_empty() {
+            summary.push_str(&format!(
+                "Knowledge graph: {} endpoints mapped\n\n",
+                self.knowledge_graph.len()
+            ));
+        }
+
+        // Scope
+        if self.scope.blocked_count > 0 {
+            summary.push_str(&format!(
+                "Scope: {} out-of-scope attempts blocked\n\n",
+                self.scope.blocked_count
+            ));
+        }
+
+        // Recent audit log (last 5 entries for reasoning continuity)
+        if !self.audit_log.is_empty() {
+            let recent: Vec<&AuditEntry> = self.audit_log.iter().rev().take(5).collect();
+            summary.push_str("Recent reasoning:\n");
+            for entry in recent.iter().rev() {
+                summary.push_str(&format!(
+                    "  [Scan #{}] {} — {}\n",
+                    entry.scan_number, entry.action, entry.reasoning
+                ));
+            }
+            summary.push('\n');
+        }
+
+        summary.push_str("Continue the assessment from where we left off. All session data (findings, hypotheses, knowledge graph, scope) is preserved.");
+
+        summary
+    }
+
+    /// Total character count across all messages (for logging).
+    fn total_message_chars(&self) -> usize {
+        self.messages.iter().map(|m| {
             m.content.iter().map(|b| match b {
                 ContentBlock::Text { text } => text.len(),
                 ContentBlock::ToolUse { input, .. } => input.to_string().len(),
                 ContentBlock::ToolResult { content, .. } => content.len(),
                 _ => 0,
             }).sum::<usize>()
-        }).sum();
-
-        eprintln!("\x1b[33m  [Context compaction] Reduced from {} to {} chars ({} messages → {})\x1b[0m",
-            total_chars, new_chars, self.messages.len(), compacted.len());
-
-        self.messages = compacted;
-        true
+        }).sum()
     }
 }

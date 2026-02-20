@@ -156,8 +156,11 @@ async fn run_interactive_mode(
         session.target
     ));
 
-    // Run the initial turn
-    run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await?;
+    // Run the initial turn (graceful — never crashes)
+    if let Err(e) = run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await {
+        eprintln!("\x1b[31m[Error on initial turn]: {:#}\x1b[0m", e);
+        eprintln!("\x1b[33m  Session still active — try a different command.\x1b[0m");
+    }
 
     // Interactive loop — reads from channel, never blocks the event loop
     loop {
@@ -211,9 +214,12 @@ async fn run_interactive_mode(
             _ => {}
         }
 
-        // Send to LLM
+        // Send to LLM — graceful error handling, never crashes the session
         session.add_user_message(input);
-        run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await?;
+        if let Err(e) = run_agent_turn(provider, session, tool_defs, system_prompt, config, stdin_rx).await {
+            eprintln!("\x1b[31m[Error]: {:#}\x1b[0m", e);
+            eprintln!("\x1b[33m  Session still active — try again or type 'exit'.\x1b[0m");
+        }
     }
 
     Ok(())
@@ -256,22 +262,37 @@ async fn run_auto_mode(
             Ok(()) => {}
             Err(e) => {
                 let err_str = e.to_string().to_lowercase();
+
+                // Context overflow should already be handled inside run_agent_turn,
+                // but if it somehow escaped, try compacting here as a safety net
                 let is_context_overflow = err_str.contains("too many tokens")
                     || err_str.contains("context length")
-                    || err_str.contains("maximum")
-                    || err_str.contains("overloaded")
+                    || err_str.contains("request too large")
+                    || err_str.contains("413")
+                    || err_str.contains("prompt is too long");
+
+                if is_context_overflow {
+                    if session.force_compact() {
+                        eprintln!("\x1b[33m  [Auto mode: compacted context, retrying round...]\x1b[0m");
+                        continue;
+                    }
+                }
+
+                // Rate limiting / overload — wait and retry
+                let is_retryable = err_str.contains("overloaded")
                     || err_str.contains("rate limit")
                     || err_str.contains("529")
-                    || err_str.contains("413")
-                    || err_str.contains("request too large");
+                    || err_str.contains("503");
 
-                if is_context_overflow && session.compact_context() {
-                    eprintln!("\x1b[33m  [Retrying with compacted context...]\x1b[0m");
+                if is_retryable {
+                    eprintln!("\x1b[33m  [API overloaded in round {} — waiting 10s and continuing...]\x1b[0m", round);
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                     continue;
                 }
 
-                // Print the full error chain so we can see the actual API error
+                // Non-recoverable error — print but DON'T exit, let user decide
                 eprintln!("\x1b[31m[Error in round {}]: {:#}\x1b[0m", round, e);
+                eprintln!("\x1b[33m  Session preserved. Dropping to interactive mode.\x1b[0m");
                 break;
             }
         }
@@ -439,6 +460,12 @@ async fn run_agent_turn(
             ));
         }
 
+        // Proactive context compaction — check BEFORE calling the API,
+        // not after an error. This is what enables 15-hour sessions.
+        if session.needs_compaction() {
+            session.compact_context();
+        }
+
         // Show status while waiting for LLM
         print_status("Thinking...");
 
@@ -465,10 +492,10 @@ async fn run_agent_turn(
 
         let mut pending_during_thinking: Vec<String> = Vec::new();
 
-        let response = loop {
+        let llm_result: Result<super::provider::LlmResponse> = loop {
             tokio::select! {
                 result = &mut llm_future => {
-                    break result.context("LLM API call failed")?;
+                    break result.context("LLM API call failed");
                 }
                 input = stdin_rx.recv() => {
                     match input {
@@ -510,8 +537,92 @@ async fn run_agent_turn(
                             }
                         }
                         Some(UserInput::Eof) | None => {
-                            break llm_future.await.context("LLM API call failed")?;
+                            break llm_future.await.context("LLM API call failed");
                         }
+                    }
+                }
+            }
+        };
+
+        // Handle context overflow gracefully — compact and retry instead of crashing
+        let response = match llm_result {
+            Ok(resp) => resp,
+            Err(e) => {
+                let err_str = e.to_string().to_lowercase();
+                let is_context_overflow = err_str.contains("too many tokens")
+                    || err_str.contains("context length")
+                    || err_str.contains("maximum")
+                    || err_str.contains("request too large")
+                    || err_str.contains("413")
+                    || err_str.contains("prompt is too long");
+
+                if is_context_overflow {
+                    // Reset the streaming text state
+                    if started_printing.load(Ordering::Relaxed) {
+                        println!("\x1b[0m");
+                    }
+
+                    eprintln!("\x1b[33m  [Context overflow detected — compacting and retrying...]\x1b[0m");
+
+                    // Emergency compact
+                    if !session.force_compact() {
+                        return Err(e); // Nothing to compact, truly stuck
+                    }
+
+                    // Retry with compacted context — re-create streaming state
+                    print_status("Retrying with compacted context...");
+                    let retry_snapshot = session.messages.clone();
+                    let retry_on_text: StreamCallback = Box::new(move |delta: &str| {
+                        print!("{}", delta);
+                        let _ = io::stdout().flush();
+                    });
+                    print!("\n\x1b[32m");
+                    match provider.chat_stream(system_prompt, &retry_snapshot, tool_defs, retry_on_text).await {
+                        Ok(resp) => {
+                            println!("\x1b[0m");
+                            resp
+                        }
+                        Err(retry_err) => {
+                            println!("\x1b[0m");
+                            // Second attempt failed too — try one more force compact
+                            eprintln!("\x1b[33m  [Retry failed — second emergency compaction...]\x1b[0m");
+                            session.force_compact();
+                            let retry2_snapshot = session.messages.clone();
+                            let retry2_on_text: StreamCallback = Box::new(move |delta: &str| {
+                                print!("{}", delta);
+                                let _ = io::stdout().flush();
+                            });
+                            print!("\n\x1b[32m");
+                            let result = provider.chat_stream(system_prompt, &retry2_snapshot, tool_defs, retry2_on_text).await;
+                            println!("\x1b[0m");
+                            result.map_err(|_| retry_err)?
+                        }
+                    }
+                } else {
+                    // Not a context overflow — check for rate limiting / overload
+                    let is_retryable = err_str.contains("overloaded")
+                        || err_str.contains("rate limit")
+                        || err_str.contains("529")
+                        || err_str.contains("503");
+
+                    if is_retryable {
+                        if started_printing.load(Ordering::Relaxed) {
+                            println!("\x1b[0m");
+                        }
+                        eprintln!("\x1b[33m  [API overloaded — waiting 5s and retrying...]\x1b[0m");
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                        let retry_snapshot = session.messages.clone();
+                        let retry_on_text: StreamCallback = Box::new(move |delta: &str| {
+                            print!("{}", delta);
+                            let _ = io::stdout().flush();
+                        });
+                        print!("\n\x1b[32m");
+                        let result = provider.chat_stream(system_prompt, &retry_snapshot, tool_defs, retry_on_text).await;
+                        println!("\x1b[0m");
+                        result.context("LLM API retry also failed")?
+                    } else {
+                        return Err(e);
                     }
                 }
             }
