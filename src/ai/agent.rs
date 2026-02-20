@@ -187,6 +187,23 @@ async fn run_interactive_mode(
                 println!("{}", session.findings_summary());
                 continue;
             }
+            "progress" | "status" => {
+                println!("\n{}", session.progress_info());
+                continue;
+            }
+            "hypotheses" => {
+                println!("{}", session.hypotheses_summary());
+                continue;
+            }
+            "chains" => {
+                let result = session.synthesize_chains();
+                println!("{}", result);
+                continue;
+            }
+            "audit" => {
+                println!("{}", session.audit_log_summary());
+                continue;
+            }
             "help" => {
                 print_help();
                 continue;
@@ -548,7 +565,7 @@ async fn run_agent_turn(
             );
 
             // Handle non-CLI tools synchronously (they're instant, no need for select!)
-            if let Some(instant_result) = handle_instant_tool(&tool_name, &tool_input, session) {
+            if let Some(instant_result) = handle_instant_tool(&tool_name, &tool_input, &mut *session) {
                 match &instant_result {
                     Ok(output) => {
                         tool_results.push(ContentBlock::ToolResult {
@@ -567,6 +584,78 @@ async fn run_agent_turn(
                 }
                 continue;
             }
+
+            // Cat 6: Scope enforcement — check URL before any scan
+            if let Some(url) = tool_input["url"].as_str() {
+                if let Err(scope_err) = session.check_scope(url) {
+                    eprintln!("\x1b[33m  [Scope] {}\x1b[0m", scope_err);
+                    tool_results.push(ContentBlock::ToolResult {
+                        tool_use_id: tool_id.clone(),
+                        content: scope_err,
+                        is_error: Some(true),
+                    });
+                    continue;
+                }
+            }
+
+            // Cat 6: Intensity enforcement
+            if let Some(intensity) = tool_input["intensity"].as_str() {
+                if let Err(intensity_err) = session.check_intensity(intensity) {
+                    eprintln!("\x1b[33m  [Scope] {}\x1b[0m", intensity_err);
+                    tool_results.push(ContentBlock::ToolResult {
+                        tool_use_id: tool_id.clone(),
+                        content: intensity_err,
+                        is_error: Some(true),
+                    });
+                    continue;
+                }
+            }
+
+            // Cat 5/7: Token budget check
+            if let Err(budget_err) = session.check_token_budget() {
+                tool_results.push(ContentBlock::ToolResult {
+                    tool_use_id: tool_id.clone(),
+                    content: budget_err,
+                    is_error: Some(true),
+                });
+                continue;
+            }
+
+            // Cat 3: Custom HTTP request (async but not CLI-backed)
+            if tool_name == "send_http" {
+                let result = execute_http_request(&tool_input).await;
+                match result {
+                    Ok(output) => {
+                        // Check for 401 — credential rotation detection
+                        if output.contains("\"status\": 401") || output.contains("status: 401") {
+                            if session.scan_count > 0 && !session.credential_rotation_detected {
+                                session.credential_rotation_detected = true;
+                                eprintln!("\x1b[33m  [Auth] 401 detected — credentials may have been rotated\x1b[0m");
+                            }
+                        }
+                        tool_results.push(ContentBlock::ToolResult {
+                            tool_use_id: tool_id.clone(),
+                            content: sanitize_and_truncate(&output),
+                            is_error: None,
+                        });
+                    }
+                    Err(e) => {
+                        tool_results.push(ContentBlock::ToolResult {
+                            tool_use_id: tool_id.clone(),
+                            content: format!("HTTP request error: {}", e),
+                            is_error: Some(true),
+                        });
+                    }
+                }
+                continue;
+            }
+
+            // Cat 2: Log reasoning for CLI tool execution
+            session.log_audit(
+                &format!("execute:{}", tool_name),
+                &format!("Running {} on {}", tool_name, tool_input["url"].as_str().unwrap_or("?")),
+                "pending",
+            );
 
             // CLI-backed tool — run concurrently with user input monitoring.
             // This is the key: while lonkero scan runs (which can take minutes),
@@ -686,6 +775,15 @@ async fn run_agent_turn(
 
             match &result {
                 Ok(output) => {
+                    // Cat 6: Detect 401 responses — credential rotation
+                    if (output.contains("\"statusCode\":401") || output.contains("\"status\":401"))
+                        && session.scan_count > 2
+                        && !session.credential_rotation_detected
+                    {
+                        session.credential_rotation_detected = true;
+                        eprintln!("\x1b[33m  [Auth] 401 responses detected — credentials may have been rotated or expired\x1b[0m");
+                    }
+
                     // Parse scan results and merge findings
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(output) {
                         let new_findings = session.merge_findings(&json);
@@ -695,6 +793,9 @@ async fn run_agent_turn(
                                 new_findings
                             );
                         }
+
+                        // Cat 7: Show phase progress after each scan
+                        eprintln!("\x1b[90m  {}\x1b[0m", session.progress_info());
                     }
 
                     tool_results.push(ContentBlock::ToolResult {
@@ -830,7 +931,7 @@ fn sanitize_and_truncate(output: &str) -> String {
 fn handle_instant_tool(
     tool_name: &str,
     input: &serde_json::Value,
-    session: &Session,
+    session: &mut Session,
 ) -> Option<Result<String>> {
     match tool_name {
         "list_findings" => Some(Ok(session.findings_summary())),
@@ -850,8 +951,287 @@ fn handle_instant_tool(
             }
         }
 
+        // ---- Cat 1: Session persistence ----
+        "save_session" => {
+            let path = input["path"].as_str().unwrap_or("lonkero-session.json");
+            match session.save_to_file(path) {
+                Ok(msg) => Some(Ok(msg)),
+                Err(e) => Some(Err(anyhow::anyhow!("{}", e))),
+            }
+        }
+        "load_session" => {
+            let path = input["path"].as_str().unwrap_or("lonkero-session.json");
+            match Session::load_from_file(path) {
+                Ok(loaded) => {
+                    let summary = format!(
+                        "Session loaded from {}. Restored: {} findings, {} scans, {} hypotheses, \
+                         {} endpoints in knowledge graph, {} exploit chains. Target: {}",
+                        path,
+                        loaded.findings.len(),
+                        loaded.scan_count,
+                        loaded.hypotheses.len(),
+                        loaded.knowledge_graph.len(),
+                        loaded.exploit_chains.len(),
+                        loaded.target,
+                    );
+                    // Replace current session state
+                    session.findings = loaded.findings;
+                    session.tested = loaded.tested;
+                    session.technologies = loaded.technologies;
+                    session.discovered_endpoints = loaded.discovered_endpoints;
+                    session.total_input_tokens = loaded.total_input_tokens;
+                    session.total_output_tokens = loaded.total_output_tokens;
+                    session.scan_count = loaded.scan_count;
+                    session.knowledge_graph = loaded.knowledge_graph;
+                    session.attack_patterns = loaded.attack_patterns;
+                    session.hypotheses = loaded.hypotheses;
+                    session.attack_plan = loaded.attack_plan;
+                    session.audit_log = loaded.audit_log;
+                    session.exploit_chains = loaded.exploit_chains;
+                    session.false_positive_ids = loaded.false_positive_ids;
+                    session.scope = loaded.scope;
+                    session.phase = loaded.phase;
+                    session.session_file = Some(path.to_string());
+                    Some(Ok(summary))
+                }
+                Err(e) => Some(Err(anyhow::anyhow!("{}", e))),
+            }
+        }
+
+        // ---- Cat 2: Reasoning & Planning ----
+        "add_hypothesis" => {
+            let desc = input["description"].as_str().unwrap_or("");
+            let basis = input["basis"].as_str().unwrap_or("");
+            let id = session.add_hypothesis(desc, basis);
+            session.log_audit(
+                &format!("Added hypothesis {}", id),
+                basis,
+                "proposed",
+            );
+            Some(Ok(format!(
+                "Hypothesis {} created: \"{}\"\nBasis: {}\nUse update_hypothesis to confirm/refute with evidence.",
+                id, desc, basis,
+            )))
+        }
+        "update_hypothesis" => {
+            let id = input["hypothesis_id"].as_str().unwrap_or("");
+            let confirmed = input["confirmed"].as_bool().unwrap_or(false);
+            let evidence = input["evidence"].as_str().unwrap_or("");
+            session.update_hypothesis(id, confirmed, evidence);
+            let status_word = if confirmed { "confirmed" } else { "refuted" };
+            session.log_audit(
+                &format!("Updated hypothesis {}", id),
+                evidence,
+                status_word,
+            );
+            // Return updated state
+            if let Some(h) = session.hypotheses.iter().find(|h| h.id == id) {
+                Some(Ok(format!(
+                    "Hypothesis {} updated: {:?} (confidence: {:.0}%)\nEvidence {}: {}",
+                    id, h.status, h.confidence * 100.0, status_word, evidence,
+                )))
+            } else {
+                Some(Err(anyhow::anyhow!("Hypothesis {} not found", id)))
+            }
+        }
+        "list_hypotheses" => {
+            Some(Ok(session.hypotheses_summary()))
+        }
+        "log_reasoning" => {
+            let action = input["action"].as_str().unwrap_or("");
+            let reasoning = input["reasoning"].as_str().unwrap_or("");
+            session.log_audit(action, reasoning, "pending");
+            Some(Ok(format!("Audit logged: {} — {}", action, reasoning)))
+        }
+
+        // ---- Cat 3: Custom HTTP ----
+        // Handled as async in the tool execution section (not instant)
+        // because it needs network I/O
+        "send_http" => None,
+
+        // ---- Cat 4: Analysis ----
+        "analyze_findings" => {
+            let actions = input["actions"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| vec!["all"]);
+
+            let do_all = actions.contains(&"all");
+            let mut results = Vec::new();
+
+            if do_all || actions.contains(&"triage_fp") {
+                results.push(session.triage_false_positives());
+            }
+            if do_all || actions.contains(&"synthesize_chains") {
+                results.push(session.synthesize_chains());
+            }
+            if do_all || actions.contains(&"reassess_severity") {
+                results.push(session.reassess_severities());
+            }
+
+            session.log_audit(
+                "analyze_findings",
+                &format!("Ran analysis: {:?}", actions),
+                &format!("{} chains, {} FP flagged", session.exploit_chains.len(), session.false_positive_ids.len()),
+            );
+
+            Some(Ok(results.join("\n\n")))
+        }
+
+        // ---- Cat 6: Scope ----
+        "check_scope" => {
+            let url = input["url"].as_str().unwrap_or("");
+            match session.check_scope(url) {
+                Ok(()) => Some(Ok(format!("{} is within scope. Proceed with scanning.", url))),
+                Err(msg) => Some(Ok(msg)), // Not an error — just out of scope
+            }
+        }
+        "configure_scope" => {
+            if let Some(patterns) = input["add_allowed"].as_array() {
+                for p in patterns {
+                    if let Some(s) = p.as_str() {
+                        session.scope.allowed_patterns.push(s.to_string());
+                    }
+                }
+            }
+            if let Some(patterns) = input["add_excluded"].as_array() {
+                for p in patterns {
+                    if let Some(s) = p.as_str() {
+                        session.scope.excluded_patterns.push(s.to_string());
+                    }
+                }
+            }
+            if let Some(intensity) = input["max_intensity"].as_str() {
+                session.scope.max_intensity = intensity.to_string();
+            }
+            if let Some(rpm) = input["rate_limit_rpm"].as_u64() {
+                session.scope.rate_limit_rpm = rpm as u32;
+            }
+            if let Some(tp) = input["allow_third_party"].as_bool() {
+                session.scope.allow_third_party = tp;
+            }
+            session.log_audit(
+                "configure_scope",
+                &format!("Updated scope: {} allowed, {} excluded, max_intensity={}",
+                    session.scope.allowed_patterns.len(),
+                    session.scope.excluded_patterns.len(),
+                    session.scope.max_intensity),
+                "applied",
+            );
+            Some(Ok(format!(
+                "Scope updated.\n  Allowed patterns: {:?}\n  Excluded patterns: {:?}\n  Max intensity: {}\n  Rate limit: {} rpm\n  Third-party: {}",
+                session.scope.allowed_patterns,
+                session.scope.excluded_patterns,
+                session.scope.max_intensity,
+                session.scope.rate_limit_rpm,
+                session.scope.allow_third_party,
+            )))
+        }
+
+        // ---- Cat 7: UX ----
+        "show_progress" => {
+            let mut out = session.progress_info();
+            out.push('\n');
+            out.push_str(&format!("Token usage: {} in / {} out", session.total_input_tokens, session.total_output_tokens));
+            if session.token_budget > 0 {
+                let used = session.total_input_tokens + session.total_output_tokens;
+                out.push_str(&format!(" (budget: {}, remaining: {})", session.token_budget, session.token_budget.saturating_sub(used)));
+            }
+            out.push('\n');
+            if !session.hypotheses.is_empty() {
+                let active = session.hypotheses.iter().filter(|h| h.status == super::session::HypothesisStatus::Testing || h.status == super::session::HypothesisStatus::Proposed).count();
+                let confirmed = session.hypotheses.iter().filter(|h| h.status == super::session::HypothesisStatus::Confirmed).count();
+                out.push_str(&format!("Hypotheses: {} active, {} confirmed\n", active, confirmed));
+            }
+            if !session.exploit_chains.is_empty() {
+                out.push_str(&format!("Exploit chains: {} identified\n", session.exploit_chains.len()));
+            }
+            if !session.knowledge_graph.is_empty() {
+                out.push_str(&format!("Knowledge graph: {} endpoints mapped\n", session.knowledge_graph.len()));
+            }
+            if session.scope.blocked_count > 0 {
+                out.push_str(&format!("Scope: {} out-of-scope attempts blocked\n", session.scope.blocked_count));
+            }
+            Some(Ok(out))
+        }
+        "export_session" => {
+            let export = session.export_conversation();
+            if let Some(path) = input["output_path"].as_str() {
+                match std::fs::write(path, &export) {
+                    Ok(()) => Some(Ok(format!("Session exported to: {} ({} chars)", path, export.len()))),
+                    Err(e) => Some(Err(anyhow::anyhow!("Failed to write export to {}: {}", path, e))),
+                }
+            } else {
+                Some(Ok(export))
+            }
+        }
+        "get_audit_log" => {
+            Some(Ok(session.audit_log_summary()))
+        }
+
         _ => None, // CLI tool — needs async execution
     }
+}
+
+/// Cat 3: Execute a custom HTTP request (send_http tool).
+async fn execute_http_request(input: &serde_json::Value) -> Result<String> {
+    let url = input["url"].as_str().unwrap_or("");
+    let method = input["method"].as_str().unwrap_or("GET");
+    let body_str = input["body"].as_str();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .danger_accept_invalid_certs(false)
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    let mut request = match method.to_uppercase().as_str() {
+        "POST" => client.post(url),
+        "PUT" => client.put(url),
+        "PATCH" => client.patch(url),
+        "DELETE" => client.delete(url),
+        "HEAD" => client.head(url),
+        _ => client.get(url),
+    };
+
+    // Add custom headers
+    if let Some(headers) = input["headers"].as_object() {
+        for (key, value) in headers {
+            if let Some(v) = value.as_str() {
+                request = request.header(key.as_str(), v);
+            }
+        }
+    }
+
+    // Add body if present
+    if let Some(body) = body_str {
+        request = request.body(body.to_string());
+    }
+
+    let response = request.send().await.context("HTTP request failed")?;
+
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = response.text().await.unwrap_or_default();
+
+    // Format response
+    let mut output = format!("HTTP {} {}\n\nHeaders:\n", status.as_u16(), status.canonical_reason().unwrap_or(""));
+    for (name, value) in headers.iter().take(30) {
+        output.push_str(&format!("  {}: {}\n", name, value.to_str().unwrap_or("?")));
+    }
+    output.push_str(&format!("\nBody ({} chars):\n", body.len()));
+    if body.len() > 5000 {
+        output.push_str(&body[..5000]);
+        output.push_str("\n...(truncated)");
+    } else {
+        output.push_str(&body);
+    }
+    Ok(output)
 }
 
 /// Quick preflight check — run `lonkero --help` (or a minimal scan) to confirm the binary works.
@@ -1189,6 +1569,27 @@ fn format_tool_input(tool_name: &str, input: &serde_json::Value) -> String {
             let domain = input["domain"].as_str().unwrap_or("?");
             domain.to_string()
         }
+        "send_http" => {
+            let url = input["url"].as_str().unwrap_or("?");
+            let method = input["method"].as_str().unwrap_or("GET");
+            format!("{} {}", method, url)
+        }
+        "save_session" | "load_session" | "export_session" => {
+            let path = input["path"].as_str().or(input["output_path"].as_str()).unwrap_or("?");
+            path.to_string()
+        }
+        "add_hypothesis" => {
+            let desc = input["description"].as_str().unwrap_or("?");
+            if desc.len() > 60 { format!("{}...", &desc[..60]) } else { desc.to_string() }
+        }
+        "update_hypothesis" => {
+            let id = input["hypothesis_id"].as_str().unwrap_or("?");
+            let confirmed = input["confirmed"].as_bool().unwrap_or(false);
+            format!("{} → {}", id, if confirmed { "confirmed" } else { "refuted" })
+        }
+        "check_scope" | "configure_scope" => {
+            input["url"].as_str().unwrap_or("scope config").to_string()
+        }
         _ => format!("{}", input),
     }
 }
@@ -1310,9 +1711,16 @@ fn print_help() {
     println!("    'run the JWT scanner on /api/auth/token'");
     println!("    'generate a markdown report'");
     println!("    'what should we test next?'");
+    println!("    'analyze findings for false positives and chains'");
+    println!("    'save this session for later'");
+    println!("    'I hypothesize the API uses weak JWT secrets'");
     println!();
     println!("  Special commands:");
     println!("    findings  - Show all findings so far");
+    println!("    progress  - Show assessment progress and phase");
+    println!("    hypotheses - Show all hypotheses");
+    println!("    chains    - Synthesize and show exploit chains");
+    println!("    audit     - Show reasoning audit log");
     println!("    help      - Show this help");
     println!("    exit      - End session and show summary");
     println!();
@@ -1341,6 +1749,43 @@ fn print_session_summary(session: &Session) {
             critical, high, medium, low, info
         );
     }
+
+    // Cat 2: Hypotheses summary
+    if !session.hypotheses.is_empty() {
+        let confirmed = session.hypotheses.iter().filter(|h| h.status == super::session::HypothesisStatus::Confirmed).count();
+        let refuted = session.hypotheses.iter().filter(|h| h.status == super::session::HypothesisStatus::Refuted).count();
+        let active = session.hypotheses.len() - confirmed - refuted;
+        println!("  Hypotheses:       {} total ({} confirmed, {} refuted, {} active)",
+            session.hypotheses.len(), confirmed, refuted, active);
+    }
+
+    // Cat 4: Exploit chains
+    if !session.exploit_chains.is_empty() {
+        println!("  Exploit chains:   {}", session.exploit_chains.len());
+        for chain in &session.exploit_chains {
+            println!("    \x1b[31m[{}] {} — {}\x1b[0m", chain.overall_severity, chain.name, chain.impact);
+        }
+    }
+
+    // Cat 4: False positives
+    if !session.false_positive_ids.is_empty() {
+        println!("  FP-flagged:       {}", session.false_positive_ids.len());
+    }
+
+    // Cat 6: Scope stats
+    if session.scope.blocked_count > 0 {
+        println!("  Scope blocks:     {}", session.scope.blocked_count);
+    }
+    if session.credential_rotation_detected {
+        println!("  \x1b[33mAuth warning:     Credential rotation detected during session\x1b[0m");
+    }
+
+    // Cat 1: Knowledge graph
+    if !session.knowledge_graph.is_empty() {
+        println!("  Knowledge graph:  {} endpoints mapped", session.knowledge_graph.len());
+    }
+
+    println!("  Audit log:        {} entries", session.audit_log.len());
 
     println!("  Token usage:      {} in / {} out",
         session.total_input_tokens, session.total_output_tokens);

@@ -76,6 +76,12 @@ pub struct LlmResponse {
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Cat 5: Cache read tokens (prompt caching hit — 90% cheaper)
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+    /// Cat 5: Cache creation tokens (first time caching — 25% more expensive)
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +140,11 @@ pub struct ClaudeProvider {
     model: String,
     client: reqwest::Client,
     max_tokens: u32,
+    /// Cat 5: Enable prompt caching for the system prompt (reduces cost on multi-turn)
+    pub enable_prompt_caching: bool,
+    /// Cat 5: Cumulative cache read/creation tokens for cost tracking
+    pub cache_read_tokens: std::sync::atomic::AtomicU64,
+    pub cache_creation_tokens: std::sync::atomic::AtomicU64,
 }
 
 impl ClaudeProvider {
@@ -147,7 +158,10 @@ impl ClaudeProvider {
             api_key,
             model: model.unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
             client,
-            max_tokens: 4096,
+            max_tokens: 16384,
+            enable_prompt_caching: true,
+            cache_read_tokens: std::sync::atomic::AtomicU64::new(0),
+            cache_creation_tokens: std::sync::atomic::AtomicU64::new(0),
         })
     }
 }
@@ -160,11 +174,22 @@ impl LlmProvider for ClaudeProvider {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Result<LlmResponse> {
+        // Cat 5: Build system prompt with optional cache_control for prompt caching
+        let system_value = if self.enable_prompt_caching {
+            serde_json::json!([{
+                "type": "text",
+                "text": system,
+                "cache_control": { "type": "ephemeral" }
+            }])
+        } else {
+            serde_json::json!(system)
+        };
+
         // Build Claude API request body
         let mut body = serde_json::json!({
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": system,
+            "system": system_value,
             "messages": messages,
         });
 
@@ -217,9 +242,21 @@ impl LlmProvider for ClaudeProvider {
         let content = parse_claude_content(&api_response)?;
         let stop_reason = api_response["stop_reason"].as_str().map(|s| s.to_string());
         let usage = if let Some(u) = api_response.get("usage") {
+            // Cat 5: Track cache tokens for cost optimization reporting
+            let cache_read = u["cache_read_input_tokens"].as_u64().unwrap_or(0);
+            let cache_create = u["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+            if cache_read > 0 {
+                self.cache_read_tokens.fetch_add(cache_read, std::sync::atomic::Ordering::Relaxed);
+            }
+            if cache_create > 0 {
+                self.cache_creation_tokens.fetch_add(cache_create, std::sync::atomic::Ordering::Relaxed);
+            }
+
             Some(Usage {
                 input_tokens: u["input_tokens"].as_u64().unwrap_or(0),
                 output_tokens: u["output_tokens"].as_u64().unwrap_or(0),
+                cache_read_input_tokens: cache_read,
+                cache_creation_input_tokens: cache_create,
             })
         } else {
             None
@@ -239,11 +276,22 @@ impl LlmProvider for ClaudeProvider {
         tools: &[ToolDefinition],
         on_text: StreamCallback,
     ) -> Result<LlmResponse> {
+        // Cat 5: Build system prompt with cache_control for multi-turn cost savings
+        let system_value = if self.enable_prompt_caching {
+            serde_json::json!([{
+                "type": "text",
+                "text": system,
+                "cache_control": { "type": "ephemeral" }
+            }])
+        } else {
+            serde_json::json!(system)
+        };
+
         // Build Claude API request body with stream: true
         let mut body = serde_json::json!({
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": system,
+            "system": system_value,
             "messages": messages,
             "stream": true,
         });
@@ -439,6 +487,14 @@ impl LlmProvider for ClaudeProvider {
                                         .map(|prev| prev.input_tokens)
                                         .unwrap_or(0),
                                     output_tokens,
+                                    cache_read_input_tokens: usage
+                                        .as_ref()
+                                        .map(|prev| prev.cache_read_input_tokens)
+                                        .unwrap_or(0),
+                                    cache_creation_input_tokens: usage
+                                        .as_ref()
+                                        .map(|prev| prev.cache_creation_input_tokens)
+                                        .unwrap_or(0),
                                 });
                             }
                         }
@@ -447,11 +503,13 @@ impl LlmProvider for ClaudeProvider {
                                 if let Some(u) = msg.get("usage") {
                                     let input_tokens =
                                         u["input_tokens"].as_u64().unwrap_or(0);
-                                    // message_start has input_tokens, message_delta has output_tokens
-                                    // We'll merge them
+                                    let cache_read = u["cache_read_input_tokens"].as_u64().unwrap_or(0);
+                                    let cache_create = u["cache_creation_input_tokens"].as_u64().unwrap_or(0);
                                     usage = Some(Usage {
                                         input_tokens,
                                         output_tokens: 0,
+                                        cache_read_input_tokens: cache_read,
+                                        cache_creation_input_tokens: cache_create,
                                     });
                                 }
                             }
