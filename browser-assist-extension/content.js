@@ -3942,6 +3942,22 @@
       }
     }
 
+    // Handle WAF bypass scanner findings
+    if (event.data?.type === '__lonkero_waf_bypass_finding__') {
+      const finding = event.data.finding;
+      if (finding && finding.type) {
+        reportFinding(String(finding.type).slice(0, 100), {
+          url: finding.url ? String(finding.url).slice(0, 2000) : location.href,
+          severity: finding.severity ? String(finding.severity).slice(0, 20) : undefined,
+          evidence: finding.evidence ? String(finding.evidence).slice(0, 500) : undefined,
+          technique: finding.technique ? String(finding.technique).slice(0, 200) : undefined,
+          description: finding.description ? String(finding.description).slice(0, 500) : undefined,
+          category: finding.category ? String(finding.category).slice(0, 100) : undefined,
+          scanner: 'waf-bypass',
+        });
+      }
+    }
+
     // Bridge for page scripts to get endpoints from background
     if (event.data?.type === '__lonkero_get_endpoints__') {
       const requestId = event.data.requestId;

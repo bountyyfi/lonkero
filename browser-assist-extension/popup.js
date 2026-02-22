@@ -600,6 +600,9 @@ function getSeverity(type) {
     'BYPASS_403_VERB_TUNNEL': 'high',
     'BYPASS_403_REFERER': 'medium',
     'BYPASS_403_CONTENT_TYPE': 'medium',
+    // WAF Bypass findings
+    'WAF_BYPASS': 'high',
+    'WAF_BYPASS_CRITICAL': 'critical',
     // Form fuzzer findings
     'FORM_VULNERABILITY': 'high',
     'FORM_SQLI': 'critical',
@@ -1533,6 +1536,117 @@ document.getElementById('deepBypassScanBtn')?.addEventListener('click', () => {
     }).catch(err => {
       console.error('Failed to inject bypass scanner:', err);
       alert('Failed to inject bypass scanner: ' + err.message);
+    });
+  });
+});
+
+// WAF Bypass (220 tests - waf_insane + waf_seam + waf_chaos)
+document.getElementById('wafBypassBtn')?.addEventListener('click', () => {
+  if (!requireLicense()) return;
+  _t('btn_waf_bypass');
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0].id;
+    const tabUrl = tabs[0].url;
+
+    const btn = document.getElementById('wafBypassBtn');
+    const origText = btn.innerHTML;
+
+    // Setup progress listener
+    let progressListener = null;
+    const updateBtnProgress = (detail) => {
+      if (detail && detail.progress) {
+        const p = detail.progress;
+        const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+        btn.innerHTML = `<i data-lucide="loader"></i> ${pct}% (${p.bypasses} bypasses) - ${p.category}`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      }
+    };
+
+    // Listen for progress updates from content script
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: () => {
+        window.__wafBypassProgressHandler = (event) => {
+          if (event.data?.type === '__lonkero_waf_bypass_progress__') {
+            // Progress is forwarded automatically via postMessage
+          }
+        };
+        window.addEventListener('message', window.__wafBypassProgressHandler);
+      }
+    });
+
+    injectLicenseContext(tabId).then(() => {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        files: ['waf-bypass.js']
+      });
+    }).then(() => {
+      btn.innerHTML = '<i data-lucide="loader"></i> Running 220 tests...';
+      btn.disabled = true;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+
+      // Run the scanner
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: 'MAIN',
+        args: [tabUrl],
+        func: (targetUrl) => {
+          if (window.wafBypass) {
+            return window.wafBypass.scan(targetUrl).then(report => {
+              return {
+                totalTests: report.totalTests,
+                findingCount: report.findingCount,
+                originalStatus: report.originalStatus,
+                baseline: report.baseline,
+                summary: report.summary,
+                cancelled: report.cancelled,
+              };
+            }).catch(err => ({ error: err.message }));
+          } else {
+            return { error: 'WAF Bypass scanner failed to initialize.' };
+          }
+        }
+      }).then((results) => {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        const r = results?.[0]?.result;
+        if (r && !r.error) {
+          const catBreakdown = r.summary?.categories ? Object.entries(r.summary.categories)
+            .filter(([, v]) => v.bypasses > 0)
+            .map(([k, v]) => `- ${k}: ${v.bypasses} bypass${v.bypasses !== 1 ? 'es' : ''}`)
+            .join('\n') : '';
+
+          alert(
+            `WAF Bypass Scan Complete!\n\n` +
+            `Baseline: ${r.originalStatus}\n` +
+            `Server: ${r.baseline?.server || 'unknown'}\n` +
+            `Tests run: ${r.totalTests}\n` +
+            `Bypasses found: ${r.findingCount}\n` +
+            (catBreakdown ? `\nBypass breakdown:\n${catBreakdown}\n` : '') +
+            `\nCheck Findings tab & console for details.`
+          );
+        } else if (r?.error) {
+          alert('WAF Bypass error: ' + r.error);
+        } else {
+          alert('WAF Bypass scan completed. Check Findings tab for results.');
+        }
+        setTimeout(refreshState, 500);
+      }).catch(err => {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        console.error('WAF Bypass error:', err);
+        alert('WAF Bypass error: ' + err.message);
+      });
+    }).catch(err => {
+      btn.innerHTML = origText;
+      btn.disabled = false;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      console.error('Failed to inject WAF Bypass scanner:', err);
+      alert('Failed to inject WAF Bypass scanner: ' + err.message);
     });
   });
 });

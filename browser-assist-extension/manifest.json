@@ -37,7 +37,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["formfuzzer.js", "graphql-fuzzer.js", "interceptors.js", "merlin.js", "xss-scanner.js", "sql-scanner.js", "cms-scanner.js", "framework-scanner.js", "bypass-scanner.js", "dom-hooks.js"],
+      "resources": ["formfuzzer.js", "graphql-fuzzer.js", "interceptors.js", "merlin.js", "xss-scanner.js", "sql-scanner.js", "cms-scanner.js", "framework-scanner.js", "bypass-scanner.js", "waf-bypass.js", "dom-hooks.js"],
       "matches": ["<all_urls>"]
     }
   ]
