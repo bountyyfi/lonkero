@@ -1976,8 +1976,8 @@ impl AdvancedMassAssignmentScanner {
             return true;
         }
 
-        // Check for prototype pollution
-        if body_lower.contains("\"__proto__\"") && body_lower.contains("admin") {
+        // Check for prototype pollution with actual admin escalation
+        if body_lower.contains("\"__proto__\"") && (body_lower.contains("\"admin\":true") || body_lower.contains("\"role\":\"admin\"")) {
             return true;
         }
 
@@ -2020,9 +2020,9 @@ impl AdvancedMassAssignmentScanner {
 
         let body_lower = body.to_lowercase();
 
-        // Check for prototype pollution or admin flags
+        // Check for prototype pollution or constructor override with actual admin escalation
         if body_lower.contains("\"__proto__\"") || body_lower.contains("\"constructor\"") {
-            if body_lower.contains("admin") {
+            if body_lower.contains("\"admin\":true") || body_lower.contains("\"role\":\"admin\"") {
                 return true;
             }
         }
@@ -2037,8 +2037,8 @@ impl AdvancedMassAssignmentScanner {
 
         let body_lower = body.to_lowercase();
 
-        // Check for authorities or roles
-        if body_lower.contains("\"authorities\"") && body_lower.contains("admin") {
+        // Check for authorities or roles - require admin in JSON value context
+        if body_lower.contains("\"authorities\"") && (body_lower.contains("\"admin\"") || body_lower.contains(":\"admin\"")) {
             return true;
         }
 

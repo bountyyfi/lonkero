@@ -1079,7 +1079,7 @@ impl SvelteKitSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&test_url).await {
                 let is_success = resp.status_code == 200
-                    && (resp.body.contains("root:") ||  // /etc/passwd
+                    && (resp.body.contains("root:x:0:0:") ||  // /etc/passwd
                     resp.body.contains("\"name\":") ||  // package.json
                     resp.body.contains("dependencies"));
 

@@ -1893,7 +1893,7 @@ impl BusinessLogicScanner {
         // success indicators, not bare "success"/"confirmed" which appear everywhere
         if (value1.starts_with('-') || value1.contains("0.00") || value1 == "0")
             && (body_lower.contains("order") || body_lower.contains("payment") || body_lower.contains("checkout"))
-            && (body_lower.contains("success") || body_lower.contains("confirmed"))
+            && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"") || body_lower.contains("order confirmed"))
         {
             return true;
         }
@@ -2457,7 +2457,7 @@ impl BusinessLogicScanner {
 
         let success = body_lower.contains("added")
             || body_lower.contains("updated")
-            || body_lower.contains("success");
+            || body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"");
 
         no_error && success
     }
@@ -2486,7 +2486,7 @@ impl BusinessLogicScanner {
 
         // Check for path traversal success
         if value.contains("../")
-            && (body_lower.contains("root:") || body_lower.contains("etc/passwd"))
+            && (body_lower.contains("root:x:0:0:") || body_lower.contains("etc/passwd"))
         {
             return true;
         }
@@ -2640,8 +2640,8 @@ impl BusinessLogicScanner {
     fn detect_token_accepted(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        let accepted = body_lower.contains("valid")
-            || body_lower.contains("success")
+        let accepted = body_lower.contains("\"valid\":true")
+            || body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
             || body_lower.contains("authenticated");
 
         let no_error = !body_lower.contains("expired")

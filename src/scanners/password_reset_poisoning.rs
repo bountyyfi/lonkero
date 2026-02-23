@@ -1381,9 +1381,9 @@ impl PasswordResetPoisoningScanner {
 
                 // Check if password change was accepted without old password
                 if response.status_code == 200
-                    && (body_lower.contains("success")
+                    && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
                         || body_lower.contains("password changed")
-                        || body_lower.contains("updated"))
+                        || body_lower.contains("successfully updated"))
                 {
                     vulnerabilities.push(self.create_vulnerability(
                         &endpoint.url,

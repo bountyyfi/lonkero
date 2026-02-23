@@ -558,7 +558,7 @@ impl TemplateInjectionScanner {
                 body.contains("ERB")
                     || body.contains("Ruby")
                     || (payload.contains("Dir.entries") && body.contains("["))
-                    || (payload.contains("File.read") && body.contains("root:"))
+                    || (payload.contains("File.read") && body.contains("root:x:0:0:"))
             }
 
             "pug" => {

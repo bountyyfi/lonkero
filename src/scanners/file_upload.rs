@@ -667,13 +667,11 @@ impl FileUploadScanner {
 
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_check_reflection(url, "xxe.svg", &svg_xxe, "image/svg+xml", "root:")
+            .upload_and_check_reflection(url, "xxe.svg", &svg_xxe, "image/svg+xml", "root:x:0:0:")
             .await
         {
             if !evidence.is_empty()
-                && (evidence.contains("root:")
-                    || evidence.contains("/bin/bash")
-                    || evidence.contains("/bin/sh"))
+                && evidence.contains("root:x:0:0:")
             {
                 info!("SVG XXE vulnerability confirmed - /etc/passwd leaked");
                 vulnerabilities.push(self.create_vulnerability(

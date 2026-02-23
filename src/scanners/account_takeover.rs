@@ -905,7 +905,7 @@ impl AccountTakeoverScanner {
 
             // Check if request was accepted without password
             let accepted = post_response.status_code == 200
-                && (post_body_lower.contains("success")
+                && (post_body_lower.contains("\"success\":true") || post_body_lower.contains("\"status\":\"success\"")
                     || post_body_lower.contains("email updated")
                     || post_body_lower.contains("confirmation sent"));
 
@@ -918,7 +918,7 @@ impl AccountTakeoverScanner {
                     "Email Change Accepted Without Password",
                     endpoint,
                     Severity::Critical,
-                    Confidence::High,
+                    Confidence::Medium,
                     "Email address change was accepted without password verification. \
                     This is a critical account takeover vulnerability - any session compromise \
                     leads to permanent account takeover.",
@@ -1069,8 +1069,8 @@ impl AccountTakeoverScanner {
             // Check if registration succeeded for multiple case variants
             let body_lower = response.body.to_lowercase();
             let success = response.status_code == 200
-                && (body_lower.contains("success")
-                    || body_lower.contains("created")
+                && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
+                    || body_lower.contains("successfully created")
                     || body_lower.contains("welcome"));
 
             if success {
@@ -1284,9 +1284,9 @@ impl AccountTakeoverScanner {
             let post_body_lower = post_response.body.to_lowercase();
 
             let accepted = post_response.status_code == 200
-                && (post_body_lower.contains("success")
-                    || post_body_lower.contains("updated")
-                    || post_body_lower.contains("changed"));
+                && (post_body_lower.contains("\"success\":true") || post_body_lower.contains("\"status\":\"success\"")
+                    || post_body_lower.contains("successfully updated")
+                    || post_body_lower.contains("successfully changed"));
 
             let needs_verification = post_body_lower.contains("verification")
                 || post_body_lower.contains("code sent")

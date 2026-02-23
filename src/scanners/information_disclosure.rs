@@ -557,11 +557,11 @@ impl InformationDisclosureScanner {
             // Config files - look for configuration patterns
             f if f.contains("config") => {
                 let body_lower = body.to_lowercase();
-                // Must have actual config structure patterns
-                (body_lower.contains("password") && (body_lower.contains("=") || body_lower.contains(":")))
-                    || (body_lower.contains("secret") && (body_lower.contains("=") || body_lower.contains(":")))
+                // Must have actual config key=value patterns, not just keywords
+                (body_lower.contains("password=") || body_lower.contains("password:") || body_lower.contains("password\":"))
+                    || (body_lower.contains("secret_key=") || body_lower.contains("secret_key:") || body_lower.contains("secret\":"))
                     || (body_lower.contains("database") && body_lower.contains("host"))
-                    || (body_lower.contains("api") && (body_lower.contains("key") || body_lower.contains("token")))
+                    || (body_lower.contains("api_key=") || body_lower.contains("api_key:") || body_lower.contains("api_token"))
                     || body_lower.contains("connectionstring")
             }
             // Backup SQL files - look for SQL dump patterns

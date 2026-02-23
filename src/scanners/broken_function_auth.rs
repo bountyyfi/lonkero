@@ -1458,12 +1458,13 @@ impl BrokenFunctionAuthScanner {
                     if response.status_code == 200 {
                         let is_real_content = self.is_privileged_content(&response.body, &category);
 
-                        if is_real_content || !response.body.contains("error") {
+                        // Require actual privileged content, not just absence of "error"
+                        if is_real_content {
                             vulnerabilities.push(Vulnerability {
                                 id: generate_uuid(),
                                 vuln_type: format!("BFLA - Unprotected {} Function", format!("{:?}", category)),
                                 severity: Severity::Critical,
-                                confidence: Confidence::High,
+                                confidence: Confidence::Medium,
                                 category: "Authorization".to_string(),
                                 url: full_url.clone(),
                                 parameter: Some("Function".to_string()),

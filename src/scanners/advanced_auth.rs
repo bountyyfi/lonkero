@@ -644,8 +644,8 @@ impl AdvancedAuthScanner {
 
                         // Check if password was accepted (success indicators)
                         let accepted = (response.status_code == 200 || response.status_code == 201)
-                            && (body_lower.contains("success")
-                                || body_lower.contains("created")
+                            && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
+                                || body_lower.contains("successfully created")
                                 || body_lower.contains("registered")
                                 || body_lower.contains("welcome"));
 
@@ -1158,7 +1158,7 @@ impl AdvancedAuthScanner {
             match self.http_client.post_form(endpoint, test_data).await {
                 Ok(response) => {
                     if (response.status_code == 200 || response.status_code == 302)
-                        && (response.body.to_lowercase().contains("success")
+                        && (response.body.to_lowercase().contains("\"success\":true") || response.body.to_lowercase().contains("\"status\":\"success\"")
                             || response.header("location").is_some())
                     {
                         vulnerabilities.push(Vulnerability {
@@ -1335,13 +1335,13 @@ impl AdvancedAuthScanner {
                 match self.http_client.post_form(endpoint, &test_data).await {
                     Ok(response) => {
                         if (response.status_code == 200 || response.status_code == 302)
-                            && response.body.to_lowercase().contains("success")
+                            && (response.body.to_lowercase().contains("\"success\":true") || response.body.to_lowercase().contains("\"status\":\"success\""))
                         {
                             vulnerabilities.push(Vulnerability {
                                 id: generate_uuid(),
                                 vuln_type: "Predictable MFA Backup Codes".to_string(),
                                 severity: Severity::Critical,
-                                confidence: Confidence::High,
+                                confidence: Confidence::Medium,
                                 category: "Authentication".to_string(),
                                 url: endpoint.clone(),
                                 parameter: Some("backup_code".to_string()),

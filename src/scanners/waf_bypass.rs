@@ -473,7 +473,7 @@ impl WafBypassScanner {
                     // Check for REAL successful bypass indicators - not just "200 OK"
                     // Require dangerous reflection or actual sensitive data exposure
                     let real_bypass_detected = is_payload_reflected_dangerously(&response, "alert(1)") ||
-                        (response.body.contains("root:") && response.body.contains("/bin/")) ||  // Real /etc/passwd
+                        response.body.contains("root:x:0:0:") ||  // Real /etc/passwd
                         (response.body.to_lowercase().contains("mysql") && response.body.to_lowercase().contains("syntax")); // Real SQL error
 
                     if real_bypass_detected && response.status_code != 403 {
@@ -555,8 +555,8 @@ impl WafBypassScanner {
                     if response.status_code != 403 && !resp_lower.contains("blocked") {
                         // CRITICAL: Check for NEW sensitive data not in baseline
                         let has_new_sensitive =
-                            // Real /etc/passwd content (not just "root:")
-                            (response.body.contains("root:") && response.body.contains("/bin/") && !baseline.body.contains("root:")) ||
+                            // Real /etc/passwd content (actual passwd format)
+                            (response.body.contains("root:x:0:0:") && !baseline.body.contains("root:x:0:0:")) ||
                             // Real XSS execution
                             is_payload_reflected_dangerously(&response, "alert(1)") ||
                             // NEW admin panel access (not already in baseline)
@@ -1252,8 +1252,8 @@ impl WafBypassScanner {
                          response.body.to_lowercase().contains("syntax") &&
                          !baseline.body.to_lowercase().contains("syntax")) ||
                         // For file inclusion, check for actual file contents
-                        (payload.contains("etc/passwd") && response.body.contains("root:") &&
-                         response.body.contains("/bin/") && !baseline.body.contains("root:"));
+                        (payload.contains("etc/passwd") && response.body.contains("root:x:0:0:") &&
+                         !baseline.body.contains("root:x:0:0:"));
 
                     if real_bypass {
                         // Broadcast bypass discovery to other scanners
