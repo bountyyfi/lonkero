@@ -1449,7 +1449,14 @@ impl AccountTakeoverScanner {
                 let test_url = format!("{}?code=test", oauth);
                 if let Ok(r) = self.http_client.get(&test_url).await {
                     let body_lower = r.body.to_lowercase();
-                    if r.status_code == 200 && !body_lower.contains("state") {
+                    // Require redirect or token response, not just status 200
+                    // Absence of "state" on any 200 page is not evidence of OAuth CSRF
+                    if (r.status_code == 302
+                        || (r.status_code == 200 && (body_lower.contains("access_token") || body_lower.contains("\"code\""))))
+                        && !body_lower.contains("state")
+                        && !body_lower.contains("invalid")
+                        && !body_lower.contains("error")
+                    {
                         vulnerabilities.push(self.create_vulnerability(
                             "OAuth CSRF to Account Takeover Chain",
                             oauth,

@@ -916,11 +916,13 @@ impl MfaScanner {
         // Count how many were successful
         for response in &responses {
             let body_lower = response.body.to_lowercase();
+            // Require specific MFA success patterns, not bare "success"/"verified"
             let is_success = (response.status_code == 200 || response.status_code == 302)
-                && (body_lower.contains("success")
-                    || body_lower.contains("verified")
-                    || body_lower.contains("authenticated")
-                    || body_lower.contains("correct"));
+                && (body_lower.contains("\"success\":true")
+                    || body_lower.contains("\"verified\":true")
+                    || body_lower.contains("\"authenticated\":true")
+                    || body_lower.contains("verification successful")
+                    || body_lower.contains("code accepted"));
 
             let not_error = !body_lower.contains("incorrect")
                 && !body_lower.contains("invalid")

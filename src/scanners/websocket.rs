@@ -593,11 +593,11 @@ impl WebSocketScanner {
                 if let Ok(msg) = msg_result {
                     let response_text = msg.to_text().unwrap_or("");
 
-                    // Check if command was executed (look for success indicators)
-                    if (response_text.contains("success")
-                        || response_text.contains("executed")
-                        || response_text.contains("completed")
-                        || response_text.contains(&marker))
+                    // Check if command was executed - require test marker or specific indicators
+                    // Removed bare "success"/"completed"/"executed" which are generic words
+                    if (response_text.contains(&marker)
+                        || response_text.contains("\"status\":\"executed\"")
+                        || response_text.contains("command executed"))
                         && !response_text.contains("unauthorized")
                         && !response_text.contains("forbidden")
                         && !response_text.contains("error")

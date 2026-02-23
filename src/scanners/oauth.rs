@@ -374,7 +374,8 @@ impl OAuthScanner {
 
     /// Check for authorization code in URL (CVE-2016-1000351)
     fn check_code_in_url(&self, url: &str, vulnerabilities: &mut Vec<Vulnerability>) {
-        if url.contains("code=") || url.contains("authorization_code=") {
+        // Use more specific patterns to avoid matching tracking/CSRF "code=" params
+        if url.contains("authorization_code=") || url.contains("?code=") || url.contains("&code=") {
             vulnerabilities.push(self.create_vulnerability(
                 "OAuth Authorization Code in URL",
                 url,

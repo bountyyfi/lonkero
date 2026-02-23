@@ -116,7 +116,12 @@ impl ContainerScanner {
                     .await
                     {
                         Ok(Ok(response)) => {
-                            if response.status_code == 200 && response.body.contains("OK") {
+                            // Require Docker-specific response, not bare "OK"
+                            if response.status_code == 200
+                                && (response.body.contains("Docker")
+                                    || response.body.contains("Api-Version")
+                                    || response.body.contains("docker"))
+                            {
                                 info!("Docker daemon exposed on port {}", port);
                                 vulnerabilities.push(self.create_vulnerability(
                                     url,
@@ -231,8 +236,11 @@ impl ContainerScanner {
                     .await
                     {
                         Ok(Ok(response)) => {
+                            // Require K8s-specific response, not bare "ok"
                             if response.status_code == 200
-                                && response.body.to_lowercase().contains("ok")
+                                && (response.body.to_lowercase().contains("kubernetes")
+                                    || response.body.contains("kubelet")
+                                    || response.body.contains("apiVersion"))
                             {
                                 info!("Kubernetes component exposed on port {}", port);
                                 vulnerabilities.push(self.create_vulnerability(

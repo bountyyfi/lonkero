@@ -646,7 +646,9 @@ impl FirebaseScanner {
         );
 
         if let Ok(response) = self.http_client.get(&maps_url).await {
-            if response.status_code == 200 && response.body.len() > 1000 {
+            // Check for actual map image response, not just size threshold
+            let content_type = response.header("content-type").unwrap_or_default();
+            if response.status_code == 200 && content_type.contains("image/") {
                 exposed_apis.push("Google Maps API");
             }
         }

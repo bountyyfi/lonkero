@@ -319,7 +319,7 @@ impl CsrfScanner {
             evidence: Some(evidence),
             cwe: "CWE-352".to_string(), // Cross-Site Request Forgery (CSRF)
             cvss,
-            verified: true,
+            verified: false,
             false_positive: false,
             remediation: r#"IMMEDIATE ACTION REQUIRED:
 

@@ -1950,13 +1950,14 @@ impl AdvancedMassAssignmentScanner {
 
         let body_lower = body.to_lowercase();
 
-        // Check for admin in roles array
-        if body_lower.contains("\"roles\"") && body_lower.contains("admin") {
+        // Check for admin role assignment in structured response
+        // Require JSON value context, not just the word "admin" anywhere
+        if body_lower.contains("\"roles\"") && (body_lower.contains("\"admin\"") || body_lower.contains(":\"admin\"")) {
             return true;
         }
 
         // Check for admin in permissions
-        if body_lower.contains("\"permissions\"") && body_lower.contains("admin") {
+        if body_lower.contains("\"permissions\"") && (body_lower.contains("\"admin\"") || body_lower.contains(":\"admin\"")) {
             return true;
         }
 

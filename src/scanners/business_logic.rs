@@ -2005,12 +2005,14 @@ impl BusinessLogicScanner {
 
         let body_lower = body.to_lowercase();
 
-        // General success indicators - must be in API-like response, not HTML
-        let success = body_lower.contains("success")
-            || body_lower.contains("submitted")
-            || body_lower.contains("registered")
-            || body_lower.contains("complete")
-            || body_lower.contains("thank you");
+        // General success indicators - require specific form/action completion phrases
+        // Removed bare "success", "complete", "thank you" which appear everywhere
+        let success = body_lower.contains("\"success\":true")
+            || body_lower.contains("\"status\":\"success\"")
+            || body_lower.contains("successfully submitted")
+            || body_lower.contains("successfully registered")
+            || body_lower.contains("registration complete")
+            || body_lower.contains("form submitted");
 
         // Specific checks based on attack type
         let bypass_detected = if attack_type.contains("CAPTCHA") {
