@@ -102,7 +102,7 @@ enum Commands {
         dorks: bool,
 
         /// Enable web crawler (enabled by default to discover real parameters)
-        #[arg(long, default_value = "true")]
+        #[arg(long, default_value_t = true, num_args = 1, require_equals = false, action = clap::ArgAction::Set)]
         crawl: bool,
 
         /// Maximum crawl depth
@@ -268,6 +268,61 @@ enum Commands {
     Ml {
         #[command(subcommand)]
         action: MlAction,
+    },
+
+    /// AI-powered interactive security testing (conversational pentesting)
+    Ai {
+        /// Target URL to test
+        #[arg(required = true)]
+        target: String,
+
+        /// LLM provider: claude (default), ollama
+        #[arg(long, default_value = "claude")]
+        provider: String,
+
+        /// Model to use (provider-specific, e.g. claude-sonnet-4-5-20250929, llama3.1:70b)
+        #[arg(long)]
+        model: Option<String>,
+
+        /// API key for Claude (or set ANTHROPIC_API_KEY env var)
+        #[arg(long, env = "ANTHROPIC_API_KEY")]
+        api_key: Option<String>,
+
+        /// Ollama server URL (default: http://localhost:11434)
+        #[arg(long)]
+        ollama_url: Option<String>,
+
+        /// Run in auto mode (AI drives the entire pentest autonomously)
+        #[arg(long)]
+        auto: bool,
+
+        /// Maximum autonomous rounds in auto mode (default: 20)
+        #[arg(long, default_value = "20")]
+        max_rounds: u32,
+
+        /// Authentication cookie to pass through to lonkero scans
+        #[arg(long)]
+        cookie: Option<String>,
+
+        /// Authentication bearer token to pass through to lonkero scans
+        #[arg(long)]
+        token: Option<String>,
+
+        /// HTTP Basic auth to pass through (user:pass)
+        #[arg(long)]
+        basic_auth: Option<String>,
+
+        /// Proxy URL to pass through to lonkero scans
+        #[arg(long)]
+        proxy: Option<String>,
+
+        /// Custom headers to pass through (format: "Header: Value")
+        #[arg(short = 'H', long)]
+        header: Vec<String>,
+
+        /// Disable TLS certificate verification
+        #[arg(long)]
+        insecure: bool,
     },
 }
 
@@ -590,12 +645,47 @@ async fn async_main(cli: Cli) -> Result<()> {
             handle_license_command(action, cli.license_key.as_deref()).await
         }
         Commands::Ml { action } => handle_ml_command(action).await,
+        Commands::Ai {
+            target,
+            provider,
+            model,
+            api_key,
+            ollama_url,
+            auto,
+            max_rounds,
+            cookie,
+            token,
+            basic_auth,
+            proxy,
+            header,
+            insecure,
+        } => {
+            handle_ai_command(
+                target,
+                provider,
+                model,
+                api_key,
+                ollama_url,
+                auto,
+                max_rounds,
+                cookie,
+                token,
+                basic_auth,
+                proxy,
+                header,
+                insecure,
+                cli.license_key,
+            )
+            .await
+        }
     }
 }
 
 /// Determine which modules to request authorization for
 ///
-/// If `only` is specified, only those modules are requested.
+/// Determine which modules to request authorization for.
+///
+/// If `only` is specified, only those modules are requested for authorization.
 /// Otherwise, all modules are requested except those in `skip`.
 ///
 /// WARNING: If the resulting list is empty, only FREE tier modules will be authorized.
@@ -603,7 +693,7 @@ fn determine_requested_modules(skip: &[String], only: &[String]) -> Vec<String> 
     let all_modules = module_ids::get_all_module_ids();
 
     let result: Vec<String> = if !only.is_empty() {
-        // Only request specific modules
+        // Only request specific modules for authorization
         let only_set: HashSet<&str> = only.iter().map(|s| s.as_str()).collect();
         all_modules
             .into_iter()
@@ -716,6 +806,10 @@ async fn verify_license_before_scan(
             error!("  info@bountyy.fi");
             error!("");
             error!("========================================================");
+            // Use eprintln as a fallback — error!() may be buffered and
+            // process::exit() skips Rust's drop/flush handlers, causing
+            // empty stderr when run as a subprocess.
+            eprintln!("Scanner disabled: Access denied - user banned: {}", reason);
             std::process::exit(1);
         }
         Err(SigningError::LicenseError(msg)) => {
@@ -726,6 +820,7 @@ async fn verify_license_before_scan(
             error!("{}", msg);
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: License error: {}", msg);
             std::process::exit(1);
         }
         Err(SigningError::ServerUnreachable(msg)) => {
@@ -740,6 +835,7 @@ async fn verify_license_before_scan(
             error!("Please check your network connection and try again.");
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: Server unreachable: {}", msg);
             std::process::exit(1);
         }
         Err(e) => {
@@ -751,6 +847,7 @@ async fn verify_license_before_scan(
             error!("{}", e);
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: Authorization failed: {}", e);
             std::process::exit(1);
         }
     };
@@ -782,9 +879,10 @@ async fn handle_license_command(action: LicenseAction, _current_key: Option<&str
                 println!("License saved. You can now run scans without specifying the key.");
             } else {
                 error!("License validation failed");
-                if let Some(msg) = status.message {
+                if let Some(msg) = &status.message {
                     error!("{}", msg);
                 }
+                eprintln!("Scanner disabled: License validation failed{}", status.message.map(|m| format!(": {}", m)).unwrap_or_default());
                 std::process::exit(1);
             }
         }
@@ -1046,6 +1144,116 @@ async fn handle_ml_command(action: MlAction) -> Result<()> {
     Ok(())
 }
 
+/// Handle the `lonkero ai` subcommand — interactive AI-powered security testing
+#[allow(clippy::too_many_arguments)]
+async fn handle_ai_command(
+    target: String,
+    provider_name: String,
+    model: Option<String>,
+    api_key: Option<String>,
+    ollama_url: Option<String>,
+    auto: bool,
+    max_rounds: u32,
+    cookie: Option<String>,
+    token: Option<String>,
+    basic_auth: Option<String>,
+    proxy: Option<String>,
+    headers: Vec<String>,
+    insecure: bool,
+    license_key: Option<String>,
+) -> Result<()> {
+    use lonkero_scanner::ai::{agent, provider};
+
+    // Parse provider type
+    let provider_type: provider::ProviderType = provider_name
+        .parse()
+        .map_err(|e: anyhow::Error| anyhow::anyhow!("{}", e))?;
+
+    // Create LLM provider
+    let llm = provider::create_provider(provider_type, model, api_key, ollama_url)?;
+
+    // Build passthrough args for lonkero scan invocations
+    let mut passthrough_args = Vec::new();
+    if let Some(ref c) = cookie {
+        passthrough_args.extend_from_slice(&["--cookie".to_string(), c.clone()]);
+    }
+    if let Some(ref t) = token {
+        passthrough_args.extend_from_slice(&["--token".to_string(), t.clone()]);
+    }
+    if let Some(ref b) = basic_auth {
+        passthrough_args.extend_from_slice(&["--basic-auth".to_string(), b.clone()]);
+    }
+    if let Some(ref p) = proxy {
+        passthrough_args.extend_from_slice(&["--proxy".to_string(), p.clone()]);
+    }
+    for h in &headers {
+        passthrough_args.extend_from_slice(&["-H".to_string(), h.clone()]);
+    }
+    if insecure {
+        passthrough_args.push("--insecure".to_string());
+    }
+
+    // Build auth info description for the system prompt
+    let auth_info = if cookie.is_some() || token.is_some() || basic_auth.is_some() {
+        Some("Authentication credentials provided — testing authenticated attack surface.".to_string())
+    } else {
+        None
+    };
+
+    // Resolve the lonkero binary path (use current executable)
+    let lonkero_bin = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "lonkero".to_string());
+
+    // Resolve license info for display in the banner.
+    // We only need to validate the license key and get the tier — the actual module gating
+    // happens per-subprocess when each scan calls authorize_scan with its own modules.
+    let (license_type, license_holder) = if license_key.is_some() {
+        let hw_id = lonkero_scanner::signing::get_hardware_id();
+        match lonkero_scanner::signing::authorize_scan(
+            1,
+            &hw_id,
+            license_key.as_deref(),
+            Some(env!("CARGO_PKG_VERSION")),
+            vec![
+                "http_headers".to_string(),
+                "ssl_checker".to_string(),
+                "security_headers".to_string(),
+                "info_disclosure_basic".to_string(),
+                "cors_basic".to_string(),
+                "clickjacking".to_string(),
+            ],
+        )
+        .await
+        {
+            Ok(token) => {
+                let holder = lonkero_scanner::signing::get_license_holder();
+                (Some(token.license_type), holder)
+            }
+            Err(e) => {
+                eprintln!("\x1b[33m  Warning: License validation failed: {}\x1b[0m", e);
+                eprintln!("\x1b[33m  Scans will run with license key but may have limited features.\x1b[0m");
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
+
+    let config = agent::AgentConfig {
+        lonkero_bin,
+        auto_mode: auto,
+        max_rounds,
+        license_key,
+        license_type,
+        license_holder,
+        passthrough_args,
+        auth_info,
+    };
+
+    agent::run_agent(llm, target, config).await
+}
+
 async fn run_scan(
     targets: Vec<String>,
     mode: ScanMode,
@@ -1065,8 +1273,8 @@ async fn run_scan(
     auth_password: Option<String>,
     auth_login_url: Option<String>,
     headers: Vec<String>,
-    _skip: Vec<String>,
-    _only: Vec<String>,
+    skip: Vec<String>,
+    only: Vec<String>,
     _proxy: Option<String>,
     _insecure: bool,
     rate_limit: u32,
@@ -1103,6 +1311,8 @@ async fn run_scan(
         error!("  info@bountyy.fi");
         error!("");
         error!("========================================================");
+        let reason_str = license_status.killswitch_reason.as_deref().unwrap_or("no reason given");
+        eprintln!("Scanner disabled: Remotely disabled: {}", reason_str);
         std::process::exit(1);
     }
 
@@ -1123,6 +1333,7 @@ async fn run_scan(
             error!("  https://bountyy.fi");
             error!("");
             error!("========================================================");
+            eprintln!("Scanner disabled: License allows {} target(s), but {} specified", max_targets, targets.len());
             std::process::exit(1);
         }
     }
@@ -1506,6 +1717,8 @@ async fn run_scan(
             } else {
                 Some(custom_headers.clone())
             },
+            only_modules: only.clone(),
+            skip_modules: skip.clone(),
         };
 
         let job = Arc::new(ScanJob {
@@ -2724,12 +2937,22 @@ async fn execute_standalone_scan(
         }
     }
 
+    // --only / --skip module filtering
+    let has_only_filter = !scan_config.only_modules.is_empty();
+    if has_only_filter {
+        info!("[Filter] --only modules: {:?}", scan_config.only_modules);
+    }
+    if !scan_config.skip_modules.is_empty() {
+        info!("[Filter] --skip modules: {:?}", scan_config.skip_modules);
+    }
+
     // CVE-2025-55182 Check - CRITICAL for Next.js/React sites
     // This is a CVSS 10.0 RCE vulnerability in React Server Components
-    if is_nodejs_stack
+    if (is_nodejs_stack
         || detected_technologies
             .iter()
-            .any(|t| t.contains("next") || t.contains("react"))
+            .any(|t| t.contains("next") || t.contains("react")))
+        && (!has_only_filter || scan_config.should_run_any_module(&["cve_2025_55182", "cve_2025_55183", "cve_2025_55184", "nextjs_scanner"]))
     {
         info!("  - Checking CVE-2025-55182 (React Server Components RCE)");
         let (vulns, tests) = engine
@@ -2787,7 +3010,7 @@ async fn execute_standalone_scan(
 
     // Azure APIM Cross-Tenant Signup Bypass Check (GHSA-vcwf-73jp-r7mv)
     // Check for any target - the scanner will detect if it's an APIM portal
-    {
+    if !has_only_filter || scan_config.should_run_module("azure_apim") {
         info!("  - Checking Azure APIM Cross-Tenant Signup Bypass");
         let (vulns, tests) = engine.azure_apim_scanner.scan(target, scan_config).await?;
         if !vulns.is_empty() {
@@ -2799,13 +3022,21 @@ async fn execute_standalone_scan(
 
     // Phase 0.5: JavaScript Mining for API endpoints and parameters
     // Run this BEFORE injection tests to discover testable endpoints in SPAs
-    info!("  - Pre-scanning JavaScript for API endpoints and parameters");
-    let js_miner_results = engine
-        .js_miner_scanner
-        .scan_with_extraction(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(js_miner_results.vulnerabilities);
-    total_tests += js_miner_results.tests_run as u64;
+    // Only run if no --only filter, or if js_miner is requested, or if downstream phases need it
+    let run_js_mining = !has_only_filter || scan_config.should_run_module("js_miner");
+    let js_miner_results = if run_js_mining {
+        info!("  - Pre-scanning JavaScript for API endpoints and parameters");
+        let results = engine
+            .js_miner_scanner
+            .scan_with_extraction(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(results.vulnerabilities.clone());
+        total_tests += results.tests_run as u64;
+        results
+    } else {
+        // Return empty results when JS mining is skipped
+        lonkero_scanner::scanners::JsMinerResults::new()
+    };
 
     // Log discovered endpoints
     let js_param_count: usize = js_miner_results.parameters.values().map(|s| s.len()).sum();
@@ -3363,7 +3594,7 @@ async fn execute_standalone_scan(
         // 2. Proof-Based XSS Scanner - Mathematical proof via context + escape analysis
         // 3. Reflection XSS Scanner - Comprehensive payload testing (12,450+ payloads)
         // ==========================================================================
-        if !is_graphql_only && !is_static_site {
+        if !is_graphql_only && !is_static_site && (!has_only_filter || scan_config.should_run_any_module(&["xss_scanner", "proof_xss_scanner", "reflection_xss_scanner", "dom_xss_scanner", "postmessage_vulns", "dom_clobbering"])) {
             let xss_authorized = scan_token.is_module_authorized(module_ids::advanced_scanning::XSS_SCANNER);
             let intensity = payload_intensity_override.unwrap_or(PayloadIntensity::Standard);
 
@@ -3573,7 +3804,7 @@ async fn execute_standalone_scan(
         // Detects stored XSS, stored SQLi, and stored command injection where
         // payloads are injected in one endpoint and triggered in another
         // ==========================================================================
-        if !is_graphql_only && !is_static_site {
+        if !is_graphql_only && !is_static_site && (!has_only_filter || scan_config.should_run_module("second_order_injection")) {
             info!("  - Testing Second-Order Injection (stored XSS/SQLi/CMDi)");
             // Create a new scanner instance for this scan (needs &mut self for state tracking)
             let mut second_order_scanner = lonkero_scanner::scanners::SecondOrderInjectionScanner::new(Arc::clone(&engine.http_client));
@@ -3749,22 +3980,28 @@ async fn execute_standalone_scan(
     info!("Phase 2: Security configuration testing");
 
     // Security Headers (FREE tier)
-    info!("  - Testing Security Headers");
-    let (vulns, tests) = engine
-        .security_headers_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("security_headers") {
+        info!("  - Testing Security Headers");
+        let (vulns, tests) = engine
+            .security_headers_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // CORS (FREE tier)
-    info!("  - Testing CORS Configuration");
-    let (vulns, tests) = engine.cors_scanner.scan(target, scan_config).await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("cors_basic") {
+        info!("  - Testing CORS Configuration");
+        let (vulns, tests) = engine.cors_scanner.scan(target, scan_config).await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // CORS Misconfiguration (Professional+)
-    if scan_token.is_module_authorized(module_ids::advanced_scanning::CORS_MISCONFIG) {
+    if scan_token.is_module_authorized(module_ids::advanced_scanning::CORS_MISCONFIG)
+        && (!has_only_filter || scan_config.should_run_module("cors_misconfig"))
+    {
         info!("  - Testing CORS Misconfiguration");
         let (vulns, tests) = engine
             .cors_misconfiguration_scanner
@@ -3783,13 +4020,15 @@ async fn execute_standalone_scan(
     }
 
     // Clickjacking (FREE tier)
-    info!("  - Testing Clickjacking Protection");
-    let (vulns, tests) = engine
-        .clickjacking_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("clickjacking") {
+        info!("  - Testing Clickjacking Protection");
+        let (vulns, tests) = engine
+            .clickjacking_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Phase 3: Authentication & Authorization
     info!("Phase 3: Authentication testing");
@@ -4266,23 +4505,26 @@ async fn execute_standalone_scan(
     }
 
     // Information Disclosure (Free tier - info_disclosure_basic)
-    // Note: This is free tier, no authorization check needed
-    info!("  - Testing Information Disclosure");
-    let (vulns, tests) = engine
-        .information_disclosure_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("info_disclosure_basic") {
+        info!("  - Testing Information Disclosure");
+        let (vulns, tests) = engine
+            .information_disclosure_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Sensitive Data - always run (critical for finding exposed .env, .git, credentials)
-    info!("  - Testing Sensitive Data Exposure");
-    let (vulns, tests) = engine
-        .sensitive_data_scanner
-        .scan(target, scan_config)
-        .await?;
-    all_vulnerabilities.extend(vulns);
-    total_tests += tests as u64;
+    if !has_only_filter || scan_config.should_run_module("sensitive_data") {
+        info!("  - Testing Sensitive Data Exposure");
+        let (vulns, tests) = engine
+            .sensitive_data_scanner
+            .scan(target, scan_config)
+            .await?;
+        all_vulnerabilities.extend(vulns);
+        total_tests += tests as u64;
+    }
 
     // Cache Poisoning (Professional+)
     if scan_token.is_module_authorized(module_ids::advanced_scanning::CACHE_POISONING) {

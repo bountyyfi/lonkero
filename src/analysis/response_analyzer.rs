@@ -1702,7 +1702,9 @@ impl ResponseAnalyzer {
         if length <= 4 {
             "*".repeat(length)
         } else {
-            format!("{}{}", &sample[..4], "*".repeat((length - 4).min(16)))
+            let prefix: String = sample.chars().take(4).collect();
+            let prefix_len = prefix.len();
+            format!("{}{}", prefix, "*".repeat((length - prefix_len).min(16)))
         }
     }
 
@@ -1714,7 +1716,8 @@ impl ResponseAnalyzer {
             let masked_local = if local.len() <= 2 {
                 "*".repeat(local.len())
             } else {
-                format!("{}***", &local[..1])
+                let first_char: String = local.chars().take(1).collect();
+                format!("{}***", first_char)
             };
             format!("{}{}", masked_local, domain)
         } else {
@@ -1727,6 +1730,208 @@ impl Default for ResponseAnalyzer {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// =============================================================================
+// Shared Action Success Detection
+// =============================================================================
+// Replaces per-scanner ad-hoc success detection with a tiered system.
+// Avoids both "too loose" (bare contains("success")) and "too tight"
+// (only matches "success":true) extremes.
+
+/// Confidence level for action success detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SuccessConfidence {
+    /// No success indicators found
+    None,
+    /// Weak indicators only (generic words in body, but could be normal page content)
+    Low,
+    /// Moderate indicators (JSON-ish patterns, status code + keyword combo)
+    Medium,
+    /// Strong indicators (structured JSON success, redirect to authenticated area, new tokens)
+    High,
+}
+
+/// Result of action success analysis.
+#[derive(Debug, Clone)]
+pub struct ActionSuccessResult {
+    pub confidence: SuccessConfidence,
+    pub indicators: Vec<String>,
+}
+
+/// Detect whether an HTTP response indicates a successful action (login, registration,
+/// password change, bypass, etc). Uses tiered matching:
+///
+/// - **High**: Structured JSON success (`"success":true`, `"authenticated":true`, etc),
+///   redirect to dashboard/admin, new auth token in response
+/// - **Medium**: JSON-like patterns (`"result":"ok"`, `"status":200`), status 302 + success-ish
+///   Location, HTML success with structural context (`class="success"`, `class="alert-success"`)
+/// - **Low**: Bare keywords ("welcome", "dashboard", "logged in") — useful as supporting
+///   evidence but not sufficient alone
+///
+/// Scanners should require `Medium` or higher for automated detection.
+/// `Low` should only count when combined with other signals (status code change, etc).
+pub fn detect_action_success(status_code: u16, body: &str, location_header: Option<&str>) -> ActionSuccessResult {
+    let body_lower = body.to_lowercase();
+    let mut indicators = Vec::new();
+    let mut high = false;
+    let mut medium = false;
+    let mut low = false;
+
+    // ===== HIGH confidence: structured success responses =====
+
+    // JSON boolean success fields
+    let json_high_patterns = [
+        "\"success\":true", "\"success\": true",
+        "\"authenticated\":true", "\"authenticated\": true",
+        "\"logged_in\":true", "\"logged_in\": true",
+        "\"loggedin\":true", "\"loggedin\": true",
+        "\"is_authenticated\":true", "\"is_authenticated\": true",
+        "\"valid\":true", "\"valid\": true",
+        "\"authorized\":true", "\"authorized\": true",
+        "\"is_admin\":true", "\"is_admin\": true",
+        "\"verified\":true", "\"verified\": true",
+    ];
+    for pattern in &json_high_patterns {
+        if body_lower.contains(pattern) {
+            indicators.push(format!("json_bool: {}", pattern));
+            high = true;
+        }
+    }
+
+    // JSON string success status
+    let json_status_patterns = [
+        "\"status\":\"success\"", "\"status\": \"success\"",
+        "\"status\":\"ok\"", "\"status\": \"ok\"",
+        "\"result\":\"success\"", "\"result\": \"success\"",
+        "\"result\":\"ok\"", "\"result\": \"ok\"",
+        "\"message\":\"success\"", "\"message\": \"success\"",
+        "\"state\":\"authenticated\"", "\"state\": \"authenticated\"",
+    ];
+    for pattern in &json_status_patterns {
+        if body_lower.contains(pattern) {
+            indicators.push(format!("json_status: {}", pattern));
+            high = true;
+        }
+    }
+
+    // New auth token in response (strong signal)
+    if body_lower.contains("\"token\":\"") || body_lower.contains("\"access_token\":\"")
+        || body_lower.contains("\"jwt\":\"") || body_lower.contains("\"session_token\":\"")
+        || body_lower.contains("\"auth_token\":\"") || body_lower.contains("\"id_token\":\"")
+    {
+        indicators.push("auth_token_in_response".into());
+        high = true;
+    }
+
+    // Redirect to authenticated area (302/303 + admin/dashboard/account in location)
+    if (status_code == 302 || status_code == 303) {
+        if let Some(loc) = location_header {
+            let loc_lower = loc.to_lowercase();
+            let auth_destinations = ["dashboard", "admin", "account", "profile", "home", "panel", "my-"];
+            for dest in &auth_destinations {
+                if loc_lower.contains(dest) {
+                    indicators.push(format!("redirect_to_auth_area: {}", loc));
+                    high = true;
+                }
+            }
+        }
+    }
+
+    // ===== MEDIUM confidence: structured but less specific =====
+
+    // JSON numeric success codes
+    let json_medium_patterns = [
+        "\"code\":200", "\"code\": 200",
+        "\"code\":0", "\"code\": 0",  // many APIs use 0 = success
+        "\"error\":false", "\"error\": false",
+        "\"errors\":[]", "\"errors\": []",
+        "\"status\":200", "\"status\": 200",
+    ];
+    for pattern in &json_medium_patterns {
+        if body_lower.contains(pattern) {
+            indicators.push(format!("json_code: {}", pattern));
+            medium = true;
+        }
+    }
+
+    // HTML structural success (class-based, not bare text)
+    let html_medium_patterns = [
+        "class=\"success\"", "class=\"alert-success\"", "class=\"alert success\"",
+        "class=\"msg-success\"", "class=\"message-success\"", "class=\"text-success\"",
+        "class=\"notification-success\"", "class=\"toast-success\"",
+        "class=\"bg-success\"", "class=\"badge-success\"",
+        "data-status=\"success\"", "data-result=\"success\"",
+    ];
+    for pattern in &html_medium_patterns {
+        if body_lower.contains(pattern) {
+            indicators.push(format!("html_class: {}", pattern));
+            medium = true;
+        }
+    }
+
+    // 302 redirect (any location) when status indicates success
+    if (status_code == 302 || status_code == 303) && location_header.is_some() {
+        if !medium && !high {
+            indicators.push("redirect_302".into());
+            medium = true;
+        }
+    }
+
+    // "successfully" as a word (stronger than bare "success" because it's used in action confirmations)
+    if body_lower.contains("successfully") {
+        indicators.push("word_successfully".into());
+        medium = true;
+    }
+
+    // ===== LOW confidence: bare keywords (supporting evidence only) =====
+
+    let weak_keywords = [
+        "welcome", "dashboard", "logged in", "signed in", "login successful",
+        "authentication successful", "access granted", "sign out", "logout",
+        "my account", "my profile",
+    ];
+    for kw in &weak_keywords {
+        if body_lower.contains(kw) {
+            indicators.push(format!("weak_keyword: {}", kw));
+            low = true;
+        }
+    }
+
+    // Negative signals — if these appear, demote confidence
+    let failure_signals = [
+        "invalid", "incorrect", "failed", "denied", "unauthorized",
+        "forbidden", "error", "wrong password", "bad credentials",
+        "login failed", "authentication failed", "access denied",
+    ];
+    let has_failure = failure_signals.iter().any(|f| body_lower.contains(f));
+    if has_failure {
+        // Demote: high → medium, medium → low, low → none
+        if high {
+            high = false;
+            medium = true;
+            indicators.push("demoted_by_failure_signal".into());
+        } else if medium {
+            medium = false;
+            low = true;
+            indicators.push("demoted_by_failure_signal".into());
+        } else if low {
+            low = false;
+            indicators.push("negated_by_failure_signal".into());
+        }
+    }
+
+    let confidence = if high {
+        SuccessConfidence::High
+    } else if medium {
+        SuccessConfidence::Medium
+    } else if low {
+        SuccessConfidence::Low
+    } else {
+        SuccessConfidence::None
+    };
+
+    ActionSuccessResult { confidence, indicators }
 }
 
 // =============================================================================
@@ -2255,5 +2460,100 @@ ValueError: test"#;
         assert!(SecurityIndicator::CsrfProtection.is_positive());
         assert!(!SecurityIndicator::DebugMode.is_positive());
         assert!(!SecurityIndicator::VerboseErrors.is_positive());
+    }
+
+    // =========================================================================
+    // detect_action_success tests
+    // =========================================================================
+
+    #[test]
+    fn test_success_json_bool_high() {
+        // PR#216 pattern — strict JSON bool
+        let body = r#"{"success":true,"user":{"id":42}}"#;
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::High);
+    }
+
+    #[test]
+    fn test_success_json_string_status_high() {
+        // {"status":"success"} — common in REST APIs
+        let body = r#"{"status":"success","data":[]}"#;
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::High);
+    }
+
+    #[test]
+    fn test_success_json_result_ok_high() {
+        // {"result":"ok"} — another common pattern PR#216 would miss
+        let body = r#"{"result":"ok","message":"Account created"}"#;
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::High);
+    }
+
+    #[test]
+    fn test_success_token_in_response_high() {
+        let body = r#"{"access_token":"eyJhbGciOiJIUzI1NiJ9.abc.def"}"#;
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::High);
+    }
+
+    #[test]
+    fn test_success_redirect_to_dashboard_high() {
+        let r = detect_action_success(302, "", Some("/dashboard"));
+        assert_eq!(r.confidence, SuccessConfidence::High);
+    }
+
+    #[test]
+    fn test_success_html_class_medium() {
+        // HTML success with structural context — not bare keyword
+        let body = r#"<div class="alert-success">Registration complete</div>"#;
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::Medium);
+    }
+
+    #[test]
+    fn test_success_json_code_200_medium() {
+        // {"code":200} — medium because less specific
+        let body = r#"{"code":200,"data":{"id":1}}"#;
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::Medium);
+    }
+
+    #[test]
+    fn test_success_successfully_word_medium() {
+        let body = "Your password was changed successfully.";
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::Medium);
+    }
+
+    #[test]
+    fn test_success_bare_keyword_low() {
+        // Bare "welcome" — too common on normal pages
+        let body = "<h1>Welcome to our site</h1><p>Browse our products</p>";
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::Low);
+    }
+
+    #[test]
+    fn test_success_none_on_error_page() {
+        let body = "<h1>404 Not Found</h1><p>The page you requested does not exist.</p>";
+        let r = detect_action_success(404, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::None);
+    }
+
+    #[test]
+    fn test_success_demoted_by_failure() {
+        // Has "success":true but ALSO "invalid" — demote to medium
+        let body = r#"{"success":true,"message":"invalid token"}"#;
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::Medium);
+    }
+
+    #[test]
+    fn test_success_plain_html_no_indicators() {
+        // Normal marketing page — no success indicators
+        let body = "<html><body><h1>Our Product</h1><p>Best in class</p></body></html>";
+        let r = detect_action_success(200, body, None);
+        assert_eq!(r.confidence, SuccessConfidence::None);
     }
 }

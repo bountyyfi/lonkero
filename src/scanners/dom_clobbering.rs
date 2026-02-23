@@ -52,6 +52,25 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
+/// Snap a byte index down to the nearest valid UTF-8 char boundary.
+/// Prevents panics when slicing strings containing multi-byte characters.
+fn floor_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Snap a byte index up to the nearest valid UTF-8 char boundary.
+fn ceil_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 /// Common global variables that are often targeted for DOM clobbering
 const COMMON_CLOBBER_TARGETS: &[&str] = &[
     // Configuration objects
@@ -419,8 +438,8 @@ impl DomClobberingScanner {
                     let remaining = &js_content[start..];
                     let nested_property = self.extract_nested_property(remaining);
 
-                    let snippet_start = name_match.start().saturating_sub(30);
-                    let snippet_end = (name_match.end() + 50).min(js_content.len());
+                    let snippet_start = floor_char_boundary(js_content, name_match.start().saturating_sub(30));
+                    let snippet_end = ceil_char_boundary(js_content, (name_match.end() + 50).min(js_content.len()));
                     let snippet = js_content[snippet_start..snippet_end].to_string();
 
                     patterns.push(ClobberableGlobal {
@@ -483,8 +502,8 @@ impl DomClobberingScanner {
                         self.extract_nested_property(remaining)
                     };
 
-                    let snippet_start = name_match.start().saturating_sub(30);
-                    let snippet_end = (name_match.end() + 50).min(js_content.len());
+                    let snippet_start = floor_char_boundary(js_content, name_match.start().saturating_sub(30));
+                    let snippet_end = ceil_char_boundary(js_content, (name_match.end() + 50).min(js_content.len()));
                     let snippet = js_content[snippet_start..snippet_end].to_string();
 
                     patterns.push(ClobberableGlobal {
@@ -512,8 +531,8 @@ impl DomClobberingScanner {
 
                     // Find the actual snippet
                     if let Some(m) = re.find(js_content) {
-                        let snippet_start = m.start().saturating_sub(20);
-                        let snippet_end = (m.end() + 40).min(js_content.len());
+                        let snippet_start = floor_char_boundary(js_content, m.start().saturating_sub(20));
+                        let snippet_end = ceil_char_boundary(js_content, (m.end() + 40).min(js_content.len()));
                         let snippet = js_content[snippet_start..snippet_end].to_string();
 
                         patterns.push(ClobberableGlobal {
@@ -539,8 +558,8 @@ impl DomClobberingScanner {
                 if !seen.contains(&name) && self.is_potentially_clobberable(&name) {
                     seen.insert(name.clone());
 
-                    let snippet_start = cap.get(0).unwrap().start().saturating_sub(10);
-                    let snippet_end = (cap.get(0).unwrap().end() + 30).min(js_content.len());
+                    let snippet_start = floor_char_boundary(js_content, cap.get(0).unwrap().start().saturating_sub(10));
+                    let snippet_end = ceil_char_boundary(js_content, (cap.get(0).unwrap().end() + 30).min(js_content.len()));
                     let snippet = js_content[snippet_start..snippet_end].to_string();
 
                     patterns.push(ClobberableGlobal {
@@ -764,8 +783,8 @@ impl DomClobberingScanner {
                     let full_match = cap.get(0).map(|m| m.as_str().to_string());
                     let source_var = cap.get(1).map(|m| m.as_str().to_string());
 
-                    let snippet_start = cap.get(0).unwrap().start().saturating_sub(20);
-                    let snippet_end = (cap.get(0).unwrap().end() + 40).min(js_content.len());
+                    let snippet_start = floor_char_boundary(js_content, cap.get(0).unwrap().start().saturating_sub(20));
+                    let snippet_end = ceil_char_boundary(js_content, (cap.get(0).unwrap().end() + 40).min(js_content.len()));
                     let snippet = js_content[snippet_start..snippet_end].to_string();
 
                     usages.push(DangerousSinkUsage {
@@ -780,8 +799,8 @@ impl DomClobberingScanner {
             if js_content.contains(sink) {
                 // Find context around the sink
                 for (idx, _) in js_content.match_indices(sink) {
-                    let snippet_start = idx.saturating_sub(40);
-                    let snippet_end = (idx + sink.len() + 40).min(js_content.len());
+                    let snippet_start = floor_char_boundary(js_content, idx.saturating_sub(40));
+                    let snippet_end = ceil_char_boundary(js_content, (idx + sink.len() + 40).min(js_content.len()));
                     let snippet = js_content[snippet_start..snippet_end].to_string();
 
                     // Try to extract source variable from context

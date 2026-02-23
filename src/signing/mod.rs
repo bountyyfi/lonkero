@@ -132,6 +132,10 @@ struct ScanAuthorizeResponse {
     max_targets: Option<u32>,
     /// License type (Personal, Professional, Team, Enterprise)
     license_type: Option<String>,
+    /// Licensee name (who the license is issued to)
+    licensee: Option<String>,
+    /// Organization name
+    organization: Option<String>,
     /// Modules the server authorized
     authorized_modules: Option<Vec<String>>,
     /// Modules denied with reasons
@@ -563,11 +567,15 @@ pub async fn authorize_scan(
         .unwrap_or_else(|| "Personal".to_string());
     let authorized_modules = auth_response.authorized_modules.unwrap_or_default();
 
+    let licensee = auth_response.licensee;
+    let organization = auth_response.organization;
+
     info!(
-        "[Auth] Authorized: {} license, max {} targets, {} modules",
+        "[Auth] Authorized: {} license, max {} targets, {} modules{}",
         license_type,
         max_targets,
-        authorized_modules.len()
+        authorized_modules.len(),
+        licensee.as_ref().map(|l| format!(", licensee: {}", l)).unwrap_or_default()
     );
 
     let token = ScanToken {
@@ -581,7 +589,20 @@ pub async fn authorize_scan(
     // Store token globally (only succeeds once per process)
     let _ = GLOBAL_SCAN_TOKEN.set(token.clone());
 
+    // Store licensee/org info for callers that need it
+    let _ = LICENSE_HOLDER_INFO.set((licensee, organization));
+
     Ok(token)
+}
+
+/// Get license holder info (licensee, organization) from the last authorize_scan call.
+/// Returns (None, None) if authorize_scan hasn't been called or the server didn't provide the info.
+static LICENSE_HOLDER_INFO: std::sync::OnceLock<(Option<String>, Option<String>)> = std::sync::OnceLock::new();
+
+pub fn get_license_holder() -> Option<String> {
+    LICENSE_HOLDER_INFO.get().and_then(|(licensee, org)| {
+        licensee.clone().or_else(|| org.clone())
+    })
 }
 
 /// Sign results AFTER scanning - NO OFFLINE FALLBACK
