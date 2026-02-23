@@ -437,10 +437,11 @@ impl MfaScanner {
         let body = &response.body;
         let body_lower = body.to_lowercase();
 
-        // Check for weak TOTP acceptance
-        if body_lower.contains("success")
-            || body_lower.contains("verified")
-            || body_lower.contains("correct")
+        // Check for weak TOTP acceptance - require specific API/JSON success patterns
+        if body_lower.contains("\"success\":true")
+            || body_lower.contains("\"verified\":true")
+            || body_lower.contains("\"totp\":\"valid\"")
+            || body_lower.contains("code accepted")
         {
             vulnerabilities.push(Vulnerability {
                 id: generate_uuid(),

@@ -326,7 +326,7 @@ impl FileUploadVulnerabilitiesScanner {
                                         body_lower.contains("página no encontrada") ||  // Spanish
                                         body_lower.contains("page introuvable") ||  // French
                                         body_lower.contains("pagina niet gevonden") ||  // Dutch
-                                        (body_lower.contains("error") && body_lower.len() < 1000) ||
+                                        (body_lower.contains("404") && body_lower.contains("not found")) ||
                                         is_spa_page ||
                                         is_json_error;
 

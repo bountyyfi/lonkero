@@ -2430,9 +2430,11 @@ impl BusinessLogicScanner {
             && !body_lower.contains("price error")
             && !body_lower.contains("validation failed");
 
-        let success = body_lower.contains("success")
-            || body_lower.contains("confirmed")
-            || body_lower.contains("order placed");
+        // Require specific order/payment success patterns, not bare "success"
+        let success = body_lower.contains("\"success\":true")
+            || body_lower.contains("\"status\":\"confirmed\"")
+            || body_lower.contains("order placed")
+            || body_lower.contains("order confirmed");
 
         no_error && success
     }
@@ -2626,9 +2628,10 @@ impl BusinessLogicScanner {
             && !body_lower.contains("timestamp error")
             && !body_lower.contains("date format");
 
-        let accepted = body_lower.contains("success")
+        // Require specific acceptance pattern, not bare "success"/"valid"
+        let accepted = body_lower.contains("\"success\":true")
             || body_lower.contains(&format!("\"{}\":", param))
-            || body_lower.contains("valid");
+            || body_lower.contains("\"status\":\"valid\"");
 
         no_error && accepted
     }

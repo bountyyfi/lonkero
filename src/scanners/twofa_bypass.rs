@@ -1408,12 +1408,12 @@ impl TwoFaBypassScanner {
             && !body_lower.contains("2fa")
             && !body_lower.contains("mfa");
 
-        // Should be an actual protected resource
-        let is_protected_content = body_lower.contains("dashboard")
-            || body_lower.contains("settings")
-            || body_lower.contains("profile")
-            || body_lower.contains("account")
-            || body_lower.contains("admin");
+        // Should be an actual protected resource - require specific indicators
+        let is_protected_content = body_lower.contains("admin panel")
+            || body_lower.contains("admin dashboard")
+            || body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"logged_in\":true")
+            || body_lower.contains("manage users");
 
         // Status should indicate success
         let success_status = response.status_code == 200;
