@@ -1061,7 +1061,7 @@ impl LicenseManager {
             if is_cloudflare_block {
                 // Cloudflare is blocking us - treat as network error, not killswitch
                 warn!("Cloudflare blocking license server request. Running in limited mode.");
-                warn!("Response: {}", &text[..text.len().min(200)]);
+                warn!("Response: {}", &text[..text.char_indices().nth(200).map_or(text.len(), |(i, _)| i)]);
                 // Return error to trigger offline mode fallback
                 Err(anyhow!("Cloudflare blocked license request - network issue"))
             } else {

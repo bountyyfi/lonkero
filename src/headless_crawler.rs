@@ -1013,7 +1013,7 @@ impl HeadlessCrawler {
         if let Some(ref info) = token_info {
             info!(
                 "[CSRF] Extracted token '{}' from field '{}'",
-                &info.value[..info.value.len().min(20)],
+                &info.value[..info.value.char_indices().nth(20).map_or(info.value.len(), |(i, _)| i)],
                 info.field_name
             );
         }
@@ -4264,7 +4264,7 @@ impl HeadlessCrawler {
                             debug!(
                                 "[Headless] Found token in {}: {}...",
                                 key,
-                                &value[..value.len().min(20)]
+                                &value[..value.char_indices().nth(20).map_or(value.len(), |(i, _)| i)]
                             );
                             extracted_token = Some(value);
                             break;

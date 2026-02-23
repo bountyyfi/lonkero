@@ -6,6 +6,24 @@ use crate::types::{ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tracing::info;
 
+/// Snap a byte index down to the nearest valid UTF-8 char boundary.
+fn floor_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Snap a byte index up to the nearest valid UTF-8 char boundary.
+fn ceil_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 mod uuid {
     pub use uuid::Uuid;
 }
@@ -472,7 +490,7 @@ impl FrameworkVulnerabilitiesScanner {
     fn extract_wordpress_version(&self, html: &str) -> Option<String> {
         if let Some(start) = html.find("wp-content") {
             let search_area =
-                &html[start.saturating_sub(200)..start.saturating_add(200).min(html.len())];
+                &html[floor_char_boundary(html, start.saturating_sub(200))..ceil_char_boundary(html, start.saturating_add(200).min(html.len()))];
             if let Some(version_match) = regex::Regex::new(r"WordPress\s+(\d+\.\d+(?:\.\d+)?)")
                 .ok()
                 .and_then(|re| re.captures(search_area))

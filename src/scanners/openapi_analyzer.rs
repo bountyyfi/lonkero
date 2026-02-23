@@ -36,6 +36,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
 
+/// Snap a byte index up to the nearest valid UTF-8 char boundary.
+fn ceil_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 mod uuid {
     pub use uuid::Uuid;
 }
@@ -1164,7 +1173,7 @@ impl OpenApiAnalyzer {
             if let Ok(regex) = Regex::new(pattern) {
                 if let Some(capture) = regex.find(&spec_string) {
                     let evidence =
-                        &spec_string[capture.start()..capture.end().min(capture.start() + 100)];
+                        &spec_string[capture.start()..ceil_char_boundary(&spec_string, capture.end().min(capture.start() + 100))];
                     vulnerabilities.push(self.create_vulnerability(
                         "OpenAPI Sensitive Data Exposure",
                         base_url,

@@ -1409,7 +1409,7 @@ impl FormReplayer {
             debug!(
                 "[FormReplayer] Refreshed CSRF token: {} = {}...",
                 t.field_name,
-                &t.value[..t.value.len().min(20)]
+                &t.value[..t.value.char_indices().nth(20).map_or(t.value.len(), |(i, _)| i)]
             );
         }
 

@@ -32,8 +32,9 @@ pub use hypothesis_engine::{
 };
 pub use intelligence_bus::*;
 pub use response_analyzer::{
-    AuthState, BusinessContext, BusinessContextType, DataExposure, ErrorInfo, ErrorType,
-    ExposureType, ResponseAnalyzer, ResponseSemantics, ResponseType, SecurityIndicator,
-    SemanticDifference, VulnerabilityHint,
+    ActionSuccessResult, AuthState, BusinessContext, BusinessContextType, DataExposure,
+    ErrorInfo, ErrorType, ExposureType, ResponseAnalyzer, ResponseSemantics, ResponseType,
+    SecurityIndicator, SemanticDifference, SuccessConfidence, VulnerabilityHint,
+    detect_action_success,
 };
 pub use tech_detection::{DetectedTechnology, TechCategory, TechDetector};

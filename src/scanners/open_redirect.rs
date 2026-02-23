@@ -12,6 +12,24 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+/// Snap a byte index down to the nearest valid UTF-8 char boundary.
+fn floor_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Snap a byte index up to the nearest valid UTF-8 char boundary.
+fn ceil_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 pub struct OpenRedirectScanner {
     http_client: Arc<HttpClient>,
 }
@@ -2156,7 +2174,7 @@ impl OpenRedirectScanner {
                     // Check if payload appears near redirect context
                     if let Some(pos) = body.find(ctx) {
                         let context_window =
-                            &body[pos.saturating_sub(200)..std::cmp::min(pos + 500, body.len())];
+                            &body[floor_char_boundary(body, pos.saturating_sub(200))..ceil_char_boundary(body, std::cmp::min(pos + 500, body.len()))];
                         if context_window.contains(payload)
                             || context_window.contains(&*decoded_payload)
                         {
