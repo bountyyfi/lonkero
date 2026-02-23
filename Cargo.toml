@@ -63,7 +63,7 @@ thiserror = "2.0.18"
 chrono = { version = "0.4", features = ["serde"] }
 
 # Random
-rand = "0.9"
+rand = "0.10"
 
 # Headless browser for JavaScript-rendered pages (SPA form detection)
 # Using fetch feature for network request interception to discover actual form endpoints
