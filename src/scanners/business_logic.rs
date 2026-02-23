@@ -1889,8 +1889,10 @@ impl BusinessLogicScanner {
             }
         }
 
-        // Check if suspicious values appear in response
+        // Check if suspicious values appear in response — require order/payment-specific
+        // success indicators, not bare "success"/"confirmed" which appear everywhere
         if (value1.starts_with('-') || value1.contains("0.00") || value1 == "0")
+            && (body_lower.contains("order") || body_lower.contains("payment") || body_lower.contains("checkout"))
             && (body_lower.contains("success") || body_lower.contains("confirmed"))
         {
             return true;
@@ -1898,7 +1900,7 @@ impl BusinessLogicScanner {
 
         // Check for currency manipulation indicators
         if !value2.is_empty() && (value2 == "VND" || value2 == "IDR") {
-            if body_lower.contains("currency") && body_lower.contains("success") {
+            if body_lower.contains("currency") && body_lower.contains("order") {
                 return true;
             }
         }
@@ -1910,9 +1912,11 @@ impl BusinessLogicScanner {
     fn detect_currency_manipulation(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check if VND/IDR currency was accepted
-        let currency_accepted = (body_lower.contains("vnd") || body_lower.contains("idr"))
-            && (body_lower.contains("success") || body_lower.contains("confirmed"));
+        // Check if VND/IDR currency was accepted — use uppercase to avoid matching
+        // "savnd", "considered" etc.; require order/payment context
+        let currency_accepted = (body_lower.contains(" vnd") || body_lower.contains("\"vnd\"")
+            || body_lower.contains(" idr") || body_lower.contains("\"idr\""))
+            && (body_lower.contains("order") || body_lower.contains("payment") || body_lower.contains("checkout"));
 
         // Check for suspiciously low converted amounts
         let low_amount = body_lower.contains("total")

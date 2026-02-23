@@ -621,14 +621,16 @@ impl NextJsSecurityScanner {
                 if resp.status_code == 200 {
                     let body_lower = resp.body.to_lowercase();
 
-                    // Check for sensitive data patterns
-                    let is_sensitive = body_lower.contains("internal")
-                        || body_lower.contains("debug")
-                        || body_lower.contains("config")
-                        || body_lower.contains("database")
-                        || body_lower.contains("connection_string")
+                    // Check for actual sensitive data exposure, not generic keywords
+                    // Removed "internal", "debug", "config", "database", "secret" which
+                    // appear on almost any informational page
+                    let is_sensitive = body_lower.contains("connection_string")
                         || body_lower.contains("api_key")
-                        || body_lower.contains("secret");
+                        || body_lower.contains("password=")
+                        || body_lower.contains("password\":")
+                        || body_lower.contains("secret_key")
+                        || body_lower.contains("aws_access_key")
+                        || body_lower.contains("private_key");
 
                     if is_sensitive
                         && (route.contains("internal")

@@ -3090,8 +3090,10 @@ impl ScanEngine {
                         let has_metadata = response.body.contains("ami-id")
                             || response.body.contains("instance-id")
                             || response.body.contains("meta-data");
+                        // Require specific internal service fingerprints
+                        // Removed "SSH-" which matches documentation about SSH versions
                         let has_internal_response =
-                            response.body.contains("root:x:") || response.body.contains("SSH-");
+                            response.body.contains("root:x:0") || response.body.contains("SSH-2.0-OpenSSH");
 
                         if has_metadata || has_internal_response {
                             info!("SSRF vulnerability detected in parameter '{}'", param_name);

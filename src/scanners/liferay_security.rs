@@ -939,7 +939,8 @@ impl LiferaySecurityScanner {
                 );
 
                 if let Ok(trav_resp) = self.http_client.get(&traversal_url).await {
-                    if trav_resp.body.contains("root:") || trav_resp.body.contains("/bin/") {
+                    // Require specific /etc/passwd format, not bare "root:" or "/bin/"
+                    if trav_resp.body.contains("root:x:0:0") || trav_resp.body.contains("root:x:0:") {
                         vulnerabilities.push(Vulnerability {
                             id: format!("liferay_combo_traversal_{}", uuid_simple()),
                             vuln_type: "Liferay Combo Servlet Path Traversal".to_string(),
