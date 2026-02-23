@@ -705,21 +705,34 @@ impl InformationDisclosureScanner {
 
     /// Detect directory listing
     fn detect_directory_listing(&self, body: &str) -> bool {
-        let listing_indicators = vec![
+        // Strong indicators that almost certainly mean directory listing
+        let strong_indicators = vec![
             "Index of /",
-            "Directory listing",
-            "Parent Directory",
-            "[DIR]",
-            "[   ]",
             "<title>Index of",
-            "apache",
-            "nginx",
+            "Directory listing for",
         ];
 
         let body_lower = body.to_lowercase();
-        let mut found_count = 0;
 
-        for indicator in listing_indicators {
+        // A single strong indicator is sufficient
+        for indicator in &strong_indicators {
+            if body_lower.contains(&indicator.to_lowercase()) {
+                return true;
+            }
+        }
+
+        // Weaker indicators need at least 2 to match.
+        // Note: Removed generic "apache" and "nginx" which match
+        // any page mentioning those words (docs, blog posts, etc.)
+        let weak_indicators = vec![
+            "Parent Directory",
+            "[DIR]",
+            "[   ]",
+            "Directory listing",
+        ];
+
+        let mut found_count = 0;
+        for indicator in &weak_indicators {
             if body_lower.contains(&indicator.to_lowercase()) {
                 found_count += 1;
                 if found_count >= 2 {

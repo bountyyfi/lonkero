@@ -261,44 +261,42 @@ impl SessionManagementScanner {
     }
 
     /// Check for session fixation vulnerabilities
+    /// Only reports when there is concrete evidence (session params in URL),
+    /// not keyword matching in response bodies which causes false positives.
     fn check_session_fixation(
         &self,
-        response: &crate::http_client::HttpResponse,
+        _response: &crate::http_client::HttpResponse,
         url: &str,
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let body_lower = response.body.to_lowercase();
+        // Only report if a known session parameter is in the URL query string.
+        // The old approach of searching for "session" in HTML body produces
+        // false positives on any page mentioning sessions (docs, UI text, etc.)
+        let url_lower = url.to_lowercase();
+        let has_session_param = url_lower.contains("jsessionid=")
+            || url_lower.contains("phpsessid=")
+            || url_lower.contains("sessionid=")
+            || url_lower.contains("session_id=")
+            || url_lower.contains("aspsessionid=");
 
-        // Check if session ID is accepted from query parameter
-        if (body_lower.contains("session") || body_lower.contains("sid")) && url.contains("session")
-        {
+        if has_session_param {
             vulnerabilities.push(self.create_vulnerability(
-                "Potential Session Fixation",
+                "Session ID in URL (Fixation Risk)",
                 url,
                 Severity::High,
-                Confidence::Low,
-                "Application may accept session ID from URL parameter - session fixation risk",
-                "Session parameter in URL may be accepted".to_string(),
+                Confidence::High,
+                "Session ID passed via URL parameter - vulnerable to session fixation and referrer leakage",
+                "Known session parameter found in URL query string".to_string(),
                 7.1,
             ));
         }
 
-        // Check if code regenerates session after login
-        let regenerates_session = body_lower.contains("session_regenerate")
-            || body_lower.contains("regenerate")
-            || body_lower.contains("new session");
-
-        if body_lower.contains("login") && !regenerates_session {
-            vulnerabilities.push(self.create_vulnerability(
-                "Session Not Regenerated After Login",
-                url,
-                Severity::Medium,
-                Confidence::Low,
-                "Session may not be regenerated after authentication - session fixation risk",
-                "No evidence of session regeneration after login".to_string(),
-                6.5,
-            ));
-        }
+        // Note: "Session Not Regenerated After Login" check removed because
+        // searching for "session_regenerate" in HTML response body is unreliable:
+        // 1. Session regeneration is server-side logic not visible in HTML
+        // 2. SPAs use token rotation, not PHP-style session_regenerate
+        // 3. Keyword matching on "login" produces false positives on every
+        //    page with a login link/button
     }
 
     /// Check session ID predictability
@@ -361,30 +359,21 @@ impl SessionManagementScanner {
     }
 
     /// Check session timeout configuration
+    /// Note: Session timeout is a server-side configuration that cannot be
+    /// reliably detected by scanning HTML response bodies. Searching for
+    /// "timeout" keywords in HTML produces false positives. Instead, we only
+    /// check the actual cookie attributes which are observable.
     fn check_session_timeout(
         &self,
-        response: &crate::http_client::HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &crate::http_client::HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let body_lower = response.body.to_lowercase();
-
-        // Check for timeout configuration in code
-        let has_timeout = body_lower.contains("timeout")
-            || body_lower.contains("expiry")
-            || body_lower.contains("ttl");
-
-        if (body_lower.contains("session") || body_lower.contains("auth")) && !has_timeout {
-            vulnerabilities.push(self.create_vulnerability(
-                "No Session Timeout Configured",
-                url,
-                Severity::Medium,
-                Confidence::Low,
-                "No session timeout detected - sessions may persist indefinitely",
-                "No timeout configuration found in application code".to_string(),
-                5.3,
-            ));
-        }
+        // Intentionally not reporting based on body keyword matching.
+        // Session timeout is configured server-side (web.xml, php.ini, etc.)
+        // and cannot be detected by scanning HTML responses.
+        // The cookie lifetime check in check_cookie_security() already
+        // reports excessively long cookie max-age values.
     }
 
     /// Check for session ID in URL
@@ -418,59 +407,34 @@ impl SessionManagementScanner {
     }
 
     /// Check concurrent session handling
+    /// Note: Concurrent session limits are a server-side policy that cannot
+    /// be detected by scanning HTML. Removed body keyword matching.
     fn check_concurrent_sessions(
         &self,
-        response: &crate::http_client::HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &crate::http_client::HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let body_lower = response.body.to_lowercase();
-
-        // Check if application tracks/limits concurrent sessions
-        let handles_concurrent = body_lower.contains("concurrent")
-            || body_lower.contains("multiple sessions")
-            || body_lower.contains("device limit");
-
-        if body_lower.contains("session") && !handles_concurrent {
-            vulnerabilities.push(self.create_vulnerability(
-                "Unlimited Concurrent Sessions",
-                url,
-                Severity::Low,
-                Confidence::Low,
-                "Application may allow unlimited concurrent sessions per user",
-                "No concurrent session tracking detected".to_string(),
-                4.3,
-            ));
-        }
+        // Intentionally not reporting. Concurrent session tracking is a
+        // server-side feature that cannot be detected from a single HTTP response.
+        // Searching for "concurrent" or "multiple sessions" in HTML body
+        // produces false positives on documentation pages and is not evidence
+        // of actual concurrent session handling.
     }
 
     /// Check logout security
+    /// Note: Proper session destruction on logout is server-side behavior
+    /// that cannot be detected by scanning HTML response bodies.
     fn check_logout_security(
         &self,
-        response: &crate::http_client::HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &crate::http_client::HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let body_lower = response.body.to_lowercase();
-
-        if body_lower.contains("logout") || body_lower.contains("signout") {
-            // Check if logout properly destroys session
-            let destroys_session = body_lower.contains("destroy")
-                || body_lower.contains("invalidate")
-                || body_lower.contains("clear");
-
-            if !destroys_session {
-                vulnerabilities.push(self.create_vulnerability(
-                    "Incomplete Logout",
-                    url,
-                    Severity::Medium,
-                    Confidence::Low,
-                    "Logout may not properly destroy session - session reuse risk",
-                    "No evidence of session destruction on logout".to_string(),
-                    5.9,
-                ));
-            }
-        }
+        // Intentionally not reporting. Whether logout properly destroys sessions
+        // is server-side behavior. Searching for "destroy" or "invalidate" in
+        // HTML body is unreliable - the actual session destruction happens in
+        // server-side code not visible in the HTTP response.
     }
 
     /// Create vulnerability record

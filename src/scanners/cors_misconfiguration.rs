@@ -26,37 +26,31 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Run CORS misconfiguration scan
+    ///
+    /// Note: The free-tier CorsScanner already tests for reflected origins,
+    /// null origin, subdomain exploits, and wildcard+credentials. This
+    /// Professional+ scanner only runs ADDITIONAL tests not covered by the
+    /// free tier to avoid duplicate findings.
     pub async fn scan(
         &self,
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        info!("Starting CORS misconfiguration scan on {}", url);
+        info!("Starting advanced CORS misconfiguration scan on {}", url);
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
 
-        // Test arbitrary origin reflection
+        // Test arbitrary origin with unique marker (more thorough than free tier)
+        // The free tier tests evil.com; this uses a unique marker to confirm reflection
         let (vulns, tests) = self.test_arbitrary_origin(url).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
-        // Test null origin
-        let (vulns, tests) = self.test_null_origin(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
+        // Skip null origin, wildcard+credentials, and subdomain tests -
+        // already covered by the free-tier CorsScanner to avoid duplicates
 
-        // Test wildcard with credentials
-        let (vulns, tests) = self.test_wildcard_credentials(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
-
-        // Test subdomain reflection
-        let (vulns, tests) = self.test_subdomain_reflection(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
-
-        // Test insecure origins
+        // Test insecure HTTP origins (not covered by free tier)
         let (vulns, tests) = self.test_insecure_origins(url).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;

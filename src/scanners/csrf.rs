@@ -210,72 +210,63 @@ impl CsrfScanner {
             || response.body.contains("_csrf")
             || response.body.contains("csrfToken");
 
-        // Only report if the page appears to have forms or is an API endpoint
-        let looks_interactive = response.body.contains("<form")
-            || response.body.contains("application/json")
-            || url.contains("/api/");
+        // Only report if the page has HTML forms with state-changing methods.
+        // API endpoints (JSON) are NOT reported because:
+        // 1. APIs typically use token-based auth (Bearer/API key) not cookies
+        // 2. CORS prevents cross-origin API requests with credentials
+        // 3. Reporting on every API endpoint creates massive false positives
+        let has_state_changing_form = response.body.contains("<form")
+            && (response.body.contains("method=\"post\"")
+                || response.body.contains("method=\"POST\"")
+                || response.body.contains("method='post'")
+                || response.body.contains("method='POST'"));
 
-        if looks_interactive && !has_csrf_header && !has_csrf_meta {
-            // Low severity as this is just one layer of defense
+        if has_state_changing_form && !has_csrf_header && !has_csrf_meta {
             vulnerabilities.push(self.create_vulnerability(
                 "No CSRF Protection Headers",
                 url,
                 Severity::Low,
                 Confidence::Medium,
-                "Application lacks common CSRF protection headers",
-                "No X-CSRF-Token, X-XSRF-Token, or similar headers detected".to_string(),
+                "HTML forms with state-changing methods lack CSRF protection headers",
+                "No X-CSRF-Token, X-XSRF-Token, or similar headers detected on page with POST forms".to_string(),
                 3.5,
             ));
         }
     }
 
     /// Check for state-changing operations via GET
+    /// Only reports when there is strong evidence of actual state change,
+    /// not just keyword matching in URLs and response bodies.
     fn check_state_change_via_get(
         &self,
         response: &HttpResponse,
         url: &str,
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        // If URL suggests state change and GET request succeeded
-        if response.status_code == 200 || response.status_code == 302 {
+        // Only report if the GET request resulted in a redirect (302) to
+        // a different page, which is a stronger indicator of state change.
+        // Just checking URL keywords + body keywords is too broad and
+        // produces false positives on pages that merely MENTION these words
+        // (documentation, UI labels, etc.)
+        if response.status_code == 302 {
             let state_change_indicators = vec![
-                "delete", "remove", "update", "modify", "edit", "change", "create", "add",
-                "insert", "transfer", "purchase",
+                "delete", "remove", "update", "transfer", "purchase",
             ];
 
             let url_lower = url.to_lowercase();
             for indicator in state_change_indicators {
                 if url_lower.contains(indicator) {
-                    // Check if response suggests success
-                    let body_lower = response.body.to_lowercase();
-                    let success_indicators = vec![
-                        "success",
-                        "deleted",
-                        "removed",
-                        "updated",
-                        "created",
-                        "completed",
-                        "confirmed",
-                        "saved",
-                    ];
-
-                    let looks_successful = success_indicators
-                        .iter()
-                        .any(|ind| body_lower.contains(ind));
-
-                    if looks_successful || response.status_code == 302 {
-                        vulnerabilities.push(self.create_vulnerability(
-                            "State-Changing Operation via GET",
-                            url,
-                            Severity::High,
-                            Confidence::Medium,
-                            "Critical operation allows GET method - vulnerable to CSRF via simple link",
-                            format!("URL contains '{}' and GET request appears successful (status: {})",
-                                indicator, response.status_code),
-                            7.1,
-                        ));
-                        break; // Only report once
-                    }
+                    vulnerabilities.push(self.create_vulnerability(
+                        "State-Changing Operation via GET",
+                        url,
+                        Severity::High,
+                        Confidence::Low,
+                        "Potentially dangerous operation accepts GET method and redirects - may be vulnerable to CSRF",
+                        format!("URL contains '{}' and GET request triggered redirect (302)",
+                            indicator),
+                        7.1,
+                    ));
+                    break; // Only report once
                 }
             }
         }

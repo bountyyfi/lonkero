@@ -280,24 +280,12 @@ impl HostHeaderInjectionScanner {
                         break; // One finding is enough
                     }
 
-                    // Check for success response that might indicate vulnerability
-                    let body_lower = response.body.to_lowercase();
-                    if response.status_code == 200
-                        && (body_lower.contains("reset link")
-                            || body_lower.contains("email sent")
-                            || body_lower.contains("check your email"))
-                    {
-                        // Need to verify with OOB detection for full confirmation
-                        vulnerabilities.push(self.create_vulnerability(
-                            &reset_url,
-                            &format!("X-Forwarded-Host: {}", self.test_domain),
-                            "password_reset_poisoning_potential",
-                            "Potential Password Reset Poisoning",
-                            Confidence::Low,
-                            "Password reset endpoint accepts X-Forwarded-Host. Verify with OOB detection.",
-                            Severity::Medium,
-                        ));
-                    }
+                    // Note: We do NOT report "potential" password reset poisoning
+                    // just because the endpoint returns a success message like "email sent".
+                    // Most password reset endpoints always return the same message regardless
+                    // of whether X-Forwarded-Host was used, as a security best practice.
+                    // Only report when the attacker domain is actually reflected in the
+                    // response (checked above), which proves the vulnerability.
                 }
                 Err(e) => {
                     debug!("Request failed: {}", e);
