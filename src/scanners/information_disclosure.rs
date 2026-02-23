@@ -363,18 +363,17 @@ impl InformationDisclosureScanner {
             }
         }
 
-        // Test 2: Check debug endpoints that might reveal server version
+        // Test 2: Check debug endpoints that might reveal server version.
+        // Note: /health, /status, /version are intentionally exposed on many APIs
+        // for operational monitoring. They are NOT debug endpoints and should not
+        // be reported as info disclosure unless they expose detailed server info.
+        // We focus on endpoints that expose SENSITIVE internal details.
         let base_url = self.extract_base_url(url);
         let debug_endpoints = vec![
-            "/server-status",           // Apache
-            "/server-info",             // Apache
-            "/nginx_status",            // Nginx
-            "/status",                  // Various
-            "/.well-known/version",     // Custom
-            "/version",                 // API version endpoint
-            "/health",                  // Health check often reveals version
-            "/actuator/info",           // Spring Boot
-            "/actuator/health",         // Spring Boot
+            "/server-status",           // Apache mod_status - exposes request details
+            "/server-info",             // Apache mod_info - exposes module details
+            "/nginx_status",            // Nginx stub_status - connection metrics
+            "/actuator/info",           // Spring Boot - App info
             "/actuator/env",            // Spring Boot - Environment variables (CRITICAL)
             "/actuator/configprops",    // Spring Boot - Configuration properties
             "/actuator/mappings",       // Spring Boot - URL mappings
@@ -396,8 +395,6 @@ impl InformationDisclosureScanner {
             "/heapdump",                // Direct actuator
             "/trace",                   // Direct actuator
             "/dump",                    // Direct actuator
-            "/api/version",             // API version
-            "/api/v1/version",          // API version
             "/__version__",             // Python apps
         ];
 

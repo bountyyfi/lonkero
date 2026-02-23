@@ -59,31 +59,47 @@ impl SpringScanner {
 
     async fn detect_spring(&self, target: &str) -> Result<bool> {
         if let Ok(response) = self.http_client.get(target).await {
+            // Whitelabel Error Page is Spring-specific
             if response.body.contains("Whitelabel Error Page") {
                 return Ok(true);
             }
+            // X-Application-Context header is Spring-specific
             if response.headers.get("x-application-context").is_some() {
                 return Ok(true);
             }
         }
 
-        let spring_paths = vec!["/actuator", "/actuator/health", "/health"];
-        for path in spring_paths {
-            let url = format!("{}{}", target, path);
-            if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 {
-                    if response.body.contains("status") || response.body.contains("UP") {
-                        return Ok(true);
-                    }
+        // Check /actuator which is Spring Boot specific
+        let url = format!("{}/actuator", target);
+        if let Ok(response) = self.http_client.get(&url).await {
+            if response.status_code == 200 {
+                // Require actuator-specific structure, not just any JSON with "status"
+                // /actuator returns a list of _links in Spring Boot
+                if response.body.contains("_links") && response.body.contains("actuator") {
+                    return Ok(true);
+                }
+            }
+        }
+
+        // Check /actuator/health with Spring-specific structure
+        let health_url = format!("{}/actuator/health", target);
+        if let Ok(response) = self.http_client.get(&health_url).await {
+            if response.status_code == 200 {
+                // Spring health endpoint returns {"status":"UP"} - require exact format
+                if response.body.contains("\"status\"") && response.body.contains("\"UP\"") {
+                    return Ok(true);
                 }
             }
         }
 
         let error_url = format!("{}/this-path-does-not-exist-12345", target);
         if let Ok(response) = self.http_client.get(&error_url).await {
-            if response.body.contains("Whitelabel Error Page")
-                || response.body.contains("springframework")
-            {
+            // "Whitelabel Error Page" is unique to Spring Boot
+            if response.body.contains("Whitelabel Error Page") {
+                return Ok(true);
+            }
+            // "org.springframework" is specific enough (package name, not just "springframework")
+            if response.body.contains("org.springframework") {
                 return Ok(true);
             }
         }
@@ -158,10 +174,19 @@ impl SpringScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
+                    // Require actual actuator-specific content, not just any JSON.
+                    // Previously matched `contains("{")` or `len() > 10` which
+                    // matches ANY response and creates massive false positives.
                     let is_actuator = path.contains("heapdump")
-                        || response.body.contains("{")
-                        || response.body.contains("status")
-                        || response.body.len() > 10;
+                        || (response.body.contains("{") && (
+                            response.body.contains("\"status\"")
+                            || response.body.contains("\"_links\"")
+                            || response.body.contains("\"loggers\"")
+                            || response.body.contains("\"levels\"")
+                            || response.body.contains("\"propertySources\"")
+                            || response.body.contains("\"activeProfiles\"")
+                            || response.body.contains("\"dispatcherServlet\"")
+                        ));
 
                     if is_actuator {
                         let cvss = match severity {

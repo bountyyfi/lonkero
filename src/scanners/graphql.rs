@@ -334,36 +334,60 @@ impl GraphQlScanner {
         url: &str,
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let body_lower = response.body.to_lowercase();
+        // Only report if the response contains actual data (not just error messages).
+        // The test query asks for users with password/email fields.
+        // Previously matched generic keywords like "email", "token", "admin" which
+        // appear in error messages, documentation, and GraphQL schema descriptions,
+        // causing massive false positives.
+        //
+        // Now we require:
+        // 1. Response contains "data" key (actual GraphQL data response)
+        // 2. Response does NOT contain "errors" as the primary response
+        // 3. Actual user data pattern (not just keyword mention)
+        let body = &response.body;
+        let body_lower = body.to_lowercase();
 
-        // Check if sensitive fields are exposed
-        let sensitive_indicators = vec![
-            "password",
-            "email",
-            "token",
-            "secret",
-            "admin",
-            "ssn",
-            "credit_card",
-        ];
+        if response.status_code != 200 {
+            return;
+        }
 
-        for indicator in &sensitive_indicators {
-            if body_lower.contains(indicator) && response.status_code == 200 {
-                vulnerabilities.push(self.create_vulnerability(
-                    "GraphQL Authorization Bypass",
-                    url,
-                    Severity::Critical,
-                    Confidence::Medium,
-                    "GraphQL exposes sensitive fields without proper authorization",
-                    format!(
-                        "Sensitive field '{}' accessible without authentication",
-                        indicator
-                    ),
-                    "query { users { id email password } admin { id email } }".to_string(),
-                    8.2,
-                ));
-                break;
-            }
+        // Must be a successful data response, not an error
+        let has_data = body.contains("\"data\"") && !body.contains("\"data\":null");
+        let is_error_only =
+            body.contains("\"errors\"") && (!body.contains("\"data\"") || body.contains("\"data\":null"));
+
+        if !has_data || is_error_only {
+            return;
+        }
+
+        // Look for actual sensitive data patterns - require structured data, not just keywords
+        // Check for password hashes or plaintext passwords in user objects
+        let has_password_data = body_lower.contains("\"password\":")
+            && (body_lower.contains("\"email\":")
+                || body_lower.contains("\"username\":"));
+
+        // Check for actual SSN/credit card data patterns
+        let has_pii_data = body_lower.contains("\"ssn\":")
+            || body_lower.contains("\"credit_card\":")
+            || body_lower.contains("\"social_security\":");
+
+        if has_password_data || has_pii_data {
+            let evidence = if has_password_data {
+                "GraphQL returned user objects with password fields in data response"
+            } else {
+                "GraphQL returned PII data (SSN/credit card) in data response"
+            };
+
+            vulnerabilities.push(self.create_vulnerability(
+                "GraphQL Authorization Bypass",
+                url,
+                Severity::Critical,
+                Confidence::High,
+                "GraphQL exposes sensitive fields without proper authorization",
+                evidence.to_string(),
+                "query { users { id email password } admin { id email } }".to_string(),
+                8.2,
+            ));
         }
     }
 
@@ -392,35 +416,43 @@ impl GraphQlScanner {
     ) {
         let body_lower = response.body.to_lowercase();
 
-        // Check for stack traces or detailed errors
-        let error_indicators = vec![
-            "at ",
-            "line ",
-            "column ",
-            "stack",
-            "exception",
-            "trace",
-            "file:",
-            "resolver",
-            "database",
-            "sql",
-            "query failed",
+        // Only check for ACTUALLY dangerous error disclosure.
+        // GraphQL spec NORMALLY returns "line" and "column" in error locations -
+        // that's standard behavior, NOT information disclosure.
+        // "resolver" is also a normal GraphQL term.
+        // Only flag when we see real backend details like stack traces,
+        // file paths, database info, or exception details.
+        let serious_indicators = vec![
+            "stack",     // Stack trace
+            "exception", // Exception details
+            "trace",     // Trace output
+            "file:",     // File path disclosure
+            "database",  // Database info
+            "sql",       // SQL query leak
+            ".js:",      // JS file path
+            ".py:",      // Python file path
+            ".java:",    // Java file path
+            ".rb:",      // Ruby file path
+            "/app/",     // Server path disclosure
+            "/src/",     // Source path disclosure
+            "/home/",    // Home directory disclosure
         ];
 
         let mut found_indicators = Vec::new();
-        for indicator in &error_indicators {
+        for indicator in &serious_indicators {
             if body_lower.contains(indicator) {
                 found_indicators.push(*indicator);
             }
         }
 
+        // Require at least 2 serious indicators (not standard GraphQL error fields)
         if found_indicators.len() >= 2 {
             vulnerabilities.push(self.create_vulnerability(
                 "GraphQL Verbose Error Messages",
                 url,
                 Severity::Low,
                 Confidence::High,
-                "GraphQL returns verbose error messages - information disclosure",
+                "GraphQL returns verbose error messages with backend details - information disclosure",
                 format!("Error response contains: {:?}", found_indicators),
                 "query { invalid_field_xyz_123 }".to_string(),
                 3.7,

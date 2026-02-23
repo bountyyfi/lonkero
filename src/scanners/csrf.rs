@@ -215,13 +215,22 @@ impl CsrfScanner {
         // 1. APIs typically use token-based auth (Bearer/API key) not cookies
         // 2. CORS prevents cross-origin API requests with credentials
         // 3. Reporting on every API endpoint creates massive false positives
-        let has_state_changing_form = response.body.contains("<form")
-            && (response.body.contains("method=\"post\"")
-                || response.body.contains("method=\"POST\"")
-                || response.body.contains("method='post'")
-                || response.body.contains("method='POST'"));
+        let body_lower = response.body.to_lowercase();
+        let has_state_changing_form = body_lower.contains("<form")
+            && (body_lower.contains("method=\"post\"")
+                || body_lower.contains("method='post'"));
 
-        if has_state_changing_form && !has_csrf_header && !has_csrf_meta {
+        // Also check for hidden CSRF token fields inside forms - these are
+        // valid CSRF protection even without headers/meta tags
+        let has_csrf_hidden_field = body_lower.contains("name=\"_token\"")
+            || body_lower.contains("name=\"csrf_token\"")
+            || body_lower.contains("name=\"_csrf\"")
+            || body_lower.contains("name=\"authenticity_token\"")
+            || body_lower.contains("name=\"csrfmiddlewaretoken\"")
+            || body_lower.contains("type=\"hidden\"")
+                && (body_lower.contains("csrf") || body_lower.contains("token"));
+
+        if has_state_changing_form && !has_csrf_header && !has_csrf_meta && !has_csrf_hidden_field {
             vulnerabilities.push(self.create_vulnerability(
                 "No CSRF Protection Headers",
                 url,

@@ -170,11 +170,12 @@ impl FastApiScanner {
                 }
             }
 
-            // Check for FastAPI error response patterns
+            // Check for FastAPI error response patterns.
+            // Fixed operator precedence: parentheses required for OR+AND.
             if resp.body.contains("HTTPValidationError")
-                || resp.body.contains("\"detail\":")
+                || (resp.body.contains("\"detail\":")
                     && resp.body.contains("\"loc\":")
-                    && resp.body.contains("\"msg\":")
+                    && resp.body.contains("\"msg\":"))
             {
                 is_fastapi = true;
             }
@@ -183,8 +184,10 @@ impl FastApiScanner {
         // Trigger validation error to detect Pydantic responses
         let error_url = format!("{}/?invalid_param=<script>", base);
         if let Ok(resp) = self.http_client.get(&error_url).await {
+            // Fixed operator precedence bug: was `A || B && C` (evaluates as `A || (B && C)`)
+            // but intended `A || (B && C)` - now explicit with parentheses
             if resp.body.contains("HTTPValidationError")
-                || resp.body.contains("\"detail\":") && resp.body.contains("\"type\":")
+                || (resp.body.contains("\"detail\":") && resp.body.contains("\"type\":"))
             {
                 is_fastapi = true;
             }

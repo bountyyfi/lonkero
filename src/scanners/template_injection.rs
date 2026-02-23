@@ -64,6 +64,20 @@ impl TemplateInjectionScanner {
         // Get framework-specific engines based on context
         let engines = self.get_targeted_engines(context);
 
+        // CRITICAL: Fetch baseline response BEFORE injection testing.
+        // Without baseline comparison, indicators like "49" (from 7*7),
+        // "uid=", "root:", etc. that naturally appear in pages will cause
+        // false positives.
+        let baseline_url = if url.contains('?') {
+            format!("{}&{}=lonkero_baseline_test", url, param_name)
+        } else {
+            format!("{}?{}=lonkero_baseline_test", url, param_name)
+        };
+        let baseline_body = match self.http_client.get(&baseline_url).await {
+            Ok(response) => response.body,
+            Err(_) => String::new(),
+        };
+
         for engine in engines {
             let payloads = self.get_engine_payloads(&engine);
 
@@ -85,6 +99,7 @@ impl TemplateInjectionScanner {
                             &description,
                             &test_url,
                             param_name,
+                            &baseline_body,
                         ) {
                             info!("SSTI vulnerability detected: {} - {}", engine, &description);
                             vulnerabilities.push(vuln);
@@ -433,7 +448,9 @@ impl TemplateInjectionScanner {
         }
     }
 
-    /// Analyze response for template injection indicators
+    /// Analyze response for template injection indicators.
+    /// Uses baseline comparison to prevent false positives from indicators
+    /// that naturally appear in the page (e.g., "49" in prices/IDs).
     fn analyze_response(
         &self,
         body: &str,
@@ -442,41 +459,50 @@ impl TemplateInjectionScanner {
         description: &str,
         url: &str,
         param_name: &str,
+        baseline_body: &str,
     ) -> Option<Vulnerability> {
         // Check for mathematical evaluation (7*7 = 49)
+        // CRITICAL: Only report if "49" is NEW (not in baseline response).
+        // "49" appears naturally in prices, IDs, dates, pagination, etc.
         if payload.contains("7*7") {
-            if body.contains("49") {
+            let indicator_is_new = body.contains("49") && !baseline_body.contains("49");
+            if indicator_is_new {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
                     payload,
                     engine,
                     description,
-                    "Template expression evaluated: 7*7 = 49",
+                    "Template expression evaluated: 7*7 = 49 (not present in baseline)",
                     Confidence::High,
                     Severity::Critical,
                 ));
             }
 
-            // Check for "fortynine" or similar
+            // Check for "fortynine" or similar (very unlikely to be in baseline)
             if body.to_lowercase().contains("fortynine")
                 || body.to_lowercase().contains("forty-nine")
             {
-                return Some(self.create_vulnerability(
-                    url,
-                    param_name,
-                    payload,
-                    engine,
-                    description,
-                    "Mathematical expression evaluated in template (textual)",
-                    Confidence::High,
-                    Severity::Critical,
-                ));
+                let textual_is_new = !baseline_body.to_lowercase().contains("fortynine")
+                    && !baseline_body.to_lowercase().contains("forty-nine");
+                if textual_is_new {
+                    return Some(self.create_vulnerability(
+                        url,
+                        param_name,
+                        payload,
+                        engine,
+                        description,
+                        "Mathematical expression evaluated in template (textual)",
+                        Confidence::High,
+                        Severity::Critical,
+                    ));
+                }
             }
         }
 
         // Check for string multiplication (7*'7' = 7777777)
-        if payload.contains("7*'7'") && body.contains("7777777") {
+        // "7777777" is very specific and unlikely to be in baseline, but check anyway
+        if payload.contains("7*'7'") && body.contains("7777777") && !baseline_body.contains("7777777") {
             return Some(self.create_vulnerability(
                 url,
                 param_name,
@@ -570,27 +596,29 @@ impl TemplateInjectionScanner {
             ));
         }
 
-        // Check for command execution output
+        // Check for command execution output.
+        // CRITICAL: Only report if indicator is NEW (not in baseline).
+        // Indicators like "uid=", "/usr/", "root:" naturally appear in
+        // many pages (user profiles, documentation, system info pages).
         let cmd_indicators = vec![
             "uid=",
             "gid=", // Unix id command
-            "root:",
-            "user:", // User info
-            "/bin/",
-            "/usr/", // Paths
+            "root:x:",       // /etc/passwd format (more specific than "root:")
+            "/bin/bash",
+            "/bin/sh", // Specific shell paths
             "Administrator",
             "SYSTEM", // Windows
         ];
 
         for indicator in cmd_indicators {
-            if body.contains(indicator) {
+            if body.contains(indicator) && !baseline_body.contains(indicator) {
                 return Some(self.create_vulnerability(
                     url,
                     param_name,
                     payload,
                     engine,
                     description,
-                    &format!("Command execution detected: {}", indicator),
+                    &format!("Command execution detected: {} (not present in baseline)", indicator),
                     Confidence::High,
                     Severity::Critical,
                 ));
@@ -693,7 +721,9 @@ mod tests {
     fn test_analyze_jinja2_math_evaluation() {
         let scanner = create_test_scanner();
 
+        // "49" is NOT in the baseline, so it should be detected as SSTI
         let body = "Result: 49";
+        let baseline = "Result: placeholder";
         let result = scanner.analyze_response(
             body,
             "{{7*7}}",
@@ -701,6 +731,7 @@ mod tests {
             "Math evaluation",
             "http://example.com",
             "template",
+            baseline,
         );
 
         assert!(result.is_some());
@@ -710,10 +741,31 @@ mod tests {
     }
 
     #[test]
+    fn test_analyze_jinja2_math_false_positive() {
+        let scanner = create_test_scanner();
+
+        // "49" IS in the baseline, so it should NOT be detected (false positive prevention)
+        let body = "Page 49 of 100";
+        let baseline = "Page 49 of 100";
+        let result = scanner.analyze_response(
+            body,
+            "{{7*7}}",
+            "jinja2",
+            "Math evaluation",
+            "http://example.com",
+            "template",
+            baseline,
+        );
+
+        assert!(result.is_none(), "Should not report 49 when it's already in baseline");
+    }
+
+    #[test]
     fn test_analyze_string_multiplication() {
         let scanner = create_test_scanner();
 
         let body = "Output: 7777777";
+        let baseline = "Output: placeholder";
         let result = scanner.analyze_response(
             body,
             "{{7*'7'}}",
@@ -721,6 +773,7 @@ mod tests {
             "String multiplication",
             "http://example.com",
             "name",
+            baseline,
         );
 
         assert!(result.is_some());
@@ -733,6 +786,7 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "<class 'flask.config.Config'>";
+        let baseline = "Normal response";
         let result = scanner.analyze_response(
             body,
             "{{config}}",
@@ -740,6 +794,7 @@ mod tests {
             "Config access",
             "http://example.com",
             "template",
+            baseline,
         );
 
         assert!(result.is_some());
@@ -752,6 +807,7 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "uid=1000(user) gid=1000(user)";
+        let baseline = "Normal page content";
         let result = scanner.analyze_response(
             body,
             "{{''.__class__.__mro__[1].__subclasses__()}}",
@@ -759,6 +815,7 @@ mod tests {
             "RCE attempt",
             "http://example.com",
             "data",
+            baseline,
         );
 
         assert!(result.is_some());
@@ -772,6 +829,7 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "FreeMarker Template Error";
+        let baseline = "";
         let result = scanner.analyze_response(
             body,
             "${7*7}",
@@ -779,6 +837,7 @@ mod tests {
             "Math evaluation",
             "http://example.com",
             "view",
+            baseline,
         );
 
         assert!(result.is_some());
@@ -791,6 +850,7 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "Twig_Environment object";
+        let baseline = "";
         let result = scanner.analyze_response(
             body,
             "{{_self.env}}",
@@ -798,6 +858,7 @@ mod tests {
             "Environment access",
             "http://example.com",
             "template",
+            baseline,
         );
 
         assert!(result.is_some());
@@ -808,6 +869,7 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "Smarty version 3.1.39";
+        let baseline = "";
         let result = scanner.analyze_response(
             body,
             "{$smarty.version}",
@@ -815,6 +877,7 @@ mod tests {
             "Version detection",
             "http://example.com",
             "page",
+            baseline,
         );
 
         assert!(result.is_some());
@@ -827,8 +890,10 @@ mod tests {
         let scanner = create_test_scanner();
 
         let body = "Normal page content without template injection";
-        let result =
-            scanner.analyze_response(body, "{{7*7}}", "jinja2", "Test", "http://example.com", "q");
+        let baseline = "";
+        let result = scanner.analyze_response(
+            body, "{{7*7}}", "jinja2", "Test", "http://example.com", "q", baseline,
+        );
 
         assert!(result.is_none());
     }

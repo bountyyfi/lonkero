@@ -277,18 +277,19 @@ impl SamlScanner {
         url: &str,
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        // If the response suggests the injected comment was processed
-        if response.status_code == 200
-            && (response.body.contains("attacker@evil.com")
-                || response.body.contains("authenticated"))
-        {
+        // Only report if the SPECIFIC injected email address appears in the response.
+        // Previously this also checked for the generic keyword "authenticated" which
+        // produces massive false positives - any successful page load could contain
+        // that word in navigation, status messages, etc.
+        if response.status_code == 200 && response.body.contains("attacker@evil.com") {
             vulnerabilities.push(self.create_vulnerability(
                 "SAML Comment Injection",
                 url,
                 Severity::Critical,
-                Confidence::Medium,
+                Confidence::High,
                 "SAML parser vulnerable to XML comment injection - authentication bypass",
-                "Comment injection payload was processed".to_string(),
+                "Comment injection payload was processed: attacker@evil.com found in response"
+                    .to_string(),
                 8.8,
             ));
         }
@@ -416,17 +417,18 @@ impl SamlScanner {
         url: &str,
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        // If response suggests multiple assertions were accepted
-        if response.status_code == 200
-            && (response.body.contains("authenticated") || response.body.contains("success"))
-        {
+        // Check if the SPECIFIC attacker email from our payload appears in the response,
+        // indicating the second assertion was processed instead of the first.
+        // Previously checked for generic "authenticated" or "success" keywords which
+        // causes false positives on any page that naturally contains these words.
+        if response.status_code == 200 && response.body.contains("attacker@example.com") {
             vulnerabilities.push(self.create_vulnerability(
                 "SAML Token Substitution Risk",
                 url,
                 Severity::High,
-                Confidence::Low,
+                Confidence::Medium,
                 "SAML endpoint may be vulnerable to token substitution attacks",
-                "Multiple assertions in response may be improperly validated".to_string(),
+                "Attacker assertion email (attacker@example.com) found in response".to_string(),
                 6.8,
             ));
         }

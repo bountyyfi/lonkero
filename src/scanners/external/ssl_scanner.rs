@@ -675,16 +675,12 @@ impl SslScanner {
             }
         }
 
-        // Check for 0-RTT replay attacks (TLS 1.3)
-        if protocols.tls_v1_3 {
-            vulnerabilities.push(SslVulnerability {
-                name: "TLS 1.3 0-RTT Replay Risk".to_string(),
-                severity: "LOW".to_string(),
-                description: "TLS 1.3 0-RTT early data may be vulnerable to replay attacks. Ensure application-layer protection.".to_string(),
-                affected_versions: vec!["TLSv1.3".to_string()],
-                cve_ids: Vec::new(),
-            });
-        }
+        // Note: TLS 1.3 0-RTT replay risk is NOT reported here because:
+        // 1. 0-RTT is an optional feature that clients opt into
+        // 2. Most servers don't enable 0-RTT by default
+        // 3. Detecting actual 0-RTT support requires specific TLS handshake inspection
+        // 4. Reporting on ALL TLS 1.3 servers creates massive false positives
+        // This would need actual 0-RTT negotiation testing to be reliable.
 
         // Check for weak ciphers (RC4, DES, 3DES, NULL, ANON)
         for cipher in cipher_suites {

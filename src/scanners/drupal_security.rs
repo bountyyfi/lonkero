@@ -1405,7 +1405,10 @@ impl DrupalSecurityScanner {
         for path in php_filter_paths {
             let test_url = format!("{}{}", base_url, path);
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 || response.status_code == 403 {
+                // Only report if directory is ACCESSIBLE (200), not blocked (403).
+                // A 403 means the web server is blocking access, which is PROTECTION.
+                // The module directory existing but being blocked is not a vulnerability.
+                if response.status_code == 200 {
                     vulnerabilities.push(Vulnerability {
                         id: format!("drupal_php_filter_{}", Self::generate_id()),
                         vuln_type: "Drupal PHP Filter Module Detected".to_string(),
@@ -1415,10 +1418,10 @@ impl DrupalSecurityScanner {
                         url: test_url,
                         parameter: None,
                         payload: path.to_string(),
-                        description: "PHP Filter module appears to be present. \
+                        description: "PHP Filter module appears to be present and accessible. \
                             This module allows PHP code execution in content and is highly dangerous. \
                             It should never be enabled in production.".to_string(),
-                        evidence: Some("PHP filter module directory detected".to_string()),
+                        evidence: Some("PHP filter module directory accessible (200 OK)".to_string()),
                         cwe: "CWE-94".to_string(),
                         cvss: 8.1,
                         verified: true,
