@@ -591,9 +591,12 @@ impl JwtScanner {
 
     /// Check if response indicates elevated privileges
     fn is_elevated_privileges(&self, response: &HttpResponse) -> bool {
-        response.body.to_lowercase().contains("admin")
-            || response.body.to_lowercase().contains("superuser")
-            || response.body.to_lowercase().contains("administrator")
+        let body_lower = response.body.to_lowercase();
+        // Require role/privilege context, not just the word "admin" appearing anywhere
+        (body_lower.contains("\"role\":") || body_lower.contains("\"role\" :"))
+            && (body_lower.contains("\"admin\"") || body_lower.contains("\"superuser\"") || body_lower.contains("\"administrator\""))
+        || body_lower.contains("\"is_admin\":true") || body_lower.contains("\"is_admin\": true")
+        || body_lower.contains("\"is_superuser\":true") || body_lower.contains("\"is_superuser\": true")
     }
 
     /// Create vulnerability record

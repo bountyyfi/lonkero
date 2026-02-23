@@ -1057,7 +1057,7 @@ impl DrupalSecurityScanner {
                     && (response.body.contains("\"data\"")
                         || response.body.contains("\"links\"")
                         || response.body.contains("\"jsonapi\"")
-                        || response.body.contains("services"))
+                        || response.body.contains("\"services\""))
                 {
                     vulnerabilities.push(Vulnerability {
                         id: format!("drupal_api_exposed_{}", Self::generate_id()),

@@ -396,6 +396,8 @@ impl InformationDisclosureScanner {
             "/trace",                   // Direct actuator
             "/dump",                    // Direct actuator
             "/__version__",             // Python apps
+            "/health",                  // Health endpoint - only flagged if it leaks version info
+            "/actuator/health",         // Spring Boot health - may expose component details
         ];
 
         for endpoint in debug_endpoints {
@@ -900,7 +902,6 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detection_helpers::AppCharacteristics;
     use crate::http_client::HttpClient;
     use std::sync::Arc;
 
@@ -947,11 +948,11 @@ mod tests {
 
         let mut headers = std::collections::HashMap::new();
         headers.insert("Server".to_string(), "Apache/2.4.41".to_string());
-        assert!(scanner.detect_server_disclosure(&headers));
+        assert!(scanner.detect_server_disclosure(&headers).is_some());
 
         let mut headers2 = std::collections::HashMap::new();
         headers2.insert("X-Powered-By".to_string(), "PHP/7.4.3".to_string());
-        assert!(scanner.detect_server_disclosure(&headers2));
+        assert!(scanner.detect_server_disclosure(&headers2).is_some());
     }
 
     #[test]

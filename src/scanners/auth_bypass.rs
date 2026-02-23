@@ -361,7 +361,12 @@ impl AuthBypassScanner {
         if response.status_code == 200 {
             let body_lower = response.body.to_lowercase();
 
-            if body_lower.contains("admin") || body_lower.contains("dashboard") {
+            // Require actual admin panel content, not just the word "admin" anywhere
+            let has_admin_content = body_lower.contains("admin panel")
+                || body_lower.contains("admin dashboard")
+                || (body_lower.contains("\"role\"") && body_lower.contains("\"admin\""))
+                || body_lower.contains("manage users");
+            if has_admin_content {
                 vulnerabilities.push(self.create_vulnerability(
                     "Header Manipulation Authentication Bypass",
                     url,
@@ -394,7 +399,12 @@ impl AuthBypassScanner {
         if response.status_code == 200 {
             let body_lower = response.body.to_lowercase();
 
-            if body_lower.contains("admin") || body_lower.contains("dashboard") {
+            // Require actual admin panel content, not just the word "admin" anywhere
+            let has_admin_content = body_lower.contains("admin panel")
+                || body_lower.contains("admin dashboard")
+                || (body_lower.contains("\"role\"") && body_lower.contains("\"admin\""))
+                || body_lower.contains("manage users");
+            if has_admin_content {
                 vulnerabilities.push(self.create_vulnerability(
                     "Path Traversal Authentication Bypass",
                     url,
@@ -1504,13 +1514,13 @@ References:
                     let body_lower = response.body.to_lowercase();
 
                     // Check if we got actual protected content (not login redirect)
-                    let has_protected_content = (body_lower.contains("user")
-                        && body_lower.contains("email"))
-                        || body_lower.contains("settings")
-                        || body_lower.contains("configuration")
-                        || body_lower.contains("dashboard")
+                    // Require specific protected-area indicators, not generic words
+                    let has_protected_content = (body_lower.contains("\"email\":")
+                        && body_lower.contains("\"username\":"))
                         || body_lower.contains("admin panel")
-                        || body_lower.contains("management");
+                        || body_lower.contains("admin dashboard")
+                        || (body_lower.contains("\"role\"") && body_lower.contains("\"admin\""))
+                        || body_lower.contains("manage users");
 
                     let is_login_page = body_lower.contains("login")
                         && body_lower.contains("password")

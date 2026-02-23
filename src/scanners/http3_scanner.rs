@@ -222,9 +222,10 @@ impl Http3Scanner {
             match self.http_client.get_with_headers(url, headers).await {
                 Ok(response) => {
                     if response.status_code == 200 {
-                        if response.body.to_lowercase().contains("injected")
-                            || response.body.to_lowercase().contains("admin")
-                            || response.body.to_lowercase().contains("evil")
+                        // Check for header injection evidence - require the injected value, not generic words
+                        if response.body.to_lowercase().contains("x-injected")
+                            || response.body.contains("evil.com")
+                            || response.headers.get("x-injected").is_some()
                         {
                             info!("Header injection detected: {}", attack_type);
                             vulnerabilities.push(self.create_vulnerability(

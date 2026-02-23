@@ -878,6 +878,18 @@ impl AspNetScanner {
 
                     let has_sensitive = sensitive_patterns.iter().any(|p| resp.body.contains(p));
 
+                    // Also verify it's actually an ASP.NET config file, not a generic page
+                    let is_config_file = resp.body.contains("<configuration")
+                        || resp.body.contains("<appSettings")
+                        || resp.body.contains("<connectionStrings")
+                        || (resp.body.trim().starts_with('{') && resp.body.contains("\"ConnectionStrings\""))
+                        || resp.body.contains("<?xml");
+
+                    // Only report if it has sensitive content OR is actually a config file
+                    if !has_sensitive && !is_config_file {
+                        continue;
+                    }
+
                     let final_severity = if has_sensitive {
                         Severity::Critical
                     } else {

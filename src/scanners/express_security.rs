@@ -1334,18 +1334,19 @@ impl ExpressSecurityScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
 
-                    // Check for dangerous functionality
+                    // Check for dangerous functionality - require interactive/executable indicators
                     let danger_indicators = [
-                        "eval", "exec", "spawn", "shell", "command", "query", "sql", "mongo",
-                        "redis",
+                        "eval(", "exec(", "spawn(", "child_process", "require(\"",
+                        "process.env", "db.query", "mongoose.", "redis.get",
                     ];
 
                     let found: Vec<_> = danger_indicators
                         .iter()
-                        .filter(|i| body.to_lowercase().contains(*i))
+                        .filter(|i| body.to_lowercase().contains(&i.to_lowercase()))
                         .collect();
 
-                    if !found.is_empty() || body.len() > 50 {
+                    // Only flag if actual dangerous patterns found, not just any non-empty response
+                    if !found.is_empty() {
                         vulnerabilities.push(Vulnerability {
                             id: format!("express_debug_endpoint_{}", Self::generate_id()),
                             vuln_type: format!("{} Endpoint Exposed", name),
