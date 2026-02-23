@@ -1446,9 +1446,9 @@ dependencies = [
 
 [[package]]
 name = "headless_chrome"
-version = "1.0.20"
+version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "082c435ae636f62394526fe9c4c6b796efc1cec950c664456a44e5233ac5e2b8"
+checksum = "333344ecb4b6a91ddd2e6a3c4fdb54aaddfbd2c82847f9c58fe42dd88afcf08e"
 dependencies = [
  "anyhow",
  "auto_generate_cdp",
