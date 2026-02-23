@@ -787,7 +787,10 @@ impl LaravelSecurityScanner {
                     && (response.body.contains("[stacktrace]")
                         || response.body.contains("production.ERROR")
                         || response.body.contains("local.ERROR"));
-                let is_session_dir = path.contains("sessions") && response.status_code == 200;
+                // Require specific Laravel session directory path, not bare "sessions"
+                let is_session_dir = (path.contains("/framework/sessions") || path.contains("/storage/framework/sessions"))
+                    && response.status_code == 200
+                    && (response.body.contains("eyJ") || response.body.len() > 100);
 
                 if is_directory_listing {
                     vulnerabilities.push(Vulnerability {

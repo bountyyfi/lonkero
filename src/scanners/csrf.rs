@@ -56,7 +56,15 @@ impl CsrfScanner {
         }
 
         // Test 2: Check if state-changing operations allow GET
-        if url.contains("delete") || url.contains("remove") || url.contains("update") {
+        // Use path segment matching to avoid FPs on /blog/deleted-posts, /remote-services, etc.
+        let url_lower = url.to_lowercase();
+        let has_state_change_path = url_lower.contains("/delete")
+            || url_lower.contains("/remove/")
+            || url_lower.contains("/update/")
+            || url_lower.contains("action=delete")
+            || url_lower.contains("action=remove")
+            || url_lower.contains("action=update");
+        if has_state_change_path {
             tests_run += 1;
             if let Ok(response) = self.http_client.get(url).await {
                 self.check_state_change_via_get(&response, url, &mut vulnerabilities);

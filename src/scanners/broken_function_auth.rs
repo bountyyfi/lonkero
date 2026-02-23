@@ -768,25 +768,23 @@ impl BrokenFunctionAuthScanner {
     fn classify_path_privilege(&self, path: &str) -> PrivilegeLevel {
         let path_lower = path.to_lowercase();
 
-        if path_lower.contains("superadmin") || path_lower.contains("super_admin") {
+        // Use path segment boundaries to avoid matching "badminton", "international", etc.
+        let segments: Vec<&str> = path_lower.split('/').collect();
+        let has_segment = |keyword: &str| segments.iter().any(|s| *s == keyword || s.starts_with(&format!("{}?", keyword)));
+
+        if has_segment("superadmin") || has_segment("super_admin") || has_segment("super-admin") {
             return PrivilegeLevel::SuperAdmin;
         }
 
-        if path_lower.contains("admin")
-            || path_lower.contains("management")
-            || path_lower.contains("system")
-        {
+        if has_segment("admin") || has_segment("management") || has_segment("system") {
             return PrivilegeLevel::Admin;
         }
 
-        if path_lower.contains("internal")
-            || path_lower.contains("moderate")
-            || path_lower.contains("elevated")
-        {
+        if has_segment("internal") || has_segment("moderate") || has_segment("elevated") {
             return PrivilegeLevel::Elevated;
         }
 
-        if path_lower.contains("user") || path_lower.contains("account") {
+        if has_segment("users") || has_segment("account") || has_segment("user") {
             return PrivilegeLevel::Authenticated;
         }
 
@@ -796,31 +794,25 @@ impl BrokenFunctionAuthScanner {
     /// Classify function category
     fn classify_function_category(&self, path: &str) -> FunctionCategory {
         let path_lower = path.to_lowercase();
+        let segments: Vec<&str> = path_lower.split('/').collect();
+        let has_segment = |keyword: &str| segments.iter().any(|s| *s == keyword || s.starts_with(&format!("{}?", keyword)));
 
-        if path_lower.contains("user") || path_lower.contains("account") {
+        if has_segment("users") || has_segment("user") || has_segment("account") || has_segment("accounts") {
             return FunctionCategory::UserManagement;
         }
-        if path_lower.contains("config") || path_lower.contains("setting") {
+        if has_segment("config") || has_segment("settings") || has_segment("configuration") {
             return FunctionCategory::Configuration;
         }
-        if path_lower.contains("export")
-            || path_lower.contains("import")
-            || path_lower.contains("backup")
-        {
+        if has_segment("export") || has_segment("import") || has_segment("backup") {
             return FunctionCategory::DataExport;
         }
-        if path_lower.contains("system")
-            || path_lower.contains("restart")
-            || path_lower.contains("shutdown")
-        {
+        if has_segment("system") || has_segment("restart") || has_segment("shutdown") {
             return FunctionCategory::SystemOperations;
         }
-        if path_lower.contains("audit") || path_lower.contains("log") {
+        if has_segment("audit") || has_segment("logs") {
             return FunctionCategory::AuditLogs;
         }
-        if path_lower.contains("billing")
-            || path_lower.contains("payment")
-            || path_lower.contains("invoice")
+        if has_segment("billing") || has_segment("payment") || has_segment("invoice")
         {
             return FunctionCategory::FinancialOps;
         }

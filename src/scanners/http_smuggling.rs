@@ -606,11 +606,15 @@ impl HTTPSmugglingScanner {
             .send_double_request(&host, port, &request3, "GET / HTTP/1.1")
             .await
         {
-            // Look for admin-related content or access denial
-            if second_response.contains("admin")
-                || second_response.contains("unauthorized")
-                || second_response.contains("forbidden")
-            {
+            // Look for evidence that the smuggled request to /admin was processed
+            // Require specific admin interface content, not just the word "admin"
+            let second_lower = second_response.to_lowercase();
+            let has_smuggling_evidence = second_lower.contains("admin panel")
+                || second_lower.contains("admin dashboard")
+                || second_lower.contains("manage users")
+                || (second_lower.contains("401") && second_lower.contains("/admin"))
+                || (second_lower.contains("403") && second_lower.contains("/admin"));
+            if has_smuggling_evidence {
                 info!("TE.CL smuggling detected: Admin path test");
                 vulnerabilities.push(self.create_vulnerability(
                     url,
