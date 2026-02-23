@@ -881,8 +881,14 @@
   }
 
   // Expose to window (non-enumerable to avoid fingerprinting)
-  if (!window.formFuzzer) {
+  // Use try/catch: if a broken stub was set by a prior failed injection,
+  // Object.defineProperty overrides it (stubs are configurable).  If the
+  // real scanner already exists (non-configurable), the error is caught and
+  // the existing instance is kept.
+  try {
     Object.defineProperty(window, 'formFuzzer', { value: new SmartFormFuzzer(), configurable: false, enumerable: false });
+  } catch (e) {
+    // Real scanner already loaded — keep existing instance
   }
 
   console.log('[Lonkero] Smart Form Fuzzer v2.1 loaded');

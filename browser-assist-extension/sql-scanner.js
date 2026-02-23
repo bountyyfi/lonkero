@@ -765,7 +765,11 @@
   // EXPOSE API
   // ============================================================
 
-  if (!window.sqlScanner) {
+  // Use try/catch: if a broken stub was set by a prior failed injection,
+  // Object.defineProperty overrides it (stubs are configurable).  If the
+  // real scanner already exists (non-configurable), the error is caught and
+  // the existing instance is kept.
+  try {
     Object.defineProperty(window, 'sqlScanner', { value: {
       quickScan,
       scan,
@@ -774,6 +778,8 @@
       getFindings: () => findings,
       clearFindings: () => { findings.length = 0; testedParams.clear(); },
     }, configurable: false, enumerable: false });
+  } catch (e) {
+    // Real scanner already loaded — keep existing instance
   }
 
   // Listen for scan requests from content script (nonce+channel validated)

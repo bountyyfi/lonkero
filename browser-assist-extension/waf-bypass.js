@@ -1165,13 +1165,17 @@
   // PUBLIC API
   // ============================================
 
-  if (!window.wafBypass) Object.defineProperty(window, 'wafBypass', { value: {
+  // Use try/catch: if a broken stub was set by a prior failed injection,
+  // Object.defineProperty overrides it (stubs are configurable).  If the
+  // real scanner already exists (non-configurable), the error is caught and
+  // the existing instance is kept.
+  try { Object.defineProperty(window, 'wafBypass', { value: {
     scan,
     cancel,
     getFindings: () => [...findings],
     getProgress: () => ({ ..._progress }),
     clearFindings: () => { findings.length = 0; },
-  }, configurable: false, enumerable: false });
+  }, configurable: false, enumerable: false }); } catch (e) { /* Real scanner already loaded */ }
 
   // Listen for scan requests
   window.addEventListener('message', (event) => {

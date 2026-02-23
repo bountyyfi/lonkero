@@ -2989,7 +2989,11 @@
   // PUBLIC API
   // ============================================
 
-  if (!window.xssScanner) Object.defineProperty(window, 'xssScanner', { value: {
+  // Use try/catch: if a broken stub was set by a prior failed injection,
+  // Object.defineProperty overrides it (stubs are configurable).  If the
+  // real scanner already exists (non-configurable), the error is caught and
+  // the existing instance is kept.
+  try { Object.defineProperty(window, 'xssScanner', { value: {
     // Full comprehensive scan (current page)
     scan: comprehensiveScan,
 
@@ -3108,7 +3112,7 @@
     analyzeContext,
     analyzeEscaping,
     parseDomStructure,
-  }, configurable: false, enumerable: false);
+  }, configurable: false, enumerable: false }); } catch (e) { /* Real scanner already loaded */ }
 
   // ============================================
   // AUTO-RUN & EVENT LISTENERS

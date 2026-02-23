@@ -4002,26 +4002,27 @@
     _t('content_init', { host: location.hostname });
     injectLicenseKey();
 
+    // Inject scanner scripts immediately after license key — they just define
+    // window.* objects and don't need DOMContentLoaded.  This prevents a race
+    // where the __lk_c element is removed (2 s timer) before DOMContentLoaded
+    // fires on slow-loading pages, which would cause scanners to create broken
+    // stubs instead of real instances.
+    injectFormFuzzer();
+    injectGraphQLFuzzer();
+    injectMerlin();
+    injectXSSScanner();
+    injectCMSScanner();
+
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
         injectRequestInterceptors();
         injectDOMHooks();
         init();
-        injectFormFuzzer();
-        injectGraphQLFuzzer();
-        injectMerlin();
-        injectXSSScanner();
-        injectCMSScanner();
       });
     } else {
       injectRequestInterceptors();
       injectDOMHooks();
       init();
-      injectFormFuzzer();
-      injectGraphQLFuzzer();
-      injectMerlin();
-      injectXSSScanner();
-      injectCMSScanner();
     }
 
     // Watch for dynamically added scripts (catches lazy-loaded chunks in Next.js, webpack, etc.)
@@ -4044,8 +4045,8 @@
         setTimeout(() => {
           checkSources();
           checkPrototypePollution();
-          // Re-inject form fuzzer if it's gone
-          if (!window.formFuzzer) {
+          // Re-inject form fuzzer if it's gone or is a broken stub
+          if (!window.formFuzzer || typeof window.formFuzzer.discoverAndFuzzForms !== 'function') {
             injectFormFuzzer();
           }
         }, 500);
