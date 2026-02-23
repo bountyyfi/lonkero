@@ -655,7 +655,7 @@
     detectFrameworks,
     getFindings: () => findings,
     clearFindings: () => { findings.length = 0; },
-  }, configurable: false, enumerable: false);
+  }, configurable: false, enumerable: false });
 
   // Listen for scan requests (nonce+channel validated)
   window.addEventListener('message', (event) => {

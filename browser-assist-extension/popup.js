@@ -1336,7 +1336,7 @@ document.getElementById('cmsScanBtn')?.addEventListener('click', () => {
 
     // Inject license context first, then CMS and framework scanners
     injectLicenseContext(tabId).then(() => {
-      return Promise.all([
+      return Promise.allSettled([
         chrome.scripting.executeScript({
           target: { tabId: tabId },
           world: 'MAIN',

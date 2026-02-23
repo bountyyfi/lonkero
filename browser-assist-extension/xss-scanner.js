@@ -3108,7 +3108,7 @@
     analyzeContext,
     analyzeEscaping,
     parseDomStructure,
-  }, configurable: false, enumerable: false);
+  }, configurable: false, enumerable: false });
 
   // ============================================
   // AUTO-RUN & EVENT LISTENERS
