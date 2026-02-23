@@ -1609,22 +1609,20 @@ impl CommandInjectionScanner {
                 }
             }
             DetectionMethod::ErrorBased => {
-                // Check for error messages that indicate command execution
+                // Check for shell-specific error messages that indicate command execution
+                // Removed generic patterns: "syntax error" (JS parsers), "not found" (404 pages),
+                // "no such file" (file APIs), "permission denied" (normal auth),
+                // "unexpected token" (JSON parsers), "not recognized" (generic errors)
                 let error_indicators = vec![
                     "sh:",
                     "bash:",
                     "cmd.exe",
-                    "powershell",
+                    "powershell.exe",
+                    "/bin/sh:",
+                    "/bin/bash:",
                     "command not found",
-                    "syntax error",
-                    "unexpected token",
-                    "not recognized",
-                    "invalid option",
                     "missing operand",
-                    "no such file",
-                    "permission denied",
-                    "cannot execute",
-                    "not found",
+                    "cannot execute binary file",
                 ];
 
                 for indicator in error_indicators {

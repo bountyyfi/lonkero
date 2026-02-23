@@ -1986,9 +1986,11 @@ impl SsrfScanner {
         let baseline_lower = baseline.body.to_lowercase();
 
         let size_diff = (response.body.len() as i64 - baseline.body.len() as i64).abs();
-        let significant_change = size_diff > 50 || response.status_code != baseline.status_code;
+        // Require substantial size change — dynamic pages vary by 50-200 bytes naturally
+        let significant_change = size_diff > 200 || response.status_code != baseline.status_code;
 
-        // AWS indicators
+        // AWS indicators — removed "token" (appears in any OAuth/JWT response)
+        // and "meta-data" (appears in documentation)
         let aws_indicators = [
             "ami-id",
             "instance-id",
@@ -1996,22 +1998,18 @@ impl SsrfScanner {
             "iam/security-credentials",
             "accesskeyid",
             "secretaccesskey",
-            "token",
-            "meta-data",
             "user-data",
             "public-ipv4",
             "local-ipv4",
             "instance-type",
         ];
 
-        // GCP indicators
+        // GCP indicators — removed "access_token" and "token_type" (common in OAuth responses)
         let gcp_indicators = [
             "computemetadata",
             "service-accounts",
             "project-id",
             "instance/zone",
-            "access_token",
-            "token_type",
         ];
 
         // Azure indicators
@@ -2026,16 +2024,14 @@ impl SsrfScanner {
 
         // Internal service indicators - use specific version/protocol patterns
         // Removed "nginx", "apache", "mysql", "postgresql" which appear on tech stack pages
+        // Removed "uid=", "gid=" which appear in user management APIs
         let internal_indicators = [
-            "root:x:",
-            "daemon:x:",
+            "root:x:0:0:",       // Specific /etc/passwd format
             "redis_version:",     // Redis INFO output
             "cluster_enabled:",   // Redis INFO output
             "\"cluster_name\":",  // Elasticsearch cluster response
             "\"tagline\":\"You Know, for Search\"", // Elasticsearch default response
-            "mongodb server",
-            "uid=",
-            "gid=",
+            "mongodb server information",
         ];
 
         for indicator in &aws_indicators {
