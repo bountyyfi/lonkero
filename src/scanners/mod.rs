@@ -3093,7 +3093,7 @@ impl ScanEngine {
                         // Require specific internal service fingerprints
                         // Removed "SSH-" which matches documentation about SSH versions
                         let has_internal_response =
-                            response.body.contains("root:x:0") || response.body.contains("SSH-2.0-OpenSSH");
+                            response.body.contains("root:x:0:0:") || response.body.contains("SSH-2.0-OpenSSH");
 
                         if has_metadata || has_internal_response {
                             info!("SSRF vulnerability detected in parameter '{}'", param_name);

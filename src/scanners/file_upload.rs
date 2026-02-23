@@ -792,7 +792,7 @@ impl FileUploadScanner {
             // Require specific localhost/internal service content, not bare "admin"
             let has_ssrf_evidence = evidence.contains("127.0.0.1")
                 || evidence.contains("localhost")
-                || evidence.contains("root:x:0")
+                || evidence.contains("root:x:0:0:")
                 || evidence.contains("admin panel")
                 || evidence.contains("admin dashboard")
                 || evidence.contains("tomcat manager");

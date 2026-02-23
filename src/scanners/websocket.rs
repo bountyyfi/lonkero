@@ -726,9 +726,7 @@ impl WebSocketScanner {
                     // "total " (matches any page with totals)
                     if response.contains("uid=")
                         || response.contains("gid=")
-                        || response.contains("root:x:0")
-                        || response.contains("/bin/bash")
-                        || response.contains("/bin/sh")
+                        || response.contains("root:x:0:0:")
                     {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket Command Injection",
