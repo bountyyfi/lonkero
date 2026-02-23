@@ -198,7 +198,7 @@ impl SensitiveDataScanner {
 
         // .env file exposure
         if path.contains(".env") {
-            let env_patterns = ["db_password=", "api_key=", "secret=", "password=", "token="];
+            let env_patterns = ["db_password=", "api_key=", "secret_key=", "app_secret=", "aws_secret_access_key="];
             if env_patterns.iter().any(|p| body_lower.contains(p)) {
                 return Some(self.create_vulnerability(
                     "Environment File Exposed",
@@ -230,15 +230,28 @@ impl SensitiveDataScanner {
             }
         }
 
-        // Configuration files
-        if path.contains("config") || path.contains("wp-config") || path.contains("web.config") {
+        // Configuration files - use specific config file extensions/names, not bare "config"
+        let is_config_file = path.ends_with(".conf")
+            || path.ends_with(".cfg")
+            || path.ends_with(".ini")
+            || path.ends_with(".yaml")
+            || path.ends_with(".yml")
+            || path.contains("wp-config.php")
+            || path.contains("web.config")
+            || path.contains("application.properties")
+            || path.contains("settings.py");
+        if is_config_file {
+            // Require credential assignment patterns, not just the word "password"
             let cred_patterns = [
-                "password",
-                "username",
-                "db_name",
-                "db_user",
+                "password=",
+                "password:",
+                "password\":",
                 "db_password",
-                "db_host",
+                "db_user=",
+                "db_host=",
+                "db_name=",
+                "secret_key=",
+                "secret_key:",
             ];
             if cred_patterns.iter().any(|p| body_lower.contains(p)) {
                 return Some(self.create_vulnerability(

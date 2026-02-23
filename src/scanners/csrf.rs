@@ -147,11 +147,17 @@ impl CsrfScanner {
                 let cookie_lower = cookie.to_lowercase();
 
                 // Check if it's a session cookie (common patterns)
-                let is_session_cookie = cookie_lower.contains("session")
-                    || cookie_lower.contains("auth")
-                    || cookie_lower.contains("token")
+                // Use specific session cookie names, not bare "auth"/"token" which
+                // match analytics cookies (google_analytics_token), CSRF tokens, etc.
+                let is_session_cookie = cookie_lower.contains("session_id")
+                    || cookie_lower.contains("sessionid")
                     || cookie_lower.contains("jsessionid")
-                    || cookie_lower.contains("phpsessid");
+                    || cookie_lower.contains("phpsessid")
+                    || cookie_lower.contains("asp.net_sessionid")
+                    || cookie_lower.contains("auth_token")
+                    || cookie_lower.contains("access_token")
+                    || cookie_lower.starts_with("sid=")
+                    || cookie_lower.starts_with("connect.sid");
 
                 if is_session_cookie {
                     // Check for SameSite attribute

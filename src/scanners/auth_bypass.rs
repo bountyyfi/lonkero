@@ -182,23 +182,25 @@ impl AuthBypassScanner {
         let body_lower = response.body.to_lowercase();
 
         // Check for successful authentication indicators
-        let auth_success = vec![
-            "welcome",
-            "dashboard",
-            "logged in",
-            "successful",
-            "profile",
-            "logout",
-            "sign out",
-            "authenticated",
+        // Require strong evidence - specific JSON/API patterns, not generic page words
+        let strong_auth_indicators = vec![
+            "\"authenticated\":true",
+            "\"logged_in\":true",
+            "\"is_admin\":true",
+            "admin panel",
+            "admin dashboard",
         ];
+        let weak_auth_indicators = vec!["logout", "sign out", "my account"];
 
-        let success_count = auth_success
+        let has_strong = strong_auth_indicators
+            .iter()
+            .any(|&indicator| body_lower.contains(indicator));
+        let weak_count = weak_auth_indicators
             .iter()
             .filter(|&indicator| body_lower.contains(indicator))
             .count();
 
-        if success_count >= 2 || response.status_code == 302 {
+        if has_strong || (weak_count >= 2 && response.status_code == 302) {
             vulnerabilities.push(self.create_vulnerability(
                 "SQL Injection Authentication Bypass",
                 url,
@@ -356,15 +358,14 @@ impl AuthBypassScanner {
         &self,
         url: &str,
     ) -> Result<crate::http_client::HttpResponse> {
-        // Try adding headers that might bypass auth
-        // Note: Simplified version - real implementation would use custom headers
-        let test_url = if url.contains('?') {
-            format!("{}&X-Forwarded-For=127.0.0.1", url)
-        } else {
-            format!("{}?X-Forwarded-For=127.0.0.1", url)
-        };
+        // Send actual HTTP headers that might bypass IP-based auth checks
+        let headers = vec![
+            ("X-Forwarded-For".to_string(), "127.0.0.1".to_string()),
+            ("X-Real-IP".to_string(), "127.0.0.1".to_string()),
+            ("X-Original-URL".to_string(), url.to_string()),
+        ];
 
-        self.http_client.get(&test_url).await
+        self.http_client.get_with_headers(url, headers).await
     }
 
     /// Check header manipulation

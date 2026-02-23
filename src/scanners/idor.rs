@@ -402,18 +402,12 @@ impl IdorScanner {
         let status = response.status_code;
 
         // Check if protected resources are accessible without auth
-        let protected_content = vec![
-            "user data",
-            "account",
-            "profile",
-            "private",
-            "confidential",
-            "dashboard",
-        ];
-
-        let has_protected_content = protected_content
-            .iter()
-            .any(|&content| body_lower.contains(content));
+        // Require compound indicators specific to protected data, not generic words
+        let has_protected_content = (body_lower.contains("\"email\":") && body_lower.contains("\"username\":"))
+            || body_lower.contains("\"ssn\":")
+            || body_lower.contains("\"credit_card\":")
+            || body_lower.contains("\"password_hash\":")
+            || (body_lower.contains("user data") && body_lower.contains("\"id\":"));
 
         let requires_auth = response.headers.contains_key("www-authenticate")
             || status == 401

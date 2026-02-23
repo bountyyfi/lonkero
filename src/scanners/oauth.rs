@@ -359,11 +359,14 @@ impl OAuthScanner {
         match self.http_client.get(url).await {
             Ok(response) => {
                 let body_lower = response.body.to_lowercase();
+                // Require OAuth-specific patterns, not bare "authorization" which
+                // appears on ToS/privacy/login pages
                 body_lower.contains("oauth")
-                    || body_lower.contains("authorization")
                     || body_lower.contains("access_token")
                     || body_lower.contains("client_id")
                     || body_lower.contains("redirect_uri")
+                    || body_lower.contains("authorization_code")
+                    || body_lower.contains("authorization_endpoint")
             }
             Err(_) => false,
         }
