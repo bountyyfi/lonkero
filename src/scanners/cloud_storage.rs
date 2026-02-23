@@ -283,42 +283,49 @@ impl CloudStorageScanner {
                     ));
 
                     // Check for sensitive file patterns in listing
+                    // Use specific file extensions/names, not broad substrings like "config" or "private"
                     let sensitive_patterns = vec![
                         ".env",
-                        ".git",
-                        "config",
-                        "credentials",
-                        "secret",
-                        "password",
-                        "private",
+                        ".git/",
+                        "credentials.json",
+                        "credentials.xml",
                         ".pem",
-                        ".key",
-                        "backup",
+                        ".p12",
                         ".sql",
                         ".db",
-                        "dump",
                         ".htpasswd",
-                        "wp-config",
+                        "wp-config.php",
                         "id_rsa",
+                        "id_ed25519",
+                        ".secret",
+                        "password.txt",
+                        "passwords.csv",
                     ];
 
-                    for pattern in sensitive_patterns {
-                        if response.body.to_lowercase().contains(pattern) {
-                            vulnerabilities.push(self.create_vulnerability_with_evidence(
-                                "Sensitive File in Public S3 Bucket",
-                                &bucket_url,
-                                &format!(
-                                    "Potentially sensitive file pattern '{}' found in bucket '{}'",
-                                    pattern, bucket_name
-                                ),
-                                Severity::Critical,
-                                "CWE-538",
-                                format!(
-                                    "Bucket: {}\nRegion: {}\nPattern: {}",
-                                    bucket_name, region, pattern
-                                ),
-                            ));
+                    let body_lower = response.body.to_lowercase();
+                    let mut found_sensitive = Vec::new();
+                    for pattern in &sensitive_patterns {
+                        if body_lower.contains(pattern) {
+                            found_sensitive.push(*pattern);
                         }
+                    }
+
+                    // Report once with all found patterns, not one vuln per pattern
+                    if !found_sensitive.is_empty() {
+                        vulnerabilities.push(self.create_vulnerability_with_evidence(
+                            "Sensitive Files in Public S3 Bucket",
+                            &bucket_url,
+                            &format!(
+                                "Potentially sensitive file patterns found in bucket '{}': {}",
+                                bucket_name, found_sensitive.join(", ")
+                            ),
+                            Severity::Critical,
+                            "CWE-538",
+                            format!(
+                                "Bucket: {}\nRegion: {}\nPatterns: {}",
+                                bucket_name, region, found_sensitive.join(", ")
+                            ),
+                        ));
                     }
                 }
             }

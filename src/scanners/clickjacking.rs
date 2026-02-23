@@ -63,6 +63,15 @@ impl ClickjackingScanner {
                     return Ok((vulnerabilities, tests_run));
                 }
 
+                // Skip API/non-HTML responses - clickjacking only applies to
+                // HTML pages that browsers render. JSON/XML responses cannot
+                // be framed, so reporting missing X-Frame-Options on them
+                // is a false positive.
+                if self.is_api_or_non_html_response(&response) {
+                    debug!("[Clickjacking] Skipping API/non-HTML response: {}", url);
+                    return Ok((vulnerabilities, tests_run));
+                }
+
                 // Store characteristics for intelligent detection
                 let _characteristics = AppCharacteristics::from_response(&response, url);
                 let headers_vec: Vec<(String, String)> = response
@@ -80,6 +89,37 @@ impl ClickjackingScanner {
         }
 
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check if response is an API or non-HTML response where clickjacking
+    /// is not applicable. JSON/XML responses cannot be framed in a browser.
+    fn is_api_or_non_html_response(&self, response: &crate::http_client::HttpResponse) -> bool {
+        // Check content-type header
+        if let Some(content_type) = response.header("content-type") {
+            let ct_lower = content_type.to_lowercase();
+            if ct_lower.contains("application/json")
+                || ct_lower.contains("application/xml")
+                || ct_lower.contains("text/xml")
+                || ct_lower.contains("text/plain")
+                || ct_lower.contains("application/octet-stream")
+                || ct_lower.contains("image/")
+                || ct_lower.contains("font/")
+                || ct_lower.contains("application/pdf")
+            {
+                return true;
+            }
+        }
+
+        // Heuristic: body looks like JSON/XML
+        let body_trimmed = response.body.trim();
+        if (body_trimmed.starts_with('{') && body_trimmed.ends_with('}'))
+            || (body_trimmed.starts_with('[') && body_trimmed.ends_with(']'))
+            || (body_trimmed.starts_with("<?xml") && body_trimmed.contains("?>"))
+        {
+            return true;
+        }
+
+        false
     }
 
     /// Check if response body indicates a "not found" or similar error
@@ -492,6 +532,46 @@ mod tests {
         let vuln = result.unwrap();
         assert_eq!(vuln.vuln_type, "CLICKJACKING_JS_FRAMEBUSTER");
         assert_eq!(vuln.severity, Severity::Low);
+    }
+
+    #[test]
+    fn test_no_false_positive_on_api_response() {
+        let scanner = create_test_scanner();
+
+        let mut headers = std::collections::HashMap::new();
+        headers.insert(
+            "content-type".to_string(),
+            "application/json".to_string(),
+        );
+
+        let response = crate::http_client::HttpResponse {
+            status_code: 200,
+            body: "{\"status\": \"ok\"}".to_string(),
+            headers,
+            duration_ms: 100,
+        };
+
+        assert!(
+            scanner.is_api_or_non_html_response(&response),
+            "JSON response should be detected as API - no clickjacking check needed"
+        );
+    }
+
+    #[test]
+    fn test_no_false_positive_on_json_body() {
+        let scanner = create_test_scanner();
+
+        let response = crate::http_client::HttpResponse {
+            status_code: 200,
+            body: "[{\"id\": 1}, {\"id\": 2}]".to_string(),
+            headers: std::collections::HashMap::new(),
+            duration_ms: 100,
+        };
+
+        assert!(
+            scanner.is_api_or_non_html_response(&response),
+            "JSON array body should be detected as API"
+        );
     }
 
     #[test]

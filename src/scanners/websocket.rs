@@ -593,11 +593,11 @@ impl WebSocketScanner {
                 if let Ok(msg) = msg_result {
                     let response_text = msg.to_text().unwrap_or("");
 
-                    // Check if command was executed (look for success indicators)
-                    if (response_text.contains("success")
-                        || response_text.contains("executed")
-                        || response_text.contains("completed")
-                        || response_text.contains(&marker))
+                    // Check if command was executed - require test marker or specific indicators
+                    // Removed bare "success"/"completed"/"executed" which are generic words
+                    if (response_text.contains(&marker)
+                        || response_text.contains("\"status\":\"executed\"")
+                        || response_text.contains("command executed"))
                         && !response_text.contains("unauthorized")
                         && !response_text.contains("forbidden")
                         && !response_text.contains("error")
@@ -721,12 +721,12 @@ impl WebSocketScanner {
                 if let Ok(Some(Ok(msg))) = timeout(Duration::from_millis(500), read.next()).await {
                     let response = msg.to_text().unwrap_or("");
 
-                    // Check for command execution indicators
+                    // Check for command execution indicators - use specific patterns
+                    // Removed bare "root" (matches "root cause", "root beer") and
+                    // "total " (matches any page with totals)
                     if response.contains("uid=")
                         || response.contains("gid=")
-                        || response.contains("root")
-                        || response.contains("/bin/")
-                        || response.contains("total ")
+                        || response.contains("root:x:0:0:")
                     {
                         vulnerabilities.push(self.create_vulnerability(
                             "WebSocket Command Injection",

@@ -1889,16 +1889,18 @@ impl BusinessLogicScanner {
             }
         }
 
-        // Check if suspicious values appear in response
+        // Check if suspicious values appear in response — require order/payment-specific
+        // success indicators, not bare "success"/"confirmed" which appear everywhere
         if (value1.starts_with('-') || value1.contains("0.00") || value1 == "0")
-            && (body_lower.contains("success") || body_lower.contains("confirmed"))
+            && (body_lower.contains("order") || body_lower.contains("payment") || body_lower.contains("checkout"))
+            && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"") || body_lower.contains("order confirmed"))
         {
             return true;
         }
 
         // Check for currency manipulation indicators
         if !value2.is_empty() && (value2 == "VND" || value2 == "IDR") {
-            if body_lower.contains("currency") && body_lower.contains("success") {
+            if body_lower.contains("currency") && body_lower.contains("order") {
                 return true;
             }
         }
@@ -1910,9 +1912,11 @@ impl BusinessLogicScanner {
     fn detect_currency_manipulation(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        // Check if VND/IDR currency was accepted
-        let currency_accepted = (body_lower.contains("vnd") || body_lower.contains("idr"))
-            && (body_lower.contains("success") || body_lower.contains("confirmed"));
+        // Check if VND/IDR currency was accepted — use uppercase to avoid matching
+        // "savnd", "considered" etc.; require order/payment context
+        let currency_accepted = (body_lower.contains(" vnd") || body_lower.contains("\"vnd\"")
+            || body_lower.contains(" idr") || body_lower.contains("\"idr\""))
+            && (body_lower.contains("order") || body_lower.contains("payment") || body_lower.contains("checkout"));
 
         // Check for suspiciously low converted amounts
         let low_amount = body_lower.contains("total")
@@ -2001,12 +2005,14 @@ impl BusinessLogicScanner {
 
         let body_lower = body.to_lowercase();
 
-        // General success indicators - must be in API-like response, not HTML
-        let success = body_lower.contains("success")
-            || body_lower.contains("submitted")
-            || body_lower.contains("registered")
-            || body_lower.contains("complete")
-            || body_lower.contains("thank you");
+        // General success indicators - require specific form/action completion phrases
+        // Removed bare "success", "complete", "thank you" which appear everywhere
+        let success = body_lower.contains("\"success\":true")
+            || body_lower.contains("\"status\":\"success\"")
+            || body_lower.contains("successfully submitted")
+            || body_lower.contains("successfully registered")
+            || body_lower.contains("registration complete")
+            || body_lower.contains("form submitted");
 
         // Specific checks based on attack type
         let bypass_detected = if attack_type.contains("CAPTCHA") {
@@ -2424,9 +2430,11 @@ impl BusinessLogicScanner {
             && !body_lower.contains("price error")
             && !body_lower.contains("validation failed");
 
-        let success = body_lower.contains("success")
-            || body_lower.contains("confirmed")
-            || body_lower.contains("order placed");
+        // Require specific order/payment success patterns, not bare "success"
+        let success = body_lower.contains("\"success\":true")
+            || body_lower.contains("\"status\":\"confirmed\"")
+            || body_lower.contains("order placed")
+            || body_lower.contains("order confirmed");
 
         no_error && success
     }
@@ -2449,7 +2457,7 @@ impl BusinessLogicScanner {
 
         let success = body_lower.contains("added")
             || body_lower.contains("updated")
-            || body_lower.contains("success");
+            || body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"");
 
         no_error && success
     }
@@ -2478,7 +2486,7 @@ impl BusinessLogicScanner {
 
         // Check for path traversal success
         if value.contains("../")
-            && (body_lower.contains("root:") || body_lower.contains("etc/passwd"))
+            && (body_lower.contains("root:x:0:0:") || body_lower.contains("etc/passwd"))
         {
             return true;
         }
@@ -2620,9 +2628,10 @@ impl BusinessLogicScanner {
             && !body_lower.contains("timestamp error")
             && !body_lower.contains("date format");
 
-        let accepted = body_lower.contains("success")
+        // Require specific acceptance pattern, not bare "success"/"valid"
+        let accepted = body_lower.contains("\"success\":true")
             || body_lower.contains(&format!("\"{}\":", param))
-            || body_lower.contains("valid");
+            || body_lower.contains("\"status\":\"valid\"");
 
         no_error && accepted
     }
@@ -2631,8 +2640,8 @@ impl BusinessLogicScanner {
     fn detect_token_accepted(&self, body: &str) -> bool {
         let body_lower = body.to_lowercase();
 
-        let accepted = body_lower.contains("valid")
-            || body_lower.contains("success")
+        let accepted = body_lower.contains("\"valid\":true")
+            || body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
             || body_lower.contains("authenticated");
 
         let no_error = !body_lower.contains("expired")

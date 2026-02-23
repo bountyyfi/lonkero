@@ -997,10 +997,17 @@ impl SvelteKitSecurityScanner {
                 if resp.status_code == 200 && resp.body.starts_with("{") {
                     // Check if data appears to be prerendered (static)
                     // and contains potentially outdated sensitive info
+                    // Require SPECIFIC sensitive data patterns, not generic words.
+                    // "user", "auth", "session" appear in virtually any web app's
+                    // JSON data and create massive false positives.
                     let body_lower = resp.body.to_lowercase();
-                    if body_lower.contains("user")
-                        || body_lower.contains("auth")
-                        || body_lower.contains("session")
+                    if body_lower.contains("\"password\"")
+                        || body_lower.contains("\"token\":")
+                        || body_lower.contains("\"secret\":")
+                        || body_lower.contains("\"api_key\":")
+                        || body_lower.contains("\"session_id\":")
+                        || body_lower.contains("\"access_token\":")
+                        || (body_lower.contains("\"email\":") && body_lower.contains("\"role\":"))
                     {
                         vulnerabilities.push(Vulnerability {
                             id: format!("sveltekit_prerender_{}", Self::generate_id()),
@@ -1072,7 +1079,7 @@ impl SvelteKitSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&test_url).await {
                 let is_success = resp.status_code == 200
-                    && (resp.body.contains("root:") ||  // /etc/passwd
+                    && (resp.body.contains("root:x:0:0:") ||  // /etc/passwd
                     resp.body.contains("\"name\":") ||  // package.json
                     resp.body.contains("dependencies"));
 

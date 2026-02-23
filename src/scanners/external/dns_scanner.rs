@@ -249,6 +249,7 @@ impl DnsScanner {
             &dmarc,
             zone_transfer_vulnerable,
             &subdomain_takeover_risks,
+            &mx_records,
         );
 
         // Calculate security score
@@ -259,6 +260,7 @@ impl DnsScanner {
             &dmarc,
             zone_transfer_vulnerable,
             &subdomain_takeover_risks,
+            &mx_records,
         );
 
         Ok(DnsScanResult {
@@ -710,27 +712,48 @@ impl DnsScanner {
         dmarc: &Option<DmarcRecord>,
         zone_transfer_vulnerable: bool,
         subdomain_takeover_risks: &[SubdomainTakeover],
+        mx_records: &[String],
     ) -> Vec<String> {
         let mut issues = Vec::new();
 
+        // DNSSEC is informational - many legitimate domains don't use it
+        // and we can't actually verify DNSSEC status without DNSKEY queries
         if !dnssec.enabled {
-            issues.push("DNSSEC is not enabled".to_string());
+            issues.push("DNSSEC is not enabled (informational)".to_string());
         }
 
+        // CAA is informational - not a security vulnerability when missing,
+        // just a defense-in-depth measure for certificate issuance
         if caa_records.is_empty() {
-            issues.push("No CAA records found".to_string());
+            issues.push("No CAA records found (informational)".to_string());
         }
 
-        if spf.is_none() {
-            issues.push("No SPF record found".to_string());
-        } else if let Some(spf_rec) = spf {
-            issues.extend(spf_rec.issues.clone());
-        }
+        // Only report missing SPF/DMARC as issues when the domain has MX records,
+        // indicating it handles email. Non-email domains (APIs, CDNs, etc.)
+        // don't need email authentication records and reporting them creates
+        // false positives.
+        let handles_email = !mx_records.is_empty();
 
-        if dmarc.is_none() {
-            issues.push("No DMARC record found".to_string());
-        } else if let Some(dmarc_rec) = dmarc {
-            issues.extend(dmarc_rec.issues.clone());
+        if handles_email {
+            if spf.is_none() {
+                issues.push("No SPF record found (domain has MX records)".to_string());
+            } else if let Some(spf_rec) = spf {
+                issues.extend(spf_rec.issues.clone());
+            }
+
+            if dmarc.is_none() {
+                issues.push("No DMARC record found (domain has MX records)".to_string());
+            } else if let Some(dmarc_rec) = dmarc {
+                issues.extend(dmarc_rec.issues.clone());
+            }
+        } else {
+            // Still report existing SPF/DMARC issues if records exist but are misconfigured
+            if let Some(spf_rec) = spf {
+                issues.extend(spf_rec.issues.clone());
+            }
+            if let Some(dmarc_rec) = dmarc {
+                issues.extend(dmarc_rec.issues.clone());
+            }
         }
 
         if zone_transfer_vulnerable {
@@ -756,34 +779,40 @@ impl DnsScanner {
         dmarc: &Option<DmarcRecord>,
         zone_transfer_vulnerable: bool,
         subdomain_takeover_risks: &[SubdomainTakeover],
+        mx_records: &[String],
     ) -> u32 {
         let mut score = 100;
+        let handles_email = !mx_records.is_empty();
 
-        // DNSSEC (20 points)
+        // DNSSEC (10 points - reduced from 20, informational)
         if !dnssec.enabled {
-            score -= 20;
-        }
-
-        // CAA records (10 points)
-        if caa_records.is_empty() {
             score -= 10;
         }
 
-        // SPF (20 points)
-        match spf {
-            None => score -= 20,
-            Some(spf_rec) if !spf_rec.is_valid => score -= 10,
-            _ => {}
+        // CAA records (5 points - reduced from 10, informational defense-in-depth)
+        if caa_records.is_empty() {
+            score -= 5;
         }
 
-        // DMARC (30 points)
-        match dmarc {
-            None => score -= 30,
-            Some(dmarc_rec) => {
-                if dmarc_rec.policy == "none" {
-                    score -= 20;
-                } else if dmarc_rec.policy == "quarantine" {
-                    score -= 10;
+        // SPF and DMARC: only penalize if domain handles email (has MX records)
+        // Non-email domains shouldn't lose points for missing email auth records
+        if handles_email {
+            // SPF (20 points)
+            match spf {
+                None => score -= 20,
+                Some(spf_rec) if !spf_rec.is_valid => score -= 10,
+                _ => {}
+            }
+
+            // DMARC (30 points)
+            match dmarc {
+                None => score -= 30,
+                Some(dmarc_rec) => {
+                    if dmarc_rec.policy == "none" {
+                        score -= 20;
+                    } else if dmarc_rec.policy == "quarantine" {
+                        score -= 10;
+                    }
                 }
             }
         }

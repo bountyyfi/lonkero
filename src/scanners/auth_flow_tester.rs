@@ -556,7 +556,7 @@ References:
                             || resp_lower.contains("welcome")
                             || resp_lower.contains("logged in")
                             || resp_lower.contains("\"authenticated\":true")
-                            || resp_lower.contains("success"))
+                            || resp_lower.contains("\"success\":true") || resp_lower.contains("\"status\":\"success\""))
                         && !resp_lower.contains("verification")
                         && !resp_lower.contains("enter code");
 
@@ -687,8 +687,8 @@ References:
                     let resp_lower = response.body.to_lowercase();
 
                     let bypassed = (response.status_code == 200 || response.status_code == 302)
-                        && (resp_lower.contains("success")
-                            || resp_lower.contains("verified")
+                        && (resp_lower.contains("\"success\":true") || resp_lower.contains("\"status\":\"success\"")
+                            || resp_lower.contains("\"verified\":true")
                             || resp_lower.contains("welcome")
                             || resp_lower.contains("dashboard"))
                         && !resp_lower.contains("invalid")
@@ -1030,8 +1030,7 @@ References:
             && (body_lower.contains("email sent")
                 || body_lower.contains("reset link")
                 || body_lower.contains("check your email")
-                || body_lower.contains("success")
-                || body_lower.contains("\"success\":true"));
+                || body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\""));
 
         // Rejection indicators
         let rejected = body_lower.contains("invalid")

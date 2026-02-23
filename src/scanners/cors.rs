@@ -142,10 +142,10 @@ impl CorsScanner {
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
         if let Some(acao) = response.header("access-control-allow-origin") {
-            // Check for wildcard with credentials
             if acao == "*" {
                 if let Some(credentials) = response.header("access-control-allow-credentials") {
                     if credentials == "true" {
+                        // Wildcard + credentials is a real vulnerability
                         vulnerabilities.push(self.create_vulnerability(
                             "Critical CORS Misconfiguration",
                             url,
@@ -156,17 +156,12 @@ impl CorsScanner {
                             8.8,
                         ));
                     }
-                } else {
-                    vulnerabilities.push(self.create_vulnerability(
-                        "Permissive CORS Policy",
-                        url,
-                        Severity::Medium,
-                        Confidence::High,
-                        "CORS allows all origins (*) - potential data leakage",
-                        format!("Access-Control-Allow-Origin: {}", acao),
-                        5.3,
-                    ));
                 }
+                // Note: Wildcard (*) WITHOUT credentials is NOT reported.
+                // This is standard practice for public APIs, CDNs, open data
+                // endpoints, and any resource meant to be publicly accessible.
+                // Browsers already prevent credentialed requests with wildcard
+                // CORS, so there is no security impact.
             }
         }
     }
@@ -565,6 +560,31 @@ mod tests {
             vulns.len(),
             0,
             "Should not report vulnerability when no CORS headers present"
+        );
+    }
+
+    #[test]
+    fn test_wildcard_without_credentials_no_false_positive() {
+        let scanner = CorsScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let mut headers = HashMap::new();
+        headers.insert("access-control-allow-origin".to_string(), "*".to_string());
+        // No credentials header - this is normal for public APIs
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: String::new(),
+            headers,
+            duration_ms: 100,
+        };
+
+        let mut vulns = Vec::new();
+        scanner.check_baseline_cors(&response, "https://api.example.com/v1/data", &mut vulns);
+
+        assert_eq!(
+            vulns.len(),
+            0,
+            "Wildcard CORS without credentials is normal for public APIs - should NOT be reported"
         );
     }
 }

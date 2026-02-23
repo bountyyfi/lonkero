@@ -1408,12 +1408,12 @@ impl TwoFaBypassScanner {
             && !body_lower.contains("2fa")
             && !body_lower.contains("mfa");
 
-        // Should be an actual protected resource
-        let is_protected_content = body_lower.contains("dashboard")
-            || body_lower.contains("settings")
-            || body_lower.contains("profile")
-            || body_lower.contains("account")
-            || body_lower.contains("admin");
+        // Should be an actual protected resource - require specific indicators
+        let is_protected_content = body_lower.contains("admin panel")
+            || body_lower.contains("admin dashboard")
+            || body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"logged_in\":true")
+            || body_lower.contains("manage users");
 
         // Status should indicate success
         let success_status = response.status_code == 200;
@@ -1431,11 +1431,13 @@ impl TwoFaBypassScanner {
         // Positive indicators (authentication success)
         let success_indicators = response.status_code == 200 || response.status_code == 302;
 
-        let has_success_content = body_lower.contains("success")
-            || body_lower.contains("verified")
-            || body_lower.contains("authenticated")
-            || body_lower.contains("welcome")
-            || body_lower.contains("dashboard");
+        // Require specific auth success patterns, not bare "success"/"welcome"/"dashboard"
+        let has_success_content = body_lower.contains("\"success\":true")
+            || body_lower.contains("\"verified\":true")
+            || body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"logged_in\":true")
+            || body_lower.contains("admin panel")
+            || body_lower.contains("admin dashboard");
 
         // Negative indicators (still requiring auth)
         let requires_auth = body_lower.contains("invalid")

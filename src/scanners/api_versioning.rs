@@ -205,7 +205,8 @@ impl ApiVersioningScanner {
         }
 
         // Check for query-based versioning
-        if url.contains("api_version=") || url.contains("version=") || url.contains("v=") {
+        // Removed bare "v=" which matches countless unrelated params (save=, dev=, etc.)
+        if url.contains("api_version=") || url.contains("version=") || url.contains("api_v=") {
             if detected_scheme != VersioningScheme::Unknown {
                 detected_scheme = VersioningScheme::Mixed;
             } else {

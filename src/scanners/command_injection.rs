@@ -1522,7 +1522,10 @@ impl CommandInjectionScanner {
             DetectionMethod::OutputBased => {
                 // Check for command output in response
 
-                // Unix command output indicators
+                // Unix command output indicators.
+                // Removed overly generic indicators: "linux" (appears on many pages),
+                // "pid" (common in APIs), "total " (common word), "-rw-" (too short).
+                // Even with baseline comparison, these create noise on dynamic pages.
                 let unix_indicators = vec![
                     ("uid=", "id command output"),
                     ("gid=", "id command output"),
@@ -1532,20 +1535,13 @@ impl CommandInjectionScanner {
                     ("bin:x:", "passwd file content"),
                     ("nobody:x:", "passwd file content"),
                     ("www-data:x:", "passwd file content"),
-                    ("linux", "uname output"),
                     ("gnu/linux", "uname output"),
-                    ("darwin", "macOS uname"),
-                    ("freebsd", "FreeBSD uname"),
                     ("/bin/bash", "shell path"),
                     ("/bin/sh", "shell path"),
                     ("/usr/bin/", "usr bin path"),
-                    ("total ", "ls output"),
-                    ("drwx", "ls permissions"),
-                    ("-rwx", "ls permissions"),
-                    ("-rw-", "ls permissions"),
-                    ("pid", "process info"),
+                    ("drwxr-xr-x", "ls permissions"),
+                    ("-rwxr-xr-x", "ls permissions"),
                     ("ppid", "process info"),
-                    ("tty", "terminal info"),
                     ("pts/", "pseudo terminal"),
                     ("eth0", "network interface"),
                     ("lo:", "loopback interface"),
@@ -1553,23 +1549,16 @@ impl CommandInjectionScanner {
                     ("inet6 ", "IPv6 address"),
                 ];
 
-                // Windows command output indicators
+                // Windows command output indicators.
+                // Removed overly generic indicators like "windows", "microsoft",
+                // "administrator", "c:\\" which naturally appear in many web pages
+                // (documentation, system requirements, user profiles, etc.).
+                // Even with baseline comparison, these are too common on dynamic pages.
                 let windows_indicators = vec![
                     ("volume in drive", "dir output"),
                     ("directory of", "dir output"),
-                    ("windows", "system info"),
-                    ("microsoft", "system info"),
-                    ("nt authority", "whoami output"),
-                    ("computer name", "system info"),
-                    ("user name", "system info"),
-                    ("administrator", "user info"),
-                    ("c:\\", "path info"),
-                    ("c:/", "path info"),
-                    ("system32", "system path"),
-                    ("program files", "program path"),
-                    ("users\\", "users path"),
-                    ("ipconfig", "network config"),
-                    ("ethernet adapter", "network info"),
+                    ("nt authority\\", "whoami output"),
+                    ("system32\\", "system path"),
                     ("windows ip configuration", "ipconfig output"),
                     ("physical address", "MAC address"),
                     ("default gateway", "gateway info"),
@@ -1620,22 +1609,20 @@ impl CommandInjectionScanner {
                 }
             }
             DetectionMethod::ErrorBased => {
-                // Check for error messages that indicate command execution
+                // Check for shell-specific error messages that indicate command execution
+                // Removed generic patterns: "syntax error" (JS parsers), "not found" (404 pages),
+                // "no such file" (file APIs), "permission denied" (normal auth),
+                // "unexpected token" (JSON parsers), "not recognized" (generic errors)
                 let error_indicators = vec![
                     "sh:",
                     "bash:",
                     "cmd.exe",
-                    "powershell",
+                    "powershell.exe",
+                    "/bin/sh:",
+                    "/bin/bash:",
                     "command not found",
-                    "syntax error",
-                    "unexpected token",
-                    "not recognized",
-                    "invalid option",
                     "missing operand",
-                    "no such file",
-                    "permission denied",
-                    "cannot execute",
-                    "not found",
+                    "cannot execute binary file",
                 ];
 
                 for indicator in error_indicators {

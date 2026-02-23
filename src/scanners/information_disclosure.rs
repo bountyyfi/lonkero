@@ -363,18 +363,17 @@ impl InformationDisclosureScanner {
             }
         }
 
-        // Test 2: Check debug endpoints that might reveal server version
+        // Test 2: Check debug endpoints that might reveal server version.
+        // Note: /health, /status, /version are intentionally exposed on many APIs
+        // for operational monitoring. They are NOT debug endpoints and should not
+        // be reported as info disclosure unless they expose detailed server info.
+        // We focus on endpoints that expose SENSITIVE internal details.
         let base_url = self.extract_base_url(url);
         let debug_endpoints = vec![
-            "/server-status",           // Apache
-            "/server-info",             // Apache
-            "/nginx_status",            // Nginx
-            "/status",                  // Various
-            "/.well-known/version",     // Custom
-            "/version",                 // API version endpoint
-            "/health",                  // Health check often reveals version
-            "/actuator/info",           // Spring Boot
-            "/actuator/health",         // Spring Boot
+            "/server-status",           // Apache mod_status - exposes request details
+            "/server-info",             // Apache mod_info - exposes module details
+            "/nginx_status",            // Nginx stub_status - connection metrics
+            "/actuator/info",           // Spring Boot - App info
             "/actuator/env",            // Spring Boot - Environment variables (CRITICAL)
             "/actuator/configprops",    // Spring Boot - Configuration properties
             "/actuator/mappings",       // Spring Boot - URL mappings
@@ -396,9 +395,9 @@ impl InformationDisclosureScanner {
             "/heapdump",                // Direct actuator
             "/trace",                   // Direct actuator
             "/dump",                    // Direct actuator
-            "/api/version",             // API version
-            "/api/v1/version",          // API version
             "/__version__",             // Python apps
+            "/health",                  // Health endpoint - only flagged if it leaks version info
+            "/actuator/health",         // Spring Boot health - may expose component details
         ];
 
         for endpoint in debug_endpoints {
@@ -558,11 +557,11 @@ impl InformationDisclosureScanner {
             // Config files - look for configuration patterns
             f if f.contains("config") => {
                 let body_lower = body.to_lowercase();
-                // Must have actual config structure patterns
-                (body_lower.contains("password") && (body_lower.contains("=") || body_lower.contains(":")))
-                    || (body_lower.contains("secret") && (body_lower.contains("=") || body_lower.contains(":")))
+                // Must have actual config key=value patterns, not just keywords
+                (body_lower.contains("password=") || body_lower.contains("password:") || body_lower.contains("password\":"))
+                    || (body_lower.contains("secret_key=") || body_lower.contains("secret_key:") || body_lower.contains("secret\":"))
                     || (body_lower.contains("database") && body_lower.contains("host"))
-                    || (body_lower.contains("api") && (body_lower.contains("key") || body_lower.contains("token")))
+                    || (body_lower.contains("api_key=") || body_lower.contains("api_key:") || body_lower.contains("api_token"))
                     || body_lower.contains("connectionstring")
             }
             // Backup SQL files - look for SQL dump patterns
@@ -705,21 +704,34 @@ impl InformationDisclosureScanner {
 
     /// Detect directory listing
     fn detect_directory_listing(&self, body: &str) -> bool {
-        let listing_indicators = vec![
+        // Strong indicators that almost certainly mean directory listing
+        let strong_indicators = vec![
             "Index of /",
-            "Directory listing",
-            "Parent Directory",
-            "[DIR]",
-            "[   ]",
             "<title>Index of",
-            "apache",
-            "nginx",
+            "Directory listing for",
         ];
 
         let body_lower = body.to_lowercase();
-        let mut found_count = 0;
 
-        for indicator in listing_indicators {
+        // A single strong indicator is sufficient
+        for indicator in &strong_indicators {
+            if body_lower.contains(&indicator.to_lowercase()) {
+                return true;
+            }
+        }
+
+        // Weaker indicators need at least 2 to match.
+        // Note: Removed generic "apache" and "nginx" which match
+        // any page mentioning those words (docs, blog posts, etc.)
+        let weak_indicators = vec![
+            "Parent Directory",
+            "[DIR]",
+            "[   ]",
+            "Directory listing",
+        ];
+
+        let mut found_count = 0;
+        for indicator in &weak_indicators {
             if body_lower.contains(&indicator.to_lowercase()) {
                 found_count += 1;
                 if found_count >= 2 {
@@ -890,7 +902,6 @@ mod uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detection_helpers::AppCharacteristics;
     use crate::http_client::HttpClient;
     use std::sync::Arc;
 
@@ -937,11 +948,11 @@ mod tests {
 
         let mut headers = std::collections::HashMap::new();
         headers.insert("Server".to_string(), "Apache/2.4.41".to_string());
-        assert!(scanner.detect_server_disclosure(&headers));
+        assert!(scanner.detect_server_disclosure(&headers).is_some());
 
         let mut headers2 = std::collections::HashMap::new();
         headers2.insert("X-Powered-By".to_string(), "PHP/7.4.3".to_string());
-        assert!(scanner.detect_server_disclosure(&headers2));
+        assert!(scanner.detect_server_disclosure(&headers2).is_some());
     }
 
     #[test]

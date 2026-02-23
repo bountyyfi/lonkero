@@ -618,25 +618,42 @@ impl GoFrameworksScanner {
             if let Ok(response) = self.http_client.get(&url).await {
                 let body = &response.body;
 
-                let stack_trace_indicators = [
+                // Go stack trace detection - require STRONG indicators.
+                // "goroutine" and "runtime/" could appear in documentation.
+                // Require at least one "strong" indicator (panic/file path) plus others.
+                let strong_indicators = [
+                    "panic:",         // Go panic output
+                    ".go:",           // Go file path with line number
+                    "runtime error:", // Runtime error prefix
+                ];
+                let supporting_indicators = [
                     "goroutine",
                     "runtime/",
-                    "panic:",
-                    ".go:",
-                    "runtime error:",
                     "net/http",
                     "reflect.",
                     "main.go",
                     "handler.go",
                 ];
 
-                let found_traces: Vec<&str> = stack_trace_indicators
+                let strong_found: Vec<&str> = strong_indicators
+                    .iter()
+                    .filter(|i| body.contains(*i))
+                    .copied()
+                    .collect();
+                let supporting_found: Vec<&str> = supporting_indicators
                     .iter()
                     .filter(|i| body.contains(*i))
                     .copied()
                     .collect();
 
-                if found_traces.len() >= 2 {
+                let found_traces: Vec<&str> = strong_found
+                    .iter()
+                    .chain(supporting_found.iter())
+                    .copied()
+                    .collect();
+
+                // Require at least 1 strong indicator AND 1+ supporting
+                if !strong_found.is_empty() && found_traces.len() >= 3 {
                     let has_file_paths = body.contains(".go:");
                     let severity = if has_file_paths {
                         Severity::High
@@ -920,14 +937,20 @@ impl GoFrameworksScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
 
+                    // Require Go-specific or monitoring-specific content, not just
+                    // any JSON response. Previously `contains("{")` matched everything.
+                    // Only flag endpoints that expose Go runtime or Prometheus metrics.
+                    let has_go_specific_content = body.contains("go_")
+                        || body.contains("process_")
+                        || body.contains("http_request")
+                        || body.contains("goroutine")
+                        || body.contains("go_gc_")
+                        || body.contains("go_memstats_");
+                    let has_monitoring_content = body.contains("# HELP ")
+                        || body.contains("# TYPE ")
+                        || (body.contains("\"status\"") && body.contains("\"UP\""));
                     if body.len() > 10
-                        && (body.contains("status")
-                            || body.contains("health")
-                            || body.contains("version")
-                            || body.contains("go_")
-                            || body.contains("process_")
-                            || body.contains("http_")
-                            || body.contains("{"))
+                        && (has_go_specific_content || has_monitoring_content)
                     {
                         found_endpoints.push((
                             path.to_string(),

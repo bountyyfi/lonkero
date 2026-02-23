@@ -26,37 +26,31 @@ impl CorsMisconfigurationScanner {
     }
 
     /// Run CORS misconfiguration scan
+    ///
+    /// Note: The free-tier CorsScanner already tests for reflected origins,
+    /// null origin, subdomain exploits, and wildcard+credentials. This
+    /// Professional+ scanner only runs ADDITIONAL tests not covered by the
+    /// free tier to avoid duplicate findings.
     pub async fn scan(
         &self,
         url: &str,
         _config: &ScanConfig,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
-        info!("Starting CORS misconfiguration scan on {}", url);
+        info!("Starting advanced CORS misconfiguration scan on {}", url);
 
         let mut all_vulnerabilities = Vec::new();
         let mut total_tests = 0;
 
-        // Test arbitrary origin reflection
+        // Test arbitrary origin with unique marker (more thorough than free tier)
+        // The free tier tests evil.com; this uses a unique marker to confirm reflection
         let (vulns, tests) = self.test_arbitrary_origin(url).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
 
-        // Test null origin
-        let (vulns, tests) = self.test_null_origin(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
+        // Skip null origin, wildcard+credentials, and subdomain tests -
+        // already covered by the free-tier CorsScanner to avoid duplicates
 
-        // Test wildcard with credentials
-        let (vulns, tests) = self.test_wildcard_credentials(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
-
-        // Test subdomain reflection
-        let (vulns, tests) = self.test_subdomain_reflection(url).await?;
-        all_vulnerabilities.extend(vulns);
-        total_tests += tests;
-
-        // Test insecure origins
+        // Test insecure HTTP origins (not covered by free tier)
         let (vulns, tests) = self.test_insecure_origins(url).await?;
         all_vulnerabilities.extend(vulns);
         total_tests += tests;
@@ -252,35 +246,36 @@ impl CorsMisconfigurationScanner {
         Ok((vulnerabilities, tests_run))
     }
 
-    /// Detect arbitrary origin reflection
+    /// Detect arbitrary origin reflection - only when credentials are allowed.
+    /// Without credentials, origin reflection is common and intentional for
+    /// public APIs/CDNs and is NOT a security vulnerability. Reporting it
+    /// creates false positives on every public API.
     fn detect_arbitrary_origin_reflected(
         &self,
         headers: &std::collections::HashMap<String, String>,
         origin: &str,
     ) -> bool {
+        let mut origin_reflected = false;
+        let mut credentials_allowed = false;
+
         for (key, value) in headers {
             let key_lower = key.to_lowercase();
 
-            // Check if Access-Control-Allow-Origin reflects our origin
-            if key_lower == "access-control-allow-origin" {
-                if value == origin || value == "*" {
-                    // Check if credentials are also allowed (critical)
-                    for (cred_key, cred_value) in headers {
-                        if cred_key.to_lowercase() == "access-control-allow-credentials"
-                            && cred_value.to_lowercase() == "true"
-                        {
-                            return true;
-                        }
-                    }
-                    // Even without credentials, arbitrary origin is a concern
-                    if value == origin {
-                        return true;
-                    }
-                }
+            if key_lower == "access-control-allow-origin" && (value == origin || value == "*") {
+                origin_reflected = true;
+            }
+
+            if key_lower == "access-control-allow-credentials"
+                && value.to_lowercase() == "true"
+            {
+                credentials_allowed = true;
             }
         }
 
-        false
+        // Only flag as vulnerability when BOTH origin is reflected AND
+        // credentials are allowed. Without credentials, cross-origin
+        // requests can't access authenticated data.
+        origin_reflected && credentials_allowed
     }
 
     /// Detect null origin allowed
@@ -420,14 +415,15 @@ mod tests {
 
         assert!(scanner.detect_arbitrary_origin_reflected(&headers, "https://evil.com"));
 
-        // Without credentials
+        // Without credentials - should NOT be flagged as vulnerability.
+        // Origin reflection without credentials is common for public APIs/CDNs.
         let mut headers2 = HashMap::new();
         headers2.insert(
             "Access-Control-Allow-Origin".to_string(),
             "https://evil.com".to_string(),
         );
 
-        assert!(scanner.detect_arbitrary_origin_reflected(&headers2, "https://evil.com"));
+        assert!(!scanner.detect_arbitrary_origin_reflected(&headers2, "https://evil.com"));
     }
 
     #[test]

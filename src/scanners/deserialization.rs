@@ -293,15 +293,15 @@ impl DeserializationScanner {
                     }
                 }
 
+                // Removed "a:" (2-char match hits everything) and "' not found" (generic 404 text)
                 let indicators = vec![
                     "unserialize()",
                     "__wakeup",
                     "__destruct",
-                    "a:", // Array marker
                     "PHP Notice",
                     "PHP Warning",
-                    "Class '",
-                    "' not found",
+                    "PHP Fatal error",
+                    "unserialize(): Error",
                 ];
 
                 for indicator in indicators {
@@ -355,13 +355,13 @@ impl DeserializationScanner {
             _ => {}
         }
 
-        // Check for command execution indicators
+        // Check for command execution indicators - require definitive system output
+        // Removed "Administrator" (appears on many normal sites)
         let cmd_indicators = vec![
             "uid=",
-            "gid=",          // Unix id command
-            "root:x:0:0",    // passwd file
-            "Administrator", // Windows
-            "NT AUTHORITY",
+            "gid=",       // Unix id command (uid=0 gid=0 pattern)
+            "root:x:0:0", // passwd file
+            "NT AUTHORITY\\SYSTEM",
         ];
 
         for indicator in cmd_indicators {

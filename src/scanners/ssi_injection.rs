@@ -229,8 +229,8 @@ impl SSIInjectionScanner {
             Ok(_response) => {
                 let elapsed = start.elapsed().as_secs_f64();
 
-                // If response took 4+ seconds, likely SSI injection
-                if elapsed >= 4.0 {
+                // Raise threshold to 4.5s (payload sleeps 5s) to reduce network latency FPs
+                if elapsed >= 4.5 {
                     info!("Time-based SSI injection detected ({}s delay)", elapsed);
                     vulnerabilities.push(self.create_vulnerability(
                         url,
@@ -260,15 +260,15 @@ impl SSIInjectionScanner {
             return true;
         }
 
-        // Check for command output indicators
+        // Check for command output indicators - require definitive patterns
+        // Removed "root:", "bin:", "daemon:" which match too many normal text contexts
         let indicators = vec![
             "uid=",
             "gid=",
-            "root:",
-            "bin:",
-            "daemon:",
+            "root:x:0:0",  // Specific passwd format
             "/bin/bash",
             "/bin/sh",
+            "www-data:",
         ];
 
         for indicator in indicators {

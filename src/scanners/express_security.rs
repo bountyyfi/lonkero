@@ -253,13 +253,15 @@ impl ExpressSecurityScanner {
                 }
             }
 
-            // Check for Express-specific error responses
+            // Check for Express-specific error responses.
+            // "Cannot GET /path" and "Cannot POST /path" are Express-specific default error messages.
+            // Note: We do NOT match "Express" alone (too generic, appears in content/docs)
+            // or "node_modules" alone (appears in many JS framework pages).
             let body = &response.body;
-            if body.contains("Cannot GET")
-                || body.contains("Cannot POST")
-                || body.contains("Express")
-                || body.contains("node_modules")
+            if (body.contains("Cannot GET /") || body.contains("Cannot POST /"))
+                && !body.contains("<html")
             {
+                // Express default errors are plain text, not HTML pages
                 is_express = true;
             }
 
@@ -279,26 +281,33 @@ impl ExpressSecurityScanner {
             }
         }
 
-        // Check for Express-specific paths
-        let express_paths = [
-            "/api",
-            "/api/v1",
-            "/graphql",
-            "/socket.io/",
-            "/health",
-            "/status",
-        ];
+        // Check Express-specific paths - only confirm via X-Powered-By header,
+        // NOT by path existence alone. Many frameworks use /api, /graphql, /health
+        // so path existence is NOT evidence of Express.
+        if !is_express {
+            let express_paths = [
+                "/api",
+                "/api/v1",
+                "/socket.io/",
+            ];
 
-        for path in &express_paths {
-            let test_url = format!("{}{}", url.trim_end_matches('/'), path);
-            if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code != 404 {
-                    // Check response headers again
+            for path in &express_paths {
+                let test_url = format!("{}{}", url.trim_end_matches('/'), path);
+                if let Ok(response) = self.http_client.get(&test_url).await {
+                    // Only confirm Express via X-Powered-By header
                     if let Some(powered_by) = response.headers.get("x-powered-by") {
                         let value = powered_by.as_str();
                         if value.to_lowercase().contains("express") {
                             is_express = true;
+                            break;
                         }
+                    }
+                    // Or via Express-specific error format
+                    if response.body.contains("Cannot GET /")
+                        && !response.body.contains("<html")
+                    {
+                        is_express = true;
+                        break;
                     }
                 }
             }
@@ -1325,18 +1334,19 @@ impl ExpressSecurityScanner {
                 if response.status_code == 200 {
                     let body = &response.body;
 
-                    // Check for dangerous functionality
+                    // Check for dangerous functionality - require interactive/executable indicators
                     let danger_indicators = [
-                        "eval", "exec", "spawn", "shell", "command", "query", "sql", "mongo",
-                        "redis",
+                        "eval(", "exec(", "spawn(", "child_process", "require(\"",
+                        "process.env", "db.query", "mongoose.", "redis.get",
                     ];
 
                     let found: Vec<_> = danger_indicators
                         .iter()
-                        .filter(|i| body.to_lowercase().contains(*i))
+                        .filter(|i| body.to_lowercase().contains(&i.to_lowercase()))
                         .collect();
 
-                    if !found.is_empty() || body.len() > 50 {
+                    // Only flag if actual dangerous patterns found, not just any non-empty response
+                    if !found.is_empty() {
                         vulnerabilities.push(Vulnerability {
                             id: format!("express_debug_endpoint_{}", Self::generate_id()),
                             vuln_type: format!("{} Endpoint Exposed", name),

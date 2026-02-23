@@ -135,33 +135,47 @@ impl JoomlaScanner {
             }
         }
 
+        // Check main page for Joomla generator meta tag - this is the most reliable indicator.
+        // Previously matched `body.contains("joomla")` alone which matches any page
+        // that mentions Joomla in text (blog posts, docs, comparisons).
+        // Now require the Joomla generator meta tag or Joomla-specific HTML patterns.
         if let Ok(response) = self.http_client.get(target).await {
-            if response.status_code == 200 && response.body.to_lowercase().contains("joomla") {
-                let version_regex =
-                    Regex::new(r#"generator"[^>]*content="Joomla!\s*(\d+)\.(\d+)(?:\.(\d+))?"#)
-                        .ok();
-                if let Some(re) = version_regex {
-                    if let Some(caps) = re.captures(&response.body) {
-                        let major = caps
-                            .get(1)
-                            .and_then(|m| m.as_str().parse().ok())
-                            .unwrap_or(0);
-                        let minor = caps
-                            .get(2)
-                            .and_then(|m| m.as_str().parse().ok())
-                            .unwrap_or(0);
-                        let patch = caps
-                            .get(3)
-                            .and_then(|m| m.as_str().parse().ok())
-                            .unwrap_or(0);
-                        version = Some(JoomlaVersion {
-                            major,
-                            minor,
-                            patch,
-                        });
+            if response.status_code == 200 {
+                let body_lower = response.body.to_lowercase();
+                let has_joomla_meta = body_lower.contains("content=\"joomla")
+                    || body_lower.contains("generator\" content=\"joomla");
+                let has_joomla_structure = body_lower.contains("/media/jui/")
+                    || body_lower.contains("/media/system/")
+                        && body_lower.contains("joomla");
+
+                if has_joomla_meta || has_joomla_structure {
+                    let version_regex = Regex::new(
+                        r#"generator"[^>]*content="Joomla!\s*(\d+)\.(\d+)(?:\.(\d+))?"#,
+                    )
+                    .ok();
+                    if let Some(re) = version_regex {
+                        if let Some(caps) = re.captures(&response.body) {
+                            let major = caps
+                                .get(1)
+                                .and_then(|m| m.as_str().parse().ok())
+                                .unwrap_or(0);
+                            let minor = caps
+                                .get(2)
+                                .and_then(|m| m.as_str().parse().ok())
+                                .unwrap_or(0);
+                            let patch = caps
+                                .get(3)
+                                .and_then(|m| m.as_str().parse().ok())
+                                .unwrap_or(0);
+                            version = Some(JoomlaVersion {
+                                major,
+                                minor,
+                                patch,
+                            });
+                        }
                     }
+                    return Ok((true, version));
                 }
-                return Ok((true, version));
             }
         }
 
@@ -440,7 +454,10 @@ impl JoomlaScanner {
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 || response.status_code == 403 {
+                // Only report if extension is ACCESSIBLE (200), not just blocked (403).
+                // A 403 means the server is blocking access, which is PROTECTION, not vulnerability.
+                // Reporting on 403 creates false positives for properly secured extensions.
+                if response.status_code == 200 {
                     if let Some(vulns) = self.known_vulnerabilities.get(ext_name) {
                         for vuln in vulns {
                             vulnerabilities.push(Vulnerability {

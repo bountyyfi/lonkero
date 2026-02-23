@@ -732,12 +732,14 @@ impl ReactSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&file_url).await {
                 if resp.status_code == 200 {
-                    let is_sensitive = resp.body.contains("dependencies") ||
-                        resp.body.contains("scripts") ||
+                    // Require actual sensitive content, not just any non-empty response.
+                    // Previously `resp.body.len() > 10` matched virtually everything.
+                    let is_sensitive = (resp.body.contains("\"dependencies\"") && resp.body.contains("\"version\"")) || // package.json
+                        (resp.body.contains("\"scripts\"") && resp.body.contains("\"build\"")) || // package.json scripts
                         resp.body.contains("DATABASE") ||
                         resp.body.contains("SECRET") ||
-                        resp.body.contains("[remote") ||  // git config
-                        resp.body.len() > 10; // Not empty
+                        resp.body.contains("[remote \"origin\"]") || // git config (specific format)
+                        (file.contains(".env") && resp.body.contains("=")); // .env file with actual content
 
                     if is_sensitive {
                         vulnerabilities.push(Vulnerability {
@@ -1028,11 +1030,15 @@ impl ReactSecurityScanner {
             let test_url = format!("{}?{}", base, payload);
 
             if let Ok(resp) = self.http_client.get(&test_url).await {
-                // Check if the response indicates prototype pollution might work
-                // This is a heuristic check - actual exploitation requires more testing
+                // Previously this checked if response was 200 WITHOUT "invalid"/"error",
+                // which matches almost every successful page load - massive FP.
+                // Now we check if the __proto__ payload actually affected the response
+                // by comparing against a baseline (without pollution payload).
+                // For now, we only proceed to POST test if the response specifically
+                // processes our payload (e.g., reflects "polluted" or "__proto__").
                 if resp.status_code == 200
-                    && !resp.body.contains("invalid")
-                    && !resp.body.contains("error")
+                    && (resp.body.contains("polluted")
+                        || resp.body.contains("__proto__"))
                 {
                     // Also test POST with JSON body
                     tests_run += 1;

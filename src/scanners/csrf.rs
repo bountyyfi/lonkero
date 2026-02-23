@@ -56,7 +56,15 @@ impl CsrfScanner {
         }
 
         // Test 2: Check if state-changing operations allow GET
-        if url.contains("delete") || url.contains("remove") || url.contains("update") {
+        // Use path segment matching to avoid FPs on /blog/deleted-posts, /remote-services, etc.
+        let url_lower = url.to_lowercase();
+        let has_state_change_path = url_lower.contains("/delete")
+            || url_lower.contains("/remove/")
+            || url_lower.contains("/update/")
+            || url_lower.contains("action=delete")
+            || url_lower.contains("action=remove")
+            || url_lower.contains("action=update");
+        if has_state_change_path {
             tests_run += 1;
             if let Ok(response) = self.http_client.get(url).await {
                 self.check_state_change_via_get(&response, url, &mut vulnerabilities);
@@ -147,11 +155,17 @@ impl CsrfScanner {
                 let cookie_lower = cookie.to_lowercase();
 
                 // Check if it's a session cookie (common patterns)
-                let is_session_cookie = cookie_lower.contains("session")
-                    || cookie_lower.contains("auth")
-                    || cookie_lower.contains("token")
+                // Use specific session cookie names, not bare "auth"/"token" which
+                // match analytics cookies (google_analytics_token), CSRF tokens, etc.
+                let is_session_cookie = cookie_lower.contains("session_id")
+                    || cookie_lower.contains("sessionid")
                     || cookie_lower.contains("jsessionid")
-                    || cookie_lower.contains("phpsessid");
+                    || cookie_lower.contains("phpsessid")
+                    || cookie_lower.contains("asp.net_sessionid")
+                    || cookie_lower.contains("auth_token")
+                    || cookie_lower.contains("access_token")
+                    || cookie_lower.starts_with("sid=")
+                    || cookie_lower.starts_with("connect.sid");
 
                 if is_session_cookie {
                     // Check for SameSite attribute
@@ -210,72 +224,72 @@ impl CsrfScanner {
             || response.body.contains("_csrf")
             || response.body.contains("csrfToken");
 
-        // Only report if the page appears to have forms or is an API endpoint
-        let looks_interactive = response.body.contains("<form")
-            || response.body.contains("application/json")
-            || url.contains("/api/");
+        // Only report if the page has HTML forms with state-changing methods.
+        // API endpoints (JSON) are NOT reported because:
+        // 1. APIs typically use token-based auth (Bearer/API key) not cookies
+        // 2. CORS prevents cross-origin API requests with credentials
+        // 3. Reporting on every API endpoint creates massive false positives
+        let body_lower = response.body.to_lowercase();
+        let has_state_changing_form = body_lower.contains("<form")
+            && (body_lower.contains("method=\"post\"")
+                || body_lower.contains("method='post'"));
 
-        if looks_interactive && !has_csrf_header && !has_csrf_meta {
-            // Low severity as this is just one layer of defense
+        // Also check for hidden CSRF token fields inside forms - these are
+        // valid CSRF protection even without headers/meta tags
+        let has_csrf_hidden_field = body_lower.contains("name=\"_token\"")
+            || body_lower.contains("name=\"csrf_token\"")
+            || body_lower.contains("name=\"_csrf\"")
+            || body_lower.contains("name=\"authenticity_token\"")
+            || body_lower.contains("name=\"csrfmiddlewaretoken\"")
+            || body_lower.contains("type=\"hidden\"")
+                && (body_lower.contains("csrf") || body_lower.contains("token"));
+
+        if has_state_changing_form && !has_csrf_header && !has_csrf_meta && !has_csrf_hidden_field {
             vulnerabilities.push(self.create_vulnerability(
                 "No CSRF Protection Headers",
                 url,
                 Severity::Low,
                 Confidence::Medium,
-                "Application lacks common CSRF protection headers",
-                "No X-CSRF-Token, X-XSRF-Token, or similar headers detected".to_string(),
+                "HTML forms with state-changing methods lack CSRF protection headers",
+                "No X-CSRF-Token, X-XSRF-Token, or similar headers detected on page with POST forms".to_string(),
                 3.5,
             ));
         }
     }
 
     /// Check for state-changing operations via GET
+    /// Only reports when there is strong evidence of actual state change,
+    /// not just keyword matching in URLs and response bodies.
     fn check_state_change_via_get(
         &self,
         response: &HttpResponse,
         url: &str,
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        // If URL suggests state change and GET request succeeded
-        if response.status_code == 200 || response.status_code == 302 {
+        // Only report if the GET request resulted in a redirect (302) to
+        // a different page, which is a stronger indicator of state change.
+        // Just checking URL keywords + body keywords is too broad and
+        // produces false positives on pages that merely MENTION these words
+        // (documentation, UI labels, etc.)
+        if response.status_code == 302 {
             let state_change_indicators = vec![
-                "delete", "remove", "update", "modify", "edit", "change", "create", "add",
-                "insert", "transfer", "purchase",
+                "delete", "remove", "update", "transfer", "purchase",
             ];
 
             let url_lower = url.to_lowercase();
             for indicator in state_change_indicators {
                 if url_lower.contains(indicator) {
-                    // Check if response suggests success
-                    let body_lower = response.body.to_lowercase();
-                    let success_indicators = vec![
-                        "success",
-                        "deleted",
-                        "removed",
-                        "updated",
-                        "created",
-                        "completed",
-                        "confirmed",
-                        "saved",
-                    ];
-
-                    let looks_successful = success_indicators
-                        .iter()
-                        .any(|ind| body_lower.contains(ind));
-
-                    if looks_successful || response.status_code == 302 {
-                        vulnerabilities.push(self.create_vulnerability(
-                            "State-Changing Operation via GET",
-                            url,
-                            Severity::High,
-                            Confidence::Medium,
-                            "Critical operation allows GET method - vulnerable to CSRF via simple link",
-                            format!("URL contains '{}' and GET request appears successful (status: {})",
-                                indicator, response.status_code),
-                            7.1,
-                        ));
-                        break; // Only report once
-                    }
+                    vulnerabilities.push(self.create_vulnerability(
+                        "State-Changing Operation via GET",
+                        url,
+                        Severity::High,
+                        Confidence::Low,
+                        "Potentially dangerous operation accepts GET method and redirects - may be vulnerable to CSRF",
+                        format!("URL contains '{}' and GET request triggered redirect (302)",
+                            indicator),
+                        7.1,
+                    ));
+                    break; // Only report once
                 }
             }
         }
@@ -305,7 +319,7 @@ impl CsrfScanner {
             evidence: Some(evidence),
             cwe: "CWE-352".to_string(), // Cross-Site Request Forgery (CSRF)
             cvss,
-            verified: true,
+            verified: false,
             false_positive: false,
             remediation: r#"IMMEDIATE ACTION REQUIRED:
 

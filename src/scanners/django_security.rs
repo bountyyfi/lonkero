@@ -285,8 +285,8 @@ impl DjangoSecurityScanner {
         let admin_url = format!("{}/admin/", url.trim_end_matches('/'));
         if let Ok(resp) = self.http_client.get(&admin_url).await {
             if resp.body.contains("Django")
-                || resp.body.contains("administration")
-                || resp.body.contains("Log in") && resp.body.contains("csrfmiddlewaretoken")
+                || (resp.body.contains("Log in") && resp.body.contains("csrfmiddlewaretoken"))
+                || resp.body.contains("django-admin-login")
             {
                 is_django = true;
             }
@@ -848,12 +848,13 @@ impl DjangoSecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&file_url).await {
                 if resp.status_code == 200 && resp.body.len() > 10 {
+                    // Require Django-specific content patterns, not generic keywords like "import"
                     let is_sensitive = resp.body.contains("django")
                         || resp.body.contains("Django")
-                        || resp.body.contains("celery")
-                        || resp.body.contains("postgres")
-                        || resp.body.contains("SECRET")
-                        || resp.body.contains("import");
+                        || resp.body.contains("INSTALLED_APPS")
+                        || resp.body.contains("SECRET_KEY")
+                        || resp.body.contains("DATABASES")
+                        || resp.body.contains("celery_app");
 
                     if is_sensitive {
                         vulnerabilities.push(Vulnerability {
@@ -1107,8 +1108,8 @@ impl DjangoSecurityScanner {
             if let Ok(resp) = self.http_client.get(&flower_url).await {
                 if resp.status_code == 200
                     && (resp.body.contains("Flower")
-                        || resp.body.contains("celery")
-                        || resp.body.contains("tasks"))
+                        || (resp.body.contains("celery") && resp.body.contains("worker"))
+                        || (resp.body.contains("tasks") && resp.body.contains("broker")))
                 {
                     vulnerabilities.push(Vulnerability {
                         id: format!("django_flower_{}", Self::generate_id()),

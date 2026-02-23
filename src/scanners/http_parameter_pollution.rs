@@ -735,7 +735,7 @@ impl HttpParameterPollutionScanner {
         }
 
         // Check for NEW command execution indicators (not in baseline)
-        if body.contains("root:") && body.contains("/bin/") && !baseline_body.contains("root:") {
+        if body.contains("root:x:0:0:") && !baseline_body.contains("root:x:0:0:") {
             return true;
         }
 

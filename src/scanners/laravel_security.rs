@@ -651,6 +651,9 @@ impl LaravelSecurityScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests_run = 0;
 
+        // Note: .env.example and .env.sample are excluded because they are
+        // templates that typically contain placeholder values, not real secrets.
+        // Reporting them as Critical creates false positives.
         let env_files = [
             ".env",
             ".env.local",
@@ -661,8 +664,6 @@ impl LaravelSecurityScanner {
             ".env.bak",
             ".env.old",
             ".env.save",
-            ".env.example",
-            ".env.sample",
             "env",
             "env.php",
             ".env.php",
@@ -786,7 +787,10 @@ impl LaravelSecurityScanner {
                     && (response.body.contains("[stacktrace]")
                         || response.body.contains("production.ERROR")
                         || response.body.contains("local.ERROR"));
-                let is_session_dir = path.contains("sessions") && response.status_code == 200;
+                // Require specific Laravel session directory path, not bare "sessions"
+                let is_session_dir = (path.contains("/framework/sessions") || path.contains("/storage/framework/sessions"))
+                    && response.status_code == 200
+                    && (response.body.contains("eyJ") || response.body.len() > 100);
 
                 if is_directory_listing {
                     vulnerabilities.push(Vulnerability {

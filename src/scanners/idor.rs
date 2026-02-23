@@ -344,15 +344,15 @@ impl IdorScanner {
         let body_lower = body.to_lowercase();
         let status = response.status_code;
 
-        // Check for admin panel access
+        // Check for admin panel access - require specific admin-only functionality indicators
+        // Removed "administrator" (appears on login pages) and "configuration" (appears in docs)
         let admin_indicators = vec![
             "admin panel",
-            "administrator",
+            "admin dashboard",
             "manage users",
-            "system settings",
-            "configuration",
             "delete user",
             "all users",
+            "\"is_admin\":true",
         ];
 
         let has_admin_content = admin_indicators
@@ -364,7 +364,7 @@ impl IdorScanner {
                 id: generate_uuid(),
                 vuln_type: "IDOR - Vertical Privilege Escalation".to_string(),
                 severity: Severity::Critical,
-                confidence: Confidence::High,
+                confidence: Confidence::Medium,
                 category: "Authorization".to_string(),
                 url: url.to_string(),
                 parameter: Some("role".to_string()),
@@ -402,18 +402,12 @@ impl IdorScanner {
         let status = response.status_code;
 
         // Check if protected resources are accessible without auth
-        let protected_content = vec![
-            "user data",
-            "account",
-            "profile",
-            "private",
-            "confidential",
-            "dashboard",
-        ];
-
-        let has_protected_content = protected_content
-            .iter()
-            .any(|&content| body_lower.contains(content));
+        // Require compound indicators specific to protected data, not generic words
+        let has_protected_content = (body_lower.contains("\"email\":") && body_lower.contains("\"username\":"))
+            || body_lower.contains("\"ssn\":")
+            || body_lower.contains("\"credit_card\":")
+            || body_lower.contains("\"password_hash\":")
+            || (body_lower.contains("user data") && body_lower.contains("\"id\":"));
 
         let requires_auth = response.headers.contains_key("www-authenticate")
             || status == 401

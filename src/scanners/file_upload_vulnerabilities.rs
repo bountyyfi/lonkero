@@ -310,13 +310,14 @@ impl FileUploadVulnerabilitiesScanner {
                                             || body_lower.contains("\"status\":404")
                                             || body_lower.contains("\"code\":404"));
 
-                                    let is_soft_404 = body_lower.contains("not found") ||
-                                        body_lower.contains("404") ||
-                                        body_lower.contains("does not exist") ||
+                                    // Soft 404 detection: SPAs return 200 for everything,
+                                    // so check for not-found content in the body
+                                    let has_not_found_text =
                                         body_lower.contains("file not found") ||
                                         body_lower.contains("page not found") ||
                                         body_lower.contains("resource not found") ||
                                         body_lower.contains("cannot be found") ||
+                                        body_lower.contains("does not exist") ||
                                         body_lower.contains("no such file") ||
                                         // Multi-language 404 patterns
                                         body_lower.contains("sivua ei löydy") ||  // Finnish
@@ -325,9 +326,15 @@ impl FileUploadVulnerabilitiesScanner {
                                         body_lower.contains("seite nicht gefunden") ||  // German
                                         body_lower.contains("página no encontrada") ||  // Spanish
                                         body_lower.contains("page introuvable") ||  // French
-                                        body_lower.contains("pagina niet gevonden") ||  // Dutch
-                                        (body_lower.contains("error") && body_lower.len() < 1000) ||
-                                        is_spa_page ||
+                                        body_lower.contains("pagina niet gevonden");  // Dutch
+
+                                    // SPA pages return the app shell HTML for all routes
+                                    // Only treat as soft-404 if body doesn't contain our test marker
+                                    let is_spa_soft_404 = is_spa_page
+                                        && !body_lower.contains(&self.test_marker.to_lowercase());
+
+                                    let is_soft_404 = has_not_found_text ||
+                                        is_spa_soft_404 ||
                                         is_json_error;
 
                                     if is_soft_404 {

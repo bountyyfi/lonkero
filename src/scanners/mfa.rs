@@ -403,7 +403,7 @@ impl MfaScanner {
                 id: generate_uuid(),
                 vuln_type: "MFA Bypass Vulnerability".to_string(),
                 severity: Severity::Critical,
-                confidence: Confidence::High,
+                confidence: Confidence::Medium,
                 category: "Authentication".to_string(),
                 url: url.to_string(),
                 parameter: Some("mfa_required".to_string()),
@@ -437,10 +437,11 @@ impl MfaScanner {
         let body = &response.body;
         let body_lower = body.to_lowercase();
 
-        // Check for weak TOTP acceptance
-        if body_lower.contains("success")
-            || body_lower.contains("verified")
-            || body_lower.contains("correct")
+        // Check for weak TOTP acceptance - require specific API/JSON success patterns
+        if body_lower.contains("\"success\":true")
+            || body_lower.contains("\"verified\":true")
+            || body_lower.contains("\"totp\":\"valid\"")
+            || body_lower.contains("code accepted")
         {
             vulnerabilities.push(Vulnerability {
                 id: generate_uuid(),
@@ -816,8 +817,8 @@ impl MfaScanner {
         // CRITICAL: Only report if replay was SUCCESSFUL (not rejected)
         let replay_successful = (replay_response.status_code == 200
             || replay_response.status_code == 302)
-            && (replay_body_lower.contains("success")
-                || replay_body_lower.contains("verified")
+            && (replay_body_lower.contains("\"success\":true") || replay_body_lower.contains("\"status\":\"success\"")
+                || replay_body_lower.contains("\"verified\":true")
                 || replay_body_lower.contains("authenticated")
                 || replay_body_lower.contains("correct")
                 || replay_response.headers.contains_key("set-cookie"));
@@ -839,8 +840,8 @@ impl MfaScanner {
             let second_replay_lower = second_replay.body.to_lowercase();
             let second_replay_successful = (second_replay.status_code == 200
                 || second_replay.status_code == 302)
-                && (second_replay_lower.contains("success")
-                    || second_replay_lower.contains("verified"));
+                && (second_replay_lower.contains("\"success\":true") || second_replay_lower.contains("\"status\":\"success\"")
+                    || second_replay_lower.contains("\"verified\":true"));
 
             // Only report if BOTH replays succeeded (confirmed vulnerability)
             if second_replay_successful {
@@ -848,7 +849,7 @@ impl MfaScanner {
                     id: generate_uuid(),
                     vuln_type: "OTP Replay Attack Vulnerability".to_string(),
                     severity: Severity::Critical,
-                    confidence: Confidence::High,
+                    confidence: Confidence::Medium,
                     category: "Authentication".to_string(),
                     url: endpoint.to_string(),
                     parameter: Some("code".to_string()),
@@ -916,11 +917,13 @@ impl MfaScanner {
         // Count how many were successful
         for response in &responses {
             let body_lower = response.body.to_lowercase();
+            // Require specific MFA success patterns, not bare "success"/"verified"
             let is_success = (response.status_code == 200 || response.status_code == 302)
-                && (body_lower.contains("success")
-                    || body_lower.contains("verified")
-                    || body_lower.contains("authenticated")
-                    || body_lower.contains("correct"));
+                && (body_lower.contains("\"success\":true")
+                    || body_lower.contains("\"verified\":true")
+                    || body_lower.contains("\"authenticated\":true")
+                    || body_lower.contains("verification successful")
+                    || body_lower.contains("code accepted"));
 
             let not_error = !body_lower.contains("incorrect")
                 && !body_lower.contains("invalid")
@@ -938,7 +941,7 @@ impl MfaScanner {
                 id: generate_uuid(),
                 vuln_type: "MFA Race Condition - Parallel Verification".to_string(),
                 severity: Severity::Critical,
-                confidence: Confidence::High,
+                confidence: Confidence::Medium,
                 category: "Authentication".to_string(),
                 url: endpoint.to_string(),
                 parameter: Some("code".to_string()),
@@ -994,8 +997,8 @@ impl MfaScanner {
 
                     // Check if expired code was accepted
                     let accepted = (response.status_code == 200 || response.status_code == 302)
-                        && (body_lower.contains("success")
-                            || body_lower.contains("verified")
+                        && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
+                            || body_lower.contains("\"verified\":true")
                             || body_lower.contains("authenticated"));
 
                     let not_expired_error = !body_lower.contains("expired")
@@ -1160,7 +1163,7 @@ impl MfaScanner {
                 id: generate_uuid(),
                 vuln_type: "Missing Rate Limiting - OTP Brute Force".to_string(),
                 severity: Severity::Critical,
-                confidence: Confidence::High,
+                confidence: Confidence::Medium,
                 category: "Authentication".to_string(),
                 url: endpoint.to_string(),
                 parameter: Some("code".to_string()),
@@ -1254,9 +1257,9 @@ impl MfaScanner {
                     let body_lower = response.body.to_lowercase();
 
                     let accepted = (response.status_code == 200 || response.status_code == 302)
-                        && (body_lower.contains("success")
-                            || body_lower.contains("verified")
-                            || body_lower.contains("valid")
+                        && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
+                            || body_lower.contains("\"verified\":true")
+                            || body_lower.contains("\"valid\":true")
                             || body_lower.contains("authenticated"));
 
                     let not_invalid = !body_lower.contains("invalid")
@@ -1268,7 +1271,7 @@ impl MfaScanner {
                             id: generate_uuid(),
                             vuln_type: "Predictable MFA Backup Codes".to_string(),
                             severity: Severity::Critical,
-                            confidence: Confidence::High,
+                            confidence: Confidence::Medium,
                             category: "Authentication".to_string(),
                             url: endpoint.to_string(),
                             parameter: Some("backup_code".to_string()),

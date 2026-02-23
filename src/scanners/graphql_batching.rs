@@ -563,9 +563,10 @@ impl GraphQlBatchingScanner {
             Ok(response) => {
                 let body = &response.body;
 
-                // Check if any protected data was returned
-                let has_sensitive =
-                    body.contains("password") || body.contains("email") || body.contains("admin");
+                // Check if any protected data was returned - require JSON field patterns
+                let has_sensitive = body.contains("\"password\":")
+                    || (body.contains("\"email\":") && body.contains("\"password\":"))
+                    || (body.contains("\"role\":") && body.contains("\"admin\""));
 
                 // Check if some queries succeeded and others failed
                 let has_data = body.contains("\"data\"");

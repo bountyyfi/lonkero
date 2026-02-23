@@ -56,15 +56,24 @@ impl SecurityHeadersScanner {
                     return Ok((vulnerabilities, tests_run));
                 }
 
-                // Check each security header
+                // Detect if this is an API/non-HTML response where most
+                // browser security headers are irrelevant (reduces false positives)
+                let is_api_response = self.is_api_or_non_html_response(&response);
+
+                // HSTS and CORS apply to all response types
                 self.check_hsts(&response, url, &mut vulnerabilities);
-                self.check_csp(&response, url, &mut vulnerabilities);
-                self.check_x_frame_options(&response, url, &mut vulnerabilities);
-                self.check_x_content_type_options(&response, url, &mut vulnerabilities);
-                self.check_x_xss_protection(&response, url, &mut vulnerabilities);
-                self.check_referrer_policy(&response, url, &mut vulnerabilities);
-                self.check_permissions_policy(&response, url, &mut vulnerabilities);
                 self.check_cors_headers(&response, url, &mut vulnerabilities);
+
+                // These headers only matter for HTML responses rendered in browsers.
+                // Reporting them on JSON/XML API responses is a false positive.
+                if !is_api_response {
+                    self.check_csp(&response, url, &mut vulnerabilities);
+                    self.check_x_frame_options(&response, url, &mut vulnerabilities);
+                    self.check_x_content_type_options(&response, url, &mut vulnerabilities);
+                    self.check_x_xss_protection(&response, url, &mut vulnerabilities);
+                    self.check_referrer_policy(&response, url, &mut vulnerabilities);
+                    self.check_permissions_policy(&response, url, &mut vulnerabilities);
+                }
             }
             Err(e) => {
                 debug!("Failed to fetch URL for header check: {}", e);
@@ -77,6 +86,41 @@ impl SecurityHeadersScanner {
         );
 
         Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check if response is an API or non-HTML response where browser security
+    /// headers (CSP, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
+    /// are not applicable. Reporting missing headers on JSON/XML API responses
+    /// is a false positive since browsers don't render them as pages.
+    fn is_api_or_non_html_response(&self, response: &HttpResponse) -> bool {
+        // Check content-type header
+        if let Some(content_type) = response.header("content-type") {
+            let ct_lower = content_type.to_lowercase();
+            // Non-HTML content types where browser security headers are irrelevant
+            if ct_lower.contains("application/json")
+                || ct_lower.contains("application/xml")
+                || ct_lower.contains("text/xml")
+                || ct_lower.contains("text/plain")
+                || ct_lower.contains("application/octet-stream")
+                || ct_lower.contains("image/")
+                || ct_lower.contains("font/")
+                || ct_lower.contains("application/pdf")
+                || ct_lower.contains("application/javascript")
+            {
+                return true;
+            }
+        }
+
+        // Heuristic: if body looks like JSON/XML but no content-type header
+        let body_trimmed = response.body.trim();
+        if (body_trimmed.starts_with('{') && body_trimmed.ends_with('}'))
+            || (body_trimmed.starts_with('[') && body_trimmed.ends_with(']'))
+            || (body_trimmed.starts_with("<?xml") && body_trimmed.contains("?>"))
+        {
+            return true;
+        }
+
+        false
     }
 
     /// Check if response body indicates a "not found" or similar error
@@ -138,18 +182,9 @@ impl SecurityHeadersScanner {
                 }
             }
 
-            // Check for includeSubDomains
-            if !hsts.contains("includeSubDomains") {
-                vulnerabilities.push(self.create_vulnerability(
-                    "HSTS Missing includeSubDomains",
-                    url,
-                    Severity::Low,
-                    Confidence::High,
-                    "HSTS configured without includeSubDomains directive",
-                    "Subdomains are not protected by HSTS".to_string(),
-                    3.0,
-                ));
-            }
+            // Note: Missing includeSubDomains is a best practice recommendation,
+            // not a vulnerability. Having HSTS at all is the important part.
+            // Reporting this as a finding inflates results with false positives.
         } else if url.starts_with("https") {
             vulnerabilities.push(self.create_vulnerability(
                 "Missing HSTS Header",
@@ -266,6 +301,9 @@ impl SecurityHeadersScanner {
     }
 
     /// Check Referrer-Policy
+    /// Only reports actively dangerous configurations (unsafe-url),
+    /// NOT missing headers - most sites don't set Referrer-Policy and
+    /// browsers use safe defaults (strict-origin-when-cross-origin).
     fn check_referrer_policy(
         &self,
         response: &HttpResponse,
@@ -273,94 +311,51 @@ impl SecurityHeadersScanner {
         vulnerabilities: &mut Vec<Vulnerability>,
     ) {
         if let Some(referrer) = response.header("referrer-policy") {
-            if referrer.contains("unsafe-url") || referrer == "no-referrer-when-downgrade" {
+            // Only report explicitly dangerous policies
+            if referrer.contains("unsafe-url") {
                 vulnerabilities.push(self.create_vulnerability(
                     "Weak Referrer Policy",
                     url,
                     Severity::Low,
                     Confidence::High,
-                    "Referrer-Policy may leak sensitive information in URLs",
+                    "Referrer-Policy set to 'unsafe-url' leaks full URLs to third parties",
                     format!("Referrer-Policy: {}", referrer),
                     3.1,
                 ));
             }
-        } else {
-            vulnerabilities.push(self.create_vulnerability(
-                "Missing Referrer-Policy",
-                url,
-                Severity::Low,
-                Confidence::Medium,
-                "Referrer-Policy header is missing",
-                "Referrer information may be leaked to third parties".to_string(),
-                3.0,
-            ));
         }
+        // Note: Missing Referrer-Policy is NOT reported because modern browsers
+        // default to strict-origin-when-cross-origin which is safe.
+        // Reporting it creates noise without security value.
     }
 
     /// Check Permissions-Policy (formerly Feature-Policy)
+    /// Note: Missing Permissions-Policy is NOT reported as a finding because
+    /// the vast majority of websites don't set this header and it's not a
+    /// security vulnerability - just a defense-in-depth hardening measure.
+    /// Reporting it creates noise that obscures real findings.
     fn check_permissions_policy(
         &self,
-        response: &HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        let has_permissions_policy = response.header("permissions-policy").is_some();
-        let has_feature_policy = response.header("feature-policy").is_some();
-
-        if !has_permissions_policy && !has_feature_policy {
-            vulnerabilities.push(
-                self.create_vulnerability(
-                    "Missing Permissions-Policy",
-                    url,
-                    Severity::Info,
-                    Confidence::Medium,
-                    "Permissions-Policy header is missing",
-                    "Consider restricting browser features (camera, microphone, geolocation, etc.)"
-                        .to_string(),
-                    2.0,
-                ),
-            );
-        }
+        // Intentionally not reporting missing Permissions-Policy.
+        // This header is a hardening recommendation, not a vulnerability.
+        // Reporting it on every site creates too many false positives.
     }
 
     /// Check CORS headers for misconfigurations
+    /// Note: CORS is thoroughly checked by the dedicated CorsScanner.
+    /// This function is disabled to avoid duplicate findings.
     fn check_cors_headers(
         &self,
-        response: &HttpResponse,
-        url: &str,
-        vulnerabilities: &mut Vec<Vulnerability>,
+        _response: &HttpResponse,
+        _url: &str,
+        _vulnerabilities: &mut Vec<Vulnerability>,
     ) {
-        if let Some(acao) = response.header("access-control-allow-origin") {
-            // Check for wildcard with credentials
-            if acao == "*" {
-                if let Some(credentials) = response.header("access-control-allow-credentials") {
-                    if credentials == "true" {
-                        vulnerabilities.push(self.create_vulnerability(
-                            "Insecure CORS Configuration",
-                            url,
-                            Severity::High,
-                            Confidence::High,
-                            "CORS allows all origins (*) with credentials enabled",
-                            "This configuration allows any origin to make authenticated requests".to_string(),
-                            6.5,
-                        ));
-                    }
-                }
-            }
-
-            // Check for null origin
-            if acao == "null" {
-                vulnerabilities.push(self.create_vulnerability(
-                    "CORS Allows Null Origin",
-                    url,
-                    Severity::Medium,
-                    Confidence::High,
-                    "CORS Access-Control-Allow-Origin set to 'null'",
-                    "Null origin can be exploited via sandboxed iframes".to_string(),
-                    5.3,
-                ));
-            }
-        }
+        // Disabled - CORS misconfigurations are detected by the dedicated CorsScanner
+        // to avoid duplicate vulnerability reports between the two scanners.
     }
 
     /// Create vulnerability record
@@ -465,7 +460,34 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_csp() {
+    fn test_hsts_with_includesubdomains_no_false_positive() {
+        let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let mut headers = HashMap::new();
+        headers.insert(
+            "strict-transport-security".to_string(),
+            "max-age=31536000".to_string(),
+        );
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: String::new(),
+            headers,
+            duration_ms: 100,
+        };
+
+        let mut vulns = Vec::new();
+        scanner.check_hsts(&response, "https://example.com", &mut vulns);
+
+        assert_eq!(
+            vulns.len(),
+            0,
+            "Should NOT report missing includeSubDomains as a vulnerability"
+        );
+    }
+
+    #[test]
+    fn test_missing_csp_on_html() {
         let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let response = HttpResponse {
@@ -478,7 +500,116 @@ mod tests {
         let mut vulns = Vec::new();
         scanner.check_csp(&response, "https://example.com", &mut vulns);
 
-        assert_eq!(vulns.len(), 1, "Should detect missing CSP");
+        assert_eq!(vulns.len(), 1, "Should detect missing CSP on HTML response");
+    }
+
+    #[test]
+    fn test_no_false_positives_on_api_response() {
+        let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let mut headers = HashMap::new();
+        headers.insert(
+            "content-type".to_string(),
+            "application/json".to_string(),
+        );
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: "{\"status\": \"ok\"}".to_string(),
+            headers,
+            duration_ms: 100,
+        };
+
+        assert!(
+            scanner.is_api_or_non_html_response(&response),
+            "JSON response should be detected as API"
+        );
+    }
+
+    #[test]
+    fn test_no_false_positives_on_json_body() {
+        let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: "{\"data\": [1, 2, 3]}".to_string(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        assert!(
+            scanner.is_api_or_non_html_response(&response),
+            "JSON body should be detected as API even without content-type"
+        );
+    }
+
+    #[test]
+    fn test_missing_referrer_policy_not_reported() {
+        let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: String::new(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        let mut vulns = Vec::new();
+        scanner.check_referrer_policy(&response, "https://example.com", &mut vulns);
+
+        assert_eq!(
+            vulns.len(),
+            0,
+            "Should NOT report missing Referrer-Policy (browsers have safe defaults)"
+        );
+    }
+
+    #[test]
+    fn test_unsafe_url_referrer_policy_reported() {
+        let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let mut headers = HashMap::new();
+        headers.insert(
+            "referrer-policy".to_string(),
+            "unsafe-url".to_string(),
+        );
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: String::new(),
+            headers,
+            duration_ms: 100,
+        };
+
+        let mut vulns = Vec::new();
+        scanner.check_referrer_policy(&response, "https://example.com", &mut vulns);
+
+        assert_eq!(
+            vulns.len(),
+            1,
+            "Should report explicitly dangerous unsafe-url Referrer-Policy"
+        );
+    }
+
+    #[test]
+    fn test_missing_permissions_policy_not_reported() {
+        let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
+
+        let response = HttpResponse {
+            status_code: 200,
+            body: String::new(),
+            headers: HashMap::new(),
+            duration_ms: 100,
+        };
+
+        let mut vulns = Vec::new();
+        scanner.check_permissions_policy(&response, "https://example.com", &mut vulns);
+
+        assert_eq!(
+            vulns.len(),
+            0,
+            "Should NOT report missing Permissions-Policy (not a vulnerability)"
+        );
     }
 
     #[test]
@@ -505,7 +636,9 @@ mod tests {
     }
 
     #[test]
-    fn test_insecure_cors() {
+    fn test_cors_handled_by_dedicated_scanner() {
+        // CORS checks are now handled by the dedicated CorsScanner
+        // to avoid duplicate findings. The security_headers CORS check is disabled.
         let scanner = SecurityHeadersScanner::new(Arc::new(HttpClient::new(5, 2).unwrap()));
 
         let mut headers = HashMap::new();
@@ -525,7 +658,10 @@ mod tests {
         let mut vulns = Vec::new();
         scanner.check_cors_headers(&response, "https://example.com", &mut vulns);
 
-        assert!(vulns.len() > 0, "Should detect insecure CORS");
-        assert_eq!(vulns[0].severity, Severity::High);
+        assert_eq!(
+            vulns.len(),
+            0,
+            "CORS should not be reported here - handled by dedicated CorsScanner"
+        );
     }
 }

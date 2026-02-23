@@ -1111,6 +1111,16 @@ impl RateLimitingScanner {
             base_severity
         };
 
+        // Bypass findings are high confidence (we proved the bypass works).
+        // Missing rate limiting is lower confidence because rate limiting
+        // may be enforced at WAF/CDN level (Cloudflare, AWS WAF, etc.)
+        // which is not visible to the scanner.
+        let confidence = if is_bypass {
+            Confidence::High
+        } else {
+            Confidence::Low
+        };
+
         let vuln_type = if is_bypass {
             format!(
                 "Rate Limiting Bypass via {} - {} Endpoint",
@@ -1202,7 +1212,7 @@ impl RateLimitingScanner {
             ),
             vuln_type,
             severity,
-            confidence: Confidence::High,
+            confidence,
             category: "Access Control".to_string(),
             url: original_url.to_string(),
             parameter: Some(result.endpoint.clone()),

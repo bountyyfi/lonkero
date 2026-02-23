@@ -486,10 +486,12 @@ impl IdorAnalyzer {
             if let Ok(response) = self.http_client.get_authenticated(&test_url, session).await {
                 if response.status_code == 200 {
                     let body_lower = response.body.to_lowercase();
-                    if body_lower.contains("admin")
-                        || body_lower.contains("dashboard")
-                        || body_lower.contains("users")
-                        || body_lower.contains("settings")
+                    // Require specific admin functionality indicators, not generic words
+                    if body_lower.contains("admin panel")
+                        || body_lower.contains("admin dashboard")
+                        || body_lower.contains("manage users")
+                        || body_lower.contains("delete user")
+                        || body_lower.contains("\"is_admin\":true")
                     {
                         vulnerabilities.push(Vulnerability {
                             id: format!("idor-vertical-{}", uuid::Uuid::new_v4()),
@@ -507,7 +509,7 @@ impl IdorAnalyzer {
                             evidence: Some(format!("Admin endpoint accessible (status: {})", response.status_code)),
                             cwe: "CWE-862".to_string(),
                             cvss: 9.1,
-                            verified: true,
+                            verified: false,
                             false_positive: false,
                             remediation: "Implement role-based access control. Admin endpoints should verify the requesting user has admin privileges before allowing access.".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),

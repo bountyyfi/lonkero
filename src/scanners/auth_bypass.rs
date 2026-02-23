@@ -182,23 +182,25 @@ impl AuthBypassScanner {
         let body_lower = response.body.to_lowercase();
 
         // Check for successful authentication indicators
-        let auth_success = vec![
-            "welcome",
-            "dashboard",
-            "logged in",
-            "successful",
-            "profile",
-            "logout",
-            "sign out",
-            "authenticated",
+        // Require strong evidence - specific JSON/API patterns, not generic page words
+        let strong_auth_indicators = vec![
+            "\"authenticated\":true",
+            "\"logged_in\":true",
+            "\"is_admin\":true",
+            "admin panel",
+            "admin dashboard",
         ];
+        let weak_auth_indicators = vec!["logout", "sign out", "my account"];
 
-        let success_count = auth_success
+        let has_strong = strong_auth_indicators
+            .iter()
+            .any(|&indicator| body_lower.contains(indicator));
+        let weak_count = weak_auth_indicators
             .iter()
             .filter(|&indicator| body_lower.contains(indicator))
             .count();
 
-        if success_count >= 2 || response.status_code == 302 {
+        if has_strong || (weak_count >= 2 && response.status_code == 302) {
             vulnerabilities.push(self.create_vulnerability(
                 "SQL Injection Authentication Bypass",
                 url,
@@ -236,7 +238,13 @@ impl AuthBypassScanner {
     ) {
         let body_lower = response.body.to_lowercase();
 
-        if (body_lower.contains("welcome") || body_lower.contains("dashboard"))
+        // Require strong evidence of successful auth bypass, not just generic page keywords
+        let has_auth_evidence = body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"logged_in\":true")
+            || (body_lower.contains("\"role\":") && body_lower.contains("\"admin\""))
+            || body_lower.contains("admin panel")
+            || body_lower.contains("admin dashboard");
+        if has_auth_evidence
             && !body_lower.contains("login")
             && !body_lower.contains("password")
         {
@@ -273,7 +281,13 @@ impl AuthBypassScanner {
         if response.status_code == 200 || response.status_code == 302 {
             let body_lower = response.body.to_lowercase();
 
-            if body_lower.contains("welcome") || body_lower.contains("dashboard") {
+            // Require strong evidence of auth bypass, not just "welcome"/"dashboard"
+            let has_auth_evidence = body_lower.contains("\"authenticated\":true")
+                || body_lower.contains("\"logged_in\":true")
+                || (body_lower.contains("\"role\":") && body_lower.contains("\"admin\""))
+                || body_lower.contains("admin panel")
+                || body_lower.contains("admin dashboard");
+            if has_auth_evidence {
                 vulnerabilities.push(self.create_vulnerability(
                     "Empty Password Authentication Bypass",
                     url,
@@ -320,9 +334,13 @@ impl AuthBypassScanner {
     ) {
         let body_lower = response.body.to_lowercase();
 
-        if (response.status_code == 200 || response.status_code == 302)
-            && (body_lower.contains("welcome") || body_lower.contains("dashboard"))
-        {
+        // Require strong evidence of successful login, not just generic keywords
+        let has_auth_evidence = body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"logged_in\":true")
+            || (body_lower.contains("\"role\":") && body_lower.contains("\"admin\""))
+            || body_lower.contains("admin panel")
+            || body_lower.contains("admin dashboard");
+        if (response.status_code == 200 || response.status_code == 302) && has_auth_evidence {
             vulnerabilities.push(self.create_vulnerability(
                 "Default Credentials Accepted",
                 url,
@@ -340,15 +358,14 @@ impl AuthBypassScanner {
         &self,
         url: &str,
     ) -> Result<crate::http_client::HttpResponse> {
-        // Try adding headers that might bypass auth
-        // Note: Simplified version - real implementation would use custom headers
-        let test_url = if url.contains('?') {
-            format!("{}&X-Forwarded-For=127.0.0.1", url)
-        } else {
-            format!("{}?X-Forwarded-For=127.0.0.1", url)
-        };
+        // Send actual HTTP headers that might bypass IP-based auth checks
+        let headers = vec![
+            ("X-Forwarded-For".to_string(), "127.0.0.1".to_string()),
+            ("X-Real-IP".to_string(), "127.0.0.1".to_string()),
+            ("X-Original-URL".to_string(), url.to_string()),
+        ];
 
-        self.http_client.get(&test_url).await
+        self.http_client.get_with_headers(url, headers).await
     }
 
     /// Check header manipulation
@@ -361,7 +378,12 @@ impl AuthBypassScanner {
         if response.status_code == 200 {
             let body_lower = response.body.to_lowercase();
 
-            if body_lower.contains("admin") || body_lower.contains("dashboard") {
+            // Require actual admin panel content, not just the word "admin" anywhere
+            let has_admin_content = body_lower.contains("admin panel")
+                || body_lower.contains("admin dashboard")
+                || (body_lower.contains("\"role\"") && body_lower.contains("\"admin\""))
+                || body_lower.contains("manage users");
+            if has_admin_content {
                 vulnerabilities.push(self.create_vulnerability(
                     "Header Manipulation Authentication Bypass",
                     url,
@@ -394,7 +416,12 @@ impl AuthBypassScanner {
         if response.status_code == 200 {
             let body_lower = response.body.to_lowercase();
 
-            if body_lower.contains("admin") || body_lower.contains("dashboard") {
+            // Require actual admin panel content, not just the word "admin" anywhere
+            let has_admin_content = body_lower.contains("admin panel")
+                || body_lower.contains("admin dashboard")
+                || (body_lower.contains("\"role\"") && body_lower.contains("\"admin\""))
+                || body_lower.contains("manage users");
+            if has_admin_content {
                 vulnerabilities.push(self.create_vulnerability(
                     "Path Traversal Authentication Bypass",
                     url,
@@ -1504,13 +1531,13 @@ References:
                     let body_lower = response.body.to_lowercase();
 
                     // Check if we got actual protected content (not login redirect)
-                    let has_protected_content = (body_lower.contains("user")
-                        && body_lower.contains("email"))
-                        || body_lower.contains("settings")
-                        || body_lower.contains("configuration")
-                        || body_lower.contains("dashboard")
+                    // Require specific protected-area indicators, not generic words
+                    let has_protected_content = (body_lower.contains("\"email\":")
+                        && body_lower.contains("\"username\":"))
                         || body_lower.contains("admin panel")
-                        || body_lower.contains("management");
+                        || body_lower.contains("admin dashboard")
+                        || (body_lower.contains("\"role\"") && body_lower.contains("\"admin\""))
+                        || body_lower.contains("manage users");
 
                     let is_login_page = body_lower.contains("login")
                         && body_lower.contains("password")

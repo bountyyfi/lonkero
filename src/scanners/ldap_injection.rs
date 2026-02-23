@@ -214,44 +214,45 @@ impl LdapInjectionScanner {
         }
 
         // Check for successful LDAP filter bypass (unusually large response)
+        // Require very large response AND LDAP-specific content, not just size alone
         if payload == "*" && body.len() > 10000 {
-            return Some(self.create_vulnerability(
-                url,
-                param_name,
-                payload,
-                "Wildcard query returned unusually large response",
-                "Possible LDAP filter bypass - wildcard query returned excessive data",
-                Confidence::Medium,
-                attack_type,
-            ));
+            let body_lower = body.to_lowercase();
+            let has_ldap_content = body_lower.contains("cn=")
+                || body_lower.contains("ou=")
+                || body_lower.contains("dc=")
+                || body_lower.contains("objectclass")
+                || body_lower.contains("distinguishedname");
+            if has_ldap_content {
+                return Some(self.create_vulnerability(
+                    url,
+                    param_name,
+                    payload,
+                    "Wildcard query returned LDAP data in unusually large response",
+                    "Possible LDAP filter bypass - wildcard query returned excessive data",
+                    Confidence::Medium,
+                    attack_type,
+                ));
+            }
         }
 
-        // Check for authentication bypass patterns
+        // Check for authentication bypass patterns — require strong auth evidence
         if payload.contains("admin") && status == 200 {
-            let auth_success_patterns = vec![
-                "welcome",
-                "dashboard",
-                "logged in",
-                "authentication successful",
-                "profile",
-                "account",
-            ];
+            let body_lower = body.to_lowercase();
+            let has_auth_evidence = body_lower.contains("\"authenticated\":true")
+                || body_lower.contains("\"logged_in\":true")
+                || body_lower.contains("admin panel")
+                || body_lower.contains("admin dashboard");
 
-            for pattern in &auth_success_patterns {
-                if body.to_lowercase().contains(pattern) {
-                    return Some(self.create_vulnerability(
-                        url,
-                        param_name,
-                        payload,
-                        "Potential authentication bypass via LDAP injection",
-                        &format!(
-                            "Successful authentication with LDAP payload - found '{}'",
-                            pattern
-                        ),
-                        Confidence::Medium,
-                        attack_type,
-                    ));
-                }
+            if has_auth_evidence {
+                return Some(self.create_vulnerability(
+                    url,
+                    param_name,
+                    payload,
+                    "Potential authentication bypass via LDAP injection",
+                    "Successful authentication with LDAP payload",
+                    Confidence::Medium,
+                    attack_type,
+                ));
             }
         }
 

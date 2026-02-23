@@ -823,11 +823,11 @@ impl GraphqlSecurityScanner {
                             || response.body.contains("persistedQuery");
 
                         let apq_registered = response.body.contains("__typename")
-                            && !response.body.contains("error");
+                            && !response.body.contains("\"errors\"");
 
                         let bypass_worked = description.contains("bypass")
-                            && response.body.contains("user")
-                            && !response.body.contains("error");
+                            && response.body.contains("\"data\":")
+                            && !response.body.contains("\"errors\"");
 
                         if apq_enabled {
                             vulnerabilities.push(self.create_vulnerability(
@@ -1113,14 +1113,16 @@ impl GraphqlSecurityScanner {
                         }
 
                         // Check for debug/admin directive acceptance
-                        let debug_accepted = response.body.contains("debug")
-                            || response.body.contains("trace")
-                            || response.body.contains("admin");
+                        // Require directive-specific evidence, not generic keywords
+                        let debug_accepted = response.body.contains("\"debug\":")
+                            || response.body.contains("\"trace\":")
+                            || response.body.contains("\"adminData\":");
 
-                        // Check for directive info disclosure
-                        let info_leak = response.body.contains("process")
-                            || response.body.contains("env")
-                            || response.body.contains("stack");
+                        // Check for directive info disclosure - require real backend details
+                        let info_leak = response.body.contains("process.env")
+                            || response.body.contains("\"env\":{")
+                            || response.body.contains("\"stack\":")
+                            || response.body.contains("\"stackTrace\":");
 
                         // Check for unrestricted directives
                         let no_directive_limit =
@@ -1210,10 +1212,10 @@ impl GraphqlSecurityScanner {
                             && !response.body.to_lowercase().contains("permission")
                             && !response.body.to_lowercase().contains("access denied");
 
-                        let sensitive_data = response.body.contains("password")
+                        let sensitive_data = response.body.contains("\"password\":")
                             || response.body.contains("sensitiveData")
                             || response.body.contains("secretField")
-                            || response.body.contains("admin");
+                            || (response.body.contains("\"role\":") && response.body.contains("\"admin\""));
 
                         if has_data && no_auth_error && sensitive_data {
                             vulnerabilities.push(self.create_vulnerability(
@@ -1423,7 +1425,7 @@ impl GraphqlSecurityScanner {
         // Check for schema information in response
         (body_lower.contains("__schema") || body_lower.contains("__type"))
             && (body_lower.contains("types") || body_lower.contains("fields"))
-            && !body_lower.contains("error")
+            && !body_lower.contains("\"errors\"")
             && !body_lower.contains("introspection is disabled")
     }
 
@@ -1448,10 +1450,11 @@ impl GraphqlSecurityScanner {
             }
         }
 
-        // Check for successful data extraction
+        // Check for successful data extraction - require specific PII fields, not generic keywords
         body_lower.contains("\"data\"")
             && !body_lower.contains("\"errors\"")
-            && (body_lower.contains("user") || body_lower.contains("admin"))
+            && (body_lower.contains("\"password\":") || body_lower.contains("\"secret\":")
+                || body_lower.contains("\"ssn\":") || body_lower.contains("\"credit_card\":"))
     }
 
     /// Detect field suggestions

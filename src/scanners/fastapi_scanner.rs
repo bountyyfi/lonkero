@@ -170,11 +170,12 @@ impl FastApiScanner {
                 }
             }
 
-            // Check for FastAPI error response patterns
+            // Check for FastAPI error response patterns.
+            // Fixed operator precedence: parentheses required for OR+AND.
             if resp.body.contains("HTTPValidationError")
-                || resp.body.contains("\"detail\":")
+                || (resp.body.contains("\"detail\":")
                     && resp.body.contains("\"loc\":")
-                    && resp.body.contains("\"msg\":")
+                    && resp.body.contains("\"msg\":"))
             {
                 is_fastapi = true;
             }
@@ -183,8 +184,10 @@ impl FastApiScanner {
         // Trigger validation error to detect Pydantic responses
         let error_url = format!("{}/?invalid_param=<script>", base);
         if let Ok(resp) = self.http_client.get(&error_url).await {
+            // Fixed operator precedence bug: was `A || B && C` (evaluates as `A || (B && C)`)
+            // but intended `A || (B && C)` - now explicit with parentheses
             if resp.body.contains("HTTPValidationError")
-                || resp.body.contains("\"detail\":") && resp.body.contains("\"type\":")
+                || (resp.body.contains("\"detail\":") && resp.body.contains("\"type\":"))
             {
                 is_fastapi = true;
             }
@@ -658,13 +661,10 @@ impl FastApiScanner {
 
             if let Ok(resp) = self.http_client.get(&endpoint_url).await {
                 if resp.status_code == 200 {
-                    // Verify it's not a generic 200 response
+                    // Verify it's not a generic 200 response - require structured JSON content
                     let is_valid_endpoint = !resp.body.is_empty()
-                        && (resp.body.len() < 10000
-                            || resp.body.contains("status")
-                            || resp.body.contains("health")
-                            || resp.body.contains("version")
-                            || resp.body.contains("{"));
+                        && resp.body.len() < 10000
+                        && (resp.body.trim().starts_with('{') || resp.body.trim().starts_with('['));
 
                     if is_valid_endpoint {
                         exposed.push((*path, *desc, severity.clone()));
@@ -947,11 +947,12 @@ impl FastApiScanner {
                                 .get_with_headers(&test_url, headers.clone())
                                 .await
                             {
-                                // Check if we got past authentication
+                                // Check if we got past authentication - require actual user data structure
                                 if auth_resp.status_code == 200
-                                    && (auth_resp.body.contains("user")
-                                        || auth_resp.body.contains("admin")
-                                        || auth_resp.body.contains("email"))
+                                    && (auth_resp.body.contains("\"email\":")
+                                        || auth_resp.body.contains("\"username\":")
+                                        || (auth_resp.body.contains("\"role\":") && auth_resp.body.contains("\"admin\""))
+                                        || auth_resp.body.contains("\"password\":"))
                                 {
                                     vulnerabilities.push(Vulnerability {
                                         id: generate_vuln_id("di_bypass"),

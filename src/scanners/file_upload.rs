@@ -667,13 +667,11 @@ impl FileUploadScanner {
 
         tests_run += 1;
         if let Ok((_upload_path, evidence)) = self
-            .upload_and_check_reflection(url, "xxe.svg", &svg_xxe, "image/svg+xml", "root:")
+            .upload_and_check_reflection(url, "xxe.svg", &svg_xxe, "image/svg+xml", "root:x:0:0:")
             .await
         {
             if !evidence.is_empty()
-                && (evidence.contains("root:")
-                    || evidence.contains("/bin/bash")
-                    || evidence.contains("/bin/sh"))
+                && evidence.contains("root:x:0:0:")
             {
                 info!("SVG XXE vulnerability confirmed - /etc/passwd leaked");
                 vulnerabilities.push(self.create_vulnerability(
@@ -791,7 +789,14 @@ impl FileUploadScanner {
             )
             .await
         {
-            if !evidence.is_empty() && evidence.contains("admin") {
+            // Require specific localhost/internal service content, not bare "admin"
+            let has_ssrf_evidence = evidence.contains("127.0.0.1")
+                || evidence.contains("localhost")
+                || evidence.contains("root:x:0:0:")
+                || evidence.contains("admin panel")
+                || evidence.contains("admin dashboard")
+                || evidence.contains("tomcat manager");
+            if !evidence.is_empty() && has_ssrf_evidence {
                 info!("SVG localhost SSRF vulnerability confirmed");
                 vulnerabilities.push(self.create_vulnerability(
                     url,

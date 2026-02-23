@@ -653,13 +653,16 @@ impl LiferaySecurityScanner {
 
             if let Ok(resp) = self.http_client.get(&url).await {
                 if resp.status_code == 200 {
+                    // Require Liferay-specific configuration content.
+                    // Previously matched `contains("=")` which matches ANY page.
+                    // Now require actual Liferay config properties format.
                     let has_config_content = resp.body.contains("jdbc.")
-                        || resp.body.contains("mail.")
-                        || resp.body.contains("liferay.")
-                        || resp.body.contains("admin.")
-                        || resp.body.contains("company.")
+                        || resp.body.contains("mail.session")
+                        || resp.body.contains("liferay.home")
+                        || resp.body.contains("company.default")
                         || resp.body.contains("DB_PASSWORD")
-                        || resp.body.contains("=");
+                        || resp.body.contains("portal.properties")
+                        || resp.body.contains("dl.store.impl");
 
                     if has_config_content && resp.body.len() > 50 {
                         let severity = if resp.body.to_lowercase().contains("password")
@@ -936,7 +939,8 @@ impl LiferaySecurityScanner {
                 );
 
                 if let Ok(trav_resp) = self.http_client.get(&traversal_url).await {
-                    if trav_resp.body.contains("root:") || trav_resp.body.contains("/bin/") {
+                    // Require specific /etc/passwd format, not bare "root:" or "/bin/"
+                    if trav_resp.body.contains("root:x:0:0") || trav_resp.body.contains("root:x:0:") {
                         vulnerabilities.push(Vulnerability {
                             id: format!("liferay_combo_traversal_{}", uuid_simple()),
                             vuln_type: "Liferay Combo Servlet Path Traversal".to_string(),

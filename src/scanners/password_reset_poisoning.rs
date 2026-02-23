@@ -837,16 +837,18 @@ impl PasswordResetPoisoningScanner {
                 Ok(response) => {
                     let body_lower = response.body.to_lowercase();
 
-                    // Check for success indicators
+                    // Check for success indicators - require password-reset-specific phrases
                     let accepted = response.status_code == 200
                         && (body_lower.contains("email sent")
                             || body_lower.contains("reset link")
                             || body_lower.contains("check your email")
-                            || body_lower.contains("success"));
+                            || body_lower.contains("password reset email")
+                            || body_lower.contains("\"success\":true"));
 
-                    // Check for explicit rejection
-                    let rejected = body_lower.contains("invalid")
-                        || body_lower.contains("error")
+                    // Check for explicit rejection - use specific phrases, not bare "invalid"/"error"
+                    let rejected = body_lower.contains("invalid email")
+                        || body_lower.contains("email not found")
+                        || body_lower.contains("\"error\":")
                         || body_lower.contains("only one email")
                         || body_lower.contains("multiple emails");
 
@@ -1379,9 +1381,9 @@ impl PasswordResetPoisoningScanner {
 
                 // Check if password change was accepted without old password
                 if response.status_code == 200
-                    && (body_lower.contains("success")
+                    && (body_lower.contains("\"success\":true") || body_lower.contains("\"status\":\"success\"")
                         || body_lower.contains("password changed")
-                        || body_lower.contains("updated"))
+                        || body_lower.contains("successfully updated"))
                 {
                     vulnerabilities.push(self.create_vulnerability(
                         &endpoint.url,

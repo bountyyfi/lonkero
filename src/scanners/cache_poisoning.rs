@@ -92,10 +92,16 @@ impl CachePoisoningScanner {
         // Check for session/auth cookies (indicates personalized content)
         if let Some(cookie) = response.header("set-cookie") {
             let cookie_lower = cookie.to_lowercase();
-            if cookie_lower.contains("session")
-                || cookie_lower.contains("auth")
-                || cookie_lower.contains("token")
-                || cookie_lower.contains("user")
+            // Use specific session cookie names, not bare "auth"/"token"/"user"
+            if cookie_lower.contains("session_id")
+                || cookie_lower.contains("sessionid")
+                || cookie_lower.contains("jsessionid")
+                || cookie_lower.contains("phpsessid")
+                || cookie_lower.contains("asp.net_sessionid")
+                || cookie_lower.contains("auth_token")
+                || cookie_lower.contains("access_token")
+                || cookie_lower.starts_with("sid=")
+                || cookie_lower.starts_with("connect.sid")
             {
                 sensitivity.is_sensitive = true;
                 sensitivity.has_user_data = true;

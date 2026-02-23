@@ -273,14 +273,15 @@ impl XxeScanner {
         ];
 
         // Check for XML parsing errors (indicates XML was processed)
+        // Removed "DOCTYPE" (matches every HTML page) and bare "entity" (matches "business entity" etc.)
         let error_indicators = vec![
             "xml parsing error",
             "external entity",
-            "DOCTYPE",
-            "entity",
             "xmlparseentityref",
             "entity not defined",
             "recursive entity",
+            "entity reference",
+            "undeclared entity",
         ];
 
         // Check for file content disclosure
@@ -346,19 +347,29 @@ impl XxeScanner {
             }
         }
 
-        // Check for unusual response patterns (blind XXE)
+        // Check for Billion Laughs (entity expansion) DoS
+        // Require both lol4 payload AND XML-specific error indicators
+        // Status 500 alone is too weak — any XML parsing error causes 500
         if payload.contains("lol4") && response.status_code == 500 {
-            // Billion Laughs attack might cause server error
-            return Some(self.create_vulnerability(
-                parameter,
-                payload,
-                test_url,
-                "Possible XXE DoS vulnerability - Billion Laughs attack caused server error",
-                Confidence::Medium,
-                "Server returned 500 error for entity expansion payload".to_string(),
-                Severity::High,
-                7.0,
-            ));
+            let body_lower = response.body.to_lowercase();
+            let has_entity_error = body_lower.contains("entity")
+                && (body_lower.contains("expansion")
+                    || body_lower.contains("recursive")
+                    || body_lower.contains("too many")
+                    || body_lower.contains("memory"));
+            let has_xml_error = body_lower.contains("xml") && body_lower.contains("entity");
+            if has_entity_error || has_xml_error {
+                return Some(self.create_vulnerability(
+                    parameter,
+                    payload,
+                    test_url,
+                    "Possible XXE DoS vulnerability - Billion Laughs attack caused entity expansion error",
+                    Confidence::Medium,
+                    "Server returned entity expansion error for Billion Laughs payload".to_string(),
+                    Severity::High,
+                    7.0,
+                ));
+            }
         }
 
         None
