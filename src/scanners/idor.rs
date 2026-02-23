@@ -344,15 +344,15 @@ impl IdorScanner {
         let body_lower = body.to_lowercase();
         let status = response.status_code;
 
-        // Check for admin panel access
+        // Check for admin panel access - require specific admin-only functionality indicators
+        // Removed "administrator" (appears on login pages) and "configuration" (appears in docs)
         let admin_indicators = vec![
             "admin panel",
-            "administrator",
+            "admin dashboard",
             "manage users",
-            "system settings",
-            "configuration",
             "delete user",
             "all users",
+            "\"is_admin\":true",
         ];
 
         let has_admin_content = admin_indicators
@@ -364,7 +364,7 @@ impl IdorScanner {
                 id: generate_uuid(),
                 vuln_type: "IDOR - Vertical Privilege Escalation".to_string(),
                 severity: Severity::Critical,
-                confidence: Confidence::High,
+                confidence: Confidence::Medium,
                 category: "Authorization".to_string(),
                 url: url.to_string(),
                 parameter: Some("role".to_string()),

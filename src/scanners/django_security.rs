@@ -285,8 +285,8 @@ impl DjangoSecurityScanner {
         let admin_url = format!("{}/admin/", url.trim_end_matches('/'));
         if let Ok(resp) = self.http_client.get(&admin_url).await {
             if resp.body.contains("Django")
-                || resp.body.contains("administration")
-                || resp.body.contains("Log in") && resp.body.contains("csrfmiddlewaretoken")
+                || (resp.body.contains("Log in") && resp.body.contains("csrfmiddlewaretoken"))
+                || resp.body.contains("django-admin-login")
             {
                 is_django = true;
             }

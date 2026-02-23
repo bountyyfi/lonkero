@@ -2024,17 +2024,16 @@ impl SsrfScanner {
             "oauth2/token",
         ];
 
-        // Internal service indicators
+        // Internal service indicators - use specific version/protocol patterns
+        // Removed "nginx", "apache", "mysql", "postgresql" which appear on tech stack pages
         let internal_indicators = [
             "root:x:",
             "daemon:x:",
-            "redis_version",
-            "elasticsearch",
-            "mongodb",
-            "postgresql",
-            "mysql",
-            "nginx",
-            "apache",
+            "redis_version:",     // Redis INFO output
+            "cluster_enabled:",   // Redis INFO output
+            "\"cluster_name\":",  // Elasticsearch cluster response
+            "\"tagline\":\"You Know, for Search\"", // Elasticsearch default response
+            "mongodb server",
             "uid=",
             "gid=",
         ];

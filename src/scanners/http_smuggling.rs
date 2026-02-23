@@ -1014,17 +1014,17 @@ impl HTTPSmugglingScanner {
 
         let response_lower = response.to_lowercase();
 
-        // Check for common smuggling indicators
+        // Check for specific smuggling indicators - removed generic terms like "chunk"
+        // (appears in webpack filenames), "400 bad request" (appears in docs)
         let indicators = vec![
-            "400 bad request",
-            "request timeout",
             "malformed request",
-            "invalid request",
             "connection reset",
             "queue full",
             "unexpected request",
-            "chunk",
-            "smuggl", // catches "smuggling", "smuggled", etc.
+            "smuggl",          // catches "smuggling", "smuggled", etc.
+            "transfer-encoding: chunked", // specific chunked encoding reference
+            "double content-length",
+            "request desync",
         ];
 
         for indicator in indicators {

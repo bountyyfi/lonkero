@@ -273,14 +273,15 @@ impl XxeScanner {
         ];
 
         // Check for XML parsing errors (indicates XML was processed)
+        // Removed "DOCTYPE" (matches every HTML page) and bare "entity" (matches "business entity" etc.)
         let error_indicators = vec![
             "xml parsing error",
             "external entity",
-            "DOCTYPE",
-            "entity",
             "xmlparseentityref",
             "entity not defined",
             "recursive entity",
+            "entity reference",
+            "undeclared entity",
         ];
 
         // Check for file content disclosure

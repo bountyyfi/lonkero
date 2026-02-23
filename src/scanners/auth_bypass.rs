@@ -236,7 +236,13 @@ impl AuthBypassScanner {
     ) {
         let body_lower = response.body.to_lowercase();
 
-        if (body_lower.contains("welcome") || body_lower.contains("dashboard"))
+        // Require strong evidence of successful auth bypass, not just generic page keywords
+        let has_auth_evidence = body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"logged_in\":true")
+            || (body_lower.contains("\"role\":") && body_lower.contains("\"admin\""))
+            || body_lower.contains("admin panel")
+            || body_lower.contains("admin dashboard");
+        if has_auth_evidence
             && !body_lower.contains("login")
             && !body_lower.contains("password")
         {
@@ -273,7 +279,13 @@ impl AuthBypassScanner {
         if response.status_code == 200 || response.status_code == 302 {
             let body_lower = response.body.to_lowercase();
 
-            if body_lower.contains("welcome") || body_lower.contains("dashboard") {
+            // Require strong evidence of auth bypass, not just "welcome"/"dashboard"
+            let has_auth_evidence = body_lower.contains("\"authenticated\":true")
+                || body_lower.contains("\"logged_in\":true")
+                || (body_lower.contains("\"role\":") && body_lower.contains("\"admin\""))
+                || body_lower.contains("admin panel")
+                || body_lower.contains("admin dashboard");
+            if has_auth_evidence {
                 vulnerabilities.push(self.create_vulnerability(
                     "Empty Password Authentication Bypass",
                     url,
@@ -320,9 +332,13 @@ impl AuthBypassScanner {
     ) {
         let body_lower = response.body.to_lowercase();
 
-        if (response.status_code == 200 || response.status_code == 302)
-            && (body_lower.contains("welcome") || body_lower.contains("dashboard"))
-        {
+        // Require strong evidence of successful login, not just generic keywords
+        let has_auth_evidence = body_lower.contains("\"authenticated\":true")
+            || body_lower.contains("\"logged_in\":true")
+            || (body_lower.contains("\"role\":") && body_lower.contains("\"admin\""))
+            || body_lower.contains("admin panel")
+            || body_lower.contains("admin dashboard");
+        if (response.status_code == 200 || response.status_code == 302) && has_auth_evidence {
             vulnerabilities.push(self.create_vulnerability(
                 "Default Credentials Accepted",
                 url,

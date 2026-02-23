@@ -132,10 +132,10 @@ impl TomcatMisconfigScanner {
                     let body_lower = response.body.to_lowercase();
 
                     // Check for manager login page or accessible manager
+                    // Require Tomcat-specific content, not generic "401 unauthorized" text
                     let is_manager = body_lower.contains("tomcat web application manager")
                         || body_lower.contains("tomcat virtual host manager")
                         || body_lower.contains("manager-gui")
-                        || body_lower.contains("401 unauthorized")
                         || (response.status_code == 401 && body_lower.contains("tomcat"));
 
                     if is_manager {
@@ -193,10 +193,12 @@ impl TomcatMisconfigScanner {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
 
-                        let is_example = body_lower.contains("example")
-                            || body_lower.contains("samples")
-                            || body_lower.contains("servlet")
-                            || body_lower.contains("jsp");
+                        // Require Tomcat-specific example app patterns, not just the word "example"
+                        let is_example = (body_lower.contains("servlet") && body_lower.contains("example"))
+                            || body_lower.contains("jsp examples")
+                            || body_lower.contains("servlet examples")
+                            || body_lower.contains("websocket examples")
+                            || body_lower.contains("apache tomcat examples");
 
                         if is_example {
                             info!("Tomcat examples accessible at {}", example_url);
