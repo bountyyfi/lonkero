@@ -39,6 +39,7 @@
 //! }
 //! ```
 
+use crate::str_utils::floor_char_boundary;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -388,7 +389,7 @@ impl fmt::Display for IntelligenceEvent {
                     "Vuln Pattern: {} at {} - {}",
                     pattern_type,
                     ep,
-                    &evidence[..evidence.len().min(50)]
+                    &evidence[..floor_char_boundary(evidence, 50)]
                 )
             }
             IntelligenceEvent::WafDetected {

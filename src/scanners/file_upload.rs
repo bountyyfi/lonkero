@@ -26,6 +26,7 @@
  */
 use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
+use crate::str_utils::floor_char_boundary;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -952,7 +953,7 @@ impl FileUploadScanner {
         // Log the upload response to help debug path issues
         info!(
             "Upload accepted. Response body: {}",
-            &upload_evidence[..upload_evidence.len().min(300)]
+            &upload_evidence[..floor_char_boundary(&upload_evidence, 300)]
         );
         if !upload_paths.is_empty() {
             info!("Extracted upload paths from response: {:?}", upload_paths);
@@ -1137,7 +1138,7 @@ impl FileUploadScanner {
                         format!(
                             "File accessible at {} - Contains marker: {}",
                             test_path,
-                            &response.body[..200.min(response.body.len())]
+                            &response.body[..floor_char_boundary(&response.body, 200)]
                         ),
                     ));
                 }

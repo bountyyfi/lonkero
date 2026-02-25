@@ -11,6 +11,7 @@
 //! 4. If the LLM responds with text → shows it to the user
 //! 5. Loops until the user exits
 
+use crate::str_utils::floor_char_boundary;
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::io::{self, BufRead, Write as IoWrite};
@@ -1025,7 +1026,7 @@ fn sanitize_and_truncate(output: &str) -> String {
     if sanitized.len() > 15000 {
         format!(
             "{}...\n\n[Output truncated. {} total chars. Use list_findings to see all results.]",
-            &sanitized[..15000],
+            &sanitized[..floor_char_boundary(&sanitized, 15000)],
             sanitized.len()
         )
     } else {
@@ -1337,7 +1338,7 @@ async fn execute_http_request(input: &serde_json::Value) -> Result<String> {
     }
     output.push_str(&format!("\nBody ({} chars):\n", body.len()));
     if body.len() > 5000 {
-        output.push_str(&body[..5000]);
+        output.push_str(&body[..floor_char_boundary(&body, 5000)]);
         output.push_str("\n...(truncated)");
     } else {
         output.push_str(&body);
@@ -1691,7 +1692,7 @@ fn format_tool_input(tool_name: &str, input: &serde_json::Value) -> String {
         }
         "add_hypothesis" => {
             let desc = input["description"].as_str().unwrap_or("?");
-            if desc.len() > 60 { format!("{}...", &desc[..60]) } else { desc.to_string() }
+            if desc.len() > 60 { format!("{}...", &desc[..floor_char_boundary(desc, 60)]) } else { desc.to_string() }
         }
         "update_hypothesis" => {
             let id = input["hypothesis_id"].as_str().unwrap_or("?");

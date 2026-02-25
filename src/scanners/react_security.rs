@@ -2,6 +2,7 @@
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
+use crate::str_utils::floor_char_boundary;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use regex::Regex;
@@ -764,7 +765,7 @@ impl ReactSecurityScanner {
                                 "File: {}\n\
                                 Status: 200 OK\n\
                                 Preview: {}...",
-                                file, &resp.body[..resp.body.len().min(200)]
+                                file, &resp.body[..floor_char_boundary(&resp.body, 200)]
                             )),
                             cwe: "CWE-200".to_string(),
                             cvss: if file.contains(".env") { 9.1 } else { 5.3 },

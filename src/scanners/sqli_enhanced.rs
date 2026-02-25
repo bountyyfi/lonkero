@@ -31,22 +31,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
+use crate::str_utils::floor_char_boundary;
+
 /// Maximum number of columns to test for UNION-based SQLi
 const MAX_COLUMNS: usize = 20;
-
-/// Find the largest valid UTF-8 char boundary at or before `index` in `s`.
-/// This prevents panics when slicing strings at arbitrary byte offsets.
-fn floor_char_boundary(s: &str, index: usize) -> usize {
-    if index >= s.len() {
-        s.len()
-    } else {
-        let mut i = index;
-        while i > 0 && !s.is_char_boundary(i) {
-            i -= 1;
-        }
-        i
-    }
-}
 
 /// Compiled regex patterns for SQL error detection
 static ORACLE_ERROR_REGEX: Lazy<Regex> = Lazy::new(|| {

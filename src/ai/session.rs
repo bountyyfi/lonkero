@@ -14,6 +14,7 @@
 //! - Cat 6 (Security & Guardrails): Scope enforcement, output redaction
 //! - Cat 7 (User Experience): Progress estimation, export conversation
 
+use crate::str_utils::floor_char_boundary;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -1194,7 +1195,7 @@ impl Session {
                             "> **Tool result:**"
                         };
                         let truncated = if content.len() > 500 {
-                            format!("{}...(truncated)", &content[..500])
+                            format!("{}...(truncated)", &content[..floor_char_boundary(content, 500)])
                         } else {
                             content.clone()
                         };
@@ -1419,7 +1420,7 @@ impl Session {
                 }
                 if let Some(ref evidence) = f.evidence {
                     let truncated = if evidence.len() > 200 {
-                        format!("{}...", &evidence[..200])
+                        format!("{}...", &evidence[..floor_char_boundary(evidence, 200)])
                     } else {
                         evidence.clone()
                     };
@@ -1551,7 +1552,7 @@ impl Session {
                         let old_len = content.len();
                         // Keep first 200 chars for context, note the truncation
                         let preview = if content.len() > 200 {
-                            &content[..200]
+                            &content[..floor_char_boundary(content, 200)]
                         } else {
                             content.as_str()
                         };
@@ -1661,7 +1662,7 @@ impl Session {
                 if let ContentBlock::ToolResult { content, .. } = block {
                     if content.len() > 300 {
                         let preview = if content.len() > 150 {
-                            &content[..150]
+                            &content[..floor_char_boundary(content, 150)]
                         } else {
                             content.as_str()
                         };

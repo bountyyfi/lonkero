@@ -2,6 +2,7 @@
 // This software is proprietary and confidential.
 
 use crate::http_client::HttpClient;
+use crate::str_utils::floor_char_boundary;
 use crate::types::{ScanConfig, Severity, Vulnerability};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -6015,7 +6016,7 @@ impl JsMinerScanner {
                 let matched = m.as_str();
                 // Truncate very long matches
                 if matched.len() > 100 {
-                    format!("{}...", &matched[..100])
+                    format!("{}...", &matched[..floor_char_boundary(matched, 100)])
                 } else {
                     matched.to_string()
                 }

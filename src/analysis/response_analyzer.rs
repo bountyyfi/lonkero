@@ -7,6 +7,7 @@
 //! enabling smarter vulnerability detection and false positive filtering.
 //! This module provides NLP-lite analysis without external dependencies.
 
+use crate::str_utils::floor_char_boundary;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -1692,7 +1693,7 @@ impl ResponseAnalyzer {
         if sample.len() <= length {
             sample.to_string()
         } else {
-            format!("{}...", &sample[..length])
+            format!("{}...", &sample[..floor_char_boundary(sample, length)])
         }
     }
 
