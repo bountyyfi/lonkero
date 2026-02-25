@@ -109,6 +109,10 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
       errorEl.textContent = 'Too many attempts. Please wait a minute and try again.';
       errorEl.style.display = 'block';
       _t('popup_license_fail');
+    } else if (response && response.error === 'cloudflare_blocked') {
+      errorEl.textContent = 'Request blocked by firewall. Please try again in a moment.';
+      errorEl.style.display = 'block';
+      _t('popup_license_fail');
     } else if (response && response.error) {
       errorEl.textContent = 'Could not reach license server. Check your connection and try again.';
       errorEl.style.display = 'block';
