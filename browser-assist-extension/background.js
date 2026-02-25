@@ -130,12 +130,14 @@ async function validateLicense(key) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
     const response = await fetch(LONKERO_LICENSE_API, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Product': 'lonkero-extension',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'X-Product': 'lonkero',
         'X-Version': chrome.runtime.getManifest().version,
       },
       body: JSON.stringify({
@@ -150,18 +152,37 @@ async function validateLicense(key) {
 
     if (response.ok) {
       const data = await response.json();
-      const _vt = ['Personal','Professional','Team','Enterprise'];
-      if (data.valid === true && !data.killswitch_active && _vt.includes(data.license_type)) {
+      console.log('[Lonkero] Server response:', JSON.stringify(data));
+      // Case-insensitive license type check - server returns lowercase (Rust: rename_all = "lowercase")
+      const _vt = ['personal','professional','team','enterprise'];
+      const licType = (data.license_type || '').toString().toLowerCase();
+      if (data.valid === true && !data.killswitch_active && _vt.includes(licType)) {
+        // Normalize to title case for display
+        const displayType = licType.charAt(0).toUpperCase() + licType.slice(1);
         licenseState.valid = true;
         licenseState.licenseKey = key;
-        licenseState.licenseType = data.license_type || null;
+        licenseState.licenseType = displayType;
         licenseState.licensee = data.licensee || null;
         licenseState.features = data.features || [];
         licenseState.lastValidated = Date.now();
-        console.log('[Lonkero] License validated');
+        console.log('[Lonkero] License validated:', displayType, data.licensee);
         await persistLicenseState();
-        if (self.lonkeroTracker) self.lonkeroTracker.track('license_validated', { type: data.license_type });
+        if (self.lonkeroTracker) self.lonkeroTracker.track('license_validated', { type: displayType });
         return { valid: true };
+      } else {
+        console.warn('[Lonkero] Server returned invalid license:', data.valid, 'killswitch:', data.killswitch_active, 'type:', data.license_type);
+      }
+    } else {
+      // Log non-OK responses for debugging
+      const status = response.status;
+      const text = await response.text().catch(() => '');
+      console.warn('[Lonkero] Server returned', status, ':', text.substring(0, 500));
+      // Detect Cloudflare blocks (like Rust side does)
+      if (status === 403 && (text.includes('cloudflare') || text.includes('Cloudflare') || text.includes('error code: 1020') || text.includes('Ray ID'))) {
+        console.warn('[Lonkero] Cloudflare blocked the request');
+        licenseState.valid = false;
+        await persistLicenseState();
+        return { valid: false, error: 'cloudflare_blocked' };
       }
     }
   } catch (e) {
