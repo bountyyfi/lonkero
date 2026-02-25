@@ -31,6 +31,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
+use crate::str_utils::floor_char_boundary;
+
 /// Maximum number of columns to test for UNION-based SQLi
 const MAX_COLUMNS: usize = 20;
 
@@ -1641,16 +1643,8 @@ impl EnhancedSqliScanner {
         let cleaned_a = Self::strip_dynamic_content(text_a);
         let cleaned_b = Self::strip_dynamic_content(text_b);
 
-        let sample_a = if cleaned_a.len() > 5000 {
-            &cleaned_a[..5000]
-        } else {
-            &cleaned_a
-        };
-        let sample_b = if cleaned_b.len() > 5000 {
-            &cleaned_b[..5000]
-        } else {
-            &cleaned_b
-        };
+        let sample_a = &cleaned_a[..floor_char_boundary(&cleaned_a, 5000)];
+        let sample_b = &cleaned_b[..floor_char_boundary(&cleaned_b, 5000)];
 
         let matches = sample_a
             .chars()
@@ -1850,9 +1844,9 @@ impl EnhancedSqliScanner {
         // For non-HTML responses or patterns not in FP containers,
         // check for true positive indicators in text context
         if let Some(pos) = body_lower.find(&pattern_lower) {
-            // Get surrounding context (100 chars before and after)
-            let start = pos.saturating_sub(100);
-            let end = (pos + pattern_lower.len() + 100).min(body.len());
+            // Get surrounding context (100 bytes before and after)
+            let start = floor_char_boundary(&body_lower, pos.saturating_sub(100));
+            let end = floor_char_boundary(&body_lower, (pos + pattern_lower.len() + 100).min(body_lower.len()));
             let context = &body_lower[start..end];
 
             // TRUE POSITIVE indicators - pattern is in error output context
@@ -3181,22 +3175,24 @@ impl EnhancedSqliScanner {
         }
 
         // Look for version strings
-        if body.to_lowercase().contains("mysql") {
-            if let Some(pos) = body.to_lowercase().find("mysql") {
-                let snippet = &body[pos..std::cmp::min(pos + 50, body.len())];
-                return Some(snippet.to_string());
-            }
+        let body_lower = body.to_lowercase();
+        if let Some(pos) = body_lower.find("mysql") {
+            let end = floor_char_boundary(&body_lower, std::cmp::min(pos + 50, body_lower.len()));
+            let snippet = &body_lower[pos..end];
+            return Some(snippet.to_string());
         }
 
         // Look for database names in errors
-        let patterns = ["database '", "database: ", "db: "];
-        for pattern in patterns {
-            if let Some(pos) = body.to_lowercase().find(pattern) {
+        let db_patterns = ["database '", "database: ", "db: "];
+        for pattern in db_patterns {
+            if let Some(pos) = body_lower.find(pattern) {
                 let start = pos + pattern.len();
-                if let Some(end) = body[start..].find(&['\'', '"', ' '][..]) {
-                    let data = &body[start..start + end];
-                    if !data.is_empty() {
-                        return Some(data.to_string());
+                if start <= body_lower.len() {
+                    if let Some(end) = body_lower[start..].find(&['\'', '"', ' '][..]) {
+                        let data = &body_lower[start..start + end];
+                        if !data.is_empty() {
+                            return Some(data.to_string());
+                        }
                     }
                 }
             }
@@ -3615,7 +3611,10 @@ impl EnhancedSqliScanner {
         // If 'adm'||'in' returns same as 'admin', concat works
         // ============================================================
         if current_value.len() >= 2 {
-            let mid = current_value.len() / 2;
+            let mid = floor_char_boundary(&current_value, current_value.len() / 2);
+            if mid == 0 || mid == current_value.len() {
+                // Single multi-byte char or empty — skip concat test
+            } else {
             let first_half = &current_value[..mid];
             let second_half = &current_value[mid..];
 
@@ -3646,6 +3645,7 @@ impl EnhancedSqliScanner {
                     }
                 }
             }
+            } // end else (valid mid for concat test)
         }
 
         // ============================================================
@@ -4042,7 +4042,7 @@ impl EnhancedSqliScanner {
             debug!(
                 "[SQLi] Test {}: payload='{}', evidence={:?}, LR={:.2}",
                 iteration + 1,
-                &test.payload[..test.payload.len().min(30)],
+                &test.payload[..floor_char_boundary(&test.payload, 30)],
                 evidence.evidence_type,
                 evidence.likelihood_ratio
             );

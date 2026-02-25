@@ -3,6 +3,7 @@
 
 use crate::http_client::HttpClient;
 use crate::scanners::parameter_filter::{ParameterFilter, ScannerType};
+use crate::str_utils::floor_char_boundary;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use std::sync::Arc;
 /**
@@ -396,7 +397,7 @@ impl DeserializationScanner {
         evidence: &str,
     ) -> Vulnerability {
         let payload_display = if payload.len() > 200 {
-            format!("{}...", &payload[..200])
+            format!("{}...", &payload[..floor_char_boundary(payload, 200)])
         } else {
             payload.to_string()
         };

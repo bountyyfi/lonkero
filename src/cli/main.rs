@@ -5229,7 +5229,7 @@ fn print_banner() {
     print!("\x1b[97m");
     println!("    Wraps around your attack surface");
     print!("\x1b[0m\x1b[90m");
-    println!("      v3.6 - Intelligent Mode - (c) 2026 Bountyy Oy");
+    println!("      v3.7 - Intelligent Mode - (c) 2026 Bountyy Oy");
     print!("\x1b[0m");
     println!();
 }

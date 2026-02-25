@@ -126,6 +126,8 @@ async function validateLicense(key) {
   }
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     const response = await fetch(LONKERO_LICENSE_API, {
       method: 'POST',
       headers: {
@@ -139,7 +141,9 @@ async function validateLicense(key) {
         product: 'lonkero',
         version: chrome.runtime.getManifest().version,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (response.ok) {
       const data = await response.json();
@@ -163,7 +167,7 @@ async function validateLicense(key) {
     // A new/different key must always be server-validated
     if (licenseState.valid && licenseState.lastValidated && licenseState.licenseKey === key) {
       const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
-      if (hoursSinceValidation < 1) {
+      if (hoursSinceValidation < 24) {
         console.log('[Lonkero] Using cached license');
         return true;
       }
@@ -716,6 +720,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       validateLicense(message.key).then((valid) => {
         if (self.lonkeroTracker) self.lonkeroTracker.track('license_activate', { success: valid, type: licenseState.licenseType });
         sendResponse({ valid, licenseType: licenseState.licenseType, licensee: licenseState.licensee });
+      }).catch((err) => {
+        console.error('[Lonkero] License activation error:', err);
+        sendResponse({ valid: false, error: err.message || 'Validation failed' });
       });
       return true; // Async response
 
@@ -1282,7 +1289,9 @@ chrome.storage.local.get(['auditLog', 'findings', 'endpoints', 'storageVersion']
 });
 
 // Load and validate license before starting
-loadAndValidateLicense().then(() => {
+loadAndValidateLicense().catch((err) => {
+  console.warn('[Lonkero] License load/validation error:', err);
+}).then(() => {
   if (isLicensed()) {
     console.log('[Lonkero] License valid');
   } else {
