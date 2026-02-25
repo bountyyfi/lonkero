@@ -140,7 +140,7 @@ async function validateLicense(key) {
       },
       body: JSON.stringify({
         license_key: key,
-        hardware_id: await getHardwareId(),
+        hardware_id: null,
         product: 'lonkero',
         version: chrome.runtime.getManifest().version,
       }),
