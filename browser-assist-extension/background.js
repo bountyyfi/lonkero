@@ -129,35 +129,33 @@ async function validateLicense(key) {
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    const response = await fetch(LONKERO_LICENSE_API, {
+    // Use Promise.race for timeout instead of AbortController
+    // (AbortController causes "signal is aborted without reason" in MV3 service workers)
+    const fetchPromise = fetch(LONKERO_LICENSE_API, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'X-Product': 'lonkero',
+        'X-Product': 'lonkero-extension',
         'X-Version': chrome.runtime.getManifest().version,
       },
       body: JSON.stringify({
         license_key: key,
-        hardware_id: null,
         product: 'lonkero',
         version: chrome.runtime.getManifest().version,
       }),
-      signal: controller.signal,
     });
-    clearTimeout(timeoutId);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 30000)
+    );
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
 
     if (response.ok) {
       const data = await response.json();
       console.log('[Lonkero] Server response:', JSON.stringify(data));
-      // Case-insensitive license type check - server returns lowercase (Rust: rename_all = "lowercase")
+      // Accept both title case (e.g. "Personal") and lowercase (e.g. "personal")
       const _vt = ['personal','professional','team','enterprise'];
       const licType = (data.license_type || '').toString().toLowerCase();
       if (data.valid === true && !data.killswitch_active && _vt.includes(licType)) {
-        // Normalize to title case for display
         const displayType = licType.charAt(0).toUpperCase() + licType.slice(1);
         licenseState.valid = true;
         licenseState.licenseKey = key;
@@ -173,17 +171,9 @@ async function validateLicense(key) {
         console.warn('[Lonkero] Server returned invalid license:', data.valid, 'killswitch:', data.killswitch_active, 'type:', data.license_type);
       }
     } else {
-      // Log non-OK responses for debugging
       const status = response.status;
       const text = await response.text().catch(() => '');
       console.warn('[Lonkero] Server returned', status, ':', text.substring(0, 500));
-      // Detect Cloudflare blocks (like Rust side does)
-      if (status === 403 && (text.includes('cloudflare') || text.includes('Cloudflare') || text.includes('error code: 1020') || text.includes('Ray ID'))) {
-        console.warn('[Lonkero] Cloudflare blocked the request');
-        licenseState.valid = false;
-        await persistLicenseState();
-        return { valid: false, error: 'cloudflare_blocked' };
-      }
     }
   } catch (e) {
     console.warn('[Lonkero] License validation failed:', e.message);
