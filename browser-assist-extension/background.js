@@ -96,20 +96,23 @@ async function validateLicense(key) {
     licenseState.licensee = null;
     licenseState.features = [];
     await persistLicenseState();
-    return false;
+    return { valid: false };
   }
+
+  // Normalize: trim and uppercase
+  key = key.trim().toUpperCase();
 
   const _p = key.split('-');
   if (_p.length !== 5 || _p[0].charCodeAt(0) !== 76 || _p[0].length !== 7) {
     licenseState.valid = false;
     await persistLicenseState();
-    return false;
+    return { valid: false };
   }
   for (let i = 1; i < 5; i++) {
     if (_p[i].length !== 4 || !/^[A-Z0-9]+$/.test(_p[i])) {
       licenseState.valid = false;
       await persistLicenseState();
-      return false;
+      return { valid: false };
     }
   }
 
@@ -122,7 +125,7 @@ async function validateLicense(key) {
   _licenseAttempts++;
   if (_licenseAttempts > 5) {
     console.warn('[Lonkero] Rate limited');
-    return false;
+    return { valid: false, error: 'rate_limited' };
   }
 
   try {
@@ -158,7 +161,7 @@ async function validateLicense(key) {
         console.log('[Lonkero] License validated');
         await persistLicenseState();
         if (self.lonkeroTracker) self.lonkeroTracker.track('license_validated', { type: data.license_type });
-        return true;
+        return { valid: true };
       }
     }
   } catch (e) {
@@ -169,15 +172,18 @@ async function validateLicense(key) {
       const hoursSinceValidation = (Date.now() - licenseState.lastValidated) / (1000 * 60 * 60);
       if (hoursSinceValidation < 24) {
         console.log('[Lonkero] Using cached license');
-        return true;
+        return { valid: true };
       }
     }
+    licenseState.valid = false;
+    await persistLicenseState();
+    return { valid: false, error: e.message || 'Network error' };
   }
 
   licenseState.valid = false;
   await persistLicenseState();
   if (self.lonkeroTracker) self.lonkeroTracker.track('license_invalid');
-  return false;
+  return { valid: false };
 }
 
 /**
@@ -389,8 +395,8 @@ function connect() {
               _wsAuthenticated = true;
               // Server-validate CLI license key (never trust the claim)
               if (msg.licenseKey && typeof msg.licenseKey === 'string') {
-                const serverValid = await validateLicense(msg.licenseKey);
-                if (serverValid) {
+                const serverResult = await validateLicense(msg.licenseKey);
+                if (serverResult.valid) {
                   licenseState.cliValidated = true;
                   if (self.lonkeroTracker) self.lonkeroTracker.track('license_cli_validated', { type: licenseState.licenseType });
                 } else {
@@ -717,9 +723,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'setLicenseKey':
-      validateLicense(message.key).then((valid) => {
-        if (self.lonkeroTracker) self.lonkeroTracker.track('license_activate', { success: valid, type: licenseState.licenseType });
-        sendResponse({ valid, licenseType: licenseState.licenseType, licensee: licenseState.licensee });
+      validateLicense(message.key).then((result) => {
+        if (self.lonkeroTracker) self.lonkeroTracker.track('license_activate', { success: result.valid, type: licenseState.licenseType });
+        sendResponse({ valid: result.valid, error: result.error, licenseType: licenseState.licenseType, licensee: licenseState.licensee });
       }).catch((err) => {
         console.error('[Lonkero] License activation error:', err);
         sendResponse({ valid: false, error: err.message || 'Validation failed' });

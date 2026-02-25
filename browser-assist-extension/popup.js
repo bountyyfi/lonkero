@@ -59,7 +59,7 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
   const input = document.getElementById('licenseKeyInput');
   const errorEl = document.getElementById('licenseError');
   const successEl = document.getElementById('licenseSuccess');
-  const key = input?.value?.trim();
+  const key = input?.value?.trim().toUpperCase();
 
   errorEl.style.display = 'none';
   successEl.style.display = 'none';
@@ -70,9 +70,12 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
     return;
   }
 
+  // Update input to show normalized key
+  if (input) input.value = key;
+
   const _kp = key.split('-');
   if (_kp.length !== 5 || _kp[0].charCodeAt(0) !== 76 || _kp[0].length !== 7 || !_kp.slice(1).every(p => p.length === 4 && /^[A-Z0-9]+$/.test(p))) {
-    errorEl.textContent = 'Invalid key.';
+    errorEl.textContent = 'Invalid key format. Expected: LONKERO-XXXX-XXXX-XXXX-XXXX';
     errorEl.style.display = 'block';
     return;
   }
@@ -102,6 +105,10 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
       _t('popup_license_ok', { type: response.licenseType });
       // Hide gate after a brief delay
       setTimeout(() => hideLicenseGate(), 800);
+    } else if (response && response.error === 'rate_limited') {
+      errorEl.textContent = 'Too many attempts. Please wait a minute and try again.';
+      errorEl.style.display = 'block';
+      _t('popup_license_fail');
     } else if (response && response.error) {
       errorEl.textContent = 'Could not reach license server. Check your connection and try again.';
       errorEl.style.display = 'block';
@@ -2034,3 +2041,6 @@ setInterval(() => {
   // Periodically re-check license (picks up CLI-validated or newly entered keys)
   if (!isExtensionLicensed) checkLicenseState();
 }, 1000);
+
+// Initialize Lucide icons (must be in external script for MV3 CSP compliance)
+if (typeof lucide !== 'undefined') lucide.createIcons();
