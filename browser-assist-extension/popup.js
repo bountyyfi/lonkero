@@ -87,6 +87,13 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
     btn.innerHTML = '<i data-lucide="key"></i> Activate License';
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
+    if (chrome.runtime.lastError) {
+      errorEl.textContent = 'Connection error. Please try again.';
+      errorEl.style.display = 'block';
+      _t('popup_license_fail');
+      return;
+    }
+
     if (response && response.valid) {
       isExtensionLicensed = true;
       successEl.textContent = 'License activated! ' + (response.licenseType || '') + ' - ' + (response.licensee || '');
@@ -95,6 +102,10 @@ document.getElementById('activateLicenseBtn')?.addEventListener('click', () => {
       _t('popup_license_ok', { type: response.licenseType });
       // Hide gate after a brief delay
       setTimeout(() => hideLicenseGate(), 800);
+    } else if (response && response.error) {
+      errorEl.textContent = 'Could not reach license server. Check your connection and try again.';
+      errorEl.style.display = 'block';
+      _t('popup_license_fail');
     } else {
       errorEl.textContent = 'Invalid license key. Please check and try again.';
       errorEl.style.display = 'block';
