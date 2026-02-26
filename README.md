@@ -1744,6 +1744,43 @@ Plain text reports for documentation and version control.
 
 ---
 
+## Security Research
+
+Vulnerabilities discovered by Bountyy Oy during security assessments using Lonkero.
+
+### CVE-2026-28230 — SteVe OCPP Transaction Hijacking
+
+| | |
+|---|---|
+| **Severity** | High |
+| **CVSS 3.1** | `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H` |
+| **CWE** | CWE-284 — Improper Access Control |
+| **Package** | `de.rwth.idsg:steve` (Maven) |
+| **Affected** | <= 3.7.1 |
+| **Patched** | — |
+
+**Summary** — SteVe resolves `StopTransaction` requests by `transactionId` alone (a sequential integer) without verifying the requesting charger owns that transaction. Any authenticated charger — or an unauthenticated caller via exposed SOAP endpoints — can terminate every active charging session network-wide.
+
+**Root cause** — `OcppServerRepositoryImpl.getTransaction()` queries only by `transactionId` with no `chargeBoxId` ownership check; the validator confirms the transaction exists and is not stopped but never verifies caller identity.
+
+**PoC**
+
+```json
+[2, "stop-1", "StopTransaction", {
+  "transactionId": 1,
+  "timestamp": "2026-02-25T12:00:00Z",
+  "meterStop": 999999
+}]
+```
+
+Increment `transactionId` 1 → N to terminate all active sessions.
+
+**Remediation** — Add a `chargeBoxId` parameter to `getTransaction()` and enforce ownership in `CentralSystemService16_ServiceValidator.validateStop()`.
+
+**Reporter** — Mihalis Haatainen, Bountyy Oy
+
+---
+
 ## Support & Documentation
 
 - **Official Website**: [lonkero.bountyy.fi](https://lonkero.bountyy.fi/en)
