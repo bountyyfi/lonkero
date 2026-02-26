@@ -129,7 +129,7 @@ num_cpus = "1.16"
 clap = { version = "4.5.59", features = ["derive", "env"] }
 
 # UUID
-uuid = { version = "1.20.0", features = ["v4", "serde"] }
+uuid = { version = "1.21.0", features = ["v4", "serde"] }
 
 # CSV generation
 csv = "1.3"
