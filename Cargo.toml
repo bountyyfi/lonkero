@@ -154,7 +154,7 @@ keyring = "3.6.3"
 socket2 = "0.6.2"
 
 # Secure temporary directory creation
-tempfile = "3.15"
+tempfile = "3.25"
 
 # AI agent: async trait support for LLM providers
 async-trait = "0.1"
