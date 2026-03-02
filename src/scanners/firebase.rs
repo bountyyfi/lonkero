@@ -1447,7 +1447,7 @@ impl FirebaseScanner {
 
     /// Generate unique ID
     fn generate_id() -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         format!(
             "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
@@ -1462,7 +1462,7 @@ impl FirebaseScanner {
 
 // UUID generation
 mod uuid {
-    use rand::Rng;
+    use rand::RngExt;
 
     pub struct Uuid;
 

@@ -27,7 +27,7 @@
  * @license Proprietary - Enterprise Edition
  */
 use anyhow::Result;
-use rand::Rng;
+use rand::RngExt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;

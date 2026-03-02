@@ -1200,10 +1200,10 @@ async fn handle_ai_command(
         None
     };
 
-    // Resolve the lonkero binary path (use current executable)
-    let lonkero_bin = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "lonkero".to_string());
+    // Resolve the lonkero binary path from argv[0] (avoid current_exe for security reasons)
+    let lonkero_bin = std::env::args()
+        .next()
+        .unwrap_or_else(|| "lonkero".to_string());
 
     // Resolve license info for display in the banner.
     // We only need to validate the license key and get the tier — the actual module gating

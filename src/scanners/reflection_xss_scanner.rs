@@ -437,8 +437,8 @@ impl ReflectionXssScanner {
         let body_lower = body.to_lowercase();
 
         if let Some(pos) = body_lower.find(&payload_lower) {
-            let start = pos.saturating_sub(50);
-            let end = (pos + payload.len() + 50).min(body.len());
+            let start = body.floor_char_boundary(pos.saturating_sub(50));
+            let end = body.ceil_char_boundary((pos + payload.len() + 50).min(body.len()));
 
             let snippet = &body[start..end];
             format!("...{}...", snippet.replace('\n', " ").replace('\r', ""))

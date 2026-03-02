@@ -409,7 +409,7 @@ impl CachePoisoningScanner {
 
 // UUID generation helper
 mod uuid {
-    use rand::Rng;
+    use rand::RngExt;
 
     pub struct Uuid;
 

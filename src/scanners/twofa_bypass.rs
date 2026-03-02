@@ -1745,7 +1745,7 @@ fn extract_base_url(url: &str) -> String {
 
 /// Generate unique ID for vulnerability
 fn generate_uuid() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!(
         "2fa_{:08x}{:04x}{:04x}{:04x}{:012x}",

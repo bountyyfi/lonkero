@@ -413,7 +413,7 @@ add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
 // UUID generation helper
 mod uuid {
-    use rand::Rng;
+    use rand::RngExt;
 
     pub struct Uuid;
 

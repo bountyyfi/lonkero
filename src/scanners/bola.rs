@@ -761,7 +761,7 @@ enum IdType {
 
 /// Generate unique vulnerability ID
 fn generate_uuid() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!(
         "bola_{:08x}{:04x}{:04x}{:04x}{:012x}",

@@ -1157,7 +1157,7 @@ struct EntropyAnalysis {
 }
 
 fn generate_uuid(prefix: &str) -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!(
         "{}_{:08x}{:04x}{:04x}",

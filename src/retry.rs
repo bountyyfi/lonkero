@@ -9,7 +9,7 @@
  * @license Proprietary - Enterprise Edition
  */
 use crate::errors::{ScannerError, ScannerResult};
-use rand::Rng;
+use rand::RngExt;
 use std::future::Future;
 use std::time::Duration;
 use tracing::{debug, warn};

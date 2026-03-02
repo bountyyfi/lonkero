@@ -626,7 +626,7 @@ impl CloudSecurityScanner {
 }
 
 mod uuid {
-    use rand::Rng;
+    use rand::RngExt;
 
     pub struct Uuid;
 
