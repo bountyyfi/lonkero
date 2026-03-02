@@ -27,7 +27,7 @@ use crate::detection_helpers::AppCharacteristics;
 use crate::http_client::HttpClient;
 use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
-use rand::Rng;
+use rand::RngExt;
 use regex::Regex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

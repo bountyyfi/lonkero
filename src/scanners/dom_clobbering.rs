@@ -271,7 +271,7 @@ impl DomClobberingScanner {
     }
 
     fn generate_id() -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         format!("{:08x}", rng.random::<u32>())
     }

@@ -515,7 +515,7 @@ impl IdorScanner {
 }
 
 fn generate_uuid() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!(
         "idor_{:08x}{:04x}{:04x}{:04x}{:012x}",

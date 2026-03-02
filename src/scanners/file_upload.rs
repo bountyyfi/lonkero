@@ -1491,7 +1491,7 @@ impl FileUploadScanner {
 
 // UUID generation helper
 mod uuid {
-    use rand::Rng;
+    use rand::RngExt;
     use std::fmt;
 
     pub struct Uuid(String);

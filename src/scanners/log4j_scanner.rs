@@ -317,13 +317,13 @@ impl Log4jScanner {
 }
 
 fn generate_callback_id() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!("{:08x}", rng.random::<u32>())
 }
 
 fn uuid() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!("{:08x}{:04x}", rng.random::<u32>(), rng.random::<u16>())
 }

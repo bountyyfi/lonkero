@@ -692,7 +692,7 @@ Additional Security Measures:
 
 // UUID generation helper (same as other scanners)
 mod uuid {
-    use rand::Rng;
+    use rand::RngExt;
 
     pub struct Uuid;
 

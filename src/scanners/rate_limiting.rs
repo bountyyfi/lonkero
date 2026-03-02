@@ -1268,7 +1268,7 @@ impl RateLimitingScanner {
 
     /// Generate random string
     fn generate_random_string(len: usize) -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         (0..len)
             .map(|_| {
@@ -1284,7 +1284,7 @@ impl RateLimitingScanner {
 
     /// Generate unique ID
     fn generate_id() -> String {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         format!("{:08x}", rng.random::<u32>())
     }

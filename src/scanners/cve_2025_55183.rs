@@ -396,7 +396,7 @@ impl Cve202555183Scanner {
 }
 
 fn generate_uuid() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!(
         "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",

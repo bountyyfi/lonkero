@@ -7,7 +7,7 @@ use crate::types::{Confidence, ScanConfig, Severity, Vulnerability};
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
-use rand::Rng;
+use rand::RngExt;
 use regex::Regex;
 use sha2::Sha256;
 use std::sync::Arc;

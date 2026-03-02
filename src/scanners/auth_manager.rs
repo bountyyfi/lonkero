@@ -694,7 +694,7 @@ impl AuthManagerScanner {
 }
 
 fn generate_uuid() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!(
         "authmgr_{:08x}{:04x}{:04x}{:04x}{:012x}",
