@@ -33,7 +33,7 @@ bytes = "1.11.1"
 reqwest = { version = "0.13.1", features = ["json", "cookies", "stream", "rustls", "http2", "gzip", "brotli", "deflate"] }
 
 # Redis for queue and caching
-deadpool-redis = "0.22"
+deadpool-redis = "0.23"
 
 # PostgreSQL database
 tokio-postgres = { version = "0.7.16", features = ["with-chrono-0_4", "with-serde_json-1"] }
@@ -68,6 +68,9 @@ rand = "0.10"
 # Headless browser for JavaScript-rendered pages (SPA form detection)
 # Using fetch feature for network request interception to discover actual form endpoints
 headless_chrome = { version = "1.0", features = ["fetch"] }
+
+# Binary path resolution (cross-platform)
+which = "8"
 
 # Base64
 base64 = "0.22.1"
@@ -126,7 +129,7 @@ dashmap = "6"
 num_cpus = "1.16"
 
 # CLI
-clap = { version = "4.5.59", features = ["derive", "env"] }
+clap = { version = "4.5.60", features = ["derive", "env"] }
 
 # UUID
 uuid = { version = "1.20.0", features = ["v4", "serde"] }
@@ -154,7 +157,7 @@ keyring = "3.6.3"
 socket2 = "0.6.2"
 
 # Secure temporary directory creation
-tempfile = "3.15"
+tempfile = "3.25"
 
 # AI agent: async trait support for LLM providers
 async-trait = "0.1"

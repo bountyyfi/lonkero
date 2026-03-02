@@ -787,13 +787,12 @@ impl BrowserLauncher {
 
     /// Find the Browser-Assist extension directory
     pub fn find_extension_dir() -> Option<PathBuf> {
-        // Check relative to executable path from argv[0] (avoid current_exe for security reasons)
-        let exe_result: Result<PathBuf, std::io::Error> = std::env::args()
-            .next()
-            .map(PathBuf::from)
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no argv[0]"))
-            .and_then(std::fs::canonicalize);
-        if let Ok(exe_path) = exe_result {
+        // Resolve executable path via which (cross-platform, not used for security decisions,
+        // only for locating the extension directory relative to the binary)
+        if let Ok(exe_path) = which::which(env!("CARGO_PKG_NAME"))
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))
+            .and_then(|p| std::fs::canonicalize(p))
+        {
             if let Some(exe_dir) = exe_path.parent() {
                 // Check various locations relative to the executable
                 let candidates = [
