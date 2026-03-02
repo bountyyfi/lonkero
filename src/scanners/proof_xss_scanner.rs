@@ -544,7 +544,7 @@ impl ProofXssScanner {
                 }
             }
 
-            search_start = absolute_pos + 1;
+            search_start = body_lower.ceil_char_boundary(absolute_pos + 1);
         }
 
         contexts
@@ -557,8 +557,8 @@ impl ProofXssScanner {
         pos: usize,
         canary: &str,
     ) -> Option<ReflectionContext> {
-        let before = &body[..pos];
-        let _after = &body[pos + canary.len()..];
+        let before = &body[..body.floor_char_boundary(pos)];
+        let _after = &body[body.ceil_char_boundary(pos + canary.len())..];
 
         // Check if inside <script> tag
         if self.is_inside_script_tag(before) {
@@ -658,11 +658,11 @@ impl ProofXssScanner {
     fn determine_js_context(&self, before: &str) -> Option<ReflectionContext> {
         // Find the script content
         let script_start = before.to_lowercase().rfind("<script")?;
-        let js_content = &before[script_start..];
+        let js_content = &before[before.floor_char_boundary(script_start)..];
 
         // Skip past the <script> tag
         let tag_end = js_content.find('>')?;
-        let js_code = &js_content[tag_end + 1..];
+        let js_code = &js_content[js_content.ceil_char_boundary(tag_end + 1)..];
 
         // Count quotes to determine if we're in a string
         let mut in_double_string = false;
@@ -1050,8 +1050,8 @@ impl ProofXssScanner {
         let body_lower = body.to_lowercase();
 
         if let Some(pos) = body_lower.find(&canary_lower) {
-            let start = pos.saturating_sub(30);
-            let end = (pos + canary.len() + 50).min(body.len());
+            let start = body.floor_char_boundary(pos.saturating_sub(30));
+            let end = body.ceil_char_boundary((pos + canary.len() + 50).min(body.len()));
 
             let snippet = &body[start..end];
             format!(
@@ -1158,8 +1158,8 @@ impl ProofXssScanner {
             if let Ok(re) = Regex::new(pattern) {
                 for mat in re.find_iter(js) {
                     // Get surrounding context
-                    let start = mat.start().saturating_sub(50);
-                    let end = (mat.end() + 100).min(js.len());
+                    let start = js.floor_char_boundary(mat.start().saturating_sub(50));
+                    let end = js.ceil_char_boundary((mat.end() + 100).min(js.len()));
                     let context = &js[start..end];
 
                     // Check if a tainted source is nearby
@@ -1196,12 +1196,14 @@ impl ProofXssScanner {
             for (pattern, sink_type) in var_sink_patterns {
                 if let Ok(re) = Regex::new(&pattern) {
                     for mat in re.find_iter(js) {
-                        let start = mat.start().saturating_sub(20);
-                        let end = (mat.end() + 20).min(js.len());
+                        let start = js.floor_char_boundary(mat.start().saturating_sub(20));
+                        let end = js.ceil_char_boundary((mat.end() + 20).min(js.len()));
                         let context = &js[start..end];
 
                         // Avoid duplicates
-                        if !sinks.iter().any(|s| s.js_snippet.contains(&mat.as_str()[..mat.as_str().len().min(30)])) {
+                        let mat_str = mat.as_str();
+                        let mat_prefix = &mat_str[..mat_str.floor_char_boundary(mat_str.len().min(30))];
+                        if !sinks.iter().any(|s| s.js_snippet.contains(mat_prefix)) {
                             sinks.push(DomSink {
                                 sink_type: sink_type.clone(),
                                 source: source.clone(),
@@ -1331,7 +1333,7 @@ impl ProofXssScanner {
         if snippet.len() <= max_len {
             snippet.to_string()
         } else {
-            format!("{}...", &snippet[..max_len])
+            format!("{}...", &snippet[..snippet.floor_char_boundary(max_len)])
         }
     }
 

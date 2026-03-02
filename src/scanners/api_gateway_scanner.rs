@@ -742,8 +742,8 @@ impl ApiGatewayScanner {
     /// Extract context around a match
     fn extract_context(&self, body: &str, needle: &str) -> String {
         if let Some(pos) = body.find(needle) {
-            let start = pos.saturating_sub(50);
-            let end = (pos + needle.len() + 50).min(body.len());
+            let start = body.floor_char_boundary(pos.saturating_sub(50));
+            let end = body.ceil_char_boundary((pos + needle.len() + 50).min(body.len()));
             format!("...{}...", &body[start..end])
         } else {
             String::new()
@@ -753,7 +753,7 @@ impl ApiGatewayScanner {
     /// Truncate body for evidence
     fn truncate_body(&self, body: &str, max_len: usize) -> String {
         if body.len() > max_len {
-            format!("{}...", &body[..max_len])
+            format!("{}...", &body[..body.floor_char_boundary(max_len)])
         } else {
             body.to_string()
         }

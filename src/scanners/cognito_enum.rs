@@ -638,7 +638,7 @@ impl CognitoEnumScanner {
                     // Log unexpected response for debugging
                     info!(
                         "[Cognito] SignUp unexpected response: {}",
-                        &resp_body[..resp_body.len().min(200)]
+                        &resp_body[..resp_body.floor_char_boundary(resp_body.len().min(200))]
                     );
                 }
             }
@@ -825,7 +825,7 @@ impl CognitoEnumScanner {
                     // Log unexpected response for debugging
                     info!(
                         "[Cognito] ForgotPassword unexpected response: {}",
-                        &resp_body[..resp_body.len().min(200)]
+                        &resp_body[..resp_body.floor_char_boundary(resp_body.len().min(200))]
                     );
                 }
             }
@@ -909,7 +909,7 @@ impl CognitoEnumScanner {
                 // Other error
                 EnumResult::Error(format!(
                     "Unknown response: {}",
-                    &body[..body.len().min(100)]
+                    &body[..body.floor_char_boundary(body.len().min(100))]
                 ))
             }
             Err(e) => EnumResult::Error(e.to_string()),
