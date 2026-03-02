@@ -69,6 +69,9 @@ rand = "0.10"
 # Using fetch feature for network request interception to discover actual form endpoints
 headless_chrome = { version = "1.0", features = ["fetch"] }
 
+# Binary path resolution (cross-platform)
+which = "8"
+
 # Base64
 base64 = "0.22.1"
 
