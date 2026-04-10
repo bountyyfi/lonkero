@@ -171,6 +171,40 @@ jobs:
           output-format: sarif
           output-file: grype-results.sarif
 
+      - name: Fix Grype SARIF artifact locations
+        run: |
+          # Grype SBOM scans produce results without artifactLocation,
+          # which codeql-action/upload-sarif requires. Add a default
+          # location pointing to Cargo.lock for any result missing one.
+          python3 -c "
+          import json, sys
+          with open('grype-results.sarif') as f:
+              sarif = json.load(f)
+          for run in sarif.get('runs', []):
+              for result in run.get('results', []):
+                  locations = result.get('locations', [])
+                  if not locations:
+                      result['locations'] = [{
+                          'physicalLocation': {
+                              'artifactLocation': {
+                                  'uri': 'Cargo.lock',
+                                  'uriBaseId': '%SRCROOT%'
+                              }
+                          }
+                      }]
+                  else:
+                      for loc in locations:
+                          pl = loc.get('physicalLocation', {})
+                          if 'artifactLocation' not in pl:
+                              pl['artifactLocation'] = {
+                                  'uri': 'Cargo.lock',
+                                  'uriBaseId': '%SRCROOT%'
+                              }
+                              loc['physicalLocation'] = pl
+          with open('grype-results.sarif', 'w') as f:
+              json.dump(sarif, f, indent=2)
+          "
+
       - name: Upload Grype SARIF
         uses: github/codeql-action/upload-sarif@b895512248b1b5b0089ac3c33ecf123c2cd6f373 # v3.28.1
         if: always()
