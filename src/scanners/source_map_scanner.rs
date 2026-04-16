@@ -292,46 +292,185 @@ impl SourceMapScanner {
         sources
     }
 
-    /// Find potential secrets in source map content
+    /// Find potential secrets in source map content.
+    ///
+    /// Patterns are intentionally narrow-prefix / high-entropy tokens so a match is
+    /// almost certainly a real credential. Generic "api_key = ..." style matches are
+    /// deliberately avoided because source map `sourcesContent` contains original
+    /// variable names and comments that trivially trigger them.
     fn find_potential_secrets(&self, content: &str) -> Vec<String> {
-        let mut secrets = Vec::new();
-
-        // API key patterns
-        let patterns = [
+        // (pattern, label, severity_tag) – severity drives the finding's impact.
+        // All patterns have vendor-specific prefixes or structural anchors that
+        // uniquely identify live credentials.
+        const PATTERNS: &[(&str, &str, &str)] = &[
+            // AWS — prefixed key IDs are issued by IAM and cannot appear accidentally.
+            (r"AKIA[0-9A-Z]{16}", "AWS Access Key", "Critical"),
+            (r"ASIA[0-9A-Z]{16}", "AWS STS Temporary Key", "High"),
+            // Google — AIza prefix is a GCP API key; ya29. is an OAuth access token.
+            (r"AIza[0-9A-Za-z_\-]{35}", "Google API Key", "High"),
+            (r"ya29\.[0-9A-Za-z_\-]{20,}", "Google OAuth Access Token", "High"),
+            // GCP service account JSON — the exact string is unique to GCP keys.
             (
-                r#"["\']?api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "API Key",
+                r#""type"\s*:\s*"service_account""#,
+                "GCP Service Account JSON",
+                "Critical",
+            ),
+            // GitHub — prefix-based tokens.
+            (r"ghp_[A-Za-z0-9]{36}", "GitHub PAT (classic)", "Critical"),
+            (r"gho_[A-Za-z0-9]{36}", "GitHub OAuth Token", "High"),
+            (r"ghs_[A-Za-z0-9]{36}", "GitHub App Server Token", "High"),
+            (r"ghu_[A-Za-z0-9]{36}", "GitHub App User Token", "High"),
+            (
+                r"github_pat_[A-Za-z0-9_]{80,}",
+                "GitHub Fine-grained PAT",
+                "Critical",
+            ),
+            // GitLab
+            (r"glpat-[A-Za-z0-9_\-]{20}", "GitLab PAT", "Critical"),
+            // Slack
+            (
+                r"xox[baprs]-[0-9]+-[0-9]+-[0-9]+-[A-Za-z0-9]{24,}",
+                "Slack Token",
+                "High",
             ),
             (
-                r#"["\']?secret["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "Secret",
+                r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{20,}",
+                "Slack Webhook URL",
+                "Medium",
+            ),
+            // Stripe — live keys only.
+            (r"sk_live_[0-9a-zA-Z]{24,}", "Stripe Live Secret Key", "Critical"),
+            (r"rk_live_[0-9a-zA-Z]{24,}", "Stripe Live Restricted Key", "High"),
+            // SendGrid
+            (
+                r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}",
+                "SendGrid API Key",
+                "High",
+            ),
+            // Twilio
+            (r"SK[a-f0-9]{32}", "Twilio API Key SID", "High"),
+            // OpenAI / Anthropic
+            (r"sk-[A-Za-z0-9]{48}", "OpenAI API Key", "Critical"),
+            (r"sk-ant-[A-Za-z0-9_\-]{40,}", "Anthropic API Key", "Critical"),
+            // Hugging Face
+            (r"hf_[A-Za-z0-9]{34}", "Hugging Face Token", "High"),
+            // Package / registry publishing tokens — immediate supply-chain risk.
+            (r"npm_[A-Za-z0-9]{36}", "npm Token", "Critical"),
+            (r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,}", "PyPI API Token", "Critical"),
+            (r"dckr_pat_[A-Za-z0-9_\-]{56}", "Docker Hub PAT", "Critical"),
+            // DigitalOcean
+            (r"dop_v1_[a-f0-9]{64}", "DigitalOcean Token", "Critical"),
+            // Shopify
+            (r"shpat_[a-fA-F0-9]{32}", "Shopify Access Token", "Critical"),
+            (r"shpss_[a-fA-F0-9]{32}", "Shopify Shared Secret", "Critical"),
+            (r"shpca_[a-fA-F0-9]{32}", "Shopify Custom App Token", "Critical"),
+            (r"shppa_[a-fA-F0-9]{32}", "Shopify Private App Token", "Critical"),
+            // Square
+            (r"sq0atp-[A-Za-z0-9_\-]{22}", "Square Access Token", "Critical"),
+            (r"sq0csp-[A-Za-z0-9_\-]{43}", "Square OAuth Secret", "Critical"),
+            // Mailgun / Mailchimp / Postmark
+            (r"key-[a-f0-9]{32}", "Mailgun API Key", "High"),
+            (r"[a-f0-9]{32}-us[0-9]{1,2}", "Mailchimp API Key", "High"),
+            // Discord
+            (
+                r"https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]+",
+                "Discord Webhook URL",
+                "Medium",
             ),
             (
-                r#"["\']?password["\']?\s*[:=]\s*["\']([^"\']{4,})["\']"#,
-                "Password",
+                r"[MN][A-Za-z0-9]{23,}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27}",
+                "Discord Bot Token",
+                "Critical",
+            ),
+            // Sentry DSN — often public, but useful recon and pollution vector.
+            (
+                r"https://[a-fA-F0-9]+@[A-Za-z0-9]+\.ingest\.sentry\.io/[0-9]+",
+                "Sentry DSN",
+                "Low",
+            ),
+            // Azure — storage + SAS
+            (
+                r"DefaultEndpointsProtocol=https;AccountName=[A-Za-z0-9]+;AccountKey=[A-Za-z0-9+/=]{88}",
+                "Azure Storage Account Key",
+                "Critical",
             ),
             (
-                r#"["\']?token["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
-                "Token",
+                r"sv=20[0-9]{2}-[0-9]{2}-[0-9]{2}&s[ir]=[A-Za-z0-9%]+&sig=[A-Za-z0-9%+/=]{20,}",
+                "Azure Storage SAS Token",
+                "High",
             ),
-            (r#"AKIA[0-9A-Z]{16}"#, "AWS Key"),
-            (r#"sk_live_[a-zA-Z0-9]{24,}"#, "Stripe Key"),
+            // DB connection strings with embedded credentials (user:pass@host)
+            (
+                r#"(?:mongodb(?:\+srv)?|mysql|postgres(?:ql)?|mariadb|mssql|jdbc:[a-z]+)://[A-Za-z0-9._~%+-]+:[^@\s"'`<>]+@[A-Za-z0-9.\-]+"#,
+                "Database Connection String with Credentials",
+                "Critical",
+            ),
+            // PEM-armored private keys — can never be a false positive inside a source map.
+            (
+                r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+                "PEM Private Key Block",
+                "Critical",
+            ),
+            // Framework master secrets — full session/cookie/crypto compromise.
+            (r"base64:[A-Za-z0-9+/]{43}=", "Laravel APP_KEY", "Critical"),
+            // JWT (three base64url segments with the standard {"alg header)
+            (
+                r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-+/=]{10,}",
+                "JWT Token",
+                "High",
+            ),
+            // Telegram bot token (context-filtered below)
+            (r"[0-9]{8,10}:[A-Za-z0-9_\-]{35}", "Telegram Bot Token", "High"),
         ];
 
-        for (pattern, name) in patterns {
-            if let Ok(re) = Regex::new(pattern) {
-                for cap in re.captures_iter(content) {
-                    let matched = cap.get(0).map(|m| m.as_str()).unwrap_or("");
-                    if matched.len() < 200 {
-                        // Avoid huge matches
-                        secrets.push(format!("{}: {}", name, Self::truncate(matched, 50)));
+        let mut secrets = Vec::new();
+        let mut seen = HashSet::new();
+        let bytes = content.as_bytes();
+
+        for (pattern, name, severity) in PATTERNS {
+            let re = match Regex::new(pattern) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            for m in re.find_iter(content) {
+                let matched = m.as_str();
+                // Oversized matches are almost always runaway backtracks over
+                // minified bundles — skip rather than truncate into nonsense.
+                if matched.len() > 512 {
+                    continue;
+                }
+
+                // Telegram token: in minified JS an object key like `{1234567890:abc…}`
+                // perfectly matches the format but is not a real token. Require the
+                // match to sit inside a string literal.
+                if *name == "Telegram Bot Token" {
+                    let start = m.start();
+                    let end = m.end();
+                    let prev_quote = start > 0
+                        && matches!(bytes[start - 1], b'"' | b'\'' | b'`');
+                    let next_quote = end < bytes.len()
+                        && matches!(bytes[end], b'"' | b'\'' | b'`');
+                    if !prev_quote && !next_quote {
+                        continue;
                     }
+                }
+
+                let key = format!("{}|{}", name, matched);
+                if !seen.insert(key) {
+                    continue;
+                }
+                secrets.push(format!(
+                    "[{}] {}: {}",
+                    severity,
+                    name,
+                    Self::truncate(matched, 80)
+                ));
+                if secrets.len() >= 25 {
+                    return secrets;
                 }
             }
         }
 
-        // Limit to first 10
-        secrets.truncate(10);
         secrets
     }
 
@@ -375,42 +514,102 @@ impl SourceMapScanner {
         Some(vec![vuln])
     }
 
-    /// Get common source map paths to probe
+    /// Get common source map paths to probe.
+    ///
+    /// Only static, deterministic paths are listed; hashed chunk filenames
+    /// (`main.abc123.js.map`) are discovered dynamically via `sourceMappingURL`
+    /// and HTML `<script>` extraction.
     fn get_common_source_map_paths(&self) -> Vec<&'static str> {
         vec![
-            // Webpack
+            // Create React App / webpack default
             "/static/js/main.js.map",
             "/static/js/bundle.js.map",
             "/static/js/app.js.map",
             "/static/js/vendor.js.map",
             "/static/js/runtime.js.map",
+            "/static/js/runtime-main.js.map",
             "/static/js/2.js.map",
             "/static/js/main.chunk.js.map",
             "/static/js/vendors.chunk.js.map",
-            // Next.js
+            "/static/js/vendors~main.chunk.js.map",
+            "/static/css/main.css.map",
+            // Next.js (pages + app router)
             "/_next/static/chunks/main.js.map",
             "/_next/static/chunks/webpack.js.map",
-            "/_next/static/chunks/pages/_app.js.map",
+            "/_next/static/chunks/polyfills.js.map",
             "/_next/static/chunks/framework.js.map",
+            "/_next/static/chunks/pages/_app.js.map",
+            "/_next/static/chunks/pages/index.js.map",
+            "/_next/static/chunks/pages/_error.js.map",
+            "/_next/static/chunks/app/layout.js.map",
+            "/_next/static/chunks/app/page.js.map",
+            "/_next/static/runtime/main.js.map",
+            "/_next/static/runtime/webpack.js.map",
+            "/_next/server/pages/index.js.map",
+            "/_next/server/app/page.js.map",
+            // Nuxt 3
+            "/_nuxt/entry.js.map",
+            "/_nuxt/index.js.map",
+            "/_nuxt/runtime.js.map",
+            "/_nuxt/app.js.map",
+            "/_nuxt/error-component.js.map",
             // Vite
             "/assets/index.js.map",
+            "/assets/main.js.map",
             "/assets/vendor.js.map",
-            // Angular
+            "/assets/index.css.map",
+            // SvelteKit
+            "/_app/immutable/start.js.map",
+            "/_app/immutable/entry/app.js.map",
+            "/_app/immutable/entry/start.js.map",
+            // Remix
+            "/build/index.js.map",
+            "/build/entry.client.js.map",
+            "/public/build/entry.client.js.map",
+            "/public/build/root.js.map",
+            // Gatsby
+            "/commons.js.map",
+            "/app.js.map",
+            "/component---src-pages-index-js.map",
+            "/webpack-runtime.js.map",
+            // Angular CLI
             "/main.js.map",
             "/polyfills.js.map",
             "/runtime.js.map",
             "/vendor.js.map",
-            // Vue
+            "/scripts.js.map",
+            "/styles.css.map",
+            // Vue CLI
             "/js/app.js.map",
             "/js/chunk-vendors.js.map",
-            // Generic
+            "/js/chunk-common.js.map",
+            "/css/app.css.map",
+            // Ember
+            "/assets/vendor.js.map",
+            "/assets/ember-app.js.map",
+            // NestJS / generic Node dist
+            "/dist/main.js.map",
+            "/dist/index.js.map",
+            "/dist/server.js.map",
+            "/dist/bundle.js.map",
+            "/dist/app.js.map",
+            // Parcel / Rollup / esbuild defaults
+            "/dist/index.mjs.map",
+            "/dist/bundle.mjs.map",
+            // Generic fallbacks
             "/bundle.js.map",
             "/app.js.map",
             "/main.js.map",
-            "/dist/bundle.js.map",
-            "/dist/app.js.map",
+            "/index.js.map",
+            "/server.js.map",
             "/build/bundle.js.map",
             "/build/static/js/main.js.map",
+            "/build/static/css/main.css.map",
+            "/public/js/app.js.map",
+            "/public/js/bundle.js.map",
+            "/js/bundle.js.map",
+            "/js/main.js.map",
+            "/javascripts/application.js.map",
         ]
     }
 
