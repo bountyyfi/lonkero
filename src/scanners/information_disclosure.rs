@@ -83,7 +83,6 @@ impl InformationDisclosureScanner {
     /// Test for sensitive file exposure
     async fn test_sensitive_files(&self, url: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 25; // Updated count
 
         debug!("Testing sensitive file exposure");
 
@@ -93,32 +92,144 @@ impl InformationDisclosureScanner {
             "/.env.local",
             "/.env.production",
             "/.env.development",
+            "/.env.staging",
+            "/.env.prod",
             "/.env.backup",
+            "/.env.bak",
+            "/.env.save",
             // Config files
             "/config.php",
             "/config.json",
             "/config.yml",
+            "/config.yaml",
             "/web.config",
             "/app.config",
             "/configuration.php",
-            // Git files
+            "/appsettings.json",
+            "/appsettings.Production.json",
+            "/application.properties",
+            "/application.yml",
+            "/config/database.yml",
+            "/config/secrets.yml",
+            "/sites/default/settings.php",
+            "/app/etc/local.xml",
+            "/app/etc/env.php",
+            "/local_settings.py",
+            // Rails
+            "/config/master.key",
+            "/config/credentials.yml.enc",
+            // Git & VCS
             "/.git/config",
             "/.git/HEAD",
+            "/.git/index",
+            "/.git/logs/HEAD",
+            "/.svn/entries",
+            "/.svn/wc.db",
+            "/.hg/hgrc",
             // Package management
             "/composer.json",
+            "/composer.lock",
             "/package.json",
+            "/auth.json",
+            "/.npmrc",
             // Web server configs
             "/.htaccess",
+            "/.htpasswd",
             "/phpinfo.php",
             // Backup files
             "/backup.sql",
+            "/backup.sql.gz",
             "/db_backup.sql",
             "/database.sql",
+            "/production.sql",
+            "/prod.sql",
+            "/users.sql",
+            "/dump.sql",
+            "/dump.rdb",
             "/backup.zip",
-            "/config.php.bak",
-            "/index.php.old",
+            "/backup.tar.gz",
+            "/site.zip",
             "/site.tar.gz",
+            "/www.zip",
+            "/public_html.zip",
+            "/wwwroot.zip",
+            "/source.zip",
+            "/src.zip",
+            "/release.zip",
+            "/config.php.bak",
+            "/wp-config.php.bak",
+            "/wp-config.php.old",
+            "/index.php.old",
+            // Cloud credentials
+            "/.aws/credentials",
+            "/.aws/config",
+            "/credentials.csv",
+            "/credentials.json",
+            "/service-account.json",
+            "/firebase-adminsdk.json",
+            "/.docker/config.json",
+            "/.dockercfg",
+            "/.kube/config",
+            "/kubeconfig",
+            // Terraform / IaC state
+            "/terraform.tfstate",
+            "/terraform.tfstate.backup",
+            "/terraform.tfvars",
+            "/.terraform/terraform.tfstate",
+            // SSH / PEM
+            "/id_rsa",
+            "/id_ed25519",
+            "/.ssh/id_rsa",
+            "/.ssh/authorized_keys",
+            "/server.key",
+            "/server.pem",
+            "/private.key",
+            // Dotfiles containing secrets
+            "/.bash_history",
+            "/.zsh_history",
+            "/.netrc",
+            "/.pgpass",
+            "/.my.cnf",
+            "/.mysql_history",
+            "/.psql_history",
+            // IDE configs
+            "/.idea/dataSources.xml",
+            "/.idea/workspace.xml",
+            "/.vscode/sftp.json",
+            "/sftp-config.json",
+            // CI/CD
+            "/.travis.yml",
+            "/.circleci/config.yml",
+            "/.gitlab-ci.yml",
+            "/azure-pipelines.yml",
+            "/Jenkinsfile",
+            "/bitbucket-pipelines.yml",
+            "/buildspec.yml",
+            // Docker
+            "/Dockerfile",
+            "/docker-compose.yml",
+            "/docker-compose.override.yml",
+            "/docker-compose.prod.yml",
+            // Diagnostic / debug surfaces
+            "/elmah.axd",
+            "/trace.axd",
+            "/actuator/env",
+            "/actuator/heapdump",
+            "/actuator/configprops",
+            "/heapdump",
+            "/heapdump.hprof",
+            // Log files
+            "/error.log",
+            "/access.log",
+            "/laravel.log",
+            "/storage/logs/laravel.log",
+            "/logs/production.log",
+            "/nohup.out",
+            // Java / JSP
+            "/WEB-INF/web.xml",
+            "/META-INF/MANIFEST.MF",
         ];
+        let tests_run = sensitive_files.len();
 
         let base_url = self.extract_base_url(url);
 
@@ -131,14 +242,15 @@ impl InformationDisclosureScanner {
                         && self.detect_sensitive_content(&response.body, file)
                     {
                         info!("Sensitive file exposed: {}", file);
+                        let (severity, cwe) = Self::severity_for_sensitive_file(file);
                         vulnerabilities.push(self.create_vulnerability(
                             &test_url,
                             "Sensitive File Exposure",
                             file,
                             &format!("Sensitive file {} is publicly accessible", file),
                             &format!("File {} returned 200 OK with sensitive content", file),
-                            Severity::High,
-                            "CWE-200",
+                            severity,
+                            cwe,
                         ));
                         break;
                     }
@@ -512,12 +624,331 @@ impl InformationDisclosureScanner {
         }
     }
 
+    /// Map a sensitive file path to a severity tier and CWE.
+    /// Critical tier = direct credential/key material or full DB content.
+    fn severity_for_sensitive_file(file: &str) -> (Severity, &'static str) {
+        let f = file.to_lowercase();
+
+        // Direct credential material - rotate-immediately impact
+        let critical_paths: &[&str] = &[
+            "/.env",
+            "/.aws/credentials",
+            "/credentials.csv",
+            "/credentials.json",
+            "/service-account.json",
+            "/firebase-adminsdk.json",
+            "/.docker/config.json",
+            "/.dockercfg",
+            "/.kube/config",
+            "/kubeconfig",
+            "/config/master.key",
+            "/master.key",
+            "/terraform.tfstate",
+            "/terraform.tfstate.backup",
+            "/id_rsa",
+            "/id_ed25519",
+            "/id_dsa",
+            "/.ssh/id_rsa",
+            "/server.key",
+            "/private.key",
+            "/.htpasswd",
+            "/.netrc",
+            "/.pgpass",
+            "/.my.cnf",
+            "/auth.json",
+            "/.npmrc",
+            "/dump.rdb",
+            "/sites/default/settings.php",
+            "/app/etc/local.xml",
+            "/app/etc/env.php",
+            "/local_settings.py",
+            "/appsettings.production.json",
+            "/appsettings.json",
+            "/config/credentials.yml.enc",
+            "/.idea/datasources.xml",
+            "/.idea/datasources.local.xml",
+            "/.vscode/sftp.json",
+            "/sftp-config.json",
+        ];
+        for cp in critical_paths {
+            if f.ends_with(cp) || f == *cp {
+                return (Severity::Critical, "CWE-798");
+            }
+        }
+
+        // SQL dumps / archive backups / heap dumps - high-impact data disclosure
+        let high_paths_suffixes: &[&str] = &[
+            ".sql",
+            ".sql.gz",
+            ".sql.zip",
+            ".zip",
+            ".tar.gz",
+            ".tar",
+            ".hprof",
+            ".bak",
+            ".old",
+            ".rdb",
+            "/heapdump",
+            "/actuator/heapdump",
+            "/actuator/env",
+            "/trace.axd",
+            "/elmah.axd",
+        ];
+        for hp in high_paths_suffixes {
+            if f.ends_with(hp) {
+                return (Severity::High, "CWE-200");
+            }
+        }
+
+        (Severity::High, "CWE-200")
+    }
+
     /// Detect sensitive content in file using pattern-based detection
     /// This ensures we only report findings when actual sensitive patterns are found,
     /// not just based on response similarity or status codes.
     fn detect_sensitive_content(&self, body: &str, filename: &str) -> bool {
         if body.is_empty() || body.len() < 10 {
             return false;
+        }
+
+        let fname_lower = filename.to_lowercase();
+
+        // Cloud credentials - extremely high-confidence signatures
+        if fname_lower.ends_with("/.aws/credentials") || fname_lower.ends_with("/credentials.csv") {
+            return body.contains("aws_access_key_id") || body.contains("AKIA")
+                || (body.to_lowercase().contains("access key id")
+                    && body.to_lowercase().contains("secret access key"));
+        }
+        if fname_lower.ends_with("/.aws/config") {
+            return body.contains("[profile") || body.contains("[default]");
+        }
+        if fname_lower.ends_with("/.kube/config") || fname_lower.ends_with("/kubeconfig") {
+            return body.contains("apiVersion") && body.contains("clusters:")
+                && (body.contains("client-certificate-data")
+                    || body.contains("client-key-data")
+                    || body.contains("token:"));
+        }
+        if fname_lower.ends_with("/.docker/config.json") || fname_lower.ends_with("/.dockercfg") {
+            return body.contains("\"auths\"") || body.contains("\"auth\":");
+        }
+        if fname_lower.ends_with("/service-account.json")
+            || fname_lower.ends_with("/credentials.json")
+            || fname_lower.ends_with("/firebase-adminsdk.json")
+        {
+            return body.contains("\"type\": \"service_account\"")
+                || body.contains("\"type\":\"service_account\"")
+                || (body.contains("\"private_key\"") && body.contains("BEGIN PRIVATE KEY"));
+        }
+
+        // Terraform state contains every secret in plaintext
+        if fname_lower.ends_with(".tfstate") || fname_lower.ends_with(".tfstate.backup") {
+            return body.contains("\"terraform_version\"")
+                || body.contains("\"serial\"") && body.contains("\"resources\"")
+                || body.contains("\"lineage\"");
+        }
+        if fname_lower.ends_with(".tfvars") {
+            let lower = body.to_lowercase();
+            return (lower.contains("password") || lower.contains("secret")
+                || lower.contains("token") || lower.contains("api_key"))
+                && (body.contains("=") || body.contains(":"));
+        }
+
+        // Rails master key - 32-char hex only
+        if fname_lower.ends_with("/config/master.key") || fname_lower.ends_with("/master.key") {
+            let trimmed = body.trim();
+            return trimmed.len() >= 24 && trimmed.len() <= 128
+                && trimmed.chars().all(|c| c.is_ascii_hexdigit() || c == '\n' || c == '\r');
+        }
+
+        // Private key blocks
+        if fname_lower.ends_with("/id_rsa")
+            || fname_lower.ends_with("/id_ed25519")
+            || fname_lower.ends_with("/id_dsa")
+            || fname_lower.ends_with("/server.key")
+            || fname_lower.ends_with("/server.pem")
+            || fname_lower.ends_with("/private.key")
+        {
+            return body.contains("-----BEGIN")
+                && (body.contains("PRIVATE KEY-----")
+                    || body.contains("OPENSSH PRIVATE KEY-----"));
+        }
+
+        // SSH authorized_keys - public keys, signature of ssh- prefix
+        if fname_lower.ends_with("/authorized_keys") {
+            return body.contains("ssh-rsa ")
+                || body.contains("ssh-ed25519 ")
+                || body.contains("ecdsa-sha2-");
+        }
+
+        // .htpasswd - format username:$hash
+        if fname_lower.ends_with("/.htpasswd") {
+            return body.contains(":$2")
+                || body.contains(":$apr1$")
+                || body.contains(":{SHA}")
+                || body.contains(":$6$");
+        }
+
+        // .netrc / .pgpass / .my.cnf
+        if fname_lower.ends_with("/.netrc") {
+            return body.contains("machine ")
+                && (body.contains("login ") || body.contains("password "));
+        }
+        if fname_lower.ends_with("/.pgpass") {
+            return body.lines().any(|l| {
+                !l.starts_with('#') && l.matches(':').count() >= 4 && l.len() > 10
+            });
+        }
+        if fname_lower.ends_with("/.my.cnf") {
+            return (body.contains("[client]") || body.contains("[mysql]"))
+                && body.to_lowercase().contains("password");
+        }
+
+        // Shell history (commands suggest real history)
+        if fname_lower.ends_with("/.bash_history")
+            || fname_lower.ends_with("/.zsh_history")
+            || fname_lower.ends_with("/.mysql_history")
+            || fname_lower.ends_with("/.psql_history")
+        {
+            let indicators = [
+                "cd ", "sudo ", "ssh ", "mysql ", "psql ", "curl ", "wget ",
+                "export ", "git ", "scp ", "rsync ",
+            ];
+            let hits = indicators.iter().filter(|i| body.contains(*i)).count();
+            return hits >= 2;
+        }
+
+        // ELMAH / trace.axd
+        if fname_lower.ends_with("/elmah.axd") {
+            return body.contains("ELMAH") || body.contains("Error Log")
+                || body.contains("All Errors");
+        }
+        if fname_lower.ends_with("/trace.axd") {
+            return body.contains("Application Trace")
+                || body.contains("Request Details")
+                || body.contains("Trace Information");
+        }
+
+        // Spring Boot actuator endpoints
+        if fname_lower.contains("/actuator/env") {
+            return body.contains("\"propertySources\"") || body.contains("\"activeProfiles\"");
+        }
+        if fname_lower.contains("/actuator/configprops") {
+            return body.contains("\"contexts\"") || body.contains("\"properties\"")
+                || body.contains("\"configurationProperties\"");
+        }
+        if fname_lower.ends_with("/heapdump") || fname_lower.ends_with(".hprof")
+            || fname_lower.contains("/actuator/heapdump")
+        {
+            return body.starts_with("JAVA PROFILE");
+        }
+
+        // JetBrains / editor SFTP configs
+        if fname_lower.ends_with("/.idea/datasources.xml")
+            || fname_lower.ends_with("/.idea/datasources.local.xml")
+        {
+            return body.contains("<DataSource") || body.contains("jdbc:");
+        }
+        if fname_lower.ends_with("/.idea/workspace.xml") {
+            return body.contains("<project") && body.contains("version=\"4\"");
+        }
+        if fname_lower.ends_with("/.vscode/sftp.json") || fname_lower.ends_with("/sftp-config.json")
+        {
+            return body.contains("\"host\"")
+                && (body.contains("\"password\"")
+                    || body.contains("\"privateKeyPath\"")
+                    || body.contains("\"username\""));
+        }
+
+        // Drupal / Magento
+        if fname_lower.ends_with("/sites/default/settings.php") {
+            return body.contains("$databases") || body.contains("$settings['hash_salt']");
+        }
+        if fname_lower.ends_with("/app/etc/local.xml") {
+            return body.contains("<username>")
+                && body.contains("<password>")
+                && body.contains("<dbname>");
+        }
+        if fname_lower.ends_with("/app/etc/env.php") {
+            return body.contains("<?php") && body.contains("'db'")
+                && body.contains("'connection'");
+        }
+
+        // Django
+        if fname_lower.ends_with("/local_settings.py")
+            || fname_lower.ends_with("/settings.py")
+        {
+            return body.contains("SECRET_KEY")
+                && (body.contains("DATABASES") || body.contains("INSTALLED_APPS"));
+        }
+
+        // ASP.NET Core appsettings.json
+        if fname_lower.ends_with("/appsettings.json")
+            || fname_lower.contains("/appsettings.")
+        {
+            return (body.contains("\"ConnectionStrings\"")
+                || body.contains("\"ConnectionString\""))
+                && body.contains("Password");
+        }
+
+        // WEB-INF / META-INF
+        if fname_lower.contains("/web-inf/web.xml") {
+            return body.contains("<web-app") || body.contains("<servlet>");
+        }
+        if fname_lower.contains("/meta-inf/manifest.mf") {
+            return body.contains("Manifest-Version:");
+        }
+
+        // auth.json / .npmrc
+        if fname_lower.ends_with("/auth.json") {
+            return body.contains("\"http-basic\"")
+                || body.contains("\"github-oauth\"")
+                || body.contains("\"gitlab-token\"");
+        }
+        if fname_lower.ends_with("/.npmrc") {
+            return body.contains("_authToken")
+                || body.contains("//registry.npmjs.org/:_auth");
+        }
+
+        // Redis RDB snapshot - binary signature
+        if fname_lower.ends_with("/dump.rdb") {
+            return body.starts_with("REDIS");
+        }
+
+        // Laravel storage logs
+        if fname_lower.ends_with("/laravel.log")
+            || fname_lower.ends_with("/storage/logs/laravel.log")
+        {
+            return body.contains("production.ERROR")
+                || body.contains("local.ERROR")
+                || body.contains(".ERROR: ")
+                || body.contains("Stack trace:");
+        }
+
+        // CI/CD pipeline files - flag when secrets-like tokens appear
+        if fname_lower.ends_with("/.travis.yml")
+            || fname_lower.ends_with("/.circleci/config.yml")
+            || fname_lower.ends_with("/.gitlab-ci.yml")
+            || fname_lower.ends_with("/azure-pipelines.yml")
+            || fname_lower.ends_with("/bitbucket-pipelines.yml")
+            || fname_lower.ends_with("/jenkinsfile")
+            || fname_lower.ends_with("/buildspec.yml")
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("secure:") || lower.contains("secret")
+                || lower.contains("token") || lower.contains("password"))
+                && (body.contains(":") || body.contains("="));
+        }
+
+        // Docker compose - env and credentials
+        if fname_lower.ends_with("/dockerfile")
+            || fname_lower.contains("/docker-compose")
+        {
+            let lower = body.to_lowercase();
+            return (lower.contains("password")
+                || lower.contains("secret")
+                || lower.contains("api_key")
+                || lower.contains("_env"))
+                && (body.contains(":") || body.contains("="));
         }
 
         // Use pattern-based detection instead of relying on response similarity
