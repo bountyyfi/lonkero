@@ -100,7 +100,7 @@ html-escape = "0.2"
 similar = "2.7"
 
 # WebSocket client for exploitation testing
-tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 tungstenite = "0.28"
 
 # TLS support for raw TCP sockets (HTTP smuggling)
