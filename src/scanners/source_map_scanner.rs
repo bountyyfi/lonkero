@@ -378,32 +378,90 @@ impl SourceMapScanner {
     /// Get common source map paths to probe
     fn get_common_source_map_paths(&self) -> Vec<&'static str> {
         vec![
-            // Webpack
+            // Webpack / Create React App
             "/static/js/main.js.map",
             "/static/js/bundle.js.map",
             "/static/js/app.js.map",
             "/static/js/vendor.js.map",
+            "/static/js/vendors.js.map",
             "/static/js/runtime.js.map",
             "/static/js/2.js.map",
+            "/static/js/3.js.map",
             "/static/js/main.chunk.js.map",
             "/static/js/vendors.chunk.js.map",
+            "/static/js/runtime-main.js.map",
+            "/static/js/runtime~main.js.map",
+            "/static/css/main.css.map",
             // Next.js
             "/_next/static/chunks/main.js.map",
+            "/_next/static/chunks/main-app.js.map",
             "/_next/static/chunks/webpack.js.map",
+            "/_next/static/chunks/polyfills.js.map",
             "/_next/static/chunks/pages/_app.js.map",
+            "/_next/static/chunks/pages/_error.js.map",
+            "/_next/static/chunks/pages/index.js.map",
             "/_next/static/chunks/framework.js.map",
+            "/_next/static/chunks/react-refresh.js.map",
+            "/_next/static/chunks/app/layout.js.map",
+            "/_next/static/chunks/app/page.js.map",
             // Vite
             "/assets/index.js.map",
+            "/assets/main.js.map",
+            "/assets/app.js.map",
             "/assets/vendor.js.map",
+            "/assets/client.js.map",
+            "/assets/entry-client.js.map",
+            "/assets/entry-server.js.map",
             // Angular
             "/main.js.map",
+            "/main-es2015.js.map",
+            "/main-es5.js.map",
             "/polyfills.js.map",
+            "/polyfills-es2015.js.map",
+            "/polyfills-es5.js.map",
             "/runtime.js.map",
+            "/runtime-es2015.js.map",
+            "/runtime-es5.js.map",
             "/vendor.js.map",
-            // Vue
+            "/vendor-es2015.js.map",
+            "/scripts.js.map",
+            "/styles.css.map",
+            // Vue / Nuxt
             "/js/app.js.map",
             "/js/chunk-vendors.js.map",
-            // Generic
+            "/js/chunk-common.js.map",
+            "/_nuxt/app.js.map",
+            "/_nuxt/vendor.js.map",
+            "/_nuxt/entry.js.map",
+            "/_nuxt/commons/app.js.map",
+            // SvelteKit
+            "/_app/immutable/entry/start.js.map",
+            "/_app/immutable/entry/app.js.map",
+            "/_app/immutable/chunks/index.js.map",
+            "/_app/immutable/chunks/vendor.js.map",
+            // Remix
+            "/build/entry.client.js.map",
+            "/build/root.js.map",
+            "/build/_assets/entry.client.js.map",
+            // Parcel
+            "/parcel.js.map",
+            "/index.js.map",
+            "/dist/index.js.map",
+            "/dist/main.js.map",
+            // Rollup
+            "/dist/bundle.esm.js.map",
+            "/dist/bundle.cjs.js.map",
+            "/dist/bundle.umd.js.map",
+            "/dist/index.esm.js.map",
+            // Ember
+            "/assets/ember-app.js.map",
+            "/assets/vendor.js.map",
+            "/assets/dummy.js.map",
+            // Gatsby
+            "/commons.js.map",
+            "/app-*.js.map",
+            "/page-data.js.map",
+            // Generic / old build output
             "/bundle.js.map",
             "/app.js.map",
             "/main.js.map",
@@ -411,6 +469,17 @@ impl SourceMapScanner {
             "/dist/app.js.map",
             "/build/bundle.js.map",
             "/build/static/js/main.js.map",
+            "/build/static/js/bundle.js.map",
+            "/public/bundle.js.map",
+            "/public/app.js.map",
+            "/out/app.js.map",
+            // Common CSS maps (often ship secret theme data / class names)
+            "/css/app.css.map",
+            "/css/main.css.map",
+            "/styles/main.css.map",
+            // Dev-server maps occasionally shipped to prod
+            "/webpack-dev-server.js.map",
+            "/static/js/devServer.js.map",
         ]
     }
 
