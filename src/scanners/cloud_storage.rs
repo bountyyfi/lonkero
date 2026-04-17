@@ -208,6 +208,24 @@ impl CloudStorageScanner {
             format!("{}-static", bucket_base),
             format!("{}-dev", bucket_base),
             format!("{}-prod", bucket_base),
+            format!("{}-archive", bucket_base),
+            format!("{}-logs", bucket_base),
+            format!("{}-private", bucket_base),
+            format!("{}-internal", bucket_base),
+            format!("{}-media", bucket_base),
+            format!("{}-reports", bucket_base),
+            format!("{}-invoices", bucket_base),
+            format!("{}-pii", bucket_base),
+            format!("{}-temp", bucket_base),
+            format!("{}-old", bucket_base),
+            format!("{}-releases", bucket_base),
+            format!("{}-artifacts", bucket_base),
+            format!("{}-terraform-state", bucket_base),
+            format!("{}-tfstate", bucket_base),
+            format!("{}-cloudtrail", bucket_base),
+            format!("{}-exports", bucket_base),
+            format!("{}-customer-data", bucket_base),
+            format!("{}-secrets", bucket_base),
         ];
 
         let regions = vec!["us-east-1", "us-west-2", "eu-west-1", "eu-north-1"];
@@ -364,6 +382,12 @@ impl CloudStorageScanner {
             "api-keys.json",
             "firebase.json",
             ".firebase",
+            "service-account.json",
+            "gcp-service-account.json",
+            "google-credentials.json",
+            "azure-credentials.json",
+            "kubeconfig",
+            ".kube/config",
             // SSH & Crypto Keys
             "id_rsa",
             "id_rsa.pub",
@@ -374,7 +398,14 @@ impl CloudStorageScanner {
             "server.key",
             "privatekey.pem",
             ".ssh/id_rsa",
+            ".ssh/id_ed25519",
             ".ssh/authorized_keys",
+            ".ssh/config",
+            ".netrc",
+            ".pypirc",
+            ".npmrc",
+            ".pgpass",
+            ".my.cnf",
             // Database Files
             "backup.sql",
             "database.sql",
@@ -426,8 +457,11 @@ impl CloudStorageScanner {
             "wp-content/debug.log",
             // Terraform & IaC
             "terraform.tfstate",
+            "terraform.tfstate.backup",
             "terraform.tfvars",
             ".terraform/",
+            "ansible-vault.yml",
+            "vault-password.txt",
             // CI/CD
             ".travis.yml",
             ".gitlab-ci.yml",
@@ -436,8 +470,8 @@ impl CloudStorageScanner {
             ".circleci/config.yml",
         ];
 
-        // Test first 25 most critical patterns
-        for path in sensitive_paths.iter().take(25) {
+        // Test first 35 most critical patterns
+        for path in sensitive_paths.iter().take(35) {
             tests_run += 1;
             let test_url = format!("{}/{}", bucket_url, path);
 
@@ -452,6 +486,15 @@ impl CloudStorageScanner {
                                 || path.contains("secret")
                                 || path.contains("key")
                                 || path.contains(".env")
+                                || path.contains("kubeconfig")
+                                || path.contains("service-account")
+                                || path.contains(".aws/")
+                                || path.contains(".netrc")
+                                || path.contains(".pypirc")
+                                || path.contains(".pgpass")
+                                || path.contains(".my.cnf")
+                                || path.contains("tfstate")
+                                || path.contains("vault")
                             {
                                 Severity::Critical
                             } else if path.contains("backup")

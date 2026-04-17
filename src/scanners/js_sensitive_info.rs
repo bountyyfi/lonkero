@@ -1221,6 +1221,120 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // AWS STS session credentials
+                CompiledPattern {
+                    name: "AWS Session Access Key".to_string(),
+                    regex: Regex::new(r#"ASIA[0-9A-Z]{16}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "AWS STS session access key found - temporary but highly sensitive credential that likely pairs with an exposed session token.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Slack tokens (distinct formats)
+                CompiledPattern {
+                    name: "Slack Bot/User/Workspace Token".to_string(),
+                    // xoxb (bot), xoxp (user), xoxa (workspace), xoxr (refresh), xoxs (legacy)
+                    regex: Regex::new(r#"xox[baprs]-[0-9]+-[0-9]+-[0-9]+-[a-fA-F0-9]{32,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack token found - full workspace access possible (message read/write, channel enumeration).".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Slack App-Level Token".to_string(),
+                    regex: Regex::new(r#"xapp-\d-[A-Z0-9]+-\d+-[a-f0-9]{64}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack app-level token (xapp) found - grants app-wide API access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Google Cloud OAuth access token
+                CompiledPattern {
+                    name: "GCP OAuth Access Token".to_string(),
+                    // ya29.<base64url>
+                    regex: Regex::new(r#"ya29\.[A-Za-z0-9_\-]{20,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Google Cloud OAuth access token found - provides authenticated GCP API access until expiration.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks PAT
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"dapi[a-f0-9]{32}(?:-\d)?"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token found - grants workspace/data access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Snowflake connection string
+                CompiledPattern {
+                    name: "Snowflake Connection String".to_string(),
+                    regex: Regex::new(r#"snowflake://[^:\s'"<>]+:[^@\s'"<>]+@[a-zA-Z0-9_.-]+\.snowflakecomputing\.com"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Snowflake connection string with embedded credentials found.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Azure DevOps PAT
+                CompiledPattern {
+                    name: "Azure DevOps PAT".to_string(),
+                    // Base64 of "user:PAT" where PAT is 52 chars, often embedded in azure basic auth headers
+                    regex: Regex::new(r#"(?i)azure[_-]?(?:devops[_-]?)?(?:pat|token)\s*[=:]\s*['\"][a-z2-7]{52}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Azure DevOps personal access token found - grants repo/pipeline access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // JFrog (Artifactory) access token
+                CompiledPattern {
+                    name: "JFrog/Artifactory Access Token".to_string(),
+                    regex: Regex::new(r#"AKCp[a-zA-Z0-9]{68,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "JFrog/Artifactory identity access token found.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub fine-grained PAT
+                CompiledPattern {
+                    name: "GitHub Fine-Grained PAT".to_string(),
+                    regex: Regex::new(r#"github_pat_[A-Za-z0-9_]{82}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub fine-grained personal access token found.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Elasticsearch / OpenSearch with basic auth
+                CompiledPattern {
+                    name: "Elasticsearch/OpenSearch URL with Credentials".to_string(),
+                    regex: Regex::new(r#"https?://[a-zA-Z0-9_][a-zA-Z0-9_-]*:[^@\s'"<>]+@[a-zA-Z0-9][a-zA-Z0-9.-]+:(?:9200|9243|443)\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Elasticsearch/OpenSearch URL with embedded credentials found.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Azure Storage SAS URL (full URL form, not just sig param)
+                CompiledPattern {
+                    name: "Azure Blob Storage SAS URL".to_string(),
+                    regex: Regex::new(r#"https://[a-z0-9]{3,24}\.blob\.core\.windows\.net/[^\s'"<>]*[?&]sig=[A-Za-z0-9%]{43,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Azure Blob Storage SAS URL found - grants signed delegated access to blob container.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Figma PAT
+                CompiledPattern {
+                    name: "Figma Personal Access Token".to_string(),
+                    regex: Regex::new(r#"figd_[A-Za-z0-9_-]{40,}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Figma personal access token found.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adobe (generic context-anchored, avoids "adobeId" style false positives)
+                CompiledPattern {
+                    name: "Adobe Client Secret".to_string(),
+                    regex: Regex::new(r#"(?i)adobe[_-]?client[_-]?secret\s*[=:]\s*['\"]p8e-[A-Za-z0-9_-]{32,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Adobe client secret found.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord bot token (distinct base64 triplet shape; anchor to context to avoid FPs)
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    regex: Regex::new(r#"(?i)discord[_-]?(?:bot[_-]?)?token\s*[=:]\s*['\"][MN][A-Za-z\d]{23,26}\.[\w-]{6}\.[\w-]{27,}['\"]"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token found - grants bot API access.".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {

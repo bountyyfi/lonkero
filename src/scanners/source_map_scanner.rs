@@ -296,7 +296,7 @@ impl SourceMapScanner {
     fn find_potential_secrets(&self, content: &str) -> Vec<String> {
         let mut secrets = Vec::new();
 
-        // API key patterns
+        // API key patterns. Strict provider formats to minimise false positives.
         let patterns = [
             (
                 r#"["\']?api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
@@ -314,8 +314,28 @@ impl SourceMapScanner {
                 r#"["\']?token["\']?\s*[:=]\s*["\']([^"\']{16,})["\']"#,
                 "Token",
             ),
-            (r#"AKIA[0-9A-Z]{16}"#, "AWS Key"),
-            (r#"sk_live_[a-zA-Z0-9]{24,}"#, "Stripe Key"),
+            (r#"AKIA[0-9A-Z]{16}"#, "AWS Access Key"),
+            (r#"ASIA[0-9A-Z]{16}"#, "AWS Session Access Key"),
+            (r#"sk_live_[a-zA-Z0-9]{24,}"#, "Stripe Secret Key"),
+            (r#"rk_live_[a-zA-Z0-9]{24,}"#, "Stripe Restricted Key"),
+            (r#"gh[pousr]_[A-Za-z0-9_]{36,}"#, "GitHub Token"),
+            (r#"glpat-[a-zA-Z0-9_-]{20}"#, "GitLab PAT"),
+            (r#"xox[baprs]-[A-Za-z0-9-]{10,}"#, "Slack Token"),
+            (r#"xapp-\d-[A-Z0-9]+-\d+-[a-f0-9]+"#, "Slack App Token"),
+            (r#"sk-ant-api[a-zA-Z0-9_-]{32,}"#, "Anthropic API Key"),
+            (r#"sk-[a-zA-Z0-9]{20,}T3BlbkFJ[a-zA-Z0-9]{20,}"#, "OpenAI API Key"),
+            (r#"sbp_[a-f0-9]{40}"#, "Supabase Service Key"),
+            (r#"dckr_pat_[a-zA-Z0-9_-]{27}"#, "Docker Hub PAT"),
+            (r#"npm_[a-zA-Z0-9]{36}"#, "NPM Token"),
+            (r#"hvs\.[a-zA-Z0-9_-]{24,}"#, "HashiCorp Vault Token"),
+            (r#"dp\.pt\.[a-zA-Z0-9]{43}"#, "Doppler Token"),
+            (r#"SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}"#, "SendGrid API Key"),
+            (r#"shpat_[a-f0-9]{32}"#, "Shopify Access Token"),
+            (r#"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY"#, "PEM Private Key"),
+            (
+                r#"mongodb\+srv://[^:\\\s]+:[^@\\\s]+@[a-zA-Z0-9.-]+\.mongodb\.net"#,
+                "MongoDB Atlas Connection String",
+            ),
         ];
 
         for (pattern, name) in patterns {
@@ -378,7 +398,7 @@ impl SourceMapScanner {
     /// Get common source map paths to probe
     fn get_common_source_map_paths(&self) -> Vec<&'static str> {
         vec![
-            // Webpack
+            // Webpack (CRA layout)
             "/static/js/main.js.map",
             "/static/js/bundle.js.map",
             "/static/js/app.js.map",
@@ -387,30 +407,64 @@ impl SourceMapScanner {
             "/static/js/2.js.map",
             "/static/js/main.chunk.js.map",
             "/static/js/vendors.chunk.js.map",
+            "/static/js/runtime-main.js.map",
             // Next.js
             "/_next/static/chunks/main.js.map",
             "/_next/static/chunks/webpack.js.map",
             "/_next/static/chunks/pages/_app.js.map",
+            "/_next/static/chunks/pages/index.js.map",
             "/_next/static/chunks/framework.js.map",
+            "/_next/static/chunks/polyfills.js.map",
+            "/_next/static/chunks/main-app.js.map",
+            // Nuxt.js / Nuxt 3
+            "/_nuxt/entry.js.map",
+            "/_nuxt/app.js.map",
+            "/_nuxt/vendor.js.map",
+            "/_nuxt/runtime.js.map",
             // Vite
             "/assets/index.js.map",
             "/assets/vendor.js.map",
+            "/assets/main.js.map",
             // Angular
             "/main.js.map",
             "/polyfills.js.map",
             "/runtime.js.map",
             "/vendor.js.map",
+            "/styles.js.map",
+            "/scripts.js.map",
             // Vue
             "/js/app.js.map",
             "/js/chunk-vendors.js.map",
+            "/js/chunk-common.js.map",
+            // SvelteKit
+            "/_app/immutable/start.js.map",
+            "/_app/immutable/entry/start.js.map",
+            "/_app/immutable/entry/app.js.map",
+            // Remix
+            "/build/root.js.map",
+            "/build/entry.client.js.map",
+            // Astro
+            "/_astro/client.js.map",
+            "/_astro/hoisted.js.map",
+            // Gatsby
+            "/app-data.json.map",
+            "/commons.js.map",
+            "/webpack-runtime.js.map",
+            // Qwik / Qwik City
+            "/build/q-manifest.json.map",
+            // Parcel
+            "/index.js.map",
+            "/dist/index.js.map",
             // Generic
             "/bundle.js.map",
             "/app.js.map",
-            "/main.js.map",
             "/dist/bundle.js.map",
             "/dist/app.js.map",
+            "/dist/main.js.map",
             "/build/bundle.js.map",
             "/build/static/js/main.js.map",
+            "/public/build/app.js.map",
+            "/public/build/runtime.js.map",
         ]
     }
 
