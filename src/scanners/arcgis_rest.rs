@@ -20,14 +20,52 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
-/// Common ArcGIS REST endpoint paths to probe
+/// Common ArcGIS REST endpoint paths to probe.
+///
+/// The first block covers vanilla Enterprise Server / Portal defaults documented by
+/// Esri. The second block catches the non-default context roots we routinely see
+/// behind reverse proxies in municipal and utility deployments (where the real
+/// data — cadastre, permits, infrastructure inventory — tends to live).
+///
+/// All paths are probed with `?f=json` so a false positive requires the target to
+/// coincidentally serve JSON that mentions `currentVersion`, `MapServer`, or
+/// `FeatureServer` — unlikely for anything that isn't ArcGIS.
 const ARCGIS_PATHS: &[&str] = &[
+    // Esri defaults
     "/arcgis/rest/services",
     "/server/rest/services",
     "/gis/rest/services",
     "/portal/sharing/rest",
     "/hosting/rest/services",
     "/geoportal/rest/services",
+    // Portal / Sharing alternatives (public federated portals)
+    "/sharing/rest",
+    "/arcgis/sharing/rest",
+    "/portal/rest/services",
+    "/arcgisportal/sharing/rest",
+    "/portal/portaladmin",
+    // Common reverse-proxy / custom context roots
+    "/rest/services",
+    "/services/rest",
+    "/ags/rest/services",
+    "/ArcGIS/rest/services",
+    "/arcgis_server/rest/services",
+    "/arcgisserver/rest/services",
+    "/webadaptor/rest/services",
+    "/proxy/rest/services",
+    // Municipality / utility patterns observed in the wild
+    "/kartta/rest/services",
+    "/kartor/rest/services",
+    "/kart/rest/services",
+    "/karten/rest/services",
+    "/map/rest/services",
+    "/maps/rest/services",
+    "/mapserver/rest/services",
+    "/geoserver/rest/services",
+    "/gisweb/rest/services",
+    "/publicgis/rest/services",
+    "/public/rest/services",
+    "/external/rest/services",
 ];
 
 /// Service types that can expose queryable data
