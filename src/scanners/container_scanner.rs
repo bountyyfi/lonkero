@@ -59,19 +59,35 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 8;
+        let tests_run = 23;
 
         debug!("Testing for Docker API exposure");
 
         let docker_endpoints = vec![
             ("/v1.40/containers/json", "Docker API v1.40"),
             ("/v1.41/containers/json", "Docker API v1.41"),
+            ("/v1.42/containers/json", "Docker API v1.42"),
+            ("/v1.43/containers/json", "Docker API v1.43"),
+            ("/v1.44/containers/json", "Docker API v1.44"),
+            ("/v1.45/containers/json", "Docker API v1.45"),
+            ("/v1.46/containers/json", "Docker API v1.46"),
+            ("/v1.47/containers/json", "Docker API v1.47"),
             ("/containers/json", "Docker API"),
             ("/images/json", "Docker Images API"),
             ("/info", "Docker Info"),
             ("/version", "Docker Version"),
             ("/_ping", "Docker Ping"),
             ("/events", "Docker Events"),
+            ("/networks", "Docker Networks API"),
+            ("/volumes", "Docker Volumes API"),
+            ("/swarm", "Docker Swarm Info"),
+            ("/nodes", "Docker Swarm Nodes"),
+            ("/services", "Docker Swarm Services"),
+            ("/tasks", "Docker Swarm Tasks"),
+            ("/secrets", "Docker Swarm Secrets"),
+            ("/configs", "Docker Swarm Configs"),
+            ("/plugins", "Docker Plugins"),
+            ("/system/df", "Docker System Disk Usage"),
         ];
 
         for (endpoint, api_name) in docker_endpoints {
@@ -159,7 +175,7 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 15;
+        let tests_run = 42;
 
         debug!("Testing for Kubernetes API exposure");
 
@@ -169,11 +185,40 @@ impl ContainerScanner {
             ("/api/v1/pods", "K8s Pods"),
             ("/api/v1/secrets", "K8s Secrets"),
             ("/api/v1/services", "K8s Services"),
+            ("/api/v1/nodes", "K8s Nodes"),
+            ("/api/v1/configmaps", "K8s ConfigMaps"),
+            ("/api/v1/serviceaccounts", "K8s ServiceAccounts"),
+            ("/api/v1/persistentvolumes", "K8s PersistentVolumes"),
+            ("/api/v1/events", "K8s Events"),
             ("/apis", "K8s APIs"),
+            ("/apis/apps/v1/deployments", "K8s Deployments"),
+            ("/apis/apps/v1/daemonsets", "K8s DaemonSets"),
+            ("/apis/apps/v1/statefulsets", "K8s StatefulSets"),
+            ("/apis/batch/v1/jobs", "K8s Jobs"),
+            ("/apis/batch/v1/cronjobs", "K8s CronJobs"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterroles", "K8s ClusterRoles"),
+            ("/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "K8s ClusterRoleBindings"),
+            ("/apis/networking.k8s.io/v1/ingresses", "K8s Ingresses"),
+            ("/apis/networking.k8s.io/v1/networkpolicies", "K8s NetworkPolicies"),
+            ("/apis/storage.k8s.io/v1/storageclasses", "K8s StorageClasses"),
+            ("/api/v1/namespaces/kube-system/secrets", "K8s kube-system Secrets"),
+            ("/api/v1/namespaces/default/secrets", "K8s default-ns Secrets"),
             ("/healthz", "K8s Health"),
+            ("/livez", "K8s Liveness"),
+            ("/readyz", "K8s Readiness"),
             ("/version", "K8s Version"),
             ("/metrics", "K8s Metrics"),
             ("/swagger.json", "K8s Swagger"),
+            ("/openapi/v2", "K8s OpenAPI v2"),
+            ("/openapi/v3", "K8s OpenAPI v3"),
+            ("/logs/", "K8s Node Logs"),
+            ("/exec", "K8s Exec"),
+            ("/attach", "K8s Attach"),
+            ("/run", "K8s Run"),
+            ("/pods", "Kubelet Pods"),
+            ("/runningpods/", "Kubelet Running Pods"),
+            ("/stats/summary", "Kubelet Stats Summary"),
+            ("/configz", "Kubelet Config"),
         ];
 
         for (endpoint, api_name) in k8s_endpoints {
@@ -223,7 +268,7 @@ impl ContainerScanner {
         // Skip port scanning if we already found K8s on standard endpoints
         // Use short timeout (3s) for port checks to avoid blocking on closed ports
         if vulnerabilities.is_empty() {
-            let k8s_ports = vec!["6443", "8080", "10250", "10255"];
+            let k8s_ports = vec!["6443", "8080", "10250", "10255", "10256", "2379", "2380"];
             for port in k8s_ports {
                 if let Some(base_url) = self.extract_base_with_port(url, port) {
                     let test_url = format!("{}/healthz", base_url);
@@ -276,7 +321,7 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 10;
+        let tests_run = 19;
 
         debug!("Testing for container registry exposure");
 
@@ -284,8 +329,21 @@ impl ContainerScanner {
             ("/v2/", "Docker Registry v2"),
             ("/v2/_catalog", "Registry Catalog"),
             ("/v2/library/", "Registry Library"),
+            ("/v2/_catalog?n=1000", "Registry Catalog (Large)"),
             ("/v1/repositories/", "Registry Repositories"),
             ("/v1/_ping", "Registry Ping"),
+            ("/v1/search", "Registry Search v1"),
+            ("/api/v2.0/projects", "Harbor Projects"),
+            ("/api/v2.0/systeminfo", "Harbor System Info"),
+            ("/api/v2.0/users", "Harbor Users"),
+            ("/api/v1/repository", "Quay Repositories"),
+            ("/api/v1/discovery", "Quay Discovery"),
+            ("/service/rest/v1/repositories", "Nexus Repositories"),
+            ("/service/rest/v1/status", "Nexus Status"),
+            ("/artifactory/api/repositories", "JFrog Artifactory Repos"),
+            ("/artifactory/api/system/ping", "JFrog Artifactory Ping"),
+            ("/jcr:root", "JFrog JCR Root"),
+            ("/api/v4/registry/repositories", "GitLab Container Registry"),
         ];
 
         for (endpoint, registry_name) in registry_endpoints {
@@ -392,7 +450,7 @@ impl ContainerScanner {
         url: &str,
     ) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 12;
+        let tests_run = 29;
 
         debug!("Testing for container secrets exposure");
 
@@ -401,14 +459,31 @@ impl ContainerScanner {
             "/.dockerenv",
             "/proc/self/environ",
             "/proc/1/environ",
+            "/proc/self/cgroup",
+            "/proc/self/mountinfo",
             "/var/run/secrets/kubernetes.io/serviceaccount/token",
             "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
             "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+            "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+            "/var/lib/kubelet/pods",
             "/.kube/config",
+            "/root/.kube/config",
             "/root/.docker/config.json",
             "/home/*/.docker/config.json",
             "/etc/docker/daemon.json",
+            "/etc/docker/certs.d",
+            "/etc/containerd/config.toml",
+            "/etc/crio/crio.conf",
             "/etc/kubernetes/",
+            "/etc/kubernetes/admin.conf",
+            "/etc/kubernetes/kubelet.conf",
+            "/etc/kubernetes/scheduler.conf",
+            "/etc/kubernetes/controller-manager.conf",
+            "/etc/kubernetes/pki/ca.key",
+            "/etc/kubernetes/pki/apiserver.key",
+            "/etc/kubernetes/pki/etcd/server.key",
+            "/var/lib/docker/containers",
+            "/var/lib/etcd",
         ];
 
         for secret_path in secret_paths {
@@ -507,6 +582,8 @@ impl ContainerScanner {
             let value_lower = value.to_lowercase();
 
             if key_lower == "docker-distribution-api-version"
+                || key_lower == "x-harbor-version"
+                || key_lower == "x-jfrog-version"
                 || value_lower.contains("registry")
                 || value_lower.contains("docker")
             {
@@ -515,9 +592,21 @@ impl ContainerScanner {
         }
 
         let body_lower = body.to_lowercase();
+        // Docker Registry v2
         body_lower.contains("\"repositories\"")
             || body_lower.contains("\"name\"") && body_lower.contains("\"tags\"")
             || body_lower == "{}"
+            // Harbor
+            || body_lower.contains("\"harbor_version\"")
+            || body_lower.contains("\"registry_url\"") && body_lower.contains("\"project\"")
+            // Quay
+            || body_lower.contains("\"kind\":\"repository\"")
+            || body_lower.contains("\"is_public\"") && body_lower.contains("\"namespace\"")
+            // Nexus Repository Manager
+            || body_lower.contains("\"format\"") && body_lower.contains("\"url\"") && body_lower.contains("\"type\":\"hosted\"")
+            // JFrog Artifactory
+            || body_lower.contains("\"repokey\"")
+            || body_lower.contains("\"packagetype\"") && body_lower.contains("\"rclass\"")
     }
 
     fn detect_container_secret(&self, body: &str) -> Option<String> {
@@ -525,8 +614,35 @@ impl ContainerScanner {
             (r"eyJhbGciOi", "Kubernetes Service Account Token"),
             (r"-----BEGIN CERTIFICATE-----", "TLS Certificate"),
             (r"-----BEGIN RSA PRIVATE KEY-----", "RSA Private Key"),
+            (r"-----BEGIN EC PRIVATE KEY-----", "EC Private Key"),
+            (r"-----BEGIN OPENSSH PRIVATE KEY-----", "OpenSSH Private Key"),
             (r"-----BEGIN PRIVATE KEY-----", "Private Key"),
             (r#""auths"\s*:"#, "Docker Registry Auth"),
+            (
+                r#""apiVersion"\s*:\s*"v1"\s*,\s*"clusters"\s*:"#,
+                "Kubeconfig File",
+            ),
+            (
+                r#""kind"\s*:\s*"Config"\s*,\s*"preferences""#,
+                "Kubeconfig File",
+            ),
+            (
+                r#"client-certificate-data\s*:\s*[A-Za-z0-9+/=]{40,}"#,
+                "Kubeconfig Client Certificate",
+            ),
+            (
+                r#""insecure-registries"\s*:\s*\["#,
+                "Docker daemon.json Config",
+            ),
+            (
+                r"overlay\s+/var/lib/docker/overlay2",
+                "Docker Overlay Mountinfo",
+            ),
+            (
+                r#"\d+:[a-z_]+:/(kubepods|docker|containerd)/"#,
+                "Container cgroup Hierarchy",
+            ),
+            (r#""Hostname"\s*:\s*"[a-f0-9]{12}""#, "Container Hostname"),
             (r"DOCKER_", "Docker Environment Variable"),
             (r"KUBE_", "Kubernetes Environment Variable"),
             (r"KUBERNETES_", "Kubernetes Environment Variable"),
