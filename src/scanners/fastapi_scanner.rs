@@ -89,11 +89,224 @@ impl FastApiScanner {
         vulnerabilities.extend(starlette_vulns);
         tests_run += starlette_tests;
 
+        // Check for exposed Python-app artifacts (pyproject, Pipfile.lock, Alembic, Celery configs, .env)
+        let (artifact_vulns, artifact_tests) = self.check_python_artifacts(url, config).await?;
+        vulnerabilities.extend(artifact_vulns);
+        tests_run += artifact_tests;
+
         info!(
             "[FastAPI] Completed: {} vulnerabilities, {} tests",
             vulnerabilities.len(),
             tests_run
         );
+
+        Ok((vulnerabilities, tests_run))
+    }
+
+    /// Check for exposed Python/FastAPI build / deploy / config artifacts that
+    /// regularly ship alongside ASGI apps mounted directly at static roots.
+    /// Each path requires a specific content signature to avoid false positives
+    /// from SPA catch-all 200 responses.
+    async fn check_python_artifacts(
+        &self,
+        url: &str,
+        _config: &ScanConfig,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests_run = 0;
+
+        let base = url.trim_end_matches('/');
+
+        // (path, friendly-name, severity, signatures)
+        let artifacts: &[(&str, &str, Severity, &[&str])] = &[
+            // Build/dependency manifests - reveal full package tree for targeted CVE lookup
+            ("/pyproject.toml", "pyproject.toml", Severity::Medium,
+                &["[tool.poetry]", "[build-system]", "[tool.black]", "[tool.ruff]", "[project]"]),
+            ("/Pipfile", "Pipfile", Severity::Medium,
+                &["[[source]]", "[packages]", "[dev-packages]"]),
+            ("/Pipfile.lock", "Pipfile.lock", Severity::Medium,
+                &["\"_meta\"", "\"default\"", "\"develop\""]),
+            ("/poetry.lock", "poetry.lock", Severity::Medium,
+                &["[[package]]", "content-hash", "python-versions"]),
+            ("/requirements.txt", "requirements.txt", Severity::Low,
+                &["==", ">=", "fastapi", "uvicorn", "pydantic"]),
+            ("/requirements-dev.txt", "requirements-dev.txt", Severity::Low, &["==", ">="]),
+            ("/requirements/base.txt", "requirements/base.txt", Severity::Low, &["==", ">="]),
+            ("/requirements/production.txt", "requirements/production.txt", Severity::Low, &["==", ">="]),
+            ("/setup.py", "setup.py", Severity::Low,
+                &["setup(", "setuptools", "install_requires"]),
+            ("/setup.cfg", "setup.cfg", Severity::Low,
+                &["[metadata]", "[options]", "[flake8]"]),
+            ("/tox.ini", "tox.ini", Severity::Low, &["[tox]", "envlist", "[testenv"]),
+
+            // .env variants - Python apps frequently use python-dotenv
+            ("/.env", ".env", Severity::Critical,
+                &["SECRET_KEY", "DATABASE_URL", "POSTGRES_", "REDIS_URL", "AWS_ACCESS"]),
+            ("/.env.production", ".env.production", Severity::Critical,
+                &["SECRET_KEY", "DATABASE_URL", "POSTGRES_", "AWS_ACCESS"]),
+            ("/.env.local", ".env.local", Severity::Critical,
+                &["SECRET_KEY", "DATABASE_URL", "POSTGRES_", "REDIS_URL"]),
+            ("/.env.dev", ".env.dev", Severity::High, &["SECRET_KEY", "DATABASE_URL"]),
+            ("/app/.env", "app/.env", Severity::Critical,
+                &["SECRET_KEY", "DATABASE_URL", "POSTGRES_"]),
+            ("/backend/.env", "backend/.env", Severity::Critical,
+                &["SECRET_KEY", "DATABASE_URL", "POSTGRES_"]),
+
+            // Alembic migrations / config - reveals schema and often DB creds
+            ("/alembic.ini", "Alembic config", Severity::High,
+                &["[alembic]", "sqlalchemy.url"]),
+            ("/alembic/env.py", "Alembic env.py", Severity::Medium,
+                &["from alembic", "context.configure"]),
+            ("/alembic/versions/", "Alembic versions dir listing", Severity::Medium,
+                &["Index of /alembic", "Parent Directory"]),
+            ("/migrations/env.py", "Migrations env.py", Severity::Medium,
+                &["from alembic", "context.configure"]),
+
+            // Celery
+            ("/celeryconfig.py", "celeryconfig.py", Severity::High,
+                &["broker_url", "result_backend", "broker ="]),
+            ("/celery.py", "celery.py", Severity::Medium,
+                &["Celery(", "from celery"]),
+
+            // FastAPI app entrypoints occasionally served as static
+            ("/main.py", "main.py", Severity::Medium,
+                &["from fastapi", "FastAPI(", "app = FastAPI"]),
+            ("/app/main.py", "app/main.py", Severity::Medium,
+                &["from fastapi", "FastAPI(", "app = FastAPI"]),
+            ("/asgi.py", "asgi.py", Severity::Low,
+                &["application = ", "from django.core.asgi", "from fastapi"]),
+            ("/wsgi.py", "wsgi.py", Severity::Low,
+                &["application = ", "from django.core.wsgi"]),
+
+            // Docker / deploy leftovers
+            ("/Dockerfile", "Dockerfile", Severity::Low,
+                &["FROM ", "WORKDIR ", "COPY ", "RUN "]),
+            ("/docker-compose.yml", "docker-compose.yml", Severity::Low,
+                &["services:", "version:", "image:"]),
+            ("/docker-compose.prod.yml", "docker-compose.prod.yml", Severity::Low,
+                &["services:", "image:"]),
+            ("/gunicorn.conf.py", "gunicorn.conf.py", Severity::Low,
+                &["bind = ", "workers = ", "worker_class"]),
+
+            // Secret / auth key material
+            ("/jwt.key", "JWT private key", Severity::Critical,
+                &["-----BEGIN", "PRIVATE KEY"]),
+            ("/jwt-private.pem", "JWT private key", Severity::Critical,
+                &["-----BEGIN", "PRIVATE KEY"]),
+            ("/private.pem", "Private key", Severity::Critical,
+                &["-----BEGIN", "PRIVATE KEY"]),
+            ("/id_rsa", "SSH private key", Severity::Critical,
+                &["-----BEGIN", "PRIVATE KEY"]),
+
+            // Git / CI
+            ("/.git/config", ".git/config", Severity::High, &["[core]", "[remote"]),
+            ("/.git/HEAD", ".git/HEAD", Severity::High, &["ref: refs/", "refs/heads/"]),
+            ("/.gitlab-ci.yml", ".gitlab-ci.yml", Severity::Medium,
+                &["stages:", "script:", "image:"]),
+            ("/.github/workflows/deploy.yml", "GitHub Actions deploy workflow",
+                Severity::Medium,
+                &["uses: actions/checkout", "run:", "on:"]),
+
+            // Firebase / service-account JSON
+            ("/serviceAccountKey.json", "Service account key", Severity::Critical,
+                &["\"type\": \"service_account\"", "\"private_key\""]),
+            ("/firebase-adminsdk.json", "Firebase admin SDK key", Severity::Critical,
+                &["\"type\": \"service_account\"", "\"private_key\""]),
+            ("/credentials.json", "Generic credentials.json", Severity::High,
+                &["\"client_id\"", "\"client_secret\"", "\"refresh_token\""]),
+
+            // Common backup patterns left behind after deploys
+            ("/app.tar.gz", "app archive", Severity::High, &[]),
+            ("/backup.sql", "SQL backup", Severity::Critical,
+                &["-- MySQL dump", "PostgreSQL database dump", "INSERT INTO", "CREATE TABLE"]),
+            ("/dump.sql", "SQL dump", Severity::Critical,
+                &["-- MySQL dump", "PostgreSQL database dump", "INSERT INTO", "CREATE TABLE"]),
+            ("/database.sqlite", "SQLite database", Severity::Critical, &[]),
+            ("/db.sqlite3", "SQLite database", Severity::Critical, &[]),
+        ];
+
+        for (path, name, severity, sigs) in artifacts {
+            tests_run += 1;
+            let test_url = format!("{}{}", base, path);
+
+            if let Ok(resp) = self.http_client.get(&test_url).await {
+                if resp.status_code != 200 || resp.body.is_empty() {
+                    continue;
+                }
+
+                let body = &resp.body;
+                let body_trim = body.trim_start();
+
+                // Skip SPA catch-all HTML shells for non-HTML artifacts
+                let looks_like_html = body_trim.starts_with('<')
+                    && (body_trim.contains("<html") || body_trim.contains("<!DOCTYPE"));
+                if looks_like_html {
+                    continue;
+                }
+
+                // Binary artifacts (archives, sqlite dbs) - verify with magic bytes
+                let matched = match *path {
+                    "/app.tar.gz" => {
+                        let b = body.as_bytes();
+                        b.len() > 8 && b[0] == 0x1f && b[1] == 0x8b
+                    }
+                    "/database.sqlite" | "/db.sqlite3" => {
+                        body.starts_with("SQLite format 3")
+                    }
+                    _ => {
+                        if sigs.is_empty() {
+                            body.len() > 64
+                        } else {
+                            sigs.iter().any(|s| body.contains(s))
+                        }
+                    }
+                };
+
+                if !matched {
+                    continue;
+                }
+
+                let cvss = match severity {
+                    Severity::Critical => 9.1,
+                    Severity::High => 7.5,
+                    Severity::Medium => 5.3,
+                    Severity::Low => 3.7,
+                    Severity::Info => 0.0,
+                };
+
+                vulnerabilities.push(Vulnerability {
+                    id: generate_vuln_id("python_artifact"),
+                    vuln_type: format!("Python App Artifact Exposed: {}", name),
+                    severity: severity.clone(),
+                    confidence: Confidence::High,
+                    category: "Information Disclosure".to_string(),
+                    url: test_url.clone(),
+                    parameter: None,
+                    payload: path.to_string(),
+                    description: format!(
+                        "{} is publicly accessible at {}. This artifact can reveal application \
+                         internals, credentials, or dependency versions useful for targeted exploitation.",
+                        name, path
+                    ),
+                    evidence: Some(format!(
+                        "Path: {}\nSize: {} bytes\nStatus: 200",
+                        path,
+                        body.len()
+                    )),
+                    cwe: "CWE-538".to_string(),
+                    cvss,
+                    verified: true,
+                    false_positive: false,
+                    remediation: "Block the file / directory at the web server or ASGI layer; \
+                                  rotate any credentials exposed; move build and deploy artifacts \
+                                  outside the static-served root."
+                        .to_string(),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                    ml_confidence: None,
+                    ml_data: None,
+                });
+            }
+        }
 
         Ok((vulnerabilities, tests_run))
     }
@@ -211,6 +424,10 @@ impl FastApiScanner {
         let doc_endpoints = [
             ("/docs", "Swagger UI", "Interactive API documentation"),
             ("/redoc", "ReDoc", "API reference documentation"),
+            ("/swagger", "Swagger UI", "Interactive API documentation"),
+            ("/swagger-ui", "Swagger UI", "Interactive API documentation"),
+            ("/swagger-ui.html", "Swagger UI HTML", "Swagger UI entry page"),
+            ("/swagger/index.html", "Swagger Index", "Swagger UI index"),
             (
                 "/openapi.json",
                 "OpenAPI Schema",
@@ -222,9 +439,54 @@ impl FastApiScanner {
                 "YAML OpenAPI specification",
             ),
             (
+                "/openapi.yml",
+                "OpenAPI YAML",
+                "YAML OpenAPI specification",
+            ),
+            (
+                "/api/openapi.json",
+                "Namespaced OpenAPI Schema",
+                "OpenAPI schema under /api prefix",
+            ),
+            (
+                "/api/v1/openapi.json",
+                "v1 OpenAPI Schema",
+                "OpenAPI schema for /api/v1",
+            ),
+            (
+                "/api/v2/openapi.json",
+                "v2 OpenAPI Schema",
+                "OpenAPI schema for /api/v2",
+            ),
+            (
+                "/api/docs",
+                "Namespaced Swagger UI",
+                "API-prefixed Swagger UI",
+            ),
+            (
+                "/api/v1/docs",
+                "v1 Swagger UI",
+                "Swagger UI for /api/v1",
+            ),
+            (
+                "/api/redoc",
+                "Namespaced ReDoc",
+                "API-prefixed ReDoc",
+            ),
+            (
                 "/docs/oauth2-redirect",
                 "OAuth2 Redirect",
                 "OAuth2 callback handler",
+            ),
+            (
+                "/schema",
+                "Generic Schema",
+                "Raw schema endpoint",
+            ),
+            (
+                "/schema.json",
+                "Generic Schema JSON",
+                "Raw schema endpoint",
             ),
         ];
 
@@ -237,16 +499,23 @@ impl FastApiScanner {
             if let Ok(resp) = self.http_client.get(&endpoint_url).await {
                 if resp.status_code == 200 {
                     let is_valid = match *path {
-                        "/docs" => resp.body.contains("swagger-ui"),
-                        "/redoc" => resp.body.contains("redoc"),
-                        "/openapi.json" => {
+                        p if p.ends_with("/docs") || p == "/swagger" || p.contains("swagger") => {
+                            resp.body.contains("swagger-ui")
+                        }
+                        p if p.ends_with("/redoc") => resp.body.contains("redoc"),
+                        p if p.ends_with("/openapi.json") || p.ends_with("/schema.json") => {
                             resp.body.contains("\"openapi\"") || resp.body.contains("\"paths\"")
                         }
-                        "/openapi.yaml" => {
+                        p if p.ends_with("/openapi.yaml") || p.ends_with("/openapi.yml") => {
                             resp.body.contains("openapi:") || resp.body.contains("paths:")
                         }
                         "/docs/oauth2-redirect" => {
-                            resp.body.contains("oauth2") || resp.status_code == 200
+                            resp.body.contains("oauth2") || resp.body.contains("initOAuth")
+                        }
+                        "/schema" => {
+                            resp.body.contains("\"openapi\"")
+                                || resp.body.contains("\"paths\"")
+                                || resp.body.contains("openapi:")
                         }
                         _ => false,
                     };
@@ -641,16 +910,47 @@ impl FastApiScanner {
         let internal_endpoints = [
             ("/health", "Health check", Severity::Info),
             ("/healthz", "Kubernetes health", Severity::Info),
+            ("/livez", "Kubernetes liveness", Severity::Info),
+            ("/readyz", "Kubernetes readiness", Severity::Info),
             ("/ready", "Readiness probe", Severity::Info),
             ("/metrics", "Prometheus metrics", Severity::Medium),
+            ("/prometheus", "Prometheus scrape", Severity::Medium),
+            ("/actuator", "Actuator root (Spring-style)", Severity::Medium),
+            ("/actuator/health", "Actuator health", Severity::Low),
+            ("/actuator/env", "Actuator env - exposes env vars", Severity::Critical),
+            ("/actuator/heapdump", "Actuator heapdump", Severity::Critical),
+            ("/actuator/configprops", "Actuator config props", Severity::High),
             ("/status", "Status endpoint", Severity::Low),
+            ("/info", "Info endpoint", Severity::Low),
+            ("/version", "Version endpoint", Severity::Low),
             ("/_internal/", "Internal routes", Severity::High),
+            ("/_internal", "Internal routes", Severity::High),
+            ("/internal", "Internal routes", Severity::High),
+            ("/internal/", "Internal routes", Severity::High),
             ("/admin", "Admin interface", Severity::High),
+            ("/admin/", "Admin interface", Severity::High),
             ("/debug", "Debug endpoint", Severity::Critical),
+            ("/debug/", "Debug endpoint", Severity::Critical),
+            ("/debug/pprof", "Go pprof profiler", Severity::High),
+            ("/debug/pprof/", "Go pprof profiler index", Severity::High),
+            ("/debug/vars", "Go expvar vars", Severity::Medium),
+            ("/debug/events", "Go event trace", Severity::Medium),
             ("/api/internal/", "Internal API", Severity::High),
+            ("/api/admin/", "Admin API", Severity::High),
+            ("/api/v1/admin/", "v1 Admin API", Severity::High),
+            ("/api/v1/internal/", "v1 Internal API", Severity::High),
             ("/graphql", "GraphQL endpoint", Severity::Medium),
             ("/playground", "GraphQL Playground", Severity::Medium),
             ("/graphiql", "GraphiQL interface", Severity::Medium),
+            ("/altair", "Altair GraphQL client", Severity::Medium),
+            ("/voyager", "GraphQL Voyager visualizer", Severity::Medium),
+            ("/subscriptions", "GraphQL subscription endpoint", Severity::Low),
+            ("/flower", "Celery Flower monitor - exposes task data", Severity::High),
+            ("/flower/tasks", "Celery Flower tasks", Severity::High),
+            ("/rq", "RQ dashboard - exposes job data", Severity::High),
+            ("/rq/", "RQ dashboard", Severity::High),
+            ("/dash", "Dash application", Severity::Low),
+            ("/dashboard", "Dashboard route", Severity::Low),
         ];
 
         let mut exposed = Vec::new();
@@ -660,11 +960,80 @@ impl FastApiScanner {
             let endpoint_url = format!("{}{}", base, path);
 
             if let Ok(resp) = self.http_client.get(&endpoint_url).await {
-                if resp.status_code == 200 {
-                    // Verify it's not a generic 200 response - require structured JSON content
-                    let is_valid_endpoint = !resp.body.is_empty()
-                        && resp.body.len() < 10000
-                        && (resp.body.trim().starts_with('{') || resp.body.trim().starts_with('['));
+                if resp.status_code == 200 && !resp.body.is_empty() {
+                    let body = &resp.body;
+                    let body_trim = body.trim();
+
+                    // Per-endpoint-family signature validation. Each branch requires a
+                    // specific content marker so SPA catch-all 200 responses do not fire.
+                    let is_valid_endpoint = match *path {
+                        p if p.starts_with("/metrics") || p == "/prometheus" => {
+                            (body.contains("# HELP ") || body.contains("# TYPE "))
+                                && body.contains('{') == false
+                                || body.contains("# HELP ")
+                        }
+                        p if p.starts_with("/actuator/env") => {
+                            body.contains("\"propertySources\"")
+                                || body.contains("\"activeProfiles\"")
+                        }
+                        p if p.starts_with("/actuator/heapdump") => {
+                            // Java heapdump starts with "JAVA PROFILE" or HPROF header
+                            body.starts_with("JAVA PROFILE")
+                                || body.as_bytes().starts_with(b"JAVA PROFILE")
+                                || body.as_bytes().starts_with(&[0x4a, 0x41, 0x56, 0x41])
+                        }
+                        p if p.starts_with("/actuator/configprops") => {
+                            body.contains("\"contexts\"") || body.contains("\"configurationProperties\"")
+                        }
+                        p if p.starts_with("/actuator") => {
+                            body_trim.starts_with('{')
+                                && (body.contains("\"_links\"") || body.contains("\"status\""))
+                        }
+                        p if p.starts_with("/debug/pprof") => {
+                            body.contains("profiles:") || body.contains("/debug/pprof/heap")
+                                || body.contains("full goroutine stack dump")
+                        }
+                        p if p == "/debug/vars" => {
+                            body_trim.starts_with('{') && body.contains("\"cmdline\"")
+                        }
+                        p if p == "/flower" || p.starts_with("/flower/") => {
+                            body.contains("Flower") || body.contains("/api/tasks")
+                        }
+                        p if p == "/rq" || p.starts_with("/rq/") => {
+                            body.contains("RQ Dashboard") || body.contains("rq-dashboard")
+                        }
+                        p if p == "/graphql" || p == "/subscriptions" => {
+                            body.contains("__schema")
+                                || body.contains("\"errors\":[{\"message\"")
+                                || body.contains("Must provide query string")
+                        }
+                        p if p == "/playground" || p == "/graphiql" || p == "/altair" || p == "/voyager" => {
+                            body.contains("GraphQL Playground")
+                                || body.contains("graphiql")
+                                || body.contains("altair")
+                                || body.contains("graphql-voyager")
+                        }
+                        p if p.starts_with("/admin") || p.starts_with("/api/admin") || p.starts_with("/api/v1/admin") => {
+                            // Admin pages: only flag if response is JSON-ish structured OR
+                            // HTML clearly labelled as an admin/backoffice page.
+                            (body_trim.starts_with('{') || body_trim.starts_with('['))
+                                || body.contains("Django administration")
+                                || body.contains("FastAPI Admin")
+                                || body.contains("sqladmin")
+                                || body.contains("admin-panel")
+                        }
+                        p if p.starts_with("/internal") || p.starts_with("/_internal") || p.starts_with("/api/internal") || p.starts_with("/api/v1/internal") => {
+                            body_trim.starts_with('{') || body_trim.starts_with('[')
+                        }
+                        p if p == "/info" || p == "/version" => {
+                            body_trim.starts_with('{')
+                                && (body.contains("\"version\"") || body.contains("\"build\""))
+                        }
+                        _ => {
+                            body.len() < 10000
+                                && (body_trim.starts_with('{') || body_trim.starts_with('['))
+                        }
+                    };
 
                     if is_valid_endpoint {
                         exposed.push((*path, *desc, severity.clone()));

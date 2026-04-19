@@ -54,6 +54,98 @@ impl RailsScanner {
         vulnerabilities.extend(asset_vulns);
         tests += t;
 
+        let (dashboard_vulns, t) = self.check_admin_dashboards(target).await?;
+        vulnerabilities.extend(dashboard_vulns);
+        tests += t;
+
+        Ok((vulnerabilities, tests))
+    }
+
+    /// Check common Rails admin/operational dashboards that frequently ship without auth.
+    /// Each probe requires a specific content signature to avoid SPA catch-all 200 noise.
+    async fn check_admin_dashboards(
+        &self,
+        target: &str,
+    ) -> Result<(Vec<Vulnerability>, usize)> {
+        let mut vulnerabilities = Vec::new();
+        let mut tests = 0;
+
+        // (path, name, description, signatures)
+        let dashboards: Vec<(&str, &str, &str, &[&str])> = vec![
+            ("/sidekiq", "Sidekiq Web", "Background job queue UI - exposes job arguments often containing PII/secrets", &["Sidekiq", "Busy", "Retries", "Scheduled"]),
+            ("/sidekiq/queues", "Sidekiq Queues", "Exposes in-flight job data", &["Sidekiq", "queue"]),
+            ("/sidekiq/dashboard", "Sidekiq Dashboard", "Sidekiq stats dashboard", &["Sidekiq"]),
+            ("/resque", "Resque Web", "Resque job dashboard", &["Resque", "Failed"]),
+            ("/delayed_job", "Delayed Job", "Delayed Job UI", &["Delayed::Job"]),
+            ("/good_job", "GoodJob", "Active Job GoodJob dashboard", &["GoodJob", "good_job"]),
+            ("/solid_queue", "Solid Queue", "Rails 8 Solid Queue UI", &["Solid Queue", "SolidQueue"]),
+            ("/mission_control/jobs", "Mission Control Jobs", "Rails Active Job dashboard", &["Mission Control", "mission_control"]),
+            ("/pghero", "PgHero", "PostgreSQL performance dashboard - exposes query data", &["PgHero", "Long Running"]),
+            ("/blazer", "Blazer", "SQL query/reporting dashboard - direct DB access", &["Blazer", "Queries"]),
+            ("/flipper", "Flipper UI", "Feature flag admin - can toggle production features", &["Flipper", "flipper"]),
+            ("/ahoy", "Ahoy Captain", "Analytics admin - exposes user events/PII", &["Ahoy", "ahoy_"]),
+            ("/chartkick", "Chartkick", "Chartkick admin", &["chartkick"]),
+            ("/rails_admin", "RailsAdmin", "RailsAdmin CRUD dashboard - direct model access", &["RailsAdmin", "rails_admin"]),
+            ("/admin", "ActiveAdmin", "ActiveAdmin CRUD dashboard", &["ActiveAdmin", "active_admin"]),
+            ("/avo", "Avo Admin", "Avo admin dashboard", &["avo-", "Avo."]),
+            ("/letter_opener", "Letter Opener", "Dev email capture - may expose user emails", &["letter_opener", "Letter Opener"]),
+            ("/maildev", "MailDev", "Dev mail catcher", &["MailDev", "maildev"]),
+            ("/mailcatcher", "MailCatcher", "SMTP dev trap", &["MailCatcher", "mailcatcher"]),
+            ("/exception_track", "Exception Track", "Exception tracker dashboard with stack traces", &["ExceptionTrack"]),
+            ("/errbit", "Errbit", "Self-hosted error tracker", &["Errbit"]),
+            ("/whenever", "Whenever", "Whenever cron dashboard", &["whenever"]),
+            ("/cable", "Action Cable", "WebSocket mount point", &["Action Cable"]),
+        ];
+
+        for (path, name, desc, sigs) in dashboards {
+            let url = format!("{}{}", target.trim_end_matches('/'), path);
+            tests += 1;
+
+            if let Ok(response) = self.http_client.get(&url).await {
+                // Auth-protected dashboards (401/403/302) are fine; only report 200 w/ signature.
+                if response.status_code != 200 {
+                    continue;
+                }
+                if !sigs.iter().any(|s| response.body.contains(s)) {
+                    continue;
+                }
+
+                vulnerabilities.push(Vulnerability {
+                    id: generate_vuln_id(),
+                    vuln_type: format!("Unauthenticated Rails Dashboard: {}", name),
+                    severity: Severity::High,
+                    confidence: Confidence::High,
+                    category: "Framework Security".to_string(),
+                    url: url.clone(),
+                    parameter: None,
+                    payload: path.to_string(),
+                    description: format!(
+                        "{} appears accessible without authentication at {}. {}",
+                        name, path, desc
+                    ),
+                    evidence: Some(format!(
+                        "Matched dashboard signature at {} ({} bytes)",
+                        path,
+                        response.body.len()
+                    )),
+                    cwe: "CWE-306".to_string(),
+                    cvss: 7.5,
+                    verified: true,
+                    false_positive: false,
+                    remediation: format!(
+                        "Require authentication to mount {}:\n\
+                         - constraint with authenticate :admin do\n\
+                         - or wrap mount in Devise/HTTP Basic in config/routes.rb\n\
+                         - remove from production entirely if not needed",
+                        name
+                    ),
+                    discovered_at: chrono::Utc::now().to_rfc3339(),
+                    ml_confidence: None,
+                    ml_data: None,
+                });
+            }
+        }
+
         Ok((vulnerabilities, tests))
     }
 
@@ -91,18 +183,29 @@ impl RailsScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
-        let debug_paths = vec![
-            ("/rails/info/properties", "Rails Info"),
-            ("/rails/info/routes", "Rails Routes"),
-            ("/__better_errors", "Better Errors"),
+        // (path, friendly-name, required-signature-substring)
+        // Each probe requires a specific content marker to avoid false positives from
+        // SPA catch-all 200 responses.
+        let debug_paths: Vec<(&str, &str, &[&str])> = vec![
+            ("/rails/info/properties", "Rails Info", &["Ruby version", "Rails version"]),
+            ("/rails/info/routes", "Rails Routes", &["Helper", "HTTP Verb", "Path"]),
+            ("/rails/info", "Rails Info Index", &["Properties", "Routes"]),
+            ("/__better_errors", "Better Errors", &["BetterErrors", "better_errors"]),
+            ("/rails/conductor/action_mailbox/inbound_emails", "Action Mailbox Conductor", &["Action Mailbox", "inbound_emails"]),
+            ("/rails/conductor/action_mailbox/inbound_emails/new", "Action Mailbox New Email", &["Action Mailbox"]),
+            ("/rails/mailers", "Rails Mailers Preview", &["Mailer", "mailer_previews"]),
+            ("/rails/action_mailbox/ingresses/relay/inbound_emails", "Action Mailbox Relay Ingress", &["Action Mailbox"]),
+            ("/rails/active_storage/blobs", "Active Storage Blobs", &["active_storage"]),
         ];
 
-        for (path, name) in debug_paths {
+        for (path, name, sigs) in debug_paths {
             let url = format!("{}{}", target, path);
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 {
+                if response.status_code == 200
+                    && sigs.iter().any(|s| response.body.contains(s))
+                {
                     vulnerabilities.push(Vulnerability {
                         id: generate_vuln_id(),
                         vuln_type: "Information Disclosure".to_string(),
@@ -141,53 +244,141 @@ impl RailsScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
-        let env_paths = vec![
-            "/.env",
-            "/config/database.yml",
-            "/config/secrets.yml",
-            "/Gemfile",
+        // (path, required-signature-substrings, is-critical-credential-material)
+        // Each path must exhibit one of its signatures to be reported, which avoids
+        // reporting SPA catch-all 200 HTML responses as leaked configuration.
+        let env_paths: Vec<(&str, &[&str], bool)> = vec![
+            // Classic .env variants - Rails apps using dotenv-rails, figaro
+            ("/.env", &["SECRET_KEY", "DATABASE_URL", "RAILS_MASTER_KEY", "DEVISE_", "STRIPE_", "AWS_ACCESS"], true),
+            ("/.env.production", &["SECRET_KEY", "DATABASE_URL", "RAILS_MASTER_KEY", "AWS_ACCESS"], true),
+            ("/.env.staging", &["SECRET_KEY", "DATABASE_URL", "RAILS_MASTER_KEY"], true),
+            ("/.env.development", &["SECRET_KEY", "DATABASE_URL"], true),
+            ("/.env.local", &["SECRET_KEY", "DATABASE_URL"], true),
+            // Rails-specific credential material (full compromise)
+            ("/config/master.key", &[], true), // strict hex-32 check below
+            ("/config/credentials/production.key", &[], true),
+            ("/config/credentials/staging.key", &[], true),
+            ("/config/credentials/development.key", &[], true),
+            // Rails 5.2+ encrypted credentials - by themselves useless, but evidence of misconfig
+            ("/config/credentials.yml.enc", &[], false),
+            ("/config/credentials/production.yml.enc", &[], false),
+            ("/config/credentials/staging.yml.enc", &[], false),
+            ("/config/secrets.yml.enc", &[], false),
+            // Classic yml configs
+            ("/config/database.yml", &["adapter:", "username:", "password:", "database:"], true),
+            ("/config/secrets.yml", &["secret_key_base:", "production:", "development:"], true),
+            ("/config/application.yml", &["production:", "secret", "api_key"], true),
+            ("/config/cable.yml", &["adapter:", "redis"], false),
+            ("/config/storage.yml", &["service:", "amazon", "google", "azure"], false),
+            ("/config/newrelic.yml", &["license_key:"], true),
+            ("/config/puma.rb", &["workers ", "threads ", "bind ", "port"], false),
+            ("/config/unicorn.rb", &["worker_processes", "timeout", "listen "], false),
+            ("/config/sidekiq.yml", &[":queues:", ":concurrency:"], false),
+            ("/config/environments/production.rb", &["Rails.application.configure", "config.cache_classes"], false),
+            // Dependency + build manifests
+            ("/Gemfile", &["source \"", "source '", "gem \"", "gem '"], false),
+            ("/Gemfile.lock", &["GEM", "PLATFORMS", "DEPENDENCIES"], false),
+            ("/Rakefile", &["Rails.application.load_tasks", "require_relative"], false),
+            ("/Procfile", &["web:", "worker:"], false),
+            ("/.ruby-version", &[], false), // strict version string check below
+            ("/.rbenv-gemsets", &[], false),
+            // Database schema / seeds - reveal full schema
+            ("/db/schema.rb", &["ActiveRecord::Schema", "create_table"], false),
+            ("/db/structure.sql", &["CREATE TABLE", "SET statement_timeout"], false),
+            ("/db/seeds.rb", &["User.create", "seeds", "Rails"], false),
+            // Deploy configs occasionally shipped
+            ("/config/deploy.rb", &["set :application", "role :"], false),
+            ("/config/deploy/production.rb", &["server ", "role "], false),
+            ("/.github/workflows/deploy.yml", &["uses: actions/checkout", "run:"], false),
+            // CI tokens / SSH - rarely shipped but devastating
+            ("/.bundle/config", &["BUNDLE_GEMS__", "BUNDLE_RUBYGEMS__"], true),
         ];
 
-        for path in env_paths {
+        for (path, sigs, is_critical) in &env_paths {
             let url = format!("{}{}", target, path);
             tests += 1;
 
             if let Ok(response) = self.http_client.get(&url).await {
-                if response.status_code == 200 {
-                    let sensitive_patterns =
-                        vec!["SECRET_KEY", "DATABASE_URL", "password:", "adapter:"];
-                    for pattern in &sensitive_patterns {
-                        if response
-                            .body
-                            .to_lowercase()
-                            .contains(&pattern.to_lowercase())
-                        {
-                            vulnerabilities.push(Vulnerability {
-                                id: generate_vuln_id(),
-                                vuln_type: "Information Disclosure".to_string(),
-                                severity: Severity::Critical,
-                                confidence: Confidence::High,
-                                category: "Framework Security".to_string(),
-                                url: url.clone(),
-                                parameter: None,
-                                payload: path.to_string(),
-                                description: format!(
-                                    "Rails environment/configuration file exposed: {}",
-                                    path
-                                ),
-                                evidence: Some(format!("Sensitive pattern found: {}", pattern)),
-                                cwe: "CWE-538".to_string(),
-                                cvss: 9.1,
-                                verified: true,
-                                false_positive: false,
-                                remediation: "Remove configuration files from web root".to_string(),
-                                discovered_at: chrono::Utc::now().to_rfc3339(),
+                if response.status_code != 200 || response.body.is_empty() {
+                    continue;
+                }
+
+                // Skip SPA catch-all HTML responses for file types that are never HTML.
+                let body_trim = response.body.trim();
+                let looks_like_html = body_trim.starts_with('<')
+                    && (body_trim.contains("<html") || body_trim.contains("<!DOCTYPE"));
+                if looks_like_html {
+                    continue;
+                }
+
+                let matched = match *path {
+                    // master.key / *.key: exactly 32 lowercase hex chars
+                    "/config/master.key"
+                    | "/config/credentials/production.key"
+                    | "/config/credentials/staging.key"
+                    | "/config/credentials/development.key" => {
+                        let trimmed = body_trim;
+                        trimmed.len() == 32
+                            && trimmed.bytes().all(|b| b.is_ascii_hexdigit() && (b.is_ascii_digit() || b.is_ascii_lowercase()))
+                    }
+                    // Encrypted credentials: base64-ish "<iv>--<payload>--<auth>" pattern
+                    "/config/credentials.yml.enc"
+                    | "/config/credentials/production.yml.enc"
+                    | "/config/credentials/staging.yml.enc"
+                    | "/config/secrets.yml.enc" => {
+                        body_trim.matches("--").count() == 2
+                            && body_trim.len() > 32
+                            && body_trim.len() < 16384
+                            && body_trim.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=' || b == b'-' || b == b'\n' || b == b'\r')
+                    }
+                    "/.ruby-version" => {
+                        let t = body_trim;
+                        t.len() < 32
+                            && (t.starts_with(|c: char| c == 'r' || c.is_ascii_digit()))
+                            && t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_' || b == b'p')
+                    }
+                    "/.rbenv-gemsets" => {
+                        let t = body_trim;
+                        !t.is_empty() && t.len() < 256 && !t.contains('<') && !t.contains('{')
+                    }
+                    _ => sigs.iter().any(|s| response.body.contains(s)),
+                };
+
+                if matched {
+                    let severity = if *is_critical {
+                        Severity::Critical
+                    } else {
+                        Severity::High
+                    };
+                    let cvss = if *is_critical { 9.1 } else { 7.5 };
+
+                    vulnerabilities.push(Vulnerability {
+                        id: generate_vuln_id(),
+                        vuln_type: "Information Disclosure".to_string(),
+                        severity,
+                        confidence: Confidence::High,
+                        category: "Framework Security".to_string(),
+                        url: url.clone(),
+                        parameter: None,
+                        payload: path.to_string(),
+                        description: format!(
+                            "Rails environment/configuration file exposed: {}",
+                            path
+                        ),
+                        evidence: Some(format!(
+                            "Matched content signature for {} ({} bytes)",
+                            path,
+                            response.body.len()
+                        )),
+                        cwe: "CWE-538".to_string(),
+                        cvss,
+                        verified: true,
+                        false_positive: false,
+                        remediation: "Remove configuration files from web root; block dotfiles and /config at the web server; rotate any exposed credential/key material.".to_string(),
+                        discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_confidence: None,
                 ml_data: None,
-                            });
-                            break;
-                        }
-                    }
+                    });
                 }
             }
         }
@@ -199,7 +390,18 @@ impl RailsScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
-        let log_paths = vec!["/log/development.log", "/log/production.log"];
+        let log_paths = vec![
+            "/log/development.log",
+            "/log/production.log",
+            "/log/staging.log",
+            "/log/test.log",
+            "/log/sidekiq.log",
+            "/log/unicorn.log",
+            "/log/puma.log",
+            "/log/delayed_job.log",
+            "/log/cron_log.log",
+            "/log/rails.log",
+        ];
 
         for path in log_paths {
             let url = format!("{}{}", target, path);
@@ -288,7 +490,14 @@ impl RailsScanner {
 
         let asset_paths = vec![
             ("/assets/application.js.map", "source map"),
+            ("/assets/application.css.map", "source map"),
+            ("/packs/js/application.js.map", "source map"),
+            ("/packs/js/runtime.js.map", "source map"),
             ("/.git/config", "git config"),
+            ("/.git/HEAD", "git config"),
+            ("/.git/index", "git config"),
+            ("/.svn/entries", "svn config"),
+            ("/.hg/hgrc", "mercurial config"),
         ];
 
         for (path, desc) in asset_paths {
@@ -297,7 +506,29 @@ impl RailsScanner {
 
             if let Ok(response) = self.http_client.get(&url).await {
                 if response.status_code == 200 {
-                    if path.contains(".map") && response.body.contains("sourceContent") {
+                    // Source map: must include the sourceContent field of the source map schema
+                    let is_source_map =
+                        path.contains(".map") && response.body.contains("sourceContent");
+
+                    // Git: validate per-path content to avoid HTML SPA false positives.
+                    let body = &response.body;
+                    let is_git_config = path.ends_with("/.git/config") && body.contains("[core]");
+                    let is_git_head = path.ends_with("/.git/HEAD")
+                        && (body.trim_start().starts_with("ref: refs/")
+                            || (body.trim().len() == 40
+                                && body.trim().bytes().all(|b| b.is_ascii_hexdigit())));
+                    let is_git_index = path.ends_with("/.git/index")
+                        && body.as_bytes().len() >= 12
+                        && &body.as_bytes()[..4] == b"DIRC";
+                    let is_svn = path.ends_with("/.svn/entries")
+                        && (body.trim_start().starts_with("svn:")
+                            || body.contains("dir\n")
+                            || body.trim_start().starts_with(|c: char| c.is_ascii_digit()));
+                    let is_hg = path.ends_with("/.hg/hgrc") && body.contains("[paths]");
+
+                    let is_scm = is_git_config || is_git_head || is_git_index || is_svn || is_hg;
+
+                    if is_source_map {
                         vulnerabilities.push(Vulnerability {
                             id: generate_vuln_id(),
                             vuln_type: "Information Disclosure".to_string(),
@@ -321,7 +552,7 @@ impl RailsScanner {
                 ml_confidence: None,
                 ml_data: None,
                         });
-                    } else if path.contains(".git") && response.body.contains("[core]") {
+                    } else if is_scm {
                         vulnerabilities.push(Vulnerability {
                             id: generate_vuln_id(),
                             vuln_type: "Information Disclosure".to_string(),
@@ -331,14 +562,17 @@ impl RailsScanner {
                             url: url.clone(),
                             parameter: None,
                             payload: path.to_string(),
-                            description: "Git repository exposed - source code may be downloadable"
-                                .to_string(),
-                            evidence: Some("Git config file accessible".to_string()),
+                            description: format!(
+                                "Source control metadata exposed ({}) - source code may be downloadable",
+                                desc
+                            ),
+                            evidence: Some(format!("SCM artifact accessible at {}", path)),
                             cwe: "CWE-538".to_string(),
                             cvss: 7.5,
                             verified: true,
                             false_positive: false,
-                            remediation: "Remove .git directory from web root".to_string(),
+                            remediation: "Remove SCM metadata (.git/.svn/.hg) from web root"
+                                .to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_confidence: None,
                 ml_data: None,

@@ -544,14 +544,55 @@ impl LaravelSecurityScanner {
                 "Laravel Telescope Requests",
                 "HTTP request logging",
             ),
+            (
+                "/telescope/exceptions",
+                "Laravel Telescope Exceptions",
+                "Exception log with stack traces",
+            ),
+            (
+                "/telescope/logs",
+                "Laravel Telescope Logs",
+                "Captured application logs",
+            ),
+            (
+                "/telescope/queries",
+                "Laravel Telescope Queries",
+                "Captured SQL queries",
+            ),
+            (
+                "/telescope/cache",
+                "Laravel Telescope Cache",
+                "Cache hit/miss log",
+            ),
+            (
+                "/telescope/mail",
+                "Laravel Telescope Mail",
+                "Captured outbound emails",
+            ),
+            (
+                "/telescope/notifications",
+                "Laravel Telescope Notifications",
+                "Notification log",
+            ),
             ("/horizon", "Laravel Horizon", "Queue management dashboard"),
             (
                 "/horizon/api/stats",
                 "Laravel Horizon API",
                 "Queue statistics API",
             ),
+            (
+                "/horizon/api/workload",
+                "Laravel Horizon Workload API",
+                "Live queue workload",
+            ),
+            (
+                "/horizon/api/jobs/failed",
+                "Laravel Horizon Failed Jobs API",
+                "Failed job payloads (frequently contain PII / secrets)",
+            ),
             ("/nova", "Laravel Nova", "Admin panel"),
             ("/nova/login", "Laravel Nova Login", "Admin panel login"),
+            ("/nova-api/scripts", "Laravel Nova Scripts", "Nova script manifest"),
             ("/admin", "Admin Panel", "Generic admin panel"),
             (
                 "/administrator",
@@ -560,10 +601,20 @@ impl LaravelSecurityScanner {
             ),
             ("/pulse", "Laravel Pulse", "Application monitoring"),
             ("/log-viewer", "Log Viewer", "Application log viewer"),
+            ("/log-viewer/logs", "Log Viewer Listing", "Log viewer file listing"),
             ("/logs", "Logs", "Application logs"),
             ("/debugbar", "Laravel Debugbar", "Debug toolbar"),
+            ("/_debugbar/open", "Laravel Debugbar Open", "Debugbar request-id retrieval"),
             ("/clockwork", "Clockwork", "Debug profiler"),
             ("/__clockwork", "Clockwork API", "Debug profiler API"),
+            ("/_ignition/health-check", "Ignition Health Check", "Flare/Ignition debug endpoint"),
+            ("/_ignition/execute-solution", "Ignition Execute Solution", "RCE in vulnerable Laravel via CVE-2021-3129"),
+            ("/filament", "Filament Admin", "Filament PHP admin panel"),
+            ("/filament/login", "Filament Login", "Filament admin login"),
+            ("/backpack", "Backpack for Laravel", "Backpack admin panel"),
+            ("/backpack/admin", "Backpack Admin", "Backpack admin login"),
+            ("/voyager", "Voyager Admin", "Voyager CMS admin"),
+            ("/voyager/login", "Voyager Login", "Voyager admin login"),
         ];
 
         for (path, name, description) in &admin_panels {
@@ -658,15 +709,36 @@ impl LaravelSecurityScanner {
             ".env",
             ".env.local",
             ".env.production",
+            ".env.prod",
             ".env.staging",
+            ".env.stage",
             ".env.development",
+            ".env.dev",
+            ".env.testing",
+            ".env.test",
+            ".env.docker",
+            ".env.docker-compose",
+            ".env.beta",
+            ".env.preview",
+            ".env.qa",
+            ".env.uat",
+            ".env.ci",
             ".env.backup",
             ".env.bak",
             ".env.old",
+            ".env.orig",
             ".env.save",
+            ".env.swp",
+            ".env~",
             "env",
             "env.php",
             ".env.php",
+            ".env.dist",
+            // Docker / deployment leftovers occasionally shipped
+            "docker-compose.yml",
+            "docker-compose.override.yml",
+            "docker-compose.prod.yml",
+            ".env.example.local",
         ];
 
         for file in &env_files {
@@ -1032,15 +1104,56 @@ impl LaravelSecurityScanner {
 
         let config_paths = [
             "/bootstrap/cache/config.php",
+            "/bootstrap/cache/routes-v7.php",
+            "/bootstrap/cache/routes.php",
+            "/bootstrap/cache/services.php",
+            "/bootstrap/cache/packages.php",
+            "/bootstrap/cache/events.php",
             "/config/app.php",
             "/config/database.php",
             "/config/mail.php",
             "/config/services.php",
             "/config/auth.php",
+            "/config/filesystems.php",
+            "/config/queue.php",
+            "/config/broadcasting.php",
+            "/config/session.php",
+            "/config/cors.php",
+            "/config/horizon.php",
+            "/config/passport.php",
+            "/config/sanctum.php",
+            "/config/nova.php",
+            "/config/scout.php",
+            "/config/logging.php",
+            "/config/cache.php",
+            "/config/hashing.php",
+            "/config/telescope.php",
+            "/config/view.php",
+            "/config/jwt.php",
             "/.git/config",
             "/.gitignore",
+            "/.gitlab-ci.yml",
             "/artisan",
             "/server.php",
+            "/composer.json",
+            "/composer.lock",
+            "/package.json",
+            "/package-lock.json",
+            "/yarn.lock",
+            "/phpunit.xml",
+            "/phpunit.xml.dist",
+            "/phpcs.xml",
+            "/phpcs.xml.dist",
+            "/webpack.mix.js",
+            "/vite.config.js",
+            "/.editorconfig",
+            // Known laravel key material & OAuth private keys
+            "/storage/oauth-private.key",
+            "/storage/oauth-public.key",
+            "/storage/keys/oauth-private.key",
+            "/storage/keys/oauth-public.key",
+            "/storage/app/oauth-private.key",
+            "/storage/app/oauth-public.key",
         ];
 
         for path in &config_paths {
@@ -1048,50 +1161,121 @@ impl LaravelSecurityScanner {
             let test_url = format!("{}{}", url.trim_end_matches('/'), path);
 
             if let Ok(response) = self.http_client.get(&test_url).await {
-                if response.status_code == 200 && response.body.len() > 50 {
+                if response.status_code == 200 && response.body.len() > 20 {
                     let is_cached_config = path.contains("bootstrap/cache");
-                    let is_git = path.contains(".git");
-                    let is_artisan = path.contains("artisan");
+                    let is_git = path.contains(".git") || path.ends_with(".gitignore") || path.ends_with("gitlab-ci.yml");
+                    let is_artisan = path.ends_with("/artisan");
+                    let is_oauth_key = path.ends_with(".key");
+                    let is_composer_json = path.ends_with("/composer.json");
+                    let is_composer_lock = path.ends_with("/composer.lock");
+                    let is_pkg_json = path.ends_with("/package.json");
+                    let is_pkg_lock = path.ends_with("/package-lock.json");
+                    let is_yarn_lock = path.ends_with("/yarn.lock");
+                    let is_phpunit = path.ends_with(".xml") || path.ends_with(".xml.dist");
+                    let is_webpack = path.ends_with("/webpack.mix.js") || path.ends_with("/vite.config.js");
+                    let is_editorconfig = path.ends_with("/.editorconfig");
 
-                    if response.body.contains("<?php") || response.body.contains("[core]") {
-                        let severity = if is_cached_config {
+                    let body = &response.body;
+                    let body_trim = body.trim_start();
+
+                    // Skip SPA catch-all HTML
+                    if body_trim.starts_with('<')
+                        && (body_trim.contains("<html") || body_trim.contains("<!DOCTYPE"))
+                        && !is_phpunit
+                        && !is_git
+                    {
+                        continue;
+                    }
+
+                    let matched = if is_oauth_key {
+                        body.contains("-----BEGIN") && body.contains("PRIVATE KEY")
+                            || body.contains("-----BEGIN PUBLIC KEY")
+                    } else if is_composer_json {
+                        body.contains("\"require\"") && (body.contains("laravel/framework") || body.contains("\"autoload\""))
+                    } else if is_composer_lock {
+                        body.contains("\"packages\"") && body.contains("\"name\":") && body.contains("\"version\":")
+                    } else if is_pkg_json {
+                        body.contains("\"dependencies\"") || body.contains("\"devDependencies\"")
+                    } else if is_pkg_lock {
+                        body.contains("\"lockfileVersion\"") && body.contains("\"dependencies\"")
+                    } else if is_yarn_lock {
+                        body.contains("# yarn lockfile") || body.contains("__metadata:")
+                    } else if is_phpunit {
+                        body.contains("<phpunit") || body.contains("<ruleset")
+                    } else if is_webpack {
+                        body.contains("mix.") || body.contains("defineConfig") || body.contains("require('laravel-mix')")
+                    } else if is_editorconfig {
+                        body.contains("root = true") || body.contains("indent_style")
+                    } else if is_git {
+                        body.contains("[core]") || body.contains("[remote") || body.contains("/vendor") || body.contains("stages:")
+                    } else {
+                        body.contains("<?php")
+                    };
+
+                    if matched {
+                        let severity = if is_cached_config || is_oauth_key {
                             Severity::Critical
                         } else {
                             Severity::High
                         };
 
+                        let vuln_type = if is_cached_config {
+                            "Laravel Cached Config Exposed".to_string()
+                        } else if is_oauth_key {
+                            "Laravel OAuth Key Material Exposed".to_string()
+                        } else if is_git {
+                            "Git / CI Metadata Exposed".to_string()
+                        } else if is_artisan {
+                            "Artisan Script Exposed".to_string()
+                        } else if is_composer_json || is_composer_lock || is_pkg_json || is_pkg_lock || is_yarn_lock {
+                            "Dependency Manifest Exposed".to_string()
+                        } else if is_phpunit {
+                            "Test Configuration Exposed".to_string()
+                        } else {
+                            "Laravel Config File Exposed".to_string()
+                        };
+
+                        let description = if is_cached_config {
+                            "Cached configuration contains ALL environment variables including secrets.".to_string()
+                        } else if is_oauth_key {
+                            "Laravel Passport / OAuth private key material is publicly accessible. An attacker can mint arbitrary access tokens for the application.".to_string()
+                        } else if is_git {
+                            "Git / CI metadata is exposed, potentially allowing source code download or pipeline inspection.".to_string()
+                        } else if is_composer_lock || is_pkg_lock || is_yarn_lock {
+                            format!("Dependency lockfile {} is publicly accessible - reveals full dependency tree with exact versions, enabling targeted CVE lookup.", path)
+                        } else {
+                            format!("Configuration file {} is publicly accessible.", path)
+                        };
+
+                        let cvss = if is_oauth_key {
+                            9.8
+                        } else if is_cached_config {
+                            9.5
+                        } else if is_composer_lock || is_pkg_lock || is_yarn_lock {
+                            5.3
+                        } else {
+                            7.0
+                        };
+
                         vulnerabilities.push(Vulnerability {
                             id: format!("laravel_config_exposure_{}", Self::generate_id()),
-                            vuln_type: if is_cached_config {
-                                "Laravel Cached Config Exposed".to_string()
-                            } else if is_git {
-                                "Git Repository Exposed".to_string()
-                            } else if is_artisan {
-                                "Artisan Script Exposed".to_string()
-                            } else {
-                                "Laravel Config File Exposed".to_string()
-                            },
+                            vuln_type,
                             severity,
                             confidence: Confidence::High,
                             category: "Information Disclosure".to_string(),
                             url: test_url.clone(),
                             parameter: None,
                             payload: path.to_string(),
-                            description: if is_cached_config {
-                                "Cached configuration contains ALL environment variables including secrets.".to_string()
-                            } else if is_git {
-                                "Git repository is exposed, potentially allowing source code download.".to_string()
-                            } else {
-                                format!("Configuration file {} is publicly accessible.", path)
-                            },
+                            description,
                             evidence: Some(format!("Config file at: {}", test_url)),
                             cwe: "CWE-200".to_string(),
-                            cvss: if is_cached_config { 9.5 } else { 7.0 },
+                            cvss,
                             verified: true,
                             false_positive: false,
                             remediation: "1. Block config and bootstrap directories from web access\n\
                                           2. Move configuration outside web root\n\
-                                          3. Block .git directories".to_string(),
+                                          3. Block .git directories\n\
+                                          4. If OAuth keys were exposed, regenerate them and revoke all existing tokens".to_string(),
                             discovered_at: chrono::Utc::now().to_rfc3339(),
                 ml_confidence: None,
                 ml_data: None,
