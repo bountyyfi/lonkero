@@ -111,7 +111,16 @@ impl SpringScanner {
         let mut vulnerabilities = Vec::new();
         let mut tests = 0;
 
+        // Actuator endpoints worth probing. Ordering roughly matches blast radius:
+        // anything that exposes secrets, memory contents, or admin controls first.
+        //
+        // Paths are doubled up with:
+        //   * `/actuator/<x>`        Spring Boot 2.x / 3.x default
+        //   * `/<x>`                 Spring Boot 1.x legacy (still seen in enterprise)
+        //   * `/manage/<x>`          common custom `management.endpoints.web.base-path`
+        //   * `/admin/<x>`           common custom base path in Spring Cloud admin server
         let actuator_endpoints = vec![
+            // === Critical — direct credential / memory / execution exposure ===
             (
                 "/actuator/env",
                 "Environment Variables",
@@ -122,25 +131,19 @@ impl SpringScanner {
                 "/actuator/heapdump",
                 "Heap Dump",
                 Severity::Critical,
-                "Allows downloading JVM heap dump - contains secrets",
-            ),
-            (
-                "/actuator/mappings",
-                "URL Mappings",
-                Severity::Medium,
-                "Exposes all URL mappings",
-            ),
-            (
-                "/actuator/loggers",
-                "Loggers",
-                Severity::High,
-                "Can modify log levels at runtime",
+                "Allows downloading JVM heap dump - contains secrets, sessions, credentials",
             ),
             (
                 "/actuator/jolokia",
                 "Jolokia JMX",
                 Severity::Critical,
-                "JMX over HTTP - can lead to RCE",
+                "JMX over HTTP - can invoke MBeans and lead to RCE",
+            ),
+            (
+                "/actuator/jolokia/list",
+                "Jolokia MBean List",
+                Severity::Critical,
+                "Enumerates JMX MBeans - precursor to Jolokia RCE",
             ),
             (
                 "/actuator/shutdown",
@@ -149,22 +152,288 @@ impl SpringScanner {
                 "Can shutdown the application",
             ),
             (
+                "/actuator/restart",
+                "Application Restart",
+                Severity::Critical,
+                "Spring Cloud Context can restart the application context",
+            ),
+            (
+                "/actuator/refresh",
+                "Config Refresh",
+                Severity::High,
+                "Spring Cloud Config refresh - can force reload of remote config",
+            ),
+            (
+                "/actuator/env.json",
+                "Environment Variables (legacy .json)",
+                Severity::Critical,
+                "Legacy .json suffix environment endpoint",
+            ),
+            (
+                "/actuator/configprops",
+                "Configuration Properties",
+                Severity::High,
+                "Exposes all @ConfigurationProperties - often contains DB URLs, secrets, tokens",
+            ),
+            (
+                "/actuator/threaddump",
+                "Thread Dump",
+                Severity::High,
+                "JVM thread dump - leaks method arguments, stack traces, internal state",
+            ),
+            (
+                "/actuator/logfile",
+                "Logfile Download",
+                Severity::High,
+                "Full application log - can contain secrets, tokens, PII",
+            ),
+            (
+                "/actuator/auditevents",
+                "Audit Events",
+                Severity::High,
+                "Authentication/authorization audit trail including usernames",
+            ),
+            (
+                "/actuator/httptrace",
+                "HTTP Trace",
+                Severity::High,
+                "Last 100 HTTP requests incl. headers (cookies, Authorization)",
+            ),
+            (
+                "/actuator/httpexchanges",
+                "HTTP Exchanges",
+                Severity::High,
+                "Spring Boot 3.x HTTP exchange buffer incl. headers",
+            ),
+            (
+                "/actuator/sessions",
+                "Sessions",
+                Severity::High,
+                "Spring Session store - enumerate/delete active sessions",
+            ),
+            (
+                "/actuator/gateway/routes",
+                "Spring Cloud Gateway Routes",
+                Severity::High,
+                "Exposes all routes; with /refresh enables SpEL-based RCE (CVE-2022-22947)",
+            ),
+            (
+                "/actuator/gateway/actuator/gateway/routes",
+                "Spring Cloud Gateway Routes (nested)",
+                Severity::High,
+                "Alternate gateway route dump path",
+            ),
+            (
+                "/actuator/hystrix.stream",
+                "Hystrix Event Stream",
+                Severity::Medium,
+                "Streams circuit-breaker metrics - can leak request URIs",
+            ),
+            (
+                "/actuator/sbom",
+                "Software Bill of Materials",
+                Severity::Medium,
+                "Full dependency inventory - feeds targeted CVE attacks",
+            ),
+            (
+                "/actuator/liquibase",
+                "Liquibase Changesets",
+                Severity::Medium,
+                "Schema migration history - reveals DB structure",
+            ),
+            (
+                "/actuator/flyway",
+                "Flyway Migrations",
+                Severity::Medium,
+                "Schema migration history - reveals DB structure",
+            ),
+            (
+                "/actuator/quartz",
+                "Quartz Scheduler",
+                Severity::Medium,
+                "Exposes scheduled jobs - can reveal internal tasks",
+            ),
+            (
+                "/actuator/scheduledtasks",
+                "Scheduled Tasks",
+                Severity::Medium,
+                "Lists @Scheduled methods - reveals internal cron-like jobs",
+            ),
+            (
+                "/actuator/beans",
+                "Spring Beans",
+                Severity::Medium,
+                "Full bean graph - aids targeted exploitation",
+            ),
+            (
+                "/actuator/conditions",
+                "Auto-configuration Conditions",
+                Severity::Medium,
+                "Reveals which starters/configs are active",
+            ),
+            (
+                "/actuator/caches",
+                "Cache Manager",
+                Severity::Medium,
+                "Lists and evicts caches - can cause DoS or pollute caches",
+            ),
+            (
+                "/actuator/integrationgraph",
+                "Spring Integration Graph",
+                Severity::Medium,
+                "Messaging flow graph - reveals internal integration channels",
+            ),
+            (
+                "/actuator/startup",
+                "Application Startup Trace",
+                Severity::Medium,
+                "Full startup timing graph - reveals internal structure",
+            ),
+            (
+                "/actuator/mappings",
+                "URL Mappings",
+                Severity::Medium,
+                "Exposes all URL mappings (incl. undocumented admin routes)",
+            ),
+            (
+                "/actuator/loggers",
+                "Loggers",
+                Severity::High,
+                "Can modify log levels at runtime (e.g. enable DEBUG on security filters)",
+            ),
+            (
+                "/actuator/metrics",
+                "Metrics",
+                Severity::Low,
+                "Exposes operational metrics",
+            ),
+            (
+                "/actuator/prometheus",
+                "Prometheus Metrics",
+                Severity::Low,
+                "Prometheus-formatted metrics - can leak URIs, user IDs as label values",
+            ),
+            (
+                "/actuator/info",
+                "Application Info",
+                Severity::Low,
+                "Build/Git info - confirms version for CVE targeting",
+            ),
+            (
                 "/actuator/health",
                 "Health",
                 Severity::Low,
                 "Exposes health status",
             ),
             (
+                "/actuator/health/readiness",
+                "Health Readiness Probe",
+                Severity::Low,
+                "Kubernetes readiness probe",
+            ),
+            (
+                "/actuator/health/liveness",
+                "Health Liveness Probe",
+                Severity::Low,
+                "Kubernetes liveness probe",
+            ),
+            // === Legacy / Spring Boot 1.x ===
+            (
                 "/env",
                 "Environment (Legacy)",
                 Severity::Critical,
-                "Legacy environment endpoint",
+                "Legacy 1.x environment endpoint",
             ),
             (
                 "/heapdump",
                 "Heap Dump (Legacy)",
                 Severity::Critical,
-                "Legacy heap dump endpoint",
+                "Legacy 1.x heap dump endpoint",
+            ),
+            (
+                "/dump",
+                "Thread Dump (Legacy)",
+                Severity::High,
+                "Legacy 1.x thread dump endpoint",
+            ),
+            (
+                "/trace",
+                "HTTP Trace (Legacy)",
+                Severity::High,
+                "Legacy 1.x HTTP trace - last N requests with full headers",
+            ),
+            (
+                "/configprops",
+                "Configuration Properties (Legacy)",
+                Severity::High,
+                "Legacy 1.x @ConfigurationProperties dump",
+            ),
+            (
+                "/loggers",
+                "Loggers (Legacy)",
+                Severity::High,
+                "Legacy 1.x runtime log-level control",
+            ),
+            (
+                "/mappings",
+                "URL Mappings (Legacy)",
+                Severity::Medium,
+                "Legacy 1.x URL mapping dump",
+            ),
+            (
+                "/beans",
+                "Beans (Legacy)",
+                Severity::Medium,
+                "Legacy 1.x bean graph dump",
+            ),
+            (
+                "/autoconfig",
+                "Auto-config Report (Legacy)",
+                Severity::Medium,
+                "Legacy 1.x auto-configuration report",
+            ),
+            (
+                "/metrics",
+                "Metrics (Legacy)",
+                Severity::Low,
+                "Legacy 1.x metrics endpoint",
+            ),
+            // === Common alternate management base paths (`/manage` and `/admin`) ===
+            (
+                "/manage/env",
+                "Environment (custom base)",
+                Severity::Critical,
+                "Environment under custom management base-path",
+            ),
+            (
+                "/manage/heapdump",
+                "Heap Dump (custom base)",
+                Severity::Critical,
+                "Heap dump under custom management base-path",
+            ),
+            (
+                "/manage/configprops",
+                "ConfigProps (custom base)",
+                Severity::High,
+                "Configuration properties under custom management base-path",
+            ),
+            (
+                "/manage/health",
+                "Health (custom base)",
+                Severity::Low,
+                "Health under custom management base-path",
+            ),
+            (
+                "/admin/env",
+                "Environment (admin base)",
+                Severity::Critical,
+                "Environment under /admin base-path",
+            ),
+            (
+                "/admin/heapdump",
+                "Heap Dump (admin base)",
+                Severity::Critical,
+                "Heap dump under /admin base-path",
             ),
         ];
 
@@ -177,16 +446,73 @@ impl SpringScanner {
                     // Require actual actuator-specific content, not just any JSON.
                     // Previously matched `contains("{")` or `len() > 10` which
                     // matches ANY response and creates massive false positives.
-                    let is_actuator = path.contains("heapdump")
-                        || (response.body.contains("{") && (
-                            response.body.contains("\"status\"")
-                            || response.body.contains("\"_links\"")
-                            || response.body.contains("\"loggers\"")
-                            || response.body.contains("\"levels\"")
-                            || response.body.contains("\"propertySources\"")
-                            || response.body.contains("\"activeProfiles\"")
-                            || response.body.contains("\"dispatcherServlet\"")
-                        ));
+                    //
+                    // Path-specific structural anchors keep this at zero FP:
+                    //   * heapdump   — binary .hprof, size/Content-Type check
+                    //   * logfile    — plain log lines (`INFO `, `WARN `, …)
+                    //   * prometheus — `# HELP` / `# TYPE` exposition format
+                    //   * hystrix    — server-sent events `ping:` / `data: {"type":"Hystrix…`
+                    //   * gateway    — JSON array with `"route_id"`
+                    //   * sbom       — JSON with `"bomFormat"` or `"SPDX"`
+                    //   * everything else — JSON with an actuator-unique key
+                    let body = &response.body;
+                    let is_actuator = if path.contains("heapdump") {
+                        // HPROF magic header `JAVA PROFILE 1.0.`  is emitted as the
+                        // first bytes of a real heap dump; accept on either the
+                        // magic header, a .hprof content-type, or a very large body.
+                        body.starts_with("JAVA PROFILE")
+                            || response
+                                .headers
+                                .iter()
+                                .any(|(k, v)| {
+                                    k.eq_ignore_ascii_case("content-type")
+                                        && (v.contains("hprof")
+                                            || v.contains("octet-stream"))
+                                })
+                            || body.len() > 1_000_000
+                    } else if path.ends_with("/logfile") {
+                        // Spring's logfile endpoint streams the raw log; require
+                        // at least two distinct log-level tokens to avoid matching
+                        // prose.
+                        let tokens =
+                            ["INFO ", "WARN ", "ERROR ", "DEBUG ", "TRACE "];
+                        tokens.iter().filter(|t| body.contains(*t)).count() >= 2
+                    } else if path.ends_with("/prometheus") {
+                        body.contains("# HELP ") && body.contains("# TYPE ")
+                    } else if path.contains("hystrix.stream") {
+                        body.contains("data: {\"type\":\"Hystrix")
+                            || body.starts_with("ping:")
+                    } else if path.contains("gateway/routes") {
+                        body.contains("\"route_id\"") || body.contains("\"routeId\"")
+                    } else if path.ends_with("/sbom") {
+                        body.contains("\"bomFormat\"")
+                            || body.contains("SPDX")
+                            || body.contains("\"CycloneDX\"")
+                    } else {
+                        body.contains("{")
+                            && (body.contains("\"status\"")
+                                || body.contains("\"_links\"")
+                                || body.contains("\"loggers\"")
+                                || body.contains("\"levels\"")
+                                || body.contains("\"propertySources\"")
+                                || body.contains("\"activeProfiles\"")
+                                || body.contains("\"dispatcherServlet\"")
+                                || body.contains("\"contexts\"")
+                                || body.contains("\"auditEvents\"")
+                                || body.contains("\"traces\"")
+                                || body.contains("\"exchanges\"")
+                                || body.contains("\"threads\"")
+                                || body.contains("\"threadName\"")
+                                || body.contains("\"mappings\"")
+                                || body.contains("\"beans\"")
+                                || body.contains("\"caches\"")
+                                || body.contains("\"cacheManagers\"")
+                                || body.contains("\"scheduledTasks\"")
+                                || body.contains("\"changeSets\"")
+                                || body.contains("\"migrations\"")
+                                || body.contains("\"quartzScheduler\"")
+                                || body.contains("\"conditions\""))
+                    };
 
                     if is_actuator {
                         let cvss = match severity {

@@ -113,14 +113,52 @@ impl TomcatMisconfigScanner {
         }
 
         // Test 2: Tomcat Manager Interface Exposure
+        //
+        // Manager apps are the canonical RCE vector on Tomcat: an attacker with
+        // `manager-script` or `manager-gui` access can deploy a WAR and get code
+        // execution. Include every path that historically ships with Tomcat or
+        // is created by Linux distro packages / OEM images.
+        //
+        // Detection below still requires a Tomcat-specific string in the body,
+        // so path expansion cannot cause FPs on unrelated pages.
         tests_run += 1;
         let manager_paths = vec![
+            // Manager (webapp deploy/undeploy, text + HTML + JMX proxy)
+            "/manager",
+            "/manager/",
             "/manager/html",
+            "/manager/html/",
             "/manager/status",
+            "/manager/status/all",
             "/manager/text",
+            "/manager/text/list",
+            "/manager/text/serverinfo",
+            "/manager/text/threaddump",
+            "/manager/text/vminfo",
+            "/manager/text/sslConnectorCiphers",
+            "/manager/jmxproxy",
+            "/manager/jmxproxy/",
+            "/manager/jmxproxy/?qry=java.lang:type=Runtime",
+            // Host manager (vhost control, equally dangerous)
+            "/host-manager",
+            "/host-manager/",
             "/host-manager/html",
+            "/host-manager/text",
+            "/host-manager/text/list",
+            // Historic / distro / OEM variants
+            "/admin",
             "/admin/",
+            "/admin/html",
+            "/tomcat-admin",
             "/tomcat-admin/",
+            "/tomcat/manager/html",
+            "/tomcatmanager",
+            "/_manager/html",
+            "/webmanager",
+            // Common reverse-proxy rewrites that still front the real manager
+            "/app/manager/html",
+            "/apps/manager/html",
+            "/console/manager/html",
         ];
 
         for path in &manager_paths {
@@ -174,14 +212,36 @@ impl TomcatMisconfigScanner {
         }
 
         // Test 3: Example Applications Accessible
+        //
+        // The default `examples` webapp ships with known-vulnerable demo servlets
+        // (SessionExample lets anyone set session attributes; CookieExample
+        // lets anyone set cookies on the Tomcat origin — both have been used to
+        // chain session fixation and CSRF into privileged areas of the real
+        // application). Documentation apps also commonly leak version info.
         tests_run += 1;
         let example_paths = vec![
             "/examples/",
             "/examples/jsp/",
+            "/examples/jsp/snp/snoop.jsp",
+            "/examples/jsp/num/numguess.jsp",
+            "/examples/jsp/sessions/carts.html",
             "/examples/servlets/",
+            "/examples/servlets/servlet/SessionExample",
+            "/examples/servlets/servlet/CookieExample",
+            "/examples/servlets/servlet/RequestInfoExample",
+            "/examples/servlets/servlet/RequestHeaderExample",
+            "/examples/servlets/servlet/RequestParamExample",
             "/examples/websocket/",
+            "/examples/websocket/chat.xhtml",
             "/docs/",
+            "/docs/RELEASE-NOTES.txt",
+            "/docs/changelog.html",
             "/tomcat-docs/",
+            "/sample/",
+            "/sample/hello.jsp",
+            "/webdav/",
+            "/probe/",
+            "/balancer/",
         ];
 
         for path in &example_paths {
@@ -231,7 +291,14 @@ impl TomcatMisconfigScanner {
 
         // Test 4: Version Detection via Error Pages
         tests_run += 1;
-        let version_paths = vec!["/nonexistent_path_12345", "/WEB-INF/", "/META-INF/"];
+        let version_paths = vec![
+            "/nonexistent_path_12345",
+            "/WEB-INF/",
+            "/META-INF/",
+            "/RELEASE-NOTES.txt",
+            "/docs/RELEASE-NOTES.txt",
+            "/docs/changelog.html",
+        ];
 
         for path in &version_paths {
             tests_run += 1;
@@ -315,6 +382,201 @@ impl TomcatMisconfigScanner {
             }
             Err(e) => {
                 debug!("AJP check failed: {}", e);
+            }
+        }
+
+        // Test 6: Sensitive Tomcat files / endpoints.
+        //
+        // These paths are known-sensitive and only trip when the response is
+        // clearly the real file (content-anchored match), so we cannot flag
+        // unrelated pages. Impact notes inline.
+        let sensitive_endpoints: &[(&str, &str, &[&str], Severity, f32, &str)] = &[
+            // WEB-INF/web.xml — servlet map, filters, security constraints, DB
+            // resource refs, often DataSource credentials in <resource-ref>.
+            (
+                "/WEB-INF/web.xml",
+                "TOMCAT_WEBXML_EXPOSED",
+                &["<web-app", "<servlet-mapping", "<servlet>"],
+                Severity::High,
+                7.5,
+                "Deny all access to /WEB-INF/ at the connector or reverse proxy; \
+                 this directory must never be served.",
+            ),
+            // META-INF/context.xml — datasource credentials, valves.
+            (
+                "/META-INF/context.xml",
+                "TOMCAT_CONTEXTXML_EXPOSED",
+                &["<Context", "<Resource", "javax.sql.DataSource"],
+                Severity::Critical,
+                9.1,
+                "Block /META-INF/ at the connector; remove any inline passwords \
+                 and use secure credential stores instead.",
+            ),
+            // Tomcat users (manager app credentials — full RCE on exposure).
+            (
+                "/tomcat-users.xml",
+                "TOMCAT_USERS_XML_EXPOSED",
+                &["<tomcat-users", "<user ", "roles="],
+                Severity::Critical,
+                9.8,
+                "tomcat-users.xml contains manager credentials. Remove from web \
+                 root, block at proxy, and rotate any passwords that were present.",
+            ),
+            (
+                "/conf/tomcat-users.xml",
+                "TOMCAT_USERS_XML_EXPOSED",
+                &["<tomcat-users", "<user ", "roles="],
+                Severity::Critical,
+                9.8,
+                "Block /conf/ at the connector and rotate any credentials present.",
+            ),
+            // server.xml — full Tomcat config, Realm credentials, Keystore paths.
+            (
+                "/conf/server.xml",
+                "TOMCAT_SERVERXML_EXPOSED",
+                &["<Server ", "<Service ", "<Connector "],
+                Severity::Critical,
+                9.1,
+                "server.xml reveals the full Tomcat topology and often contains \
+                 keystore passwords. Block /conf/ at the connector.",
+            ),
+            (
+                "/conf/context.xml",
+                "TOMCAT_CONTEXTXML_EXPOSED",
+                &["<Context", "<Resource"],
+                Severity::High,
+                7.5,
+                "Block /conf/context.xml at the connector.",
+            ),
+            (
+                "/conf/web.xml",
+                "TOMCAT_WEBXML_EXPOSED",
+                &["<web-app", "<servlet"],
+                Severity::High,
+                7.5,
+                "Block /conf/web.xml at the connector.",
+            ),
+            (
+                "/conf/catalina.properties",
+                "TOMCAT_CATALINA_PROPERTIES_EXPOSED",
+                &["catalina.", "common.loader", "tomcat.util.scan"],
+                Severity::High,
+                7.5,
+                "Block /conf/ at the connector; catalina.properties can leak class \
+                 loader configuration used to target exploitation.",
+            ),
+            (
+                "/conf/catalina.policy",
+                "TOMCAT_CATALINA_POLICY_EXPOSED",
+                &["grant codeBase", "permission java.", "catalina"],
+                Severity::Medium,
+                5.3,
+                "Block /conf/ at the connector.",
+            ),
+            (
+                "/conf/logging.properties",
+                "TOMCAT_LOGGING_PROPERTIES_EXPOSED",
+                &["handlers =", "juli.AsyncFileHandler", ".level"],
+                Severity::Low,
+                3.7,
+                "Block /conf/ at the connector.",
+            ),
+            // Server status / manager sub-pages that occasionally slip through.
+            (
+                "/status",
+                "TOMCAT_STATUS_EXPOSED",
+                &["Server Status", "JVM", "Tomcat"],
+                Severity::Medium,
+                5.3,
+                "Restrict /status and /server-status via RemoteAddrValve or proxy \
+                 rules; exposes JVM memory, threads, and request counters.",
+            ),
+            (
+                "/server-status",
+                "TOMCAT_SERVER_STATUS_EXPOSED",
+                &["Server Status", "JVM", "Tomcat"],
+                Severity::Medium,
+                5.3,
+                "Restrict via RemoteAddrValve or reverse-proxy ACL.",
+            ),
+            // Classic CVE-2017-12617: PUT-enabled default servlet → JSP upload RCE.
+            // Detect the enabler: OPTIONS response advertising PUT on /.
+            // (We only flag if Allow header explicitly includes PUT — very low FP.)
+            // No request body needed, just OPTIONS via GET isn't possible so we
+            // rely on any prior response's `Allow` header if present.
+        ];
+
+        for (path, vuln_id, markers, severity, cvss, fix) in sensitive_endpoints {
+            tests_run += 1;
+            let sensitive_url = format!("{}{}", url.trim_end_matches('/'), path);
+
+            match self.http_client.get(&sensitive_url).await {
+                Ok(response) => {
+                    if response.status_code != 200 || response.body.len() < 20 {
+                        continue;
+                    }
+                    // Require *all* structural markers to prevent any chance of
+                    // matching a 200-OK SPA shell or generic error page.
+                    let body = &response.body;
+                    let all_match = markers.iter().all(|m| body.contains(m));
+                    if !all_match {
+                        continue;
+                    }
+
+                    info!("Tomcat sensitive file exposed: {}", sensitive_url);
+                    vulnerabilities.push(self.create_vulnerability(
+                        &sensitive_url,
+                        vuln_id,
+                        &format!("Tomcat Sensitive File Exposed: {}", path),
+                        &format!(
+                            "File {} returned 200 OK ({} bytes) and contains all of: [{}]",
+                            path,
+                            body.len(),
+                            markers.join(", ")
+                        ),
+                        severity.clone(),
+                        Confidence::High,
+                        *cvss,
+                        fix,
+                    ));
+                }
+                Err(e) => {
+                    debug!("Sensitive path check failed for {}: {}", sensitive_url, e);
+                }
+            }
+        }
+
+        // Test 7: CVE-2017-12617 / default-servlet PUT enabled.
+        //
+        // The default servlet must never accept PUT in production. An OPTIONS
+        // probe that answers with `Allow: ... PUT ...` is a direct indicator.
+        // This is a zero-FP signal: a reverse proxy normally strips PUT from
+        // Allow. If it's there, it's there.
+        tests_run += 1;
+        if let Ok(response) = self.http_client.request_with_method("OPTIONS", url).await {
+            let allow = response
+                .headers
+                .get("allow")
+                .or_else(|| response.headers.get("Allow"))
+                .cloned()
+                .unwrap_or_default();
+            let allow_upper = allow.to_uppercase();
+            if allow_upper.contains("PUT") && allow_upper.contains("DELETE") {
+                vulnerabilities.push(self.create_vulnerability(
+                    url,
+                    "TOMCAT_PUT_DELETE_ENABLED",
+                    "Tomcat Default Servlet Allows PUT/DELETE",
+                    &format!(
+                        "Server advertised write methods in Allow header.\nAllow: {}",
+                        allow
+                    ),
+                    Severity::High,
+                    Confidence::High,
+                    7.5,
+                    "1. In conf/web.xml set the default servlet `readonly` init-param to `true`\n\
+                     2. Block PUT/DELETE at the reverse proxy for static content paths\n\
+                     3. Patch to Tomcat 7.0.81+, 8.5.23+, 9.0.1+ (CVE-2017-12617)",
+                ));
             }
         }
 

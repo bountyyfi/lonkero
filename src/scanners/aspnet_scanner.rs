@@ -814,41 +814,114 @@ impl AspNetScanner {
 
         let base = url.trim_end_matches('/');
 
+        // Every path below is checked with a content anchor further down
+        // (either sensitive_patterns or is_config_file / specific prefix), so
+        // expanding this list does not broaden false-positive surface.
         let config_paths = [
+            // Core config
             ("/web.config", "IIS Configuration", Severity::Critical),
+            ("/Web.config", "IIS Configuration", Severity::Critical),
+            ("/WEB.CONFIG", "IIS Configuration", Severity::Critical),
+            ("/web.config.bak", "IIS Config Backup", Severity::Critical),
+            ("/web.config.old", "IIS Config Backup", Severity::Critical),
+            ("/web.config.orig", "IIS Config Backup", Severity::Critical),
+            ("/web.config.save", "IIS Config Backup", Severity::Critical),
+            ("/web.config~", "IIS Config Swap", Severity::Critical),
+            ("/web.config.swp", "IIS Config Vim Swap", Severity::Critical),
+            ("/web.config.txt", "IIS Config (renamed)", Severity::Critical),
+            ("/Web.Debug.config", "Web Debug Config", Severity::High),
+            ("/Web.Release.config", "Web Release Config", Severity::High),
+            ("/web.debug.config", "Web Debug Config", Severity::High),
+            ("/web.release.config", "Web Release Config", Severity::High),
+            // appsettings + environment variants
             ("/appsettings.json", "App Settings", Severity::Critical),
-            (
-                "/appsettings.Development.json",
-                "Development Settings",
-                Severity::Critical,
-            ),
-            (
-                "/appsettings.Production.json",
-                "Production Settings",
-                Severity::Critical,
-            ),
-            (
-                "/connectionstrings.config",
-                "Connection Strings",
-                Severity::Critical,
-            ),
-            (
-                "/applicationhost.config",
-                "IIS App Host Config",
-                Severity::High,
-            ),
+            ("/AppSettings.json", "App Settings", Severity::Critical),
+            ("/appsettings.Development.json", "Development Settings", Severity::Critical),
+            ("/appsettings.Production.json", "Production Settings", Severity::Critical),
+            ("/appsettings.Staging.json", "Staging Settings", Severity::Critical),
+            ("/appsettings.Test.json", "Test Settings", Severity::Critical),
+            ("/appsettings.Local.json", "Local Settings", Severity::Critical),
+            ("/appsettings.QA.json", "QA Settings", Severity::Critical),
+            ("/appsettings.Integration.json", "Integration Settings", Severity::Critical),
+            ("/appsettings.Azure.json", "Azure Settings", Severity::Critical),
+            ("/appsettings.Docker.json", "Docker Settings", Severity::Critical),
+            ("/appsettings.bak", "App Settings Backup", Severity::Critical),
+            ("/appsettings.json.bak", "App Settings Backup", Severity::Critical),
+            ("/appsettings.json~", "App Settings Swap", Severity::Critical),
+            // Connection strings / secrets
+            ("/connectionstrings.config", "Connection Strings", Severity::Critical),
+            ("/ConnectionStrings.config", "Connection Strings", Severity::Critical),
+            ("/secrets.json", "User Secrets", Severity::Critical),
+            ("/secrets.xml", "User Secrets", Severity::Critical),
+            ("/database.config", "Database Config", Severity::Critical),
+            ("/dbconfig.xml", "Database Config", Severity::Critical),
+            // IIS / hosting
+            ("/applicationhost.config", "IIS App Host Config", Severity::High),
+            ("/applicationHost.config", "IIS App Host Config", Severity::High),
+            ("/administration.config", "IIS Administration Config", Severity::High),
+            ("/redirection.config", "IIS Redirection Config", Severity::High),
+            // Build / deploy artefacts
             ("/bin/", "Binary Directory", Severity::Medium),
             ("/obj/", "Build Objects", Severity::Low),
             ("/.vs/", "Visual Studio Directory", Severity::Medium),
+            ("/.vscode/settings.json", "VS Code Settings", Severity::Medium),
             ("/.git/config", "Git Configuration", Severity::High),
+            ("/.git/HEAD", "Git HEAD", Severity::High),
+            ("/.svn/entries", "Subversion Metadata", Severity::Medium),
+            // Project / solution / publish artefacts
             ("/packages.config", "NuGet Packages", Severity::Low),
             ("/nuget.config", "NuGet Configuration", Severity::Medium),
+            ("/NuGet.config", "NuGet Configuration", Severity::Medium),
             ("/launchSettings.json", "Launch Settings", Severity::Medium),
-            (
-                "/Properties/launchSettings.json",
-                "Launch Settings",
-                Severity::Medium,
-            ),
+            ("/Properties/launchSettings.json", "Launch Settings", Severity::Medium),
+            ("/Properties/PublishProfiles/FolderProfile.pubxml", "Publish Profile", Severity::High),
+            ("/PublishProfiles/FolderProfile.pubxml", "Publish Profile", Severity::High),
+            ("/app.publishsettings", "Publish Credentials", Severity::Critical),
+            ("/deploy.cmd", "Deploy Script", Severity::Low),
+            // Global / machine config
+            ("/global.asax", "Global.asax", Severity::Medium),
+            ("/global.asax.bak", "Global.asax Backup", Severity::High),
+            ("/global.asax.old", "Global.asax Backup", Severity::High),
+            ("/machine.config", "Machine Config", Severity::Critical),
+            // Classic ASP.NET information-disclosure handlers — extremely high impact,
+            // content-anchored match in sensitive_patterns keeps FPs low.
+            ("/trace.axd", "ASP.NET Trace", Severity::High),
+            ("/Trace.axd", "ASP.NET Trace", Severity::High),
+            ("/elmah.axd", "ELMAH Error Log", Severity::Critical),
+            ("/elmah.axd/detail", "ELMAH Detail", Severity::Critical),
+            ("/elmah/axd", "ELMAH Error Log", Severity::Critical),
+            ("/errorlog.axd", "ELMAH Error Log (alt)", Severity::Critical),
+            ("/admin/elmah.axd", "ELMAH Error Log (admin)", Severity::Critical),
+            ("/ErrorLog.axd", "ELMAH Error Log", Severity::Critical),
+            ("/admin/trace.axd", "ASP.NET Trace (admin)", Severity::High),
+            // Data / state
+            ("/App_Data/", "App_Data Directory Listing", Severity::High),
+            ("/App_Data/database.mdf", "SQL Server Database File", Severity::Critical),
+            ("/App_Data/users.mdf", "SQL Server Users DB", Severity::Critical),
+            ("/App_Data/aspnetdb.mdf", "ASP.NET Membership DB", Severity::Critical),
+            ("/App_Data/log.txt", "App Log", Severity::Medium),
+            ("/App_Data/logs/", "App Log Directory", Severity::Medium),
+            ("/App_Data/Logs/", "App Log Directory", Severity::Medium),
+            // App_Offline is less critical but confirms .NET framework application
+            ("/app_offline.htm", "App Offline Marker", Severity::Info),
+            // VSWebCache / publishsettings residue — often contains deploy creds
+            ("/PublishProfiles/", "Publish Profiles Directory", Severity::Medium),
+            ("/.publishsettings", "Publish Settings", Severity::Critical),
+            // Azure / AWS meta that sometimes accompanies ASP.NET deployments
+            ("/.azure/config", "Azure CLI Config", Severity::High),
+            ("/.aws/credentials", "AWS Credentials", Severity::Critical),
+            // .NET 6+ user-secrets cache sometimes ends up in content root when mis-published
+            ("/secrets/secrets.json", "User Secrets Cache", Severity::Critical),
+            // Swagger that may expose internal endpoints for authenticated APIs
+            ("/swagger/v1/swagger.json", "Swagger Spec", Severity::Low),
+            ("/swagger/docs/v1", "Swagger Spec", Severity::Low),
+            ("/api-docs", "API Docs", Severity::Low),
+            // Dump files that IIS crash handlers or tools leave behind
+            ("/app_dump.dmp", "Process Dump", Severity::Critical),
+            ("/dumps/", "Dump Directory", Severity::High),
+            // Classic IIS WebDAV
+            ("/_vti_inf.html", "FrontPage/WebDAV Info", Severity::Low),
+            ("/_vti_pvt/", "FrontPage Config", Severity::Medium),
         ];
 
         for (path, name, severity) in config_paths {
@@ -878,12 +951,42 @@ impl AspNetScanner {
 
                     let has_sensitive = sensitive_patterns.iter().any(|p| resp.body.contains(p));
 
-                    // Also verify it's actually an ASP.NET config file, not a generic page
+                    // Also verify it's actually an ASP.NET / related artefact, not a generic page.
+                    // Each marker is narrow enough that a non-matching page cannot trigger it.
                     let is_config_file = resp.body.contains("<configuration")
                         || resp.body.contains("<appSettings")
                         || resp.body.contains("<connectionStrings")
-                        || (resp.body.trim().starts_with('{') && resp.body.contains("\"ConnectionStrings\""))
-                        || resp.body.contains("<?xml");
+                        || (resp.body.trim().starts_with('{')
+                            && (resp.body.contains("\"ConnectionStrings\"")
+                                || resp.body.contains("\"Logging\"")
+                                || resp.body.contains("\"AllowedHosts\"")
+                                || resp.body.contains("\"profiles\":")
+                                || resp.body.contains("\"iisSettings\"")))
+                        || resp.body.contains("<?xml")
+                        // trace.axd landing / detail pages
+                        || resp.body.contains("Application Trace")
+                        || resp.body.contains("<h1>Application Trace</h1>")
+                        // ELMAH: shipped title string is near-unique.
+                        || resp.body.contains("Error Log for")
+                        || resp.body.contains("Elmah.ErrorLogPage")
+                        || resp.body.contains("ELMAH")
+                        // Publish profile / publishsettings XML
+                        || resp.body.contains("<publishProfile")
+                        || resp.body.contains("<publishData>")
+                        // Git repo files
+                        || resp.body.contains("[core]\n\trepositoryformatversion")
+                        || resp.body.starts_with("ref: refs/")
+                        // Subversion
+                        || (resp.body.starts_with("12") && resp.body.contains("dir\n"))
+                        // MDF / dump file magic bytes when proxied as text
+                        || resp.body.starts_with("MMPH")            // Minidump
+                        || resp.body.starts_with("\x01\x0f")           // MDF header (partial)
+                        // Azure CLI config / AWS credentials
+                        || resp.body.contains("[default]")
+                        || resp.body.contains("aws_access_key_id")
+                        // FrontPage / WebDAV markers
+                        || resp.body.contains("FrontPage")
+                        || resp.body.contains("vti_encoding");
 
                     // Only report if it has sensitive content OR is actually a config file
                     if !has_sensitive && !is_config_file {
