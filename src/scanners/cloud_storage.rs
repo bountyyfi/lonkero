@@ -198,6 +198,7 @@ impl CloudStorageScanner {
         );
 
         let bucket_patterns = vec![
+            format!("{}", bucket_base),
             format!("{}-backups", bucket_base),
             format!("{}-backup", bucket_base),
             format!("{}-data", bucket_base),
@@ -208,9 +209,101 @@ impl CloudStorageScanner {
             format!("{}-static", bucket_base),
             format!("{}-dev", bucket_base),
             format!("{}-prod", bucket_base),
+            // Environment / lifecycle variants commonly adopted by devops
+            format!("{}-stage", bucket_base),
+            format!("{}-staging", bucket_base),
+            format!("{}-qa", bucket_base),
+            format!("{}-test", bucket_base),
+            format!("{}-testing", bucket_base),
+            format!("{}-uat", bucket_base),
+            format!("{}-internal", bucket_base),
+            format!("{}-private", bucket_base),
+            // Backup / archive / log variants - commonly hold full DB dumps
+            format!("{}-bak", bucket_base),
+            format!("{}-archive", bucket_base),
+            format!("{}-archives", bucket_base),
+            format!("{}-dumps", bucket_base),
+            format!("{}-dump", bucket_base),
+            format!("{}-db", bucket_base),
+            format!("{}-database", bucket_base),
+            format!("{}-logs", bucket_base),
+            format!("{}-log", bucket_base),
+            // CI/CD / IaC / artifacts
+            format!("{}-ci", bucket_base),
+            format!("{}-cicd", bucket_base),
+            format!("{}-build", bucket_base),
+            format!("{}-builds", bucket_base),
+            format!("{}-artifacts", bucket_base),
+            format!("{}-artifact", bucket_base),
+            format!("{}-deploy", bucket_base),
+            format!("{}-deployment", bucket_base),
+            format!("{}-release", bucket_base),
+            format!("{}-releases", bucket_base),
+            format!("{}-terraform", bucket_base),
+            format!("{}-tf-state", bucket_base),
+            format!("{}-tfstate", bucket_base),
+            format!("{}-terraform-state", bucket_base),
+            format!("{}-cloudformation", bucket_base),
+            format!("{}-cf-templates", bucket_base),
+            // Media / content
+            format!("{}-media", bucket_base),
+            format!("{}-videos", bucket_base),
+            format!("{}-downloads", bucket_base),
+            format!("{}-content", bucket_base),
+            format!("{}-documents", bucket_base),
+            format!("{}-docs", bucket_base),
+            format!("{}-reports", bucket_base),
+            format!("{}-exports", bucket_base),
+            format!("{}-export", bucket_base),
+            // Credentials / sensitive themes
+            format!("{}-secrets", bucket_base),
+            format!("{}-secret", bucket_base),
+            format!("{}-credentials", bucket_base),
+            format!("{}-config", bucket_base),
+            format!("{}-configs", bucket_base),
+            format!("{}-keys", bucket_base),
+            format!("{}-pki", bucket_base),
+            // User-supplied content
+            format!("{}-user-uploads", bucket_base),
+            format!("{}-user-data", bucket_base),
+            format!("{}-user-content", bucket_base),
+            format!("{}-attachments", bucket_base),
+            format!("{}-avatars", bucket_base),
+            format!("{}-pii", bucket_base),
+            format!("{}-invoices", bucket_base),
+            // Common naming variations without dashes
+            format!("{}backup", bucket_base),
+            format!("{}backups", bucket_base),
+            format!("{}data", bucket_base),
+            format!("{}storage", bucket_base),
+            format!("{}prod", bucket_base),
+            format!("{}dev", bucket_base),
+            format!("{}stage", bucket_base),
+            format!("{}assets", bucket_base),
+            // Dotted variants sometimes used when bucket must be a subdomain
+            format!("{}.backup", bucket_base),
+            format!("{}.data", bucket_base),
+            format!("{}.assets", bucket_base),
         ];
 
-        let regions = vec!["us-east-1", "us-west-2", "eu-west-1", "eu-north-1"];
+        let regions = vec![
+            "us-east-1",
+            "us-east-2",
+            "us-west-1",
+            "us-west-2",
+            "eu-west-1",
+            "eu-west-2",
+            "eu-west-3",
+            "eu-central-1",
+            "eu-north-1",
+            "eu-south-1",
+            "ap-southeast-1",
+            "ap-southeast-2",
+            "ap-northeast-1",
+            "ap-south-1",
+            "sa-east-1",
+            "ca-central-1",
+        ];
 
         for bucket_name in bucket_patterns {
             // Try multiple regions
@@ -434,10 +527,97 @@ impl CloudStorageScanner {
             "Jenkinsfile",
             "circle.yml",
             ".circleci/config.yml",
+            "bitbucket-pipelines.yml",
+            "azure-pipelines.yml",
+            "buildspec.yml",
+            "cloudbuild.yaml",
+            // Rails / Django / Laravel specific
+            "config/master.key",
+            "config/credentials.yml.enc",
+            "config/credentials/production.key",
+            "config/credentials/production.yml.enc",
+            "config/database.yml",
+            "config/secrets.yml",
+            "local_settings.py",
+            "instance/config.py",
+            ".env.example",
+            ".env.dist",
+            // Drupal / Joomla / Magento
+            "sites/default/settings.php",
+            "configuration.php",
+            "app/etc/env.php",
+            "app/etc/local.xml",
+            // Kubernetes
+            "kubeconfig",
+            ".kube/config",
+            "values.yaml",
+            "values.prod.yaml",
+            "secrets.yaml",
+            // Mobile app artifacts often uploaded to public buckets
+            "app-release.apk",
+            "app-release-unsigned.apk",
+            "app.ipa",
+            "google-services.json",
+            "GoogleService-Info.plist",
+            // Source code archives
+            "src.zip",
+            "source.zip",
+            "source.tar.gz",
+            "repo.zip",
+            "project.zip",
+            "code.zip",
+            "release.tar.gz",
+            "deploy.tar.gz",
+            // PII-shaped dumps
+            "users.csv",
+            "users.json",
+            "customers.csv",
+            "customers.xlsx",
+            "members.csv",
+            "subscribers.csv",
+            "emails.csv",
+            "contacts.csv",
+            "leads.csv",
+            "employees.csv",
+            "invoices.csv",
+            "transactions.csv",
+            "orders.csv",
+            "payments.csv",
+            "passwords.csv",
+            "pii.csv",
+            "gdpr-export.zip",
+            // Core dumps / heapdumps / memory captures
+            "core",
+            "core.dump",
+            "heapdump.hprof",
+            "heapdump",
+            "threaddump.txt",
+            "crash.log",
+            // Helm / Ansible / Chef / Puppet
+            "Chart.yaml",
+            "requirements.yml",
+            "ansible/vault.yml",
+            "ansible/group_vars/all.yml",
+            "ansible/inventory",
+            "hiera/common.yaml",
+            // BigQuery / data export patterns
+            "bigquery-export.json",
+            "analytics-export.csv",
+            // API keys commonly scattered in buckets
+            "sentry.properties",
+            "newrelic.yml",
+            "datadog.yaml",
+            "vault-token",
+            ".vault-token",
+            "service-account.json",
+            "gcp-key.json",
+            "gcs-key.json",
+            "firebase-adminsdk.json",
+            "firebase-service-account.json",
         ];
 
-        // Test first 25 most critical patterns
-        for path in sensitive_paths.iter().take(25) {
+        // Test first 40 most critical patterns
+        for path in sensitive_paths.iter().take(40) {
             tests_run += 1;
             let test_url = format!("{}/{}", bucket_url, path);
 
@@ -625,17 +805,58 @@ impl CloudStorageScanner {
     /// Scan for exposed Azure Blob storage
     async fn scan_azure_blob(&self, domain: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 5;
 
         debug!("Testing Azure Blob storage for domain: {}", domain);
 
+        // Azure storage account names must be 3-24 chars, lowercase alphanumeric only.
+        let sanitize = |s: &str| -> String {
+            s.chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .map(|c| c.to_ascii_lowercase())
+                .take(24)
+                .collect()
+        };
+        let base = sanitize(domain);
+        let mk = |suffix: &str| -> String {
+            let combined = format!("{}{}", base, suffix);
+            if combined.len() > 24 { combined[..24].to_string() } else { combined }
+        };
+
         let storage_patterns = vec![
-            format!("{}", domain),
-            format!("{}storage", domain),
-            format!("{}data", domain),
-            format!("{}files", domain),
-            format!("{}backup", domain),
+            base.clone(),
+            mk("storage"),
+            mk("data"),
+            mk("files"),
+            mk("backup"),
+            mk("backups"),
+            mk("prod"),
+            mk("dev"),
+            mk("stage"),
+            mk("logs"),
+            mk("archive"),
+            mk("dump"),
+            mk("db"),
+            mk("media"),
+            mk("assets"),
+            mk("content"),
+            mk("upload"),
+            mk("uploads"),
+            mk("public"),
+            mk("private"),
+            mk("secrets"),
+            mk("release"),
+            mk("artifacts"),
+            mk("ci"),
         ];
+        // Deduplicate & filter by Azure account name rules (3-24 chars).
+        let mut seen = std::collections::HashSet::new();
+        let storage_patterns: Vec<String> = storage_patterns
+            .into_iter()
+            .filter(|s| s.len() >= 3 && s.len() <= 24 && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+            .filter(|s| seen.insert(s.clone()))
+            .collect();
+
+        let tests_run = storage_patterns.len();
 
         for storage_name in storage_patterns {
             let azure_url = format!("https://{}.blob.core.windows.net/", storage_name);
@@ -668,7 +889,6 @@ impl CloudStorageScanner {
     /// Scan for exposed Google Cloud Storage
     async fn scan_gcs(&self, domain: &str) -> anyhow::Result<(Vec<Vulnerability>, usize)> {
         let mut vulnerabilities = Vec::new();
-        let tests_run = 5;
 
         debug!("Testing Google Cloud Storage for domain: {}", domain);
 
@@ -678,7 +898,34 @@ impl CloudStorageScanner {
             format!("{}-data", domain),
             format!("{}-files", domain),
             format!("{}-backup", domain),
+            format!("{}-backups", domain),
+            format!("{}-prod", domain),
+            format!("{}-dev", domain),
+            format!("{}-stage", domain),
+            format!("{}-staging", domain),
+            format!("{}-logs", domain),
+            format!("{}-artifacts", domain),
+            format!("{}-build", domain),
+            format!("{}-deploy", domain),
+            format!("{}-release", domain),
+            format!("{}-archive", domain),
+            format!("{}-db", domain),
+            format!("{}-dump", domain),
+            format!("{}-media", domain),
+            format!("{}-uploads", domain),
+            format!("{}-assets", domain),
+            format!("{}-public", domain),
+            format!("{}-private", domain),
+            format!("{}-secrets", domain),
+            format!("{}-config", domain),
+            format!("{}-terraform", domain),
+            format!("{}-tfstate", domain),
+            format!("{}-cloudbuild", domain),
+            format!("{}.appspot.com", domain),
+            format!("staging.{}.appspot.com", domain),
+            format!("{}_cloudbuild", domain),
         ];
+        let tests_run = bucket_patterns.len();
 
         for bucket_name in bucket_patterns {
             let gcs_url = format!("https://storage.googleapis.com/{}/", bucket_name);
