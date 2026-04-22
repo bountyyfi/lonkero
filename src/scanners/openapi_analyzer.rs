@@ -70,6 +70,57 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Springdoc / Spring Boot conventions
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v3/api-docs/swagger-config",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    // Actuator-mounted OpenAPI (common Springdoc + Actuator setup)
+    "/actuator/openapi",
+    "/actuator/openapi.json",
+    // Swagger-core / NSwag resource descriptors
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
+    // FastAPI / Starlette / Flask-smorest defaults
+    "/openapi",
+    "/docs/openapi",
+    "/openapi.yml",
+    "/api/openapi",
+    "/api/openapi.yaml",
+    "/api/openapi.yml",
+    // Versioned API spec variants
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger.yaml",
+    "/api/v2/swagger.yaml",
+    "/api/v3/swagger.yaml",
+    // Stoplight / Readme.io hosted
+    "/reference/openapi.json",
+    "/reference/openapi.yaml",
+    // Generic schema / spec endpoints
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    "/api/spec",
+    "/api/spec.json",
+    "/schema",
+    "/schema.json",
+    "/api/schema",
+    "/api/schema.json",
+    // GraphQL-adjacent REST exports
+    "/api/swagger_doc.json",
+    "/api/swagger-doc.json",
+    "/swagger/doc.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // Azure / API Management exports
+    "/openapi/export",
+    "/api/export/openapi",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +135,42 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Swagger-UI distribution variants
+    "/swagger-ui-dist/",
+    "/swagger-ui-dist/index.html",
+    "/swagger/ui/",
+    "/swagger/ui/index.html",
+    "/swagger-ui/swagger-ui.html",
+    // Common API explorer / Stoplight / Elements
+    "/api/swagger-ui/",
+    "/api/swagger/",
+    "/api-explorer/",
+    "/api-console/",
+    "/api/console/",
+    "/explorer/",
+    "/explorer",
+    "/api/explorer",
+    "/stoplight/",
+    "/stoplight",
+    "/elements/",
+    "/reference/",
+    "/reference",
+    // Redoc / RapiDoc variants
+    "/redoc/",
+    "/redoc.html",
+    "/rapidoc/",
+    "/rapidoc.html",
+    "/docs/redoc",
+    // FastAPI / Starlette / Tornado / Connexion
+    "/docs",
+    "/redoc-static",
+    "/ui/",
+    "/api/ui/",
+    "/api/v1/ui/",
+    "/api/v2/ui/",
+    // Django REST framework browsable API landing
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
