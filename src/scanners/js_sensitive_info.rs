@@ -1221,6 +1221,379 @@ impl JsSensitiveInfoScanner {
                     description: "Cloudflare API token found".to_string(),
                     cwe: "CWE-798".to_string(),
                 },
+                // Cloudflare Origin CA Key — unique structural prefix `v1.0-`
+                // followed by 24 hex chars, a dash, and 146 hex chars. Cannot
+                // collide with anything else by accident.
+                CompiledPattern {
+                    name: "Cloudflare Origin CA Key".to_string(),
+                    regex: Regex::new(r#"v1\.0-[a-f0-9]{24}-[a-f0-9]{146}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Cloudflare Origin CA key found - allows issuing certificates for the zone".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub fine-grained PAT — vendor-issued prefix.
+                CompiledPattern {
+                    name: "GitHub Fine-grained PAT".to_string(),
+                    regex: Regex::new(r#"github_pat_[A-Za-z0-9_]{82}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "GitHub fine-grained personal access token found - repository/org scoped access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub OAuth Access Token (separate from PAT)
+                CompiledPattern {
+                    name: "GitHub OAuth Token".to_string(),
+                    regex: Regex::new(r#"gho_[A-Za-z0-9]{36}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub OAuth access token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitHub Server-to-Server / User-to-Server tokens
+                CompiledPattern {
+                    name: "GitHub App Server Token".to_string(),
+                    regex: Regex::new(r#"ghs_[A-Za-z0-9]{36}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub App server-to-server token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "GitHub App User Token".to_string(),
+                    regex: Regex::new(r#"ghu_[A-Za-z0-9]{36}"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitHub App user-to-server token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // OpenAI project / service account keys (post-2024 format).
+                // The `sk-proj-` and `sk-svcacct-` prefixes are issued by OpenAI
+                // and cannot occur by chance.
+                CompiledPattern {
+                    name: "OpenAI Project Key".to_string(),
+                    regex: Regex::new(r#"sk-proj-[A-Za-z0-9_-]{48,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI project-scoped API key found - direct billing abuse and data access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "OpenAI Service Account Key".to_string(),
+                    regex: Regex::new(r#"sk-svcacct-[A-Za-z0-9_-]{48,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "OpenAI service account API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Hugging Face token — `hf_` + 34 chars of alnum.
+                CompiledPattern {
+                    name: "Hugging Face Token".to_string(),
+                    regex: Regex::new(r#"\bhf_[A-Za-z0-9]{34}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Hugging Face access token found - allows model and inference API access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Replicate API token — vendor prefix `r8_` + 40 chars.
+                CompiledPattern {
+                    name: "Replicate API Token".to_string(),
+                    regex: Regex::new(r#"\br8_[A-Za-z0-9]{40}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Replicate API token found - billing abuse and model access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Resend API key — `re_` prefix with vendor segment structure.
+                CompiledPattern {
+                    name: "Resend API Key".to_string(),
+                    regex: Regex::new(r#"\bre_[A-Za-z0-9]{8}_[A-Za-z0-9]{24}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Resend (email API) API key found - allows sending email from the account".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PostHog project API key — `phc_` + 43 chars. Public key but
+                // useful for event spoofing / cohort poisoning.
+                CompiledPattern {
+                    name: "PostHog Project API Key".to_string(),
+                    regex: Regex::new(r#"\bphc_[A-Za-z0-9]{43}\b"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "PostHog project API key found - allows event injection".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                CompiledPattern {
+                    name: "PostHog Personal API Key".to_string(),
+                    regex: Regex::new(r#"\bphx_[A-Za-z0-9]{43}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PostHog personal API key found - full project access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Tailscale auth keys — vendor prefix uniquely identifies them.
+                CompiledPattern {
+                    name: "Tailscale Auth Key".to_string(),
+                    regex: Regex::new(r#"tskey-auth-[A-Za-z0-9]{10,}-[A-Za-z0-9]{20,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale auth key found - can join attacker hosts to the tailnet".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Tailscale API Key".to_string(),
+                    regex: Regex::new(r#"tskey-api-[A-Za-z0-9]{10,}-[A-Za-z0-9]{40,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tailscale API key found - tailnet-wide control plane access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Databricks personal access token — `dapi` + 32 hex digits.
+                CompiledPattern {
+                    name: "Databricks Personal Access Token".to_string(),
+                    regex: Regex::new(r#"\bdapi[a-f0-9]{32}(?:-\d)?\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Databricks personal access token found - workspace data and compute access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Apify — `apify_api_` prefix.
+                CompiledPattern {
+                    name: "Apify API Token".to_string(),
+                    regex: Regex::new(r#"\bapify_api_[A-Za-z0-9]{36,}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Apify API token found - allows actor execution and data export".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adafruit IO — `aio_` + 28 chars.
+                CompiledPattern {
+                    name: "Adafruit IO Key".to_string(),
+                    regex: Regex::new(r#"\baio_[A-Za-z0-9]{28}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Adafruit IO API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe webhook secret — vendor prefix `whsec_`.
+                CompiledPattern {
+                    name: "Stripe Webhook Secret".to_string(),
+                    regex: Regex::new(r#"\bwhsec_[A-Za-z0-9]{32,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Stripe webhook signing secret found - allows webhook forgery".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Stripe restricted key.
+                CompiledPattern {
+                    name: "Stripe Restricted Key".to_string(),
+                    regex: Regex::new(r#"\brk_(?:test|live)_[A-Za-z0-9]{24,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Stripe restricted API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Square application ID (public, but pairs with secrets and
+                // confirms a Square integration).
+                CompiledPattern {
+                    name: "Square Application ID".to_string(),
+                    regex: Regex::new(r#"\bsq0idp-[A-Za-z0-9_-]{22}\b"#).unwrap(),
+                    severity: Severity::Low,
+                    description: "Square application ID found".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                // Plaid access token — environment-tagged UUID. The
+                // `access-(production|sandbox|development)-` prefix uniquely
+                // identifies a Plaid Item access token.
+                CompiledPattern {
+                    name: "Plaid Access Token".to_string(),
+                    regex: Regex::new(r#"\baccess-(?:production|sandbox|development)-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Plaid access token found - access to bank account data".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PyPI API token — distinctive Macaroon-encoded prefix.
+                CompiledPattern {
+                    name: "PyPI API Token".to_string(),
+                    regex: Regex::new(r#"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PyPI API token found - package supply-chain risk".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Slack app-level token (used for Socket Mode).
+                CompiledPattern {
+                    name: "Slack App-level Token".to_string(),
+                    regex: Regex::new(r#"\bxapp-1-[A-Z0-9]{8,}-[0-9]+-[a-f0-9]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack app-level token found - Socket Mode access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Doppler scoped tokens (extends existing dp.pt pattern).
+                CompiledPattern {
+                    name: "Doppler Service Token".to_string(),
+                    regex: Regex::new(r#"\bdp\.st\.[A-Za-z0-9]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Doppler service token found - secrets manager access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Doppler CLI Token".to_string(),
+                    regex: Regex::new(r#"\bdp\.ct\.[A-Za-z0-9]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Doppler CLI token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "Doppler SCIM Token".to_string(),
+                    regex: Regex::new(r#"\bdp\.scim\.[A-Za-z0-9]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Doppler SCIM token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Atlassian OAuth 2.0 access token — distinctive prefix.
+                CompiledPattern {
+                    name: "Atlassian OAuth Access Token".to_string(),
+                    regex: Regex::new(r#"\bATATT3xFfGF0[A-Za-z0-9_\-]{180,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Atlassian OAuth 2.0 access token found - Jira/Confluence access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // EasyPost — `EZAK` (production) / `EZTK` (test) followed by
+                // 54 alphanumeric chars.
+                CompiledPattern {
+                    name: "EasyPost Production API Key".to_string(),
+                    regex: Regex::new(r#"\bEZAK[a-zA-Z0-9]{54}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "EasyPost production API key found - shipping label generation/billing abuse".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // npm legacy publish auth — base64 of `_authToken=...` in
+                // `.npmrc` is sometimes inlined; matched via the explicit
+                // assignment context to avoid base64 noise.
+                CompiledPattern {
+                    name: "npm _authToken".to_string(),
+                    regex: Regex::new(r#"//registry\.npmjs\.org/:_authToken\s*=\s*[A-Za-z0-9._\-]{36,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "npm registry _authToken found - package publish access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Tencent Cloud SecretId — `AKID` + 32 alnum (vendor prefix).
+                CompiledPattern {
+                    name: "Tencent Cloud SecretId".to_string(),
+                    regex: Regex::new(r#"\bAKID[A-Za-z0-9]{32}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Tencent Cloud SecretId found - paired with SecretKey allows full account control".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Alibaba Cloud Access Key — `LTAI` + 12-20 chars (vendor
+                // prefix issued by RAM).
+                CompiledPattern {
+                    name: "Alibaba Cloud Access Key ID".to_string(),
+                    regex: Regex::new(r#"\bLTAI[A-Za-z0-9]{12,20}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Alibaba Cloud Access Key ID found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Adobe IO Client Secret — `p8e-` prefix is Adobe-specific.
+                CompiledPattern {
+                    name: "Adobe IO Client Secret".to_string(),
+                    regex: Regex::new(r#"\bp8e-[A-Za-z0-9_-]{32,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Adobe IO client secret found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // PubNub publish/subscribe keys — distinctive UUID-shaped
+                // values that are always prefixed.
+                CompiledPattern {
+                    name: "PubNub Subscribe Key".to_string(),
+                    regex: Regex::new(r#"\bsub-c-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b"#).unwrap(),
+                    severity: Severity::Medium,
+                    description: "PubNub subscribe key found - allows reading channels".to_string(),
+                    cwe: "CWE-200".to_string(),
+                },
+                CompiledPattern {
+                    name: "PubNub Publish Key".to_string(),
+                    regex: Regex::new(r#"\bpub-c-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "PubNub publish key found - allows publishing on the keyset".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Discord bot token — three-segment, base64url, opens with M/N/O.
+                CompiledPattern {
+                    name: "Discord Bot Token".to_string(),
+                    regex: Regex::new(r#"[MNO][A-Za-z0-9_\-]{23,28}\.[A-Za-z0-9_\-]{6,7}\.[A-Za-z0-9_\-]{27,38}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Discord bot token found - server/guild access".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Akamai EdgeGrid — `akab-` prefix.
+                CompiledPattern {
+                    name: "Akamai EdgeGrid Client Token".to_string(),
+                    regex: Regex::new(r#"\bakab-[a-z0-9]{16}-[a-z0-9]{16}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Akamai EdgeGrid client token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Render API key — `rnd_` + 14 alnum.
+                CompiledPattern {
+                    name: "Render API Key".to_string(),
+                    regex: Regex::new(r#"\brnd_[A-Za-z0-9]{14}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "Render.com API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Asymmetric DSA / Ed25519 / X.509 private key headers (added
+                // for completeness alongside the existing PEM family).
+                CompiledPattern {
+                    name: "Encrypted Private Key Block".to_string(),
+                    regex: Regex::new(r#"-----BEGIN ENCRYPTED PRIVATE KEY-----"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Encrypted PKCS#8 private key block found".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
+                CompiledPattern {
+                    name: "Generic Private Key Block".to_string(),
+                    regex: Regex::new(r#"-----BEGIN PRIVATE KEY-----"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "PKCS#8 private key block found".to_string(),
+                    cwe: "CWE-321".to_string(),
+                },
+                // .env content fragment with a sensitive key embedded —
+                // matches `KEY=value` lines for high-signal env vars only.
+                CompiledPattern {
+                    name: "Inline .env Sensitive Variable".to_string(),
+                    regex: Regex::new(r#"(?m)^(?:export\s+)?(?:DATABASE_URL|DB_PASSWORD|REDIS_URL|SECRET_KEY_BASE|RAILS_MASTER_KEY|DJANGO_SECRET_KEY|FLASK_SECRET_KEY|JWT_SECRET|SESSION_SECRET|ENCRYPTION_KEY|PRIVATE_KEY|S3_SECRET_KEY|GCP_SERVICE_ACCOUNT_KEY)=[A-Za-z0-9+/=._:@\-]{16,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Sensitive .env-style variable assignment leaked".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Slack legacy app config tokens.
+                CompiledPattern {
+                    name: "Slack Config Refresh Token".to_string(),
+                    regex: Regex::new(r#"\bxoxe-[0-9]+-[0-9]+-[0-9]+-[a-f0-9]{40,}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "Slack config refresh token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // SonarQube user token — `squ_` + 40 hex.
+                CompiledPattern {
+                    name: "SonarQube User Token".to_string(),
+                    regex: Regex::new(r#"\bsqu_[a-f0-9]{40}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "SonarQube user token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "SonarQube Project Analysis Token".to_string(),
+                    regex: Regex::new(r#"\bsqp_[a-f0-9]{40}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "SonarQube project analysis token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                CompiledPattern {
+                    name: "SonarQube Global Analysis Token".to_string(),
+                    regex: Regex::new(r#"\bsqa_[a-f0-9]{40}\b"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "SonarQube global analysis token found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // GitGuardian internal API key — `ggp_` prefix.
+                CompiledPattern {
+                    name: "GitGuardian API Key".to_string(),
+                    regex: Regex::new(r#"\bggp_[A-Za-z0-9]{40}\b"#).unwrap(),
+                    severity: Severity::High,
+                    description: "GitGuardian API key found".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
+                // Authelia / generic 2FA OTP secrets stored client-side.
+                CompiledPattern {
+                    name: "TOTP Shared Secret (otpauth URI)".to_string(),
+                    regex: Regex::new(r#"otpauth://totp/[^?'"\s]+\?[^'"\s]*secret=[A-Z2-7]{16,}"#).unwrap(),
+                    severity: Severity::Critical,
+                    description: "TOTP shared secret URI found - allows MFA code generation".to_string(),
+                    cwe: "CWE-798".to_string(),
+                },
             ],
             employee_patterns: vec![
                 CompiledPattern {

@@ -399,6 +399,270 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Statuspage — public incident-history pages, attractive defacement target.
+    ServiceFingerprint {
+        name: "Statuspage",
+        cname_patterns: &[".statuspage.io"],
+        http_signatures: &[
+            "You are being redirected",
+            "There is no such page",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain on the Statuspage account.",
+    },
+    // ReadMe.io — developer documentation hosting.
+    ServiceFingerprint {
+        name: "ReadMe.io",
+        cname_patterns: &[".readme.io"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the project subdomain on ReadMe.io.",
+    },
+    // Strikingly — landing-page builder, signature is exact.
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".strikinglydns.com", ".s.strikinglydns.com"],
+        http_signatures: &[
+            "PAGE NOT FOUND.",
+            "But if you're looking to build your own website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the site on Strikingly.",
+    },
+    // Apigee Edge — exact signature and CNAME suffix.
+    ServiceFingerprint {
+        name: "Apigee",
+        cname_patterns: &[".apigee.io", ".apigee.net"],
+        http_signatures: &[
+            "Open API Specification not found",
+            "no rule for the given hostname",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the hostname to an Apigee organization.",
+    },
+    // Frontify — design system / brand portal.
+    ServiceFingerprint {
+        name: "Frontify",
+        cname_patterns: &[".frontify.com"],
+        http_signatures: &[
+            "404 - Page not found",
+            "Frontify",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or assign the domain on Frontify.",
+    },
+    // Hatena Blog — Japanese blogging platform.
+    ServiceFingerprint {
+        name: "Hatena Blog",
+        cname_patterns: &[".hatenablog.com"],
+        http_signatures: &[
+            "404 Blog is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the blog name on Hatena.",
+    },
+    // Canny — feedback portals.
+    ServiceFingerprint {
+        name: "Canny",
+        cname_patterns: &["cname.canny.io", ".canny.io"],
+        http_signatures: &[
+            "Company Not Found",
+            "There is no such company",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain on Canny.",
+    },
+    // Aha! — public roadmaps and ideation portals.
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &[".ideas.aha.io"],
+        http_signatures: &[
+            "There is no portal here",
+            "sending you back to Aha!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the portal on Aha!.",
+    },
+    // Campaign Monitor — email marketing landing pages.
+    ServiceFingerprint {
+        name: "Campaign Monitor",
+        cname_patterns: &[".createsend.com"],
+        http_signatures: &[
+            "Trying to access your account?",
+            "Double check the URL",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the subdomain in Campaign Monitor.",
+    },
+    // Anima — design-handoff hosted prototypes.
+    ServiceFingerprint {
+        name: "Anima",
+        cname_patterns: &[".animaapp.io"],
+        http_signatures: &[
+            "If this is your website and you've just created it",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or assign the domain in Anima.",
+    },
+    // DigitalOcean App Platform — explicit signature when no app claims the host.
+    ServiceFingerprint {
+        name: "DigitalOcean App Platform",
+        cname_patterns: &[".ondigitalocean.app"],
+        http_signatures: &[
+            "Domain is not configured",
+            "Domain not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the hostname to a DigitalOcean App.",
+    },
+    // Thinkific — online course platform.
+    ServiceFingerprint {
+        name: "Thinkific",
+        cname_patterns: &[".thinkific.com"],
+        http_signatures: &[
+            "You may have mistyped the address or the page may have moved",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the school on Thinkific.",
+    },
+    // Pagewiz — landing page builder, returns a distinctive 404.
+    ServiceFingerprint {
+        name: "Pagewiz",
+        cname_patterns: &[".pagewiz.net"],
+        http_signatures: &[
+            "page you are looking for is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the page in Pagewiz.",
+    },
+    // Acquia Cloud Site Factory — Drupal hosting.
+    ServiceFingerprint {
+        name: "Acquia Cloud Site Factory",
+        cname_patterns: &[".acquia-sites.com"],
+        http_signatures: &[
+            "Web Site Not Found",
+            "The site you were looking for could not be found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the site on Acquia Cloud Site Factory.",
+    },
+    // Intercom — branded help center custom domain.
+    ServiceFingerprint {
+        name: "Intercom Help Center",
+        cname_patterns: &["custom.intercom.help"],
+        http_signatures: &[
+            "Uh oh. That page doesn't exist.",
+            "This page is missing or you need to sign in",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain on the Intercom workspace.",
+    },
+    // Webflow custom domain — dangling CNAME points to webflow proxies.
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &["proxy-ssl.webflow.com", "proxy.webflow.com"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+        ],
+        header_patterns: &[("server", "Webflow")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain on the Webflow project.",
+    },
+    // LaunchRock — landing page builder, dangling subdomain returns a clear marker.
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+            "Don't worry...it happens to all of us",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the project on LaunchRock.",
+    },
+    // ngrok — paused tunnel domains can be reclaimed by registering the same hostname.
+    ServiceFingerprint {
+        name: "ngrok",
+        cname_patterns: &[".ngrok.io", ".ngrok-free.app"],
+        http_signatures: &[
+            "Tunnel not found",
+            "ngrok.io not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or run an ngrok tunnel that claims the hostname.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
