@@ -399,6 +399,623 @@ const SERVICE_FINGERPRINTS: &[ServiceFingerprint] = &[
         confirmed_exploitable: true,
         remediation: "Remove the CNAME record or configure the domain in Help Scout.",
     },
+    // Acquia
+    ServiceFingerprint {
+        name: "Acquia",
+        cname_patterns: &[".acquia-sites.com", ".acquia-test.co", ".acquia-dev.com"],
+        http_signatures: &[
+            "The site you are looking for could not be found",
+            "Web Site Not Found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Acquia Cloud.",
+    },
+    // AWS Elastic Beanstalk
+    ServiceFingerprint {
+        name: "AWS Elastic Beanstalk",
+        cname_patterns: &[".elasticbeanstalk.com"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::Critical,
+        cvss: 9.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or recreate the Elastic Beanstalk environment with the matching name.",
+    },
+    // Read the Docs
+    ServiceFingerprint {
+        name: "Read the Docs",
+        cname_patterns: &[".readthedocs.io", ".readthedocs.com", "readthedocs.org"],
+        http_signatures: &[
+            "unknown to Read the Docs",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the project on Read the Docs.",
+    },
+    // Webflow
+    ServiceFingerprint {
+        name: "Webflow",
+        cname_patterns: &["proxy.webflow.com", "proxy-ssl.webflow.com", ".webflow.io"],
+        http_signatures: &[
+            "The page you are looking for doesn't exist or has been moved",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or add the custom domain in your Webflow site settings.",
+    },
+    // Brightcove
+    ServiceFingerprint {
+        name: "Brightcove",
+        cname_patterns: &[".bcvp0rtal.com", ".brightcovegallery.com", ".gallery.video"],
+        http_signatures: &[
+            "<p class=\"bc-gallery-error-code\">Error Code: 404</p>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the gallery in Brightcove.",
+    },
+    // Big Cartel
+    ServiceFingerprint {
+        name: "Big Cartel",
+        cname_patterns: &[".bigcartel.com"],
+        http_signatures: &[
+            "<h1>Oops! We couldn&#8217;t find that page.</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the store on Big Cartel.",
+    },
+    // Campaign Monitor
+    ServiceFingerprint {
+        name: "Campaign Monitor",
+        cname_patterns: &[".createsend.com"],
+        http_signatures: &[
+            "Double check the URL or <a href=\"mailto:help@createsend.com",
+            "Trying to access your account?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Campaign Monitor.",
+    },
+    // Aha!
+    ServiceFingerprint {
+        name: "Aha!",
+        cname_patterns: &[".aha.io"],
+        http_signatures: &[
+            "There is no portal here ... sending you back to Aha!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the portal in Aha!.",
+    },
+    // Intercom
+    ServiceFingerprint {
+        name: "Intercom",
+        cname_patterns: &["custom.intercom.help"],
+        http_signatures: &[
+            "This page is reserved for artistic dogs.",
+            "Uh oh. That page doesn&#8217;t exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the help center custom domain in Intercom.",
+    },
+    // Hatena Blog
+    ServiceFingerprint {
+        name: "Hatena Blog",
+        cname_patterns: &["hatenablog.com"],
+        http_signatures: &[
+            "404 Blog is not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the blog on Hatena.",
+    },
+    // LaunchRock
+    ServiceFingerprint {
+        name: "LaunchRock",
+        cname_patterns: &[".launchrock.com"],
+        http_signatures: &[
+            "It looks like you may have taken a wrong turn somewhere",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in LaunchRock.",
+    },
+    // Pingdom
+    ServiceFingerprint {
+        name: "Pingdom",
+        cname_patterns: &["stats.pingdom.com"],
+        http_signatures: &[
+            "Sorry, couldn&#8217;t find the status page",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the public status page in Pingdom.",
+    },
+    // Readme.io
+    ServiceFingerprint {
+        name: "Readme.io",
+        cname_patterns: &[".readme.io"],
+        http_signatures: &[
+            "Project doesnt exist... yet!",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the project on Readme.io.",
+    },
+    // Tave
+    ServiceFingerprint {
+        name: "Tave",
+        cname_patterns: &[".tave.com"],
+        http_signatures: &[
+            "<h1>Error 404: Page Not Found</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record pointing to Tave.",
+    },
+    // Teamwork
+    ServiceFingerprint {
+        name: "Teamwork",
+        cname_patterns: &[".teamwork.com"],
+        http_signatures: &[
+            "Oops - We didn&#8217;t find your site.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the workspace domain in Teamwork.",
+    },
+    // Unbounce
+    ServiceFingerprint {
+        name: "Unbounce",
+        cname_patterns: &[".unbouncepages.com"],
+        http_signatures: &[
+            "The requested URL was not found on this server",
+            "<title>404 Not Found</title>",
+        ],
+        header_patterns: &[],
+        // Body text "404 Not Found" alone would be too broad on its own,
+        // but the .unbouncepages.com CNAME constraint anchors the match.
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or add the custom domain in Unbounce.",
+    },
+    // Wishpond
+    ServiceFingerprint {
+        name: "Wishpond",
+        cname_patterns: &[".wishpond.com"],
+        http_signatures: &[
+            "https://www.wishpond.com/404?campaign=true",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the campaign in Wishpond.",
+    },
+    // Aftership
+    ServiceFingerprint {
+        name: "Aftership",
+        cname_patterns: &[".aftership.com"],
+        http_signatures: &[
+            "Oops.... Looks like you got lost",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the tracking domain in AfterShip.",
+    },
+    // GitBook
+    ServiceFingerprint {
+        name: "GitBook",
+        cname_patterns: &["hosting.gitbook.io", "hosting.gitbook.com", ".gitbook.io"],
+        http_signatures: &[
+            "If you need urgent help, please contact our support team",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in GitBook.",
+    },
+    // HubSpot
+    ServiceFingerprint {
+        name: "HubSpot",
+        cname_patterns: &[
+            "sites.hscoscdn00.net",
+            "sites.hscoscdn10.net",
+            "sites.hscoscdn20.net",
+            "sites.hscoscdn30.net",
+            "sites.hscoscdn40.net",
+        ],
+        http_signatures: &[
+            "domain is not configured to redirect",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in HubSpot CMS.",
+    },
+    // Kajabi
+    ServiceFingerprint {
+        name: "Kajabi",
+        cname_patterns: &["endpoint.mykajabi.com"],
+        http_signatures: &[
+            "<h1>The page you were looking for doesn&#8217;t exist.</h1>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record pointing to Kajabi.",
+    },
+    // Helpjuice
+    ServiceFingerprint {
+        name: "Helpjuice",
+        cname_patterns: &[".helpjuice.com"],
+        http_signatures: &[
+            "We could not find what you&#39;re looking for.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the help center domain in Helpjuice.",
+    },
+    // Anima (S3-backed uploads)
+    ServiceFingerprint {
+        name: "Anima",
+        cname_patterns: &["anima-uploads.s3.amazonaws.com"],
+        http_signatures: &[
+            "<Code>NoSuchKey</Code>",
+            "<Code>NoSuchBucket</Code>",
+        ],
+        header_patterns: &[("server", "AmazonS3")],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or reconfigure the Anima project.",
+    },
+    // Smartling
+    ServiceFingerprint {
+        name: "Smartling",
+        cname_patterns: &["sites.smartling.com"],
+        http_signatures: &[
+            "Domain is not configured",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the domain in Smartling Global Delivery Network.",
+    },
+    // Strikingly
+    ServiceFingerprint {
+        name: "Strikingly",
+        cname_patterns: &[".s.strikinglydns.com", ".strikinglydns.com"],
+        http_signatures: &[
+            "But if you&#39;re looking to build your own website",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the domain in Strikingly.",
+    },
+    // Cargo Collective (proper signature)
+    ServiceFingerprint {
+        name: "Worksites.net",
+        cname_patterns: &[".worksites.net"],
+        http_signatures: &[
+            "Hello! Sorry, but the website you&#8217;re looking for doesn&#8217;t exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the worksite.",
+    },
+    // Thinkific
+    ServiceFingerprint {
+        name: "Thinkific",
+        cname_patterns: &[".thinkific.com"],
+        http_signatures: &[
+            "We couldn&#39;t find what you&#39;re looking for.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record or claim the domain on Thinkific.",
+    },
+    // Uberflip
+    ServiceFingerprint {
+        name: "Uberflip",
+        cname_patterns: &[".uberflip.com"],
+        http_signatures: &[
+            "The URL you&#39;ve accessed does not provide a hub.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the hub on Uberflip.",
+    },
+    // Mashery / TIBCO
+    ServiceFingerprint {
+        name: "Mashery",
+        cname_patterns: &[".mashery.com"],
+        http_signatures: &[
+            "Unrecognized domain <strong>",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the API portal in Mashery.",
+    },
+    // Worksuite (Pulse / Tilda variants) - skip if too generic
+    // Cloudfront S3 redirector / S3 Website endpoint
+    ServiceFingerprint {
+        name: "AWS S3 Website",
+        cname_patterns: &[
+            "s3-website-us-east-1.amazonaws.com",
+            "s3-website-us-east-2.amazonaws.com",
+            "s3-website-us-west-1.amazonaws.com",
+            "s3-website-us-west-2.amazonaws.com",
+            "s3-website-eu-west-1.amazonaws.com",
+            "s3-website-eu-central-1.amazonaws.com",
+            "s3-website.eu-west-2.amazonaws.com",
+            "s3-website.eu-west-3.amazonaws.com",
+            "s3-website.ap-south-1.amazonaws.com",
+            "s3-website.ap-northeast-1.amazonaws.com",
+            "s3-website.ap-southeast-1.amazonaws.com",
+            "s3-website.ap-southeast-2.amazonaws.com",
+            "s3-website.eu-north-1.amazonaws.com",
+            "s3-website.ca-central-1.amazonaws.com",
+            "s3-website.sa-east-1.amazonaws.com",
+        ],
+        http_signatures: &[
+            "NoSuchBucket",
+            "The specified bucket does not exist",
+        ],
+        header_patterns: &[("server", "AmazonS3")],
+        nxdomain_vulnerable: false,
+        severity: Severity::Critical,
+        cvss: 9.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record pointing to the missing S3 website bucket, or recreate the bucket with the same name in the same region.",
+    },
+    // Azure Blob Storage
+    ServiceFingerprint {
+        name: "Azure Blob Storage",
+        cname_patterns: &[".blob.core.windows.net"],
+        http_signatures: &[
+            "<Code>BlobNotFound</Code>",
+            "The specified blob does not exist",
+            "<Code>InvalidUri</Code>",
+        ],
+        header_patterns: &[("server", "Microsoft-HTTPAPI")],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or recreate the Azure storage account with the matching name.",
+    },
+    // Azure CDN (msecnd / azureedge)
+    ServiceFingerprint {
+        name: "Azure CDN",
+        cname_patterns: &[".azureedge.net", ".vo.msecnd.net"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the Azure CDN endpoint with the matching name.",
+    },
+    // Google Cloud Storage
+    ServiceFingerprint {
+        name: "Google Cloud Storage",
+        cname_patterns: &["c.storage.googleapis.com", "storage.googleapis.com"],
+        http_signatures: &[
+            "<Code>NoSuchBucket</Code>",
+            "The specified bucket does not exist.",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or recreate the GCS bucket with the same name.",
+    },
+    // Firebase Hosting
+    ServiceFingerprint {
+        name: "Firebase Hosting",
+        cname_patterns: &[".web.app", ".firebaseapp.com"],
+        http_signatures: &[
+            "Site Not Found",
+            "Why am I seeing this?",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the Firebase Hosting site name.",
+    },
+    // DigitalOcean App Platform
+    ServiceFingerprint {
+        name: "DigitalOcean App Platform",
+        cname_patterns: &[".ondigitalocean.app"],
+        http_signatures: &[
+            "Domain Not Found",
+            "We could not find an application matching this hostname",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 8.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in DigitalOcean App Platform.",
+    },
+    // Render.com
+    ServiceFingerprint {
+        name: "Render",
+        cname_patterns: &[".onrender.com"],
+        http_signatures: &[],
+        header_patterns: &[("x-render-routing", "no-server")],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or claim the service name on Render.",
+    },
+    // Railway
+    ServiceFingerprint {
+        name: "Railway",
+        cname_patterns: &[".railway.app", ".up.railway.app"],
+        http_signatures: &[
+            "Application not found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::High,
+        cvss: 7.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or deploy a Railway service with the matching subdomain.",
+    },
+    // Pages.dev (Cloudflare Pages) - NXDOMAIN-only signal to avoid FPs;
+    // body-based 404 detection is too noisy on Cloudflare-served sites.
+    ServiceFingerprint {
+        name: "Cloudflare Pages",
+        cname_patterns: &[".pages.dev"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record or claim the Cloudflare Pages project name.",
+    },
+    // Workers.dev (Cloudflare Workers)
+    ServiceFingerprint {
+        name: "Cloudflare Workers",
+        cname_patterns: &[".workers.dev"],
+        http_signatures: &[],
+        header_patterns: &[],
+        nxdomain_vulnerable: true,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record or claim the Cloudflare Workers script name.",
+    },
+    // GitLab Pages
+    ServiceFingerprint {
+        name: "GitLab Pages",
+        cname_patterns: &[".gitlab.io"],
+        http_signatures: &[
+            "The page you&#39;re looking for could not be found",
+            "<title>The page you're looking for could not be found",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.5,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or configure the custom domain in GitLab Pages.",
+    },
+    // Squarespace
+    ServiceFingerprint {
+        name: "Squarespace",
+        cname_patterns: &["ext-cust.squarespace.com", "ext-sq.squarespace.com"],
+        http_signatures: &[
+            "No Such Account",
+            "Website Expired",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 7.0,
+        confirmed_exploitable: true,
+        remediation: "Remove the CNAME record or attach the domain to a Squarespace site.",
+    },
+    // Statuspage (PagerDuty)
+    ServiceFingerprint {
+        name: "Statuspage",
+        cname_patterns: &["statuspage.io"],
+        http_signatures: &[
+            "You are being <a href=\"https://www.statuspage.io\">redirected",
+        ],
+        header_patterns: &[],
+        nxdomain_vulnerable: false,
+        severity: Severity::Medium,
+        cvss: 6.0,
+        confirmed_exploitable: false,
+        remediation: "Remove the CNAME record or configure the page in Statuspage.",
+    },
 ];
 
 /// DNS resolution result for a subdomain
@@ -651,6 +1268,50 @@ impl SubdomainTakeoverScanner {
             "internal",
             "corp",
             "intranet",
+            // Frequently dangling: marketing/campaign hosts
+            "go",
+            "promo",
+            "campaign",
+            "campaigns",
+            "offers",
+            "deals",
+            "newsletter",
+            "events",
+            "event",
+            "webinar",
+            "landing",
+            "lp",
+            "tracker",
+            "track",
+            "links",
+            "share",
+            // Frequently dangling: support/help portals
+            "kb",
+            "knowledge",
+            "knowledgebase",
+            "answers",
+            "community",
+            "feedback",
+            "ideas",
+            // Frequently dangling: dev/staging variants used once and forgotten
+            "preview",
+            "review",
+            "ephemeral",
+            "feature",
+            "experiment",
+            "lab",
+            "labs",
+            "playground",
+            "sandbox",
+            // Frequently dangling: internal status / monitoring
+            "uptime",
+            "incident",
+            "incidents",
+            "stats",
+            "grafana",
+            "kibana",
+            "prometheus",
+            "alertmanager",
         ];
 
         // Extended prefixes for thorough scanning
@@ -870,6 +1531,24 @@ impl SubdomainTakeoverScanner {
                                         ));
                                     }
                                 }
+                                // Render: x-render-routing: no-server only appears
+                                // when no service is bound to the hostname.
+                                if fingerprint.name == "Render"
+                                    && header_name.eq_ignore_ascii_case("x-render-routing")
+                                    && header_value.to_lowercase().contains("no-server")
+                                {
+                                    let evidence = format!(
+                                        "Render 'x-render-routing: no-server' indicates no service is bound. CNAME: {} -> {}",
+                                        subdomain, cname
+                                    );
+                                    return Some(Self::create_vulnerability(
+                                        subdomain,
+                                        cname,
+                                        fingerprint,
+                                        &evidence,
+                                        Confidence::High,
+                                    ));
+                                }
                             }
                         }
                     }
@@ -989,6 +1668,36 @@ mod tests {
         // Test Heroku
         assert!(SubdomainTakeoverScanner::match_cname_to_service("myapp.herokuapp.com").is_some());
 
+        // New providers
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("example.acquia-sites.com").is_some());
+        assert!(
+            SubdomainTakeoverScanner::match_cname_to_service("env.us-east-1.elasticbeanstalk.com")
+                .is_some()
+        );
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("docs.readthedocs.io").is_some());
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("proxy-ssl.webflow.com").is_some());
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("custom.intercom.help").is_some());
+        assert!(
+            SubdomainTakeoverScanner::match_cname_to_service("acct.sites.hscoscdn10.net").is_some()
+        );
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("user.gitbook.io").is_some());
+        assert!(
+            SubdomainTakeoverScanner::match_cname_to_service("storage.blob.core.windows.net")
+                .is_some()
+        );
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("svc.onrender.com").is_some());
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("app.up.railway.app").is_some());
+        assert!(
+            SubdomainTakeoverScanner::match_cname_to_service("ext-cust.squarespace.com").is_some()
+        );
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("user.gitlab.io").is_some());
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("site.web.app").is_some());
+        assert!(SubdomainTakeoverScanner::match_cname_to_service("foo.azureedge.net").is_some());
+        assert!(
+            SubdomainTakeoverScanner::match_cname_to_service("anima-uploads.s3.amazonaws.com")
+                .is_some()
+        );
+
         // Test unknown service
         assert!(SubdomainTakeoverScanner::match_cname_to_service("unknown.example.com").is_none());
     }
@@ -1014,6 +1723,48 @@ mod tests {
         assert!(service_names.contains(&"Bitbucket"));
         assert!(service_names.contains(&"Fly.io"));
         assert!(service_names.contains(&"Vercel"));
+        // Newly added high-fidelity fingerprints
+        assert!(service_names.contains(&"Acquia"));
+        assert!(service_names.contains(&"AWS Elastic Beanstalk"));
+        assert!(service_names.contains(&"AWS S3 Website"));
+        assert!(service_names.contains(&"Azure Blob Storage"));
+        assert!(service_names.contains(&"Azure CDN"));
+        assert!(service_names.contains(&"Google Cloud Storage"));
+        assert!(service_names.contains(&"Firebase Hosting"));
+        assert!(service_names.contains(&"DigitalOcean App Platform"));
+        assert!(service_names.contains(&"Render"));
+        assert!(service_names.contains(&"Railway"));
+        assert!(service_names.contains(&"Cloudflare Pages"));
+        assert!(service_names.contains(&"GitLab Pages"));
+        assert!(service_names.contains(&"Squarespace"));
+        assert!(service_names.contains(&"Intercom"));
+        assert!(service_names.contains(&"HubSpot"));
+        assert!(service_names.contains(&"GitBook"));
+        assert!(service_names.contains(&"Read the Docs"));
+        assert!(service_names.contains(&"Webflow"));
+        assert!(service_names.contains(&"Brightcove"));
+        assert!(service_names.contains(&"Big Cartel"));
+        assert!(service_names.contains(&"Campaign Monitor"));
+        assert!(service_names.contains(&"Aha!"));
+        assert!(service_names.contains(&"Hatena Blog"));
+        assert!(service_names.contains(&"LaunchRock"));
+        assert!(service_names.contains(&"Pingdom"));
+        assert!(service_names.contains(&"Readme.io"));
+        assert!(service_names.contains(&"Tave"));
+        assert!(service_names.contains(&"Teamwork"));
+        assert!(service_names.contains(&"Unbounce"));
+        assert!(service_names.contains(&"Wishpond"));
+        assert!(service_names.contains(&"Aftership"));
+        assert!(service_names.contains(&"Kajabi"));
+        assert!(service_names.contains(&"Helpjuice"));
+        assert!(service_names.contains(&"Anima"));
+        assert!(service_names.contains(&"Smartling"));
+        assert!(service_names.contains(&"Strikingly"));
+        assert!(service_names.contains(&"Worksites.net"));
+        assert!(service_names.contains(&"Thinkific"));
+        assert!(service_names.contains(&"Uberflip"));
+        assert!(service_names.contains(&"Mashery"));
+        assert!(service_names.contains(&"Statuspage"));
     }
 
     #[test]
