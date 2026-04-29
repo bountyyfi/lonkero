@@ -49,41 +49,203 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI specs are served.
+///
+/// These are deterministic, framework-specific locations. Adding more candidate
+/// paths is purely additive: `parse_openapi_spec` only returns a hit when the
+/// response is valid JSON/YAML *and* declares an `openapi`/`swagger` version,
+/// so an unrelated 200 response cannot be misreported.
 const OPENAPI_PATHS: &[&str] = &[
+    // Generic / well-known
     "/swagger.json",
     "/openapi.json",
+    "/openapi",
     "/api-docs",
     "/api-docs.json",
+    "/api-docs.yaml",
+    "/openapi.yaml",
+    "/openapi.yml",
+    "/swagger.yaml",
+    "/swagger.yml",
+    "/.well-known/openapi.json",
+    "/.well-known/openapi.yaml",
+    "/.well-known/api-spec",
+    // Versioned spec paths
     "/swagger/v1/swagger.json",
     "/swagger/v2/swagger.json",
     "/swagger/v3/swagger.json",
+    "/swagger/v1.0/swagger.json",
+    "/swagger/v2.0/swagger.json",
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    // /api/* mounts
     "/api/swagger.json",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/swagger.yaml",
+    "/api/swagger/v1/swagger.json",
+    "/api/swagger/v2/swagger.json",
+    "/api/swagger/v3/swagger.json",
+    "/api/v1/swagger.json",
+    "/api/v2/swagger.json",
+    "/api/v3/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/openapi.json",
+    "/api/v3/openapi.json",
+    "/api/v1/api-docs",
+    "/api/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/api/spec",
+    "/api/specification",
+    "/api/schema",
+    "/api/schema/",
+    "/api/openapi/v3/api-docs",
+    // /docs/* mounts
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
-    "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/docs/openapi.yaml",
+    "/docs/api-docs",
+    "/docs/api-docs.json",
+    "/docs/v1/api-docs",
+    "/docs/v2/api-docs",
+    "/docs/v3/api-docs",
+    "/docs.json",
+    // Springfox / Springdoc (Java/Spring) - extra
+    "/v3/api-docs/swagger-config",
+    "/v3/api-docs.yaml",
+    "/openapi/v2/api-docs",
+    // Spring Boot Actuator API documentation
+    "/actuator/openapi",
+    "/actuator/openapi.json",
+    "/actuator/v3/api-docs",
+    // Quarkus
+    "/q/openapi",
+    "/q/openapi.yaml",
+    "/q/openapi.json",
+    // Micronaut
+    "/swagger/views/swagger-ui/",
+    // FastAPI / Starlette defaults
+    "/redoc/openapi.json",
+    // .NET / NSwag / Swashbuckle - extra
+    "/swagger/docs/v1",
+    "/api/swagger/docs/v1",
+    // Django REST Framework / drf-spectacular - extra
+    "/swagger/?format=openapi",
+    "/swagger.json?format=openapi",
+    "/swagger/v1/?format=openapi",
+    // GraphQL adjacent (often deployed alongside REST docs)
+    "/graphql/openapi",
+    // Rails / Apipie / Rswag
+    "/apipie/v1.json",
+    "/apipie/2.0.json",
+    "/api-docs/v1/swagger.json",
+    "/api-docs/v2/swagger.json",
+    // Hapi / Express / NestJS
+    "/documentation/swagger.json",
+    "/documentation/json",
+    "/documentation/yaml",
+    "/api-json",
+    "/api-yaml",
+    // Kubernetes / cloud-native
+    "/openapi/v2",
+    "/openapi/v3",
+    // GitLab self-hosted
+    "/-/openapi.yaml",
+    "/api/v4/openapi.yaml",
+    // Misc public spec locations
+    "/spec",
+    "/spec.json",
+    "/spec.yaml",
+    "/static/swagger.json",
+    "/static/openapi.json",
+    "/assets/swagger.json",
+    "/assets/openapi.json",
+    "/public/swagger.json",
+    "/public/openapi.json",
+    // Internal/admin spec mounts (high impact when found exposed)
+    "/admin/api-docs",
+    "/admin/swagger.json",
+    "/internal/api-docs",
+    "/internal/openapi.json",
+    "/private/api-docs",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI paths.
+///
+/// Detection requires the response body to contain a Swagger UI / ReDoc /
+/// RapiDoc marker, so adding more candidate paths cannot generate false
+/// positives — only genuine doc UIs are reported.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI defaults
     "/swagger-ui.html",
-    "/swagger-ui/index.html",
     "/swagger-ui/",
+    "/swagger-ui/index.html",
+    "/swagger-ui/index.htm",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui/",
+    "/swagger/ui/index",
+    // /api/* mounts
     "/api/swagger-ui.html",
+    "/api/swagger/",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/swagger/index.html",
+    // /docs/* mounts (FastAPI default + many)
     "/docs/",
-    "/api-docs/",
+    "/docs",
+    "/docs/index.html",
     "/api/docs",
+    "/api/docs/",
+    "/api-docs/",
+    "/api-docs",
+    // ReDoc / RapiDoc
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/docs/redoc",
     "/rapidoc",
+    "/rapidoc.html",
+    "/api/rapidoc",
+    // Springdoc / Springfox
+    "/swagger-ui/4.15.5/index.html",
+    "/v3/swagger-ui/index.html",
+    // Quarkus
+    "/q/swagger-ui",
+    "/q/swagger-ui/",
+    // Django drf-spectacular
+    "/api/schema/swagger-ui/",
+    "/api/schema/redoc/",
+    // .NET / NSwag
+    "/swagger/ui/index.html",
+    // Hapi.js swagger
+    "/documentation",
+    "/documentation/",
+    // Stoplight Elements
+    "/elements",
+    "/elements/",
+    "/api/elements",
+    // GraphiQL / Playground (often colocated with REST docs)
+    "/playground",
+    "/graphiql",
+    // Misc
+    "/explorer",
+    "/api-explorer",
+    "/api/explorer",
+    "/help",
+    "/help/",
+    "/help/index.html",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
