@@ -49,41 +49,197 @@ mod uuid {
     pub use uuid::Uuid;
 }
 
-/// Common paths where OpenAPI specs are served
+/// Common paths where OpenAPI / Swagger spec documents are served.
+///
+/// Every match is post-validated by [`OpenApiAnalyzer::parse_openapi_spec`],
+/// which requires the response body to parse as JSON or YAML *and* contain a
+/// recognized `openapi: 3.x` or `swagger: 2.0` discriminator. A 200 to one of
+/// these paths therefore cannot become a finding unless the body really is a
+/// spec document, so expanding the list trades a few extra HEAD/GETs for
+/// genuine high-impact disclosure findings (internal endpoints, hardcoded
+/// example credentials, deprecated debug operations).
 const OPENAPI_PATHS: &[&str] = &[
+    // Plain defaults
     "/swagger.json",
+    "/swagger.yaml",
+    "/swagger.yml",
     "/openapi.json",
+    "/openapi.yaml",
+    "/openapi.yml",
+    "/openapi",
+    "/openapi/",
     "/api-docs",
     "/api-docs.json",
-    "/swagger/v1/swagger.json",
-    "/swagger/v2/swagger.json",
-    "/swagger/v3/swagger.json",
+    "/api-docs.yaml",
+    "/api-docs/swagger.json",
+    // Versioned roots
     "/v1/swagger.json",
     "/v2/swagger.json",
     "/v3/swagger.json",
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
+    "/v1/api-docs",
+    "/v2/api-docs",
+    "/v3/api-docs",
+    "/v3/api-docs/swagger-config",
+    "/api-docs/v3",
+    "/v2/api-docs?group=public-api",
+    "/v3/api-docs?group=public-api",
+    "/swagger/v1/swagger.json",
+    "/swagger/v2/swagger.json",
+    "/swagger/v3/swagger.json",
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    "/swagger/index.html",
+    // /api/* roots
     "/api/swagger.json",
+    "/api/swagger.yaml",
     "/api/openapi.json",
+    "/api/openapi.yaml",
+    "/api/openapi.yml",
+    "/api/api-docs",
+    "/api/api-docs.json",
+    "/api/v1/swagger.json",
+    "/api/v1/openapi.json",
+    "/api/v2/swagger.json",
+    "/api/v2/openapi.json",
+    "/api/v3/swagger.json",
+    "/api/v3/openapi.json",
+    "/api/v1/swagger/spec",
+    "/api/spec",
+    "/api/spec.json",
+    "/api/spec.yaml",
+    "/api/schema",
+    "/api/schema.json",
+    "/api/schema.yaml",
+    "/api/docs.json",
+    // /docs/* roots
     "/docs/swagger.json",
     "/docs/openapi.json",
-    "/openapi/v3/api-docs",
+    "/docs/openapi.yaml",
+    "/docs/api-docs",
+    "/docs/api-docs.json",
+    "/docs/spec",
+    "/docs/spec.json",
+    "/documentation/swagger.json",
+    "/documentation/openapi.json",
+    // Django REST Framework / drf-yasg / drf-spectacular
+    "/swagger/?format=openapi",
+    "/api/schema/",
+    "/api/schema/?format=json",
+    "/api/schema/?format=yaml",
+    "/api/schema/swagger-ui/?format=openapi",
+    // NestJS / @nestjs/swagger
+    "/api-json",
+    "/api/json",
+    "/api-yaml",
+    "/swagger-json",
+    "/docs-json",
+    // Strapi (admin builder leaks)
+    "/documentation/v1.0.0",
+    "/documentation/v1.0.0/swagger.json",
+    // Postman / OpenAPI well-known
     "/.well-known/openapi.json",
-    "/openapi.yaml",
-    "/swagger.yaml",
-    "/api-docs.yaml",
+    "/.well-known/openapi.yaml",
+    "/.well-known/openapi/spec.json",
+    // Stoplight
+    "/spec",
+    "/spec/api.yaml",
+    "/spec/api.json",
+    // Common reverse-proxy mounts that frequently leak internal-only specs
+    "/admin/openapi.json",
+    "/admin/api-docs",
+    "/admin/swagger.json",
+    "/internal/openapi.json",
+    "/internal/api-docs",
+    "/internal/swagger.json",
+    "/private/openapi.json",
+    "/private/swagger.json",
+    "/dev/swagger.json",
+    "/dev/openapi.json",
+    "/staging/openapi.json",
+    "/test/openapi.json",
+    "/sandbox/openapi.json",
+    // Quarkus
+    "/q/openapi",
+    "/q/openapi.json",
+    "/q/openapi.yaml",
+    // Drupal OpenAPI module / Beego / Springfox resource lists
+    "/openapi/spec.json",
+    "/_/openapi.json",
+    "/_/swagger.json",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/swagger-resources/configuration/security",
 ];
 
-/// Common Swagger UI paths
+/// Common Swagger UI / Redoc / RapiDoc / Stoplight Elements paths.
+///
+/// As with `OPENAPI_PATHS`, hits are validated against the response body for
+/// vendor-specific signatures (`swagger-ui`, `redoc`, `rapidoc`, `stoplight`,
+/// `scalar`) before any vulnerability is recorded.
 const SWAGGER_UI_PATHS: &[&str] = &[
+    // Swagger UI canonical
+    "/swagger-ui",
+    "/swagger-ui/",
     "/swagger-ui.html",
     "/swagger-ui/index.html",
-    "/swagger-ui/",
+    "/swagger-ui/swagger-ui.html",
     "/swagger/",
+    "/swagger/index.html",
+    "/swagger/ui/",
+    "/swagger/ui/index",
+    "/swagger/swagger-ui.html",
+    "/webjars/swagger-ui/index.html",
     "/api/swagger-ui.html",
+    "/api/swagger/",
+    "/api/swagger/index.html",
+    "/api/swagger-ui/",
+    "/api/swagger-ui/index.html",
+    "/api/v1/swagger-ui.html",
+    "/api/v2/swagger-ui.html",
+    "/api/v3/swagger-ui.html",
+    // Common doc roots (FastAPI, drf-yasg, Laravel L5-Swagger, generic)
+    "/docs",
     "/docs/",
+    "/docs/index.html",
+    "/api-docs",
     "/api-docs/",
+    "/api-docs/index.html",
     "/api/docs",
+    "/api/docs/",
+    "/api/documentation",
+    "/api/documentation/",
+    "/documentation",
+    "/documentation/",
+    // ReDoc
     "/redoc",
+    "/redoc/",
+    "/redoc.html",
+    "/api/redoc",
+    "/docs/redoc",
+    // RapiDoc
     "/rapidoc",
+    "/rapidoc/",
+    "/rapidoc.html",
+    // Scalar / Stoplight Elements / ElementsJS
+    "/scalar",
+    "/reference",
+    "/api-reference",
+    "/elements",
+    "/stoplight",
+    // Quarkus
+    "/q/swagger-ui",
+    "/q/swagger-ui/",
+    // Internal / staging variants — frequently world-readable behind misconfigured ingress
+    "/internal/swagger-ui.html",
+    "/internal/docs",
+    "/admin/swagger-ui.html",
+    "/admin/docs",
+    "/dev/swagger-ui.html",
+    "/staging/swagger-ui.html",
+    "/test/swagger-ui.html",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
@@ -1287,10 +1443,18 @@ impl OpenApiAnalyzer {
                 Ok(response) => {
                     if response.status_code == 200 {
                         let body_lower = response.body.to_lowercase();
+                        // Match canonical UI signatures only — generic words like
+                        // "documentation" alone trigger false positives on
+                        // marketing/help-center pages.
                         if body_lower.contains("swagger-ui")
                             || body_lower.contains("swagger ui")
                             || body_lower.contains("redoc")
                             || body_lower.contains("rapidoc")
+                            || body_lower.contains("rapi-doc")
+                            || body_lower.contains("stoplight-elements")
+                            || body_lower.contains("@stoplight/elements")
+                            || body_lower.contains("scalar-api-reference")
+                            || body_lower.contains("@scalar/api-reference")
                             || body_lower.contains("api documentation")
                         {
                             vulnerabilities.push(self.create_vulnerability(

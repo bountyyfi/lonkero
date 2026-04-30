@@ -454,6 +454,323 @@ impl GoogleDorkingScanner {
             impact: "Public Trello boards may expose project details and credentials".to_string(),
         });
 
+        // ----------------------------------------------------------------
+        // High-impact sensitive-data dorks. Each query targets a specific
+        // artifact class with very low false-positive rates: the search engine
+        // index returns the exact resource type (env file, k8s manifest,
+        // postman collection, etc.), not generic content. The operator must
+        // still review hits manually, but a positive result almost always
+        // represents a real disclosure.
+        // ----------------------------------------------------------------
+
+        // Exposed dotenv files — contain DB creds, API keys, SECRET_KEY
+        dorks.push(GoogleDork {
+            category: "Exposed Config Files".to_string(),
+            query: format!(
+                "site:{} (intext:\"DB_PASSWORD=\" | intext:\"AWS_SECRET_ACCESS_KEY=\" | intext:\"DATABASE_URL=postgres://\" | intext:\"SECRET_KEY_BASE=\") ext:env | ext:txt | inurl:.env",
+                clean_domain
+            ),
+            description: "Find exposed .env files containing secrets".to_string(),
+            impact: "Critical: .env files routinely leak DB credentials, signing keys, and cloud API tokens.".to_string(),
+        });
+
+        // Exposed .git directories
+        dorks.push(GoogleDork {
+            category: "Exposed Config Files".to_string(),
+            query: format!(
+                "site:{} (inurl:\".git/config\" | inurl:\".git/HEAD\" | intitle:\"Index of\" intext:\".git/\")",
+                clean_domain
+            ),
+            description: "Find exposed .git directories.".to_string(),
+            impact: "Critical: a readable .git/ directory leaks complete source history including credentials in old commits.".to_string(),
+        });
+
+        // Exposed SVN / Mercurial / Bazaar repos
+        dorks.push(GoogleDork {
+            category: "Exposed Config Files".to_string(),
+            query: format!(
+                "site:{} (inurl:\".svn/entries\" | inurl:\".hg/store\" | inurl:\".bzr/branch\" | inurl:CVS/Entries)",
+                clean_domain
+            ),
+            description: "Find exposed SVN/Mercurial/Bazaar/CVS metadata.".to_string(),
+            impact: "High: legacy VCS metadata leaks source code and historical credentials.".to_string(),
+        });
+
+        // Editor / OS detritus
+        dorks.push(GoogleDork {
+            category: "Exposed Config Files".to_string(),
+            query: format!(
+                "site:{} (inurl:.DS_Store | inurl:Thumbs.db | inurl:.idea/workspace.xml | inurl:.vscode/settings.json | inurl:.project)",
+                clean_domain
+            ),
+            description: "Find IDE / OS artifacts that map the filesystem.".to_string(),
+            impact: "Medium: filesystem layout disclosure aids further exploitation.".to_string(),
+        });
+
+        // Backup archives
+        dorks.push(GoogleDork {
+            category: "Backup Files".to_string(),
+            query: format!(
+                "site:{} (ext:bak | ext:bkp | ext:backup | ext:save | ext:old | ext:swp | ext:swo | ext:tmp | ext:temp | ext:orig | ext:original | ext:gz | ext:tgz | ext:tar | ext:zip | ext:7z | ext:rar | ext:sql | ext:dump) -intitle:\"index of\"",
+                clean_domain
+            ),
+            description: "Find production backup archives indexed publicly.".to_string(),
+            impact: "Critical: full filesystem or database dumps frequently include credentials and customer PII.".to_string(),
+        });
+
+        // Open directory listings (Apache / nginx autoindex)
+        dorks.push(GoogleDork {
+            category: "Open Directory Listings".to_string(),
+            query: format!(
+                "site:{} intitle:\"Index of /\" (\"Parent Directory\" | \"Last modified\")",
+                clean_domain
+            ),
+            description: "Find directory autoindex pages.".to_string(),
+            impact: "High: autoindex on production hosts exposes secondary files like backups, dumps, and config.".to_string(),
+        });
+
+        // Kubernetes / Helm / Docker manifests
+        dorks.push(GoogleDork {
+            category: "CI/CD & Infra Manifests".to_string(),
+            query: format!(
+                "site:{} (intext:\"apiVersion: v1\" intext:\"kind: Secret\" | intext:\"kind: Deployment\" intext:\"image:\" | filename:values.yaml \"image:\" \"tag:\" | filename:docker-compose.yml \"environment:\")",
+                clean_domain
+            ),
+            description: "Find K8s, Helm, or Docker Compose manifests.".to_string(),
+            impact: "High: manifests typically embed image tags, environment vars, and base64 Secret payloads.".to_string(),
+        });
+
+        // Terraform state / providers
+        dorks.push(GoogleDork {
+            category: "CI/CD & Infra Manifests".to_string(),
+            query: format!(
+                "site:{} (ext:tfstate | ext:tfvars | inurl:terraform.tfstate | filename:provider.tf | filename:backend.tf intext:\"access_key\")",
+                clean_domain
+            ),
+            description: "Find Terraform state and tfvars files.".to_string(),
+            impact: "Critical: .tfstate files contain provisioned resource IDs, IAM keys, and DB endpoints in plaintext.".to_string(),
+        });
+
+        // Ansible / Chef / Puppet
+        dorks.push(GoogleDork {
+            category: "CI/CD & Infra Manifests".to_string(),
+            query: format!(
+                "site:{} (filename:vault.yml | filename:hosts.ini intext:\"ansible_ssh_pass\" | filename:knife.rb | filename:hiera.yaml)",
+                clean_domain
+            ),
+            description: "Find configuration management secrets files.".to_string(),
+            impact: "Critical: vault and hiera files commonly hold SSH passwords, API keys, and root credentials.".to_string(),
+        });
+
+        // CI configuration
+        dorks.push(GoogleDork {
+            category: "CI/CD & Infra Manifests".to_string(),
+            query: format!(
+                "site:{} (filename:.travis.yml \"secure:\" | filename:.gitlab-ci.yml \"variables:\" | filename:circle.yml | filename:.github/workflows | filename:Jenkinsfile)",
+                clean_domain
+            ),
+            description: "Find CI pipeline definitions.".to_string(),
+            impact: "Medium: CI files can leak deploy targets, registry creds, and signing keys.".to_string(),
+        });
+
+        // Postman / Insomnia collections
+        dorks.push(GoogleDork {
+            category: "API Collections".to_string(),
+            query: format!(
+                "site:postman.com OR site:getpostman.com OR site:postman.co \"{}\" (collection | environment | workspace)",
+                clean_domain
+            ),
+            description: "Find Postman collections / workspaces / environments referencing the target.".to_string(),
+            impact: "High: leaked collections reveal authenticated endpoints and embedded API tokens.".to_string(),
+        });
+
+        // Stack traces & WSGI / ASP.NET / PHP debug pages
+        dorks.push(GoogleDork {
+            category: "Stack Traces & Debug Pages".to_string(),
+            query: format!(
+                "site:{} (\"DEBUG = True\" | \"Whoops! There was an error.\" | \"Werkzeug Debugger\" | \"Django Debug\" | \"Yellow Screen of Death\" | \"Symfony Profiler\" | intitle:\"Application Error\" \"Heroku\" | inurl:_profiler/phpinfo)",
+                clean_domain
+            ),
+            description: "Find framework debug consoles and stack traces.".to_string(),
+            impact: "Critical: an exposed Werkzeug / Django debugger gives RCE; Symfony profiler leaks env vars.".to_string(),
+        });
+
+        // phpinfo / server-status / actuator
+        dorks.push(GoogleDork {
+            category: "Stack Traces & Debug Pages".to_string(),
+            query: format!(
+                "site:{} (intitle:\"phpinfo()\" \"PHP Version\" | inurl:phpinfo.php | inurl:server-status \"Apache Server Status\" | inurl:server-info \"Server Information\" | inurl:/actuator/env | inurl:/actuator/heapdump | inurl:/actuator/health | inurl:/_stcore/health)",
+                clean_domain
+            ),
+            description: "Find phpinfo, server-status, and Spring Boot actuator endpoints.".to_string(),
+            impact: "Critical: phpinfo leaks env, paths, modules; /actuator/heapdump exposes memory.".to_string(),
+        });
+
+        // Logs (system/app)
+        dorks.push(GoogleDork {
+            category: "Exposed Logs".to_string(),
+            query: format!(
+                "site:{} (inurl:logs ext:log | inurl:debug.log | inurl:error.log | inurl:access.log | inurl:laravel.log | inurl:storage/logs)",
+                clean_domain
+            ),
+            description: "Find application and webserver log files.".to_string(),
+            impact: "High: app logs frequently contain session tokens, full request bodies, and stack traces.".to_string(),
+        });
+
+        // GraphQL endpoints (introspection candidates)
+        dorks.push(GoogleDork {
+            category: "GraphQL".to_string(),
+            query: format!(
+                "site:{} (inurl:/graphql | inurl:/graphiql | inurl:/api/graphql | inurl:/v1/graphql | intext:\"__schema\" \"queryType\")",
+                clean_domain
+            ),
+            description: "Find GraphQL endpoints and exposed introspection.".to_string(),
+            impact: "Medium-High: introspection-enabled endpoints map the entire schema, including admin operations.".to_string(),
+        });
+
+        // CMS / app-server admin consoles
+        dorks.push(GoogleDork {
+            category: "Admin Consoles".to_string(),
+            query: format!(
+                "site:{} (inurl:/wp-admin/ | inurl:/wp-login.php | inurl:/administrator/ | inurl:/user/login Drupal | inurl:/manager/html Tomcat | inurl:/jmx-console | inurl:/jolokia | inurl:/console/login.do WebLogic | inurl:/login.action Confluence | inurl:/secure/Dashboard.jspa Jira)",
+                clean_domain
+            ),
+            description: "Find CMS / app-server admin entry points.".to_string(),
+            impact: "High: admin consoles are first-class brute-force and exploit targets.".to_string(),
+        });
+
+        // Internal dashboards (Grafana / Kibana / Prometheus / RabbitMQ / Consul)
+        dorks.push(GoogleDork {
+            category: "Internal Dashboards".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Grafana\" \"Welcome to Grafana\" | intitle:\"Kibana\" | inurl:/_plugin/kibana | inurl:/app/kibana | intitle:\"Prometheus Time Series\" | intitle:\"RabbitMQ Management\" | intitle:\"Consul by HashiCorp\" | intitle:\"Traefik\" \"dashboard\" | intitle:\"MinIO Console\")",
+                clean_domain
+            ),
+            description: "Find unauthenticated observability and infra dashboards.".to_string(),
+            impact: "Critical: open Grafana/Kibana commonly leak metrics, queries, and customer data; MinIO Console gives object-store access.".to_string(),
+        });
+
+        // CI / SCM dashboards
+        dorks.push(GoogleDork {
+            category: "Internal Dashboards".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Dashboard [Jenkins]\" | inurl:/script Jenkins | intitle:\"GitLab\" inurl:/users/sign_in | intitle:\"Gitea\" | intitle:\"Sonatype Nexus\" | intitle:\"JFrog Artifactory\" | intitle:\"SonarQube\" | inurl:/sonar)",
+                clean_domain
+            ),
+            description: "Find SCM, CI, and artifact-repository dashboards.".to_string(),
+            impact: "High: Jenkins /script gives Groovy RCE; open Nexus/Artifactory leaks proprietary builds.".to_string(),
+        });
+
+        // Database admin tools
+        dorks.push(GoogleDork {
+            category: "Database Admin Tools".to_string(),
+            query: format!(
+                "site:{} (intitle:\"phpMyAdmin\" \"Welcome to phpMyAdmin\" | intitle:\"Adminer\" \"Database\" | inurl:/pma/ | inurl:/phpmyadmin/ | intitle:\"pgAdmin\" | intitle:\"Mongo Express\" | intitle:\"Redis Commander\" | intitle:\"Mongo Express\" | inurl:/mongo-express)",
+                clean_domain
+            ),
+            description: "Find DB admin web tools.".to_string(),
+            impact: "Critical: phpMyAdmin / Adminer / Mongo Express on production is a direct database compromise vector.".to_string(),
+        });
+
+        // Mail logs / webmail
+        dorks.push(GoogleDork {
+            category: "Mail & Communications".to_string(),
+            query: format!(
+                "site:{} (intitle:\"Roundcube Webmail\" | intitle:\"Outlook Web App\" | inurl:/mail/inbox | inurl:/owa/auth | intitle:\"Zimbra Web Client\" | inurl:/horde/login.php | inurl:/squirrelmail)",
+                clean_domain
+            ),
+            description: "Find webmail interfaces.".to_string(),
+            impact: "High: webmail without MFA is a phishing-pivot foothold.".to_string(),
+        });
+
+        // SCM-hosted secrets via Google (target referenced in repo content)
+        dorks.push(GoogleDork {
+            category: "Code Repositories".to_string(),
+            query: format!(
+                "site:github.com OR site:gitlab.com OR site:bitbucket.org \"{}\" (\"BEGIN RSA PRIVATE KEY\" | \"BEGIN OPENSSH PRIVATE KEY\" | \"AKIA\" | \"AIza\" | \"xox[baprs]-\" | \"sk_live_\" | \"ghp_\" | \"hf_\" | \"sk-ant-\")",
+                clean_domain
+            ),
+            description: "Find leaked credentials in public repos that mention the target domain.".to_string(),
+            impact: "Critical: vendor-prefixed keys (AKIA, AIza, ghp_, sk_live_, sk-ant-) are essentially never false positives.".to_string(),
+        });
+
+        // Public Slack workspaces
+        dorks.push(GoogleDork {
+            category: "Mail & Communications".to_string(),
+            query: format!(
+                "site:slack.com \"{}\" (intext:\"join\" | intext:\"workspace\")",
+                clean_domain
+            ),
+            description: "Find Slack workspaces or invite links referencing the target.".to_string(),
+            impact: "Medium: open Slack invites can lead to internal channel disclosure.".to_string(),
+        });
+
+        // Confluence / Notion / wiki leaks
+        dorks.push(GoogleDork {
+            category: "Knowledge Bases".to_string(),
+            query: format!(
+                "(site:atlassian.net OR site:notion.so OR site:notion.site OR site:gitbook.io OR site:gitbook.com) \"{}\" (intext:\"password\" | intext:\"api key\" | intext:\"runbook\" | intext:\"on-call\")",
+                clean_domain
+            ),
+            description: "Find publicly-shared Confluence/Notion/GitBook pages with operational secrets.".to_string(),
+            impact: "Medium-High: runbooks and onboarding docs frequently contain credentials and architecture diagrams.".to_string(),
+        });
+
+        // Cached static maps (Mapbox / Google Maps tokens leaked in JS)
+        dorks.push(GoogleDork {
+            category: "Cloud Services".to_string(),
+            query: format!(
+                "site:{} (intext:\"pk.eyJ\" Mapbox | intext:\"AIza\" \"&key=\" Maps | intext:\"sk-\" OpenAI | intext:\"sk-ant-\" Anthropic)",
+                clean_domain
+            ),
+            description: "Find pages exposing third-party API keys in HTML/JS.".to_string(),
+            impact: "High: Mapbox / Google Maps / OpenAI / Anthropic keys can be abused for billing fraud and data extraction.".to_string(),
+        });
+
+        // S3 bucket-listings (XML)
+        dorks.push(GoogleDork {
+            category: "Cloud Storage".to_string(),
+            query: format!(
+                "site:s3.amazonaws.com OR site:storage.googleapis.com OR site:blob.core.windows.net \"{}\" intitle:\"ListBucketResult\"",
+                clean_domain
+            ),
+            description: "Find listable cloud-storage buckets referencing the target.".to_string(),
+            impact: "Critical: a listable bucket is one click from a full file enumeration.".to_string(),
+        });
+
+        // SQL files indexed
+        dorks.push(GoogleDork {
+            category: "Backup Files".to_string(),
+            query: format!(
+                "site:{} ext:sql (intext:\"INSERT INTO\" | intext:\"CREATE TABLE\" | intext:\"DUMP\")",
+                clean_domain
+            ),
+            description: "Find SQL dump files.".to_string(),
+            impact: "Critical: SQL dumps contain hashed (or worse, plaintext) user records and full schema.".to_string(),
+        });
+
+        // SSH / OpenSSL key files
+        dorks.push(GoogleDork {
+            category: "Private Keys".to_string(),
+            query: format!(
+                "site:{} (intext:\"-----BEGIN RSA PRIVATE KEY-----\" | intext:\"-----BEGIN OPENSSH PRIVATE KEY-----\" | intext:\"-----BEGIN EC PRIVATE KEY-----\" | intext:\"-----BEGIN PGP PRIVATE KEY BLOCK-----\")",
+                clean_domain
+            ),
+            description: "Find PEM-armored private keys served on the target.".to_string(),
+            impact: "Critical: any private key block on a web-served path is by definition a key compromise.".to_string(),
+        });
+
+        // .well-known leaks (security.txt mentions, change-password)
+        dorks.push(GoogleDork {
+            category: "Security Information".to_string(),
+            query: format!(
+                "site:{} (inurl:.well-known/openid-configuration | inurl:.well-known/jwks.json | inurl:.well-known/oauth-authorization-server | inurl:.well-known/security.txt | inurl:.well-known/host-meta)",
+                clean_domain
+            ),
+            description: "Find .well-known metadata endpoints.".to_string(),
+            impact: "Low-Medium: enumerates IdP configuration, JWKS keys, and supported flows for follow-up attacks.".to_string(),
+        });
+
         // Build categories map
         let mut by_category: HashMap<String, Vec<GoogleDork>> = HashMap::new();
         for dork in &dorks {
