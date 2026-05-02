@@ -248,6 +248,34 @@ impl GraphQLIntrospector {
             "/api/gql",
             "/v1/graphql",
             "/v2/graphql",
+            // Common framework / vendor mounts
+            "/graphql/v1",
+            "/graphql/v2",
+            "/api/v1/graphql",
+            "/api/v2/graphql",
+            "/api/v3/graphql",
+            "/v3/graphql",
+            "/internal/graphql",
+            "/admin/graphql",
+            "/private/graphql",
+            "/_graphql",
+            "/__graphql",
+            // Hasura / PostGraphile / Apollo defaults
+            "/v1alpha1/graphql",
+            "/v1beta1/graphql",
+            "/console/api/v1/graphql",
+            "/postgraphile",
+            // Strapi
+            "/graphql/v1.0.0",
+            // Shopify-style
+            "/api/2024-01/graphql.json",
+            "/api/2023-10/graphql.json",
+            // Wordpress (WPGraphQL)
+            "/index.php?graphql",
+            "/wp/graphql",
+            // Common path-suffix variants
+            "/graphql.php",
+            "/graphql.json",
         ];
 
         let mut schemas = Vec::new();

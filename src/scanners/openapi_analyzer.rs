@@ -70,6 +70,42 @@ const OPENAPI_PATHS: &[&str] = &[
     "/openapi.yaml",
     "/swagger.yaml",
     "/api-docs.yaml",
+    // Spring Boot / springdoc
+    "/v3/api-docs",
+    "/v3/api-docs.yaml",
+    "/v2/api-docs",
+    "/api/v3/api-docs",
+    "/api/v2/api-docs",
+    // FastAPI / Starlette default
+    "/openapi.yml",
+    "/api/openapi.yml",
+    "/api/openapi.yaml",
+    // NestJS / Express common defaults
+    "/api/swagger-json",
+    "/api-json",
+    "/swagger-json",
+    // ASP.NET Core (Swashbuckle defaults under /swagger/{group}/swagger.json)
+    "/swagger/docs/v1",
+    "/swagger/docs/v2",
+    // Drupal JSON:API / Open API
+    "/openapi/jsonapi",
+    "/openapi/rest",
+    // Hashicorp Vault / Consul
+    "/v1/sys/internal/specs/openapi",
+    // Strapi
+    "/documentation/v1.0.0/swagger.json",
+    "/documentation/v1.0.0/openapi.json",
+    // Common admin/API prefixes
+    "/admin/api-docs",
+    "/admin/swagger.json",
+    "/internal/openapi.json",
+    "/internal/swagger.json",
+    "/management/openapi.json",
+    "/management/swagger.json",
+    // Versioned without /api prefix
+    "/v1/openapi.json",
+    "/v2/openapi.json",
+    "/v3/openapi.json",
 ];
 
 /// Common Swagger UI paths
@@ -84,6 +120,33 @@ const SWAGGER_UI_PATHS: &[&str] = &[
     "/api/docs",
     "/redoc",
     "/rapidoc",
+    // Common alternative UIs and prefixes
+    "/swagger/index.html",
+    "/api/swagger/",
+    "/api/swagger",
+    "/swagger-resources",
+    "/swagger-resources/configuration/ui",
+    "/api/swagger-resources",
+    "/v3/swagger-ui.html",
+    "/api/redoc",
+    "/api/v1/docs",
+    "/api/v2/docs",
+    "/api/v3/docs",
+    "/docs/api",
+    "/docs/swagger",
+    "/docs/openapi",
+    "/explorer/",
+    "/api-explorer/",
+    // FastAPI defaults
+    "/docs",
+    "/redoc/",
+    // Stoplight Elements default mount
+    "/elements/",
+    "/api-reference",
+    // Internal/admin
+    "/admin/swagger-ui.html",
+    "/admin/docs",
+    "/internal/docs",
 ];
 
 /// Sensitive data patterns to check in examples and defaults
